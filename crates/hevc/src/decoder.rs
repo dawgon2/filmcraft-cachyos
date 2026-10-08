@@ -155,23 +155,10 @@ impl Decoder {
 
     /// Parse an `hvcC` record: parameter-set arrays and the NAL length size used by [`Decoder::decode`].
     pub fn configure_hvcc(&mut self, hvcc: &[u8]) -> Result<()> {
-        ensure!(hvcc.len() >= 23, "hvcC too short");
-        ensure!(hvcc[0] == 1, "unsupported hvcC version {}", hvcc[0]);
-        self.nal_length_size = Some((hvcc[21] & 3) as usize + 1);
-        let num_arrays = hvcc[22] as usize;
-        let mut pos = 23;
-        for _ in 0..num_arrays {
-            ensure!(pos + 3 <= hvcc.len(), "hvcC truncated");
-            let n = u16::from_be_bytes([hvcc[pos + 1], hvcc[pos + 2]]) as usize;
-            pos += 3;
-            for _ in 0..n {
-                ensure!(pos + 2 <= hvcc.len(), "hvcC truncated");
-                let len = u16::from_be_bytes([hvcc[pos], hvcc[pos + 1]]) as usize;
-                pos += 2;
-                ensure!(pos + len <= hvcc.len(), "hvcC truncated");
-                self.handle_nal(&hvcc[pos..pos + len], 0)?;
-                pos += len;
-            }
+        let (len, nals) = hvcc_parameter_sets(hvcc)?;
+        self.nal_length_size = Some(len);
+        for nal in nals {
+            self.handle_nal(nal, 0)?;
         }
         Ok(())
     }
@@ -410,11 +397,11 @@ impl Decoder {
         let template = Frame::new(0, 0, w, h, sps.log2_ctb, sps.bit_depth_luma, sps.bit_depth_chroma);
         let next_id = &mut self.next_id;
         let mut missing = 0u64;
-        let mut make_missing = |p: i32| -> FrameRef {
+        let mut make_missing = |p: i32| -> Result<FrameRef> {
             missing += 1;
             let id = *next_id;
             *next_id += 1;
-            Arc::new(Frame::gray(id, p, &template))
+            Ok(Arc::new(Frame::gray(id, p, &template)))
         };
         let rps = self.dpb.apply_rps(sh, poc, max_lsb, irap_no_rasl, &mut make_missing)?;
         if missing > 0 {
@@ -562,7 +549,31 @@ fn run_job(
     }
 }
 
-fn output_meta(sps: &Sps, pts: i64, key: bool, draft: bool) -> OutputMeta {
+/// The NAL length size and the parameter-set NAL units of an `hvcC` (HEVCDecoderConfigurationRecord).
+pub fn hvcc_parameter_sets(hvcc: &[u8]) -> Result<(usize, Vec<&[u8]>)> {
+    ensure!(hvcc.len() >= 23, "hvcC too short");
+    ensure!(hvcc[0] == 1, "unsupported hvcC version {}", hvcc[0]);
+    let len = (hvcc[21] & 3) as usize + 1;
+    let num_arrays = hvcc[22] as usize;
+    let mut pos = 23;
+    let mut nals = Vec::new();
+    for _ in 0..num_arrays {
+        ensure!(pos + 3 <= hvcc.len(), "hvcC truncated");
+        let n = u16::from_be_bytes([hvcc[pos + 1], hvcc[pos + 2]]) as usize;
+        pos += 3;
+        for _ in 0..n {
+            ensure!(pos + 2 <= hvcc.len(), "hvcC truncated");
+            let l = u16::from_be_bytes([hvcc[pos], hvcc[pos + 1]]) as usize;
+            pos += 2;
+            ensure!(pos + l <= hvcc.len(), "hvcC truncated");
+            nals.push(&hvcc[pos..pos + l]);
+            pos += l;
+        }
+    }
+    Ok((len, nals))
+}
+
+pub(crate) fn output_meta(sps: &Sps, pts: i64, key: bool, draft: bool) -> OutputMeta {
     let vui = sps.vui.clone().unwrap_or_default();
     OutputMeta {
         pts,

@@ -389,11 +389,13 @@ pub struct MemoryPrefs {
     /// Decoded source frames all clips keep for scrubbing and reverse play (MB; 0 = Auto: a
     /// fifth of the installed RAM, 1–16 GB).
     pub decode_cache_mb: u32,
+    /// Decoded source frames kept in GPU memory (hardware decoding; MB; 0 = Auto: a quarter of the VRAM).
+    pub vram_cache_mb: u32,
 }
 
 impl Default for MemoryPrefs {
     fn default() -> Self {
-        Self { ram_reserved_gb: 4, frame_cache_mb: 768, decode_cache_mb: 0 }
+        Self { ram_reserved_gb: 4, frame_cache_mb: 768, decode_cache_mb: 0, vram_cache_mb: 0 }
     }
 }
 
@@ -944,6 +946,7 @@ static CATEGORIES: &[Category] = &[
             f("memory.ramReservedGb", "RAM reserved for other applications", int(1.0, 1024.0, "GB"), false),
             f("memory.frameCacheMb", "Frame cache for monitors and thumbnails", int(64.0, 65_536.0, "MB"), true),
             f("memory.decodeCacheMb", "Decoded source frames (0 = Auto)", int(0.0, 262_144.0, "MB"), true),
+            f("memory.vramCacheMb", "Decoded frames in GPU memory (0 = Auto)", int(0.0, 65_536.0, "MB"), true),
         ],
     },
     Category {
@@ -1147,6 +1150,10 @@ impl crate::autosave::Preferences {
             mb => (mb as usize).saturating_mul(1 << 20),
         };
         filmcraft_codecs::configure_decode_cache(budget, decoders);
+        filmcraft_codecs::configure_vram(match self.memory.vram_cache_mb {
+            0 => filmcraft_codecs::auto_vram_budget(filmcraft_codecs::installed_vram()),
+            mb => (mb as usize).saturating_mul(1 << 20),
+        });
     }
 
     /// Values of one category as a JSON object.

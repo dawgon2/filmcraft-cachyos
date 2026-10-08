@@ -39,6 +39,9 @@ use filmcraft_render::Blend;
 use filmcraft_render::plan::{FramePlan, PlanLayer};
 
 pub mod fx;
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+pub mod interop;
 pub mod lut;
 pub mod mask;
 pub use lut::GpuLut;
@@ -90,6 +93,12 @@ pub struct GpuCompositor {
     /// The device has `TEXTURE_FORMAT_16BIT_NORM`: 9–16-bit planes upload as they are
     /// (`R16Unorm` / `Rg16Unorm`) instead of being converted to half floats on the CPU.
     unorm16: bool,
+    /// Imports hardware-decoded pictures in place (Linux, a device from `interop::create_device`).
+    #[cfg(target_os = "linux")]
+    importer: Option<interop::Importer>,
+    /// GPU pictures drawn in place / read back to memory first (stats).
+    pub gpu_frames_in_place: u64,
+    pub gpu_frames_read_back: u64,
 }
 
 /// Whether the last compositor made has 16-bit normalized textures: [`prepare`] (run on frame
@@ -224,7 +233,7 @@ fn prepare_frame_for(f: &VideoFrame, unorm16: bool) -> Option<Prepared> {
         }
         // MSB-aligned samples: sample / 65536 = code / 2^bits, exact in a half float
         PixelData::Yuv16Bi { y, uv, .. } => Some(Prepared { planes: vec![codes_to_f16_bytes(y, 16), codes_to_f16_bytes(uv, 16)] }),
-        PixelData::Rgba8(_) | PixelData::Yuv8 { .. } => None,
+        PixelData::Rgba8(_) | PixelData::Yuv8 { .. } | PixelData::Gpu(_) => None,
     }
 }
 
@@ -370,6 +379,10 @@ impl GpuCompositor {
             fx,
             uploaded_bytes: 0,
             unorm16,
+            #[cfg(target_os = "linux")]
+            importer: interop::Importer::new(device),
+            gpu_frames_in_place: 0,
+            gpu_frames_read_back: 0,
         }
     }
 
@@ -428,6 +441,7 @@ impl GpuCompositor {
             PixelData::Yuv8 { planes, .. } => Arc::as_ptr(&planes[0]) as *const u8 as usize,
             PixelData::Yuv16 { planes, .. } => Arc::as_ptr(&planes[0]) as *const u8 as usize,
             PixelData::Yuv16Bi { y, .. } => Arc::as_ptr(y) as *const u8 as usize,
+            PixelData::Gpu(s) => Arc::as_ptr(s) as *const u8 as usize,
         };
         let key = (id, f.width, f.height);
         self.clock += 1;
@@ -439,6 +453,57 @@ impl GpuCompositor {
         let d0 = self.dummy.clone();
         let dummy = || d0.clone();
         let up = match &f.data {
+            PixelData::Gpu(s) => {
+                let (bits, texel) = match s.format() {
+                    filmcraft_frame::GpuFormat::P010 => (10u32, 65535.0 / 64.0),
+                    filmcraft_frame::GpuFormat::Nv12 => (8, 255.0),
+                };
+                #[cfg(target_os = "linux")]
+                let imported = match self.importer.as_mut() {
+                    Some(i) if s.crop_origin() == (0, 0) => i.import(s.as_ref()).map(|(a, b)| (a.clone(), b.clone())),
+                    _ => None,
+                };
+                #[cfg(not(target_os = "linux"))]
+                let imported: Option<(wgpu::TextureView, wgpu::TextureView)> = None;
+                match imported {
+                    Some((y, uv)) => {
+                        self.gpu_frames_in_place += 1;
+                        Uploaded {
+                            views: [y, uv, dummy(), dummy()],
+                            kind: 3,
+                            code_scale: (1u32 << bits) as f32,
+                            texel_scale: texel,
+                            alpha_scale: 0.0,
+                            chroma: (w.div_ceil(2), h.div_ceil(2)),
+                            last_used: self.clock,
+                            _pixels: f.data.clone(),
+                        }
+                    }
+                    None => {
+                        // read back and upload as a biplanar / planar frame
+                        self.gpu_frames_read_back += 1;
+                        let data = s.download(w, h).unwrap_or_else(|e| {
+                            log::warn!("reading a decoded picture back failed: {e}");
+                            let c = (w as usize).div_ceil(2) * (h as usize).div_ceil(2);
+                            PixelData::Yuv8 {
+                                planes: [Arc::new(vec![16; (w * h) as usize]), Arc::new(vec![128; c]), Arc::new(vec![128; c])],
+                                chroma: filmcraft_frame::Chroma::C420,
+                                alpha: None,
+                            }
+                        });
+                        let tmp = VideoFrame { data, ..f.clone() };
+                        let k = self.upload(&tmp, None);
+                        match self.uploads.remove(&k) {
+                            Some(mut u) => {
+                                // keep the surface alive with the textures, as for other frames
+                                u._pixels = f.data.clone();
+                                u
+                            }
+                            None => return key,
+                        }
+                    }
+                }
+            }
             PixelData::Rgba8(d) => {
                 let v = self.plane_texture(w, h, wgpu::TextureFormat::Rgba8UnormSrgb, d, 4);
                 Uploaded {

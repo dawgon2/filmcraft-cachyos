@@ -37,6 +37,8 @@ objc2-video-toolbox = "0.3.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 # P010 from the ffmpeg pipe read straight into u16 planes (safe casts)
 bytemuck = "1"
+# libva opened at run time (docs/adr/0002-linux-video-interop.md): no link-time dependency
+libloading = "0.8"
 filmcraft-bitstream = { workspace = true }
 filmcraft-color = { workspace = true }
 filmcraft-export = { workspace = true }

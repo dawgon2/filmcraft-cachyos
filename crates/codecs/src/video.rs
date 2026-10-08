@@ -45,6 +45,11 @@ pub trait VideoDecoder: Send {
     /// shortcuts that only change pictures nothing references, which come out flagged
     /// [`DecodedFrame::draft`]. Decoders without such a mode ignore it.
     fn set_draft(&mut self, _on: bool) {}
+    /// Decodes on a hardware video engine (its memory is GPU surfaces, counted against the VRAM
+    /// budget; such decoders have their own live-decoder cap in the GOP caches).
+    fn is_hardware(&self) -> bool {
+        false
+    }
 }
 
 /// NAL unit headers of a length-prefixed (avcC / hvcC) sample: the first two bytes of each unit.

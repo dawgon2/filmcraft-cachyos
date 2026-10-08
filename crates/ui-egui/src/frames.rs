@@ -96,6 +96,9 @@ struct Shared {
     workers: usize,
     /// Always-on counters for `perf.stats`.
     stats: Mutex<FrameStats>,
+    /// The server was dropped: workers exit (else they would keep the caches, and the decoded
+    /// frames and GPU surfaces in them, alive for the life of the process).
+    stop: AtomicBool,
 }
 
 /// Cumulative frame-job statistics (`perf.stats`): cheap enough to keep on all the time.
@@ -247,11 +250,19 @@ pub struct GpuPlan {
     pub prepared: filmcraft_gpu::PreparedPlan,
 }
 
+/// What a cached plan is charged per GPU-resident layer frame (see [`GpuPlan::bytes`]).
+const GPU_PLAN_CHARGE: usize = 16 << 20;
+
 impl GpuPlan {
     /// Bytes this plan keeps alive (layer frames + converted texels).
     fn bytes(&self) -> usize {
         let frames = match &self.plan {
-            filmcraft_render::plan::FramePlan::Layers { layers, .. } => layers.iter().map(|l| l.frame.byte_size()).sum(),
+            // GPU-resident frames (hardware decoder surfaces): mostly the GOP caches' own frames
+            // (charged to their VRAM budget there), so a plan is charged a share, which still
+            // bounds how many surfaces plans can keep alive (768 MB / 16 MB = 48)
+            filmcraft_render::plan::FramePlan::Layers { layers, .. } => {
+                layers.iter().map(|l| l.frame.byte_size() + l.frame.gpu_bytes().min(GPU_PLAN_CHARGE)).sum()
+            }
             filmcraft_render::plan::FramePlan::Image(img) => img.px.len() * 4,
         };
         frames + self.prepared.bytes()
@@ -398,6 +409,7 @@ impl FrameServer {
             render_cost: Mutex::new(0.0),
             workers: workers.max(1),
             stats: Mutex::new(FrameStats::default()),
+            stop: AtomicBool::new(false),
         });
         let repaint: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> = Arc::new(Mutex::new(None));
         #[cfg(not(target_arch = "wasm32"))]
@@ -744,6 +756,9 @@ fn worker(
         let job = {
             let mut q = sh.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
+                if sh.stop.load(Ordering::Relaxed) {
+                    return;
+                }
                 if !q.is_empty() {
                     // highest priority (lowest number) first; FIFO among equals
                     let best = q.iter().enumerate().min_by_key(|(i, j)| (j.prio, *i)).map(|(i, _)| i).unwrap_or(0);
@@ -766,6 +781,28 @@ fn worker(
         if let Some(f) = repaint.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             f();
         }
+    }
+}
+
+impl Drop for FrameServer {
+    fn drop(&mut self) {
+        let sh = &self.shared;
+        sh.stop.store(true, Ordering::Relaxed);
+        sh.queue.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        for (_, c, _) in sh.in_flight.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            c.store(true, Ordering::Relaxed);
+        }
+        {
+            let mut d = sh.done.lock().unwrap_or_else(|e| e.into_inner());
+            d.map.clear();
+            d.bytes = 0;
+        }
+        {
+            let mut p = sh.plans.lock().unwrap_or_else(|e| e.into_inner());
+            p.map.clear();
+            p.bytes = 0;
+        }
+        sh.cv.notify_all();
     }
 }
 
@@ -942,6 +979,35 @@ fn render_job(job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>, pr
 #[cfg(test)]
 mod tests {
     use super::{PlaybackMeter, playback_plan};
+
+    /// Threads of this process whose name starts with `prefix` (Linux).
+    #[cfg(target_os = "linux")]
+    fn threads_named(prefix: &str) -> usize {
+        std::fs::read_dir("/proc/self/task")
+            .map(|d| d.flatten().filter(|t| std::fs::read_to_string(t.path().join("comm")).is_ok_and(|c| c.starts_with(prefix))).count())
+            .unwrap_or(0)
+    }
+
+    /// A dropped frame server stops its workers and empties its caches (they used to run for the
+    /// life of the process, keeping every decoded frame and GPU surface they had cached).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn dropping_the_server_stops_its_workers() {
+        let s = filmcraft_engine::Session::default();
+        let before = threads_named("filmcraft-frame");
+        let server = super::FrameServer::new(s.media.clone(), s.services.clone(), s.previews.clone(), 3);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while threads_named("filmcraft-frame") < before + 3 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(threads_named("filmcraft-frame"), before + 3, "three workers started");
+        drop(server);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while threads_named("filmcraft-frame") > before && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(threads_named("filmcraft-frame"), before, "the workers exited");
+    }
 
     #[test]
     fn draft_decoding_only_for_reduced_resolution_playback() {

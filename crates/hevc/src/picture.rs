@@ -208,8 +208,8 @@ pub type FrameRef = Arc<Frame>;
 
 /// An entry of RefPicList0/1 of the current slice.
 #[derive(Clone)]
-pub struct RefPic {
-    pub frame: FrameRef,
+pub struct RefPic<F = FrameRef> {
+    pub frame: F,
     pub poc: i32,
     pub long_term: bool,
 }

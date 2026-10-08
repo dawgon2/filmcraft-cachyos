@@ -249,3 +249,43 @@ fn decodes_while_the_global_rayon_pool_is_blocked() {
     assert!(hw.name().starts_with("VA-API"), "stayed in hardware ({})", hw.name());
     assert!(secs < 8.0, "decoding took {secs:.1} s with the global pool blocked");
 }
+
+/// The fallback chain (ADR 0002): the in-process VA-API decoder failing mid-stream hands the
+/// stream to the ffmpeg pipe (still hardware), and when that fails too, to software; the output
+/// is the software decoder's sequence either way.
+#[test]
+fn in_process_failure_continues_on_the_pipe_then_in_software() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    for (name, _) in FIXTURES.iter().filter(|f| f.0.starts_with("hevc")) {
+        let Some(path) = named(&ff, name) else { continue };
+        let s = read_stream(&path);
+        let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+        if filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone()).is_err() || VaapiDecoder::new(info.clone()).is_err() {
+            eprintln!("SKIPPED: {name} needs both VA-API paths");
+            continue;
+        }
+        let reference = decode_all(software(&s).as_mut(), &s.samples);
+        let k = (1..s.samples.len()).find(|&i| s.sync[i]).unwrap();
+        for (fail_native, fail_pipe) in [(5u64, None), (k as u64 + 2, None), (3, Some(4u64))] {
+            let mut native = filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone()).unwrap();
+            native.fail_after(fail_native);
+            let pipe_info = info.clone();
+            let mut d = HybridDecoder::new(Box::new(native), s.entry.clone(), info.clone()).with_fallback(Box::new(move || {
+                let mut p = VaapiDecoder::new(pipe_info)?;
+                if let Some(n) = fail_pipe {
+                    p.fail_after(n);
+                }
+                Ok(Box::new(p) as Box<dyn VideoDecoder>)
+            }));
+            let out = decode_all(&mut d, &s.samples);
+            assert_same(&format!("{name}: native failing at {fail_native}, pipe at {fail_pipe:?}"), &out, &reference);
+            match fail_pipe {
+                None => assert!(d.is_hardware() && d.name() == "VA-API HEVC", "{name}: continued on the pipe ({})", d.name()),
+                Some(_) => assert!(!d.is_hardware(), "{name}: ended in software ({})", d.name()),
+            }
+            let (backends, why) = filmcraft_codecs::hw::backend_stats();
+            assert!(backends.iter().any(|(b, _)| b == filmcraft_platform::va_hevc::NAME), "{backends:?}");
+            assert!(why.is_some_and(|w| w.contains("failed")), "the fallback reason is reported");
+        }
+    }
+}

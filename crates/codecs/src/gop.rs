@@ -138,8 +138,12 @@ struct State {
     /// The cached frames that were decoded in draft mode: served to draft requests only.
     drafts: std::collections::BTreeSet<i64>,
     bytes: usize,
+    /// GPU memory of the frames held (hardware decoders' surfaces).
+    vram: usize,
     /// When a frame was last asked of this cache.
     last_used: Instant,
+    /// The decoder is a hardware one (counted against the hardware cap).
+    hw_decoder: bool,
 }
 
 impl State {
@@ -148,7 +152,11 @@ impl State {
     fn release_decoder(&mut self, pool: &Pool) -> Vec<Box<dyn VideoDecoder>> {
         let mut out = std::mem::take(&mut self.spare);
         if let Some(d) = self.decoder.take() {
-            pool.decoders.fetch_sub(1, Ordering::Relaxed);
+            if self.hw_decoder {
+                pool.hw_decoders.fetch_sub(1, Ordering::Relaxed);
+            } else {
+                pool.decoders.fetch_sub(1, Ordering::Relaxed);
+            }
             out.push(d);
         }
         self.next = usize::MAX;
@@ -161,7 +169,9 @@ impl State {
             let Some((pts, f)) = self.frames.pop_first() else { break };
             self.drafts.remove(&pts);
             self.bytes = self.bytes.saturating_sub(f.byte_size());
+            self.vram = self.vram.saturating_sub(f.gpu_bytes());
             pool.bytes.fetch_sub(f.byte_size(), Ordering::Relaxed);
+            pool.vram.fetch_sub(f.gpu_bytes(), Ordering::Relaxed);
             EVICTED.fetch_add(1, Ordering::Relaxed);
             filmcraft_frame::pool::recycle(f);
         }
@@ -212,6 +222,9 @@ impl Drop for DecodingGuard {
 /// new one when the playhead reaches them, which costs what a seek costs.
 const MAX_LIVE_DECODERS: usize = 4;
 
+/// Hardware decoders kept live (see `Pool::hw_decoders`).
+const MAX_LIVE_HW_DECODERS: usize = 8;
+
 /// A cache asked for a frame this recently is in use (a layer of the frame being composited,
 /// the next clip being prefetched): it keeps its decoder whatever the count.
 const IDLE: Duration = Duration::from_secs(3);
@@ -252,16 +265,48 @@ pub fn limits() -> (usize, usize) {
     (p.budget.load(Ordering::Relaxed), p.max_decoders.load(Ordering::Relaxed))
 }
 
+/// Dedicated video memory of the largest GPU (Linux amdgpu `mem_info_vram_total`; None elsewhere).
+pub fn installed_vram() -> Option<u64> {
+    let cards = std::fs::read_dir("/sys/class/drm").ok()?;
+    cards.flatten().filter_map(|c| std::fs::read_to_string(c.path().join("device/mem_info_vram_total")).ok()).filter_map(|v| v.trim().parse::<u64>().ok()).max()
+}
+
+/// The budget for decoded frames held in GPU memory: a quarter of the VRAM (512 MiB–32 GiB), 2 GiB
+/// when unknown. Decoders' reference pictures, spare surfaces, clips in use (each keeps at least
+/// [`MIN_FRAMES_LARGE`] frames) and the compositor need the rest: measured on a 12 GB card with
+/// four 6.2K clips playing alternately, half the VRAM for the cache ran the card out of memory.
+pub fn auto_vram_budget(vram: Option<u64>) -> usize {
+    vram.filter(|v| *v > 0).map_or(2 << 30, |v| usize::try_from((v / 4).clamp(512 << 20, 32 << 30)).unwrap_or(2 << 30))
+}
+
+/// Set the process-wide budget for decoded frames in GPU memory (bytes, at least 128 MiB).
+pub fn configure_vram(budget: usize) {
+    Pool::global().vram_budget.store(budget.max(128 << 20), Ordering::Relaxed);
+}
+
+/// GPU memory of the decoded frames held, and its budget (`perf.stats`).
+pub fn vram_usage() -> (usize, usize) {
+    let p = Pool::global();
+    (p.vram.load(Ordering::Relaxed), p.vram_budget.load(Ordering::Relaxed))
+}
+
 /// What the caches of a process share: the cap on live decoders and the frame budget.
 struct Pool {
     caches: Mutex<Vec<Weak<Shared>>>,
-    /// Caches that hold a decoder.
+    /// Caches that hold a (software) decoder.
     decoders: AtomicUsize,
     max_decoders: AtomicUsize,
+    /// Caches that hold a hardware decoder (its memory is GPU surfaces under the VRAM budget, so
+    /// it has its own, larger cap: restarting one at every cut of a multi-clip timeline costs a
+    /// context and a GOP of decoding).
+    hw_decoders: AtomicUsize,
     idle: Duration,
     /// Bytes of the frames the caches hold.
     bytes: AtomicUsize,
     budget: AtomicUsize,
+    /// GPU memory of the frames the caches hold, and its budget.
+    vram: AtomicUsize,
+    vram_budget: AtomicUsize,
 }
 
 /// The part of a [`GopCache`] its pool reaches.
@@ -275,6 +320,7 @@ impl Drop for Shared {
         let st = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
         drop(st.release_decoder(&self.pool));
         self.pool.bytes.fetch_sub(st.bytes, Ordering::Relaxed);
+        self.pool.vram.fetch_sub(st.vram, Ordering::Relaxed);
     }
 }
 
@@ -293,9 +339,18 @@ impl Pool {
             caches: Mutex::new(Vec::new()),
             decoders: AtomicUsize::new(0),
             max_decoders: AtomicUsize::new(max_decoders),
+            hw_decoders: AtomicUsize::new(0),
             idle,
             bytes: AtomicUsize::new(0),
             budget: AtomicUsize::new(budget),
+            vram: AtomicUsize::new(0),
+            // FILMCRAFT_VRAM_CACHE_MB overrides the automatic budget (diagnostics, benchmarks)
+            vram_budget: AtomicUsize::new(
+                std::env::var("FILMCRAFT_VRAM_CACHE_MB")
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .map_or_else(|| auto_vram_budget(installed_vram()), |mb| mb.saturating_mul(1 << 20)),
+            ),
         }
     }
 
@@ -338,14 +393,18 @@ impl Pool {
     fn trim_decoders(&self, me: &Shared) -> Vec<Box<dyn VideoDecoder>> {
         let mut released = Vec::new();
         let max = self.max_decoders.load(Ordering::Relaxed);
-        if self.decoders.load(Ordering::Relaxed) <= max {
+        let sw_over = || self.decoders.load(Ordering::Relaxed) > max;
+        let hw_over = || self.hw_decoders.load(Ordering::Relaxed) > MAX_LIVE_HW_DECODERS;
+        if !sw_over() && !hw_over() {
             return released;
         }
         for c in self.idle_others(me, |st| st.decoder.is_some()) {
-            if self.decoders.load(Ordering::Relaxed) <= max {
+            if !sw_over() && !hw_over() {
                 break;
             }
-            if let Some(mut st) = try_state(&c) {
+            if let Some(mut st) = try_state(&c)
+                && ((st.hw_decoder && hw_over()) || (!st.hw_decoder && sw_over()))
+            {
                 released.extend(st.release_decoder(self));
             }
         }
@@ -356,8 +415,8 @@ impl Pool {
     /// use keep theirs (each within its own budget): a frame evicted before it is shown costs a
     /// re-decode from the keyframe.
     fn trim_frames(&self, me: &Shared) {
-        let budget = self.budget.load(Ordering::Relaxed);
-        let over = || self.bytes.load(Ordering::Relaxed) > budget;
+        let (budget, vram_budget) = (self.budget.load(Ordering::Relaxed), self.vram_budget.load(Ordering::Relaxed));
+        let over = || self.bytes.load(Ordering::Relaxed) > budget || self.vram.load(Ordering::Relaxed) > vram_budget;
         if !over() {
             return;
         }
@@ -374,7 +433,8 @@ impl Pool {
 
 /// Caches that hold a decoder right now, process-wide (`perf.stats`).
 pub fn live_decoders() -> usize {
-    Pool::global().decoders.load(Ordering::Relaxed)
+    let p = Pool::global();
+    p.decoders.load(Ordering::Relaxed) + p.hw_decoders.load(Ordering::Relaxed)
 }
 
 /// Bytes of decoded frames the caches hold right now, process-wide (`perf.stats`).
@@ -397,9 +457,11 @@ pub struct GopCache {
 /// playback prefetches ahead of the playhead (14–24 frames), so a byte budget alone would evict
 /// 4K frames before they are shown and force a re-decode from the keyframe.
 const MIN_FRAMES: usize = 64;
-/// ... but large frames get fewer: 64 6.2K 10-bit frames would be 5 GB per clip in use.
-const MIN_FRAMES_BYTES: usize = 3 << 29;
-/// Never fewer than this (the deepest playback prefetch).
+/// ... but large frames get fewer: 64 6.2K 10-bit frames would be 5 GB per clip in use (and with
+/// several clips of a timeline in use at once, GPU memory runs out).
+const MIN_FRAMES_BYTES: usize = 1 << 30;
+/// Never fewer than this (playback prefetches 14–24 frames ahead; measured: 16 frames per 6.2K
+/// clip in use made a timeline cutting between four 6.2K clips drop ~85 of 360 frames, 24 ~23).
 const MIN_FRAMES_LARGE: usize = 24;
 
 /// Frames of `frame_bytes` each a cache in use always keeps (see [`MIN_FRAMES`]).
@@ -430,6 +492,8 @@ impl GopCache {
                 frames: BTreeMap::new(),
                 drafts: Default::default(),
                 bytes: 0,
+                vram: 0,
+                hw_decoder: false,
                 last_used: Instant::now(),
             }),
             pool: pool.clone(),
@@ -464,20 +528,25 @@ impl GopCache {
         } else {
             st.drafts.remove(&pts);
         }
-        let budget = self.budget.max(min_frames(f.byte_size()).saturating_mul(f.byte_size()));
-        let before = st.bytes;
+        // a frame costs its memory wherever it is (RAM, or GPU memory for hardware surfaces)
+        let cost = f.byte_size() + f.gpu_bytes();
+        let budget = self.budget.max(min_frames(cost).saturating_mul(cost));
+        let (before, vram_before) = (st.bytes, st.vram);
         st.bytes += f.byte_size();
+        st.vram += f.gpu_bytes();
         if let Some(old) = st.frames.insert(pts, Arc::new(f)) {
             st.bytes -= old.byte_size();
+            st.vram -= old.gpu_bytes();
             filmcraft_frame::pool::recycle(old);
         }
         // evict frames far from the most recent (keep a window around the working position)
-        while st.bytes > budget && st.frames.len() > 2 {
+        while st.bytes + st.vram > budget && st.frames.len() > 2 {
             let (Some(&first), Some(&last)) = (st.frames.keys().next(), st.frames.keys().next_back()) else { break };
             let victim = if pts - first > last - pts { first } else { last };
             if let Some(v) = st.frames.remove(&victim) {
                 st.drafts.remove(&victim);
                 st.bytes -= v.byte_size();
+                st.vram -= v.gpu_bytes();
                 EVICTED.fetch_add(1, Ordering::Relaxed);
                 // its planes serve the next decoded pictures instead of going back to the allocator
                 filmcraft_frame::pool::recycle(v);
@@ -488,6 +557,11 @@ impl GopCache {
             pool.bytes.fetch_add(st.bytes - before, Ordering::Relaxed);
         } else {
             pool.bytes.fetch_sub(before - st.bytes, Ordering::Relaxed);
+        }
+        if st.vram >= vram_before {
+            pool.vram.fetch_add(st.vram - vram_before, Ordering::Relaxed);
+        } else {
+            pool.vram.fetch_sub(vram_before - st.vram, Ordering::Relaxed);
         }
         pool.trim_frames(&self.shared);
     }
@@ -543,9 +617,14 @@ impl GopCache {
         if st.decoder.is_none() {
             let d = s.make_decoder()?;
             st.intra = d.intra_only();
+            st.hw_decoder = d.is_hardware();
+            if st.hw_decoder {
+                self.shared.pool.hw_decoders.fetch_add(1, Ordering::Relaxed);
+            } else {
+                self.shared.pool.decoders.fetch_add(1, Ordering::Relaxed);
+            }
             st.decoder = Some(d);
             st.next = usize::MAX;
-            self.shared.pool.decoders.fetch_add(1, Ordering::Relaxed);
         }
         released.extend(self.shared.pool.trim_decoders(&self.shared));
         // Nothing cached: the work ahead (possibly a seek and a GOP of decoding) is only worth it
@@ -725,6 +804,8 @@ mod tests {
         gop: usize,
         delay: usize,
         intra: bool,
+        /// Its decoders say they are hardware ones.
+        hw: bool,
         resets: Arc<AtomicUsize>,
         decodes: Arc<AtomicUsize>,
     }
@@ -736,6 +817,7 @@ mod tests {
         /// (pts, decoded as a draft picture)
         held: VecDeque<(i64, bool)>,
         draft: bool,
+        hw: bool,
         resets: Arc<AtomicUsize>,
         decodes: Arc<AtomicUsize>,
     }
@@ -773,6 +855,9 @@ mod tests {
         fn intra_only(&self) -> bool {
             self.intra
         }
+        fn is_hardware(&self) -> bool {
+            self.hw
+        }
         // odd samples are non-reference pictures
         fn is_disposable(&self, sample: &[u8]) -> bool {
             sample[0] % 2 == 1
@@ -802,6 +887,7 @@ mod tests {
                 intra: self.intra,
                 held: VecDeque::new(),
                 draft: false,
+                hw: self.hw,
                 resets: self.resets.clone(),
                 decodes: self.decodes.clone(),
             }))
@@ -809,7 +895,7 @@ mod tests {
     }
 
     fn samples(n: usize, gop: usize, delay: usize, intra: bool) -> Samples {
-        Samples { n, gop, delay, intra, resets: Default::default(), decodes: Default::default() }
+        Samples { n, gop, delay, intra, hw: false, resets: Default::default(), decodes: Default::default() }
     }
 
     fn index_of(f: &VideoFrame) -> usize {
@@ -955,6 +1041,27 @@ mod tests {
     }
 
     #[test]
+    fn hardware_decoders_have_their_own_cap() {
+        // software cap 2, hardware cap MAX_LIVE_HW_DECODERS: ten hardware clips keep 8 decoders,
+        // three software clips 2, independently
+        let pool = Arc::new(Pool::new(2, Duration::ZERO, FRAME_BUDGET));
+        let hw: Vec<Samples> = (0..10).map(|_| Samples { hw: true, ..samples(300, 250, 3, false) }).collect();
+        let sw: Vec<Samples> = (0..3).map(|_| samples(300, 250, 3, false)).collect();
+        let ch: Vec<GopCache> = (0..10).map(|_| GopCache::in_pool(None, pool.clone())).collect();
+        let cs: Vec<GopCache> = (0..3).map(|_| GopCache::in_pool(None, pool.clone())).collect();
+        for k in 0..10 {
+            ch[k].frame(&hw[k], 10_000).expect("frame");
+            if k < 3 {
+                cs[k].frame(&sw[k], 10_000).expect("frame");
+            }
+        }
+        assert_eq!(pool.hw_decoders.load(Ordering::Relaxed), MAX_LIVE_HW_DECODERS);
+        assert_eq!(pool.decoders.load(Ordering::Relaxed), 2);
+        drop((ch, cs));
+        assert_eq!((pool.hw_decoders.load(Ordering::Relaxed), pool.decoders.load(Ordering::Relaxed)), (0, 0));
+    }
+
+    #[test]
     fn idle_caches_give_up_their_decoders_beyond_the_cap() {
         let pool = Arc::new(Pool::new(2, Duration::ZERO, FRAME_BUDGET));
         let live = || pool.decoders.load(Ordering::Relaxed);
@@ -1020,11 +1127,14 @@ mod tests {
         assert_eq!(auto_limits(Some(4 * gib)), (1 << 30, 2), "small machines: 1 GiB, 2 decoders");
         assert_eq!(auto_limits(Some(512 * gib)), (16 << 30, 8), "capped");
         assert_eq!(auto_limits(Some(u64::MAX)).1, 8);
-        // 1080p 8-bit keeps 64 frames, 4K 10-bit 64, 6.2K 10-bit 24 (not 5 GB), absurd sizes 24
+        // 1080p 8-bit keeps 64 frames, 4K 10-bit 43, 6.2K 10-bit 24 (not 5 GB), absurd sizes 24
         assert_eq!(min_frames(1920 * 1080 * 3 / 2), 64);
-        assert_eq!(min_frames(3840 * 2160 * 3), 64);
+        assert_eq!(min_frames(3840 * 2160 * 3), 43);
         assert_eq!(min_frames(6240 * 4160 * 3), 24);
         assert_eq!((min_frames(0), min_frames(usize::MAX)), (64, 24));
+        assert_eq!(auto_vram_budget(Some(12 << 30)), 3 << 30);
+        assert_eq!(auto_vram_budget(None), 2 << 30);
+        assert_eq!(auto_vram_budget(Some(1 << 30)), 512 << 20);
     }
 
     #[test]

@@ -79,6 +79,28 @@ pub fn note_hw_fallback() {
     FALLBACKS.fetch_add(1, Ordering::Relaxed);
 }
 
+fn backends() -> &'static std::sync::Mutex<(std::collections::BTreeMap<String, u64>, Option<String>)> {
+    static B: std::sync::OnceLock<std::sync::Mutex<(std::collections::BTreeMap<String, u64>, Option<String>)>> = std::sync::OnceLock::new();
+    B.get_or_init(Default::default)
+}
+
+/// A decoder of hardware backend `name` started decoding a stream (`perf.stats`).
+pub fn note_backend(name: &str) {
+    let mut g = backends().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *g.0.entry(name.to_string()).or_insert(0) += 1;
+}
+
+/// A hardware backend failed and the stream moved to the next one (`why`, for `perf.stats`).
+pub fn note_backend_fallback(why: String) {
+    backends().lock().unwrap_or_else(std::sync::PoisonError::into_inner).1 = Some(why);
+}
+
+/// Streams started per hardware backend, and the reason of the last fallback.
+pub fn backend_stats() -> (Vec<(String, u64)>, Option<String>) {
+    let g = backends().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    (g.0.iter().map(|(k, v)| (k.clone(), *v)).collect(), g.1.clone())
+}
+
 /// The two codecs whose `avcC` / `hvcC` streams hardware decoders take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NalCodec {

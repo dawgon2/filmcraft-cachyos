@@ -58,6 +58,65 @@ pub enum PixelData {
     /// a `bits`-bit code `c` is stored as `c << (16 - bits)`. The GPU uploads the planes as they
     /// are; CPU paths go through [`VideoFrame::to_planar`]. No alpha.
     Yuv16Bi { y: Arc<Vec<u16>>, uv: Arc<Vec<u16>>, chroma: Chroma, bits: u32 },
+    /// A picture in GPU memory where a hardware decoder wrote it (a VA-API surface on Linux): the
+    /// compositor samples it in place; CPU paths read it back through [`GpuSurface::download`]
+    /// ([`VideoFrame::to_planar`]).
+    Gpu(Arc<dyn GpuSurface>),
+}
+
+/// Layout of a GPU-resident picture's memory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GpuFormat {
+    /// 8-bit 4:2:0: luma plane, interleaved CbCr plane.
+    Nv12,
+    /// 10-bit 4:2:0 in 16-bit samples (MSB-aligned): luma plane, interleaved CbCr plane.
+    P010,
+}
+
+/// One plane of a DMA-BUF export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DmaBufPlane {
+    /// The buffer object's file descriptor, valid while the surface lives (importers duplicate it).
+    pub fd: i32,
+    pub offset: u32,
+    pub pitch: u32,
+}
+
+/// A picture's memory as Linux DMA-BUFs (one single-plane layer per picture plane: luma, chroma).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DmaBuf {
+    /// DRM fourcc of each layer (`R16` / `GR32` for P010, `R8` / `GR88` for NV12).
+    pub layer_formats: [u32; 2],
+    /// Format modifier (tiling) of the memory.
+    pub modifier: u64,
+    /// Memory planes of each layer (more than one when the modifier has metadata planes).
+    pub layers: [Vec<DmaBufPlane>; 2],
+    /// Coded size in luma samples.
+    pub width: u32,
+    pub height: u32,
+    /// Total size of the buffer object (bytes).
+    pub size: u64,
+}
+
+/// A decoded picture held in GPU memory (see [`PixelData::Gpu`]). Implemented by the platform
+/// decoders; the memory goes back to its decoder when the last reference is dropped.
+pub trait GpuSurface: Send + Sync + std::fmt::Debug {
+    /// Distinguishes the memory of this surface from every other one, ever (import caches).
+    fn memory_id(&self) -> u64;
+    /// Dead once the memory is freed: caches of it (GPU imports) drop their entries.
+    fn liveness(&self) -> std::sync::Weak<()>;
+    fn format(&self) -> GpuFormat;
+    /// Coded size (the memory's size, at least the frame's).
+    fn coded_size(&self) -> (u32, u32);
+    /// Top-left of the visible picture in the coded picture (conformance window).
+    fn crop_origin(&self) -> (u32, u32);
+    /// The memory as DMA-BUFs (None: not exportable here); the picture has finished decoding.
+    fn dmabuf(&self) -> Option<DmaBuf>;
+    /// Read the visible picture back to memory: [`PixelData::Yuv16Bi`] (P010) or
+    /// [`PixelData::Yuv8`] (NV12).
+    fn download(&self, width: u32, height: u32) -> Result<PixelData, String>;
+    /// Bytes of GPU memory it occupies.
+    fn gpu_bytes(&self) -> usize;
 }
 
 #[derive(Clone, Debug)]
@@ -95,6 +154,10 @@ impl VideoFrame {
             PixelData::RgbaF32(_) => "RGBA 32-bit float".into(),
             PixelData::Yuv8 { chroma, .. } => format!("YUV {} 8-bit", chroma.label()),
             PixelData::Yuv16 { chroma, bits, .. } | PixelData::Yuv16Bi { chroma, bits, .. } => format!("YUV {} {bits}-bit", chroma.label()),
+            PixelData::Gpu(s) => match s.format() {
+                GpuFormat::Nv12 => "YUV 4:2:0 8-bit (GPU)".into(),
+                GpuFormat::P010 => "YUV 4:2:0 10-bit (GPU)".into(),
+            },
         }
     }
 
@@ -106,6 +169,16 @@ impl VideoFrame {
             PixelData::Yuv8 { planes, alpha, .. } => planes.iter().map(|p| p.len()).sum::<usize>() + alpha.as_ref().map_or(0, |a| a.len()),
             PixelData::Yuv16 { planes, alpha, .. } => (planes.iter().map(|p| p.len()).sum::<usize>() + alpha.as_ref().map_or(0, |a| a.len())) * 2,
             PixelData::Yuv16Bi { y, uv, .. } => (y.len() + uv.len()) * 2,
+            // in GPU memory: see `gpu_bytes`
+            PixelData::Gpu(_) => 0,
+        }
+    }
+
+    /// Bytes of GPU memory the frame holds (a hardware decoder's surface).
+    pub fn gpu_bytes(&self) -> usize {
+        match &self.data {
+            PixelData::Gpu(s) => s.gpu_bytes(),
+            _ => 0,
         }
     }
 
@@ -113,6 +186,17 @@ impl VideoFrame {
     /// low bits, chroma deinterleaved), for the CPU paths; None for every other layout. A plane
     /// shorter than the frame size says (damaged input) reads as black / neutral there.
     pub fn to_planar(&self) -> Option<VideoFrame> {
+        if let PixelData::Gpu(s) = &self.data {
+            // read back; a failed read-back is a black picture (and logged), never a crash
+            let data = s.download(self.width, self.height).unwrap_or_else(|e| {
+                log::warn!("reading a GPU picture back failed: {e}");
+                let n = (self.width as usize).saturating_mul(self.height as usize);
+                let c = (self.width as usize).div_ceil(2).saturating_mul((self.height as usize).div_ceil(2));
+                PixelData::Yuv8 { planes: [Arc::new(vec![16; n]), Arc::new(vec![128; c]), Arc::new(vec![128; c])], chroma: Chroma::C420, alpha: None }
+            });
+            let f = VideoFrame { data, ..self.clone() };
+            return Some(f.to_planar().unwrap_or(f));
+        }
         let PixelData::Yuv16Bi { y, uv, chroma, bits } = &self.data else { return None };
         let (w, h) = (self.width as usize, self.height as usize);
         let (sx, sy) = chroma.shifts();
@@ -185,7 +269,7 @@ impl VideoFrame {
                     alpha: alpha.as_ref().map(|a| Arc::new(box_plane(a, w, h, ow, oh, n))),
                 }
             }
-            PixelData::Rgba8(_) | PixelData::RgbaF32(_) | PixelData::Yuv16Bi { .. } => return None,
+            PixelData::Rgba8(_) | PixelData::RgbaF32(_) | PixelData::Yuv16Bi { .. } | PixelData::Gpu(_) => return None,
         };
         Some(VideoFrame { width: ow as u32, height: oh as u32, data, color: self.color, par: self.par, pts: self.pts })
     }
@@ -224,7 +308,7 @@ impl VideoFrame {
                 }
             }
             // converted to planar above
-            PixelData::Yuv16Bi { .. } => return self.clone(),
+            PixelData::Yuv16Bi { .. } | PixelData::Gpu(_) => return self.clone(),
         };
         let (width, height, par) = if q % 2 == 1 { (self.height, self.width, (self.par.1, self.par.0)) } else { (self.width, self.height, self.par) };
         VideoFrame { width, height, data, color: self.color, par, pts: self.pts }
@@ -384,7 +468,7 @@ impl VideoFrame {
                 });
             }
             // converted to planar above
-            PixelData::Yuv16Bi { .. } => {}
+            PixelData::Yuv16Bi { .. } | PixelData::Gpu(_) => {}
         }
         (ow, oh, out)
     }

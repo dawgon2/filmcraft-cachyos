@@ -22,9 +22,15 @@ const LOG_MAX_BYTES: usize = 256 << 20;
 /// Presentation times remembered as returned (older ones are forgotten first).
 const EMITTED_MAX: usize = 4096;
 
-/// A hardware decoder with a transparent software fallback.
+/// Makes the next hardware decoder of a fallback chain (or says why it cannot).
+pub type HwFallback = Box<dyn FnOnce() -> std::result::Result<Box<dyn VideoDecoder>, String> + Send>;
+
+/// A hardware decoder with a transparent fallback: to the next hardware backends, then software.
 pub struct HybridDecoder {
     hw: Option<Box<dyn VideoDecoder>>,
+    /// Hardware decoders to try, in order, when the current one fails (ADR 0002's chain:
+    /// in-process VA-API → ffmpeg pipe → software).
+    next: Vec<HwFallback>,
     sw: Option<Box<dyn VideoDecoder>>,
     entry: SampleEntry,
     info: NalStreamInfo,
@@ -44,8 +50,10 @@ impl HybridDecoder {
     /// Wrap `hw`, a decoder for `entry` (whose stream is described by `info`).
     pub fn new(hw: Box<dyn VideoDecoder>, entry: SampleEntry, info: NalStreamInfo) -> Self {
         filmcraft_codecs::hw::note_hw_session();
+        filmcraft_codecs::hw::note_backend(hw.name());
         Self {
             hw: Some(hw),
+            next: Vec::new(),
             sw: None,
             entry,
             info,
@@ -56,6 +64,12 @@ impl HybridDecoder {
             emitted: BTreeSet::new(),
             carry: BTreeMap::new(),
         }
+    }
+
+    /// Try `f`'s decoder before software when the current hardware decoder fails.
+    pub fn with_fallback(mut self, f: HwFallback) -> Self {
+        self.next.push(f);
+        self
     }
 
     /// Whether the hardware decoder is still in use (false after a fallback).
@@ -141,7 +155,42 @@ impl HybridDecoder {
                 self.carry.insert(f.pts, f);
             }
         }
+        let failed = hw.name().to_string();
         drop(hw);
+        // the next hardware backends, replaying from the last restart point
+        while !self.next.is_empty() {
+            let make = self.next.remove(0);
+            let Some(log) = self.log.as_ref() else { break };
+            let mut d = match make() {
+                Ok(d) => d,
+                Err(why) => {
+                    log::info!("next hardware decoder unavailable: {why}");
+                    continue;
+                }
+            };
+            d.set_draft(self.draft);
+            let mut frames = Vec::new();
+            let mut ok = true;
+            for (s, p) in log {
+                match d.decode(s, *p) {
+                    Ok(f) => frames.extend(f),
+                    Err(e) => {
+                        log::warn!("{} failed while taking over ({e})", d.name());
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok {
+                let why = format!("{failed} failed ({err}); continued with {}", d.name());
+                log::warn!("{why}");
+                filmcraft_codecs::hw::note_backend_fallback(why);
+                filmcraft_codecs::hw::note_backend(d.name());
+                self.hw = Some(d);
+                return Ok(self.merge(frames));
+            }
+        }
+        filmcraft_codecs::hw::note_backend_fallback(format!("{failed} failed ({err}); continued in software"));
         let mut sw = filmcraft_codecs::software_video_decoder(&self.entry).map_err(|e| CodecError::Decode(format!("{err}; no software decoder: {e}")))?;
         sw.set_draft(self.draft);
         self.sw = Some(sw);
@@ -176,8 +225,9 @@ impl VideoDecoder for HybridDecoder {
         match hw.decode(sample, pts) {
             Ok(out) => {
                 filmcraft_codecs::hw::note_hw_frames(out.len());
-                self.note_emitted(&out);
-                Ok(out)
+                // (a no-op for the first decoder; after a hand-over to the next hardware decoder,
+                // it drops pictures the previous one already returned)
+                Ok(self.merge(out))
             }
             Err(e) => self.fall_back(e),
         }
@@ -187,7 +237,8 @@ impl VideoDecoder for HybridDecoder {
         if let Some(hw) = self.hw.as_mut() {
             let out = hw.flush();
             filmcraft_codecs::hw::note_hw_frames(out.len());
-            self.note_emitted(&out);
+            let mut out = self.merge(out);
+            out.extend(std::mem::take(&mut self.carry).into_values());
             return out;
         }
         let frames = self.sw.as_mut().map(|d| d.flush()).unwrap_or_default();
@@ -224,6 +275,10 @@ impl VideoDecoder for HybridDecoder {
 
     fn is_disposable(&self, sample: &[u8]) -> bool {
         self.info.is_disposable(sample)
+    }
+
+    fn is_hardware(&self) -> bool {
+        self.hw.is_some()
     }
 
     fn set_draft(&mut self, on: bool) {

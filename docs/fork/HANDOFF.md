@@ -5,35 +5,35 @@ Keep this file current at the end of every session.
 
 ## Where we are
 
-- **Phase:** 1 (quick wins on the ffmpeg path), being finished in session 1 (2026-10-08).
-- **Branch:** `hevc-vaapi`. Commits: `da32409` plan, `5d5b9a8` F0 (baseline). Phase 1 changes
-  are being committed now (see §7 of the plan for the latest).
-- **Next step:** see "Exact next step" at the bottom.
+- **Phase 1 done** (`bc2771c`, tag `phase-1`, build in `~/Apps/filmcraft-builds/phase-1/`,
+  launcher "FilmCraft (fork)"). **Now: Phase 2** (in-process zero-copy hardware decode),
+  2.1–2.4 done (in-process VA-API, zero-copy display, VRAM budget); now Phase 2 acceptance items.
+- **Branch:** `hevc-vaapi`. Commits: `da32409` plan, `5d5b9a8` F0, `9e0b3f3` handoff files,
+  `bc2771c` F1, then the Phase 8 plan change.
 
 ## Done
 
-- Phase 0: system recorded, synthetic fixtures, `xm5` bench section, baseline numbers
+- Phase 0: system recorded, synthetic fixtures, `xm5` bench section, baseline
   (`docs/fork-benchmarks.md`), the "59 fps" explanation.
-- Phase 1 (in progress at the time of writing):
-  - 1.1 `PixelData::Yuv16Bi` (P010 / P210, MSB-aligned `y` + interleaved `uv`), CPU paths via
-    `VideoFrame::to_planar()`; VA-API reader fills it straight from the pipe.
-  - 1.2 10-bit planes upload as `R16Unorm` / `Rg16Unorm` when the device has
-    `TEXTURE_FORMAT_16BIT_NORM` (app: `filmcraft_ui_egui::wgpu_configuration()`; bench and tests
-    request it too); half floats stay the fallback. Fixed an upstream GPU bug on the way: 10/12-bit
-    limited-range offsets were scaled by 2^bits/255 instead of 2^(bits-8) (≈ 1–2 % dim).
-  - 1.3 pooled buffers read whole (`pool::take_u16_filled`, no re-zeroing).
-  - 1.4 `gop::auto_limits` from installed RAM (budget RAM/5 in 1–16 GiB, decoders RAM/8 GiB in
-    2–8), per-cache floor 24–64 frames by size (was 64 always = 5 GB at 6.2K), Settings ▸ Memory
-    ▸ "Decoded source frames (0 = Auto)" (`memory.decodeCacheMb`), `perf.stats`
-    `decode.cacheBudgetMB` / `maxLiveDecoders`.
+- Phase 1: `PixelData::Yuv16Bi` (P010/P210) read straight from the ffmpeg pipe; 10-bit planes
+  uploaded as `R16Unorm`/`Rg16Unorm` (`filmcraft_gpu::wanted_features()`, app via
+  `filmcraft_ui_egui::wgpu_configuration()`); GPU 10/12-bit range bug fixed; RAM-scaled decode
+  cache (`gop::auto_limits`, Settings ▸ Memory ▸ Decoded source frames). Quick pass: CPU/frame
+  −59 to −66 %; 6.2K still ~20 fps (pipe ceiling ≈ 22 fps).
 
 ## Decisions in force
 
-All of `FORK-PLAN.md` §1 and §1a (owner's). Agent decisions so far, all logged in §7:
-- Phase codes in commit messages: `F0:`, `F1:` … (CLAUDE.md asks for a task id per commit).
-- Pre-existing Linux CI failures fixed (shortcuts test assumed the Mac keymap; GPU 1:1 sampling
-  snap in `composite.wgsl`).
-- Phase 1 acceptance judged against the ffmpeg pipe ceiling (§1a.5, agent's interpretation).
+All of `FORK-PLAN.md` §1 and §1a (owner's). Key current ones: never ask, no sudo, don't touch
+master; synthetic footage, mark results "synthetic"; quick bench passes except Phase 2/4/5/7
+acceptance; after every working step commit + progress log + this file; build at each phase
+boundary; keep going through phases until asked to stop. **Phase 2/5: only the primary hardware
+backend** (VA-API unless Vulkan Video is ≥ 20 % faster and matches; decided by the 2.1 ffmpeg
+comparison), behind an interface ready for the other backend (Phase 8) and NVIDIA later;
+fallback primary → ffmpeg pipe → software.
+
+Agent decisions (logged in §7): commit prefixes `F0:`, `F1:` …; Phase 1 accepted against the
+pipe ceiling (§1a.5, the owner's rule text never arrived; interpretation recorded); mixer perf
+test floor 2.5× on this CPU.
 
 ## Environment notes and gotchas
 
@@ -60,7 +60,22 @@ All of `FORK-PLAN.md` §1 and §1a (owner's). Agent decisions so far, all logged
   A full run takes ~65 min (the graded 4K export alone ~41 min at baseline). The Phase 0 binary is
   kept as `target/fork-bench/bench-phase0`; results in `target/bench/xm5-phase0.json`.
 - The auto-mode permission classifier blocks the agent from setting up self-restarting
-  automation (`/loop`, timers running `claude`); the owner starts those.
+  automation (`/loop`, timers running `claude`); the owner starts those (a `/loop` line inside a
+  longer message does not activate it).
+- Builds: `~/Apps/filmcraft-builds/phase-N/`, `latest` symlink, icon
+  `~/Apps/filmcraft-builds/ai.storyteller.filmcraft.png`, launcher
+  `~/.local/share/applications/filmcraft-fork.desktop` (exists; don't recreate). App data for the
+  fork build: `~/.local/share/filmcraft-fork`. Smoke test: run with `--control 9876 --data-dir
+  <scratch>`, JSON lines `{"id":1,"method":"perf.stats","params":{}}`, `ui.screenshot`, `app.quit`.
+- Phase 2 groundwork: wgpu-hal 30 `vulkan::Adapter::open_with_callback` can add device
+  extensions and queue create infos (video decode family 2 on RADV) before wgpu wraps the device;
+  `texture_from_raw` wraps a `vk::Image`; eframe accepts our device via
+  `egui_wgpu::WgpuSetup::Existing`. `crates/hevc` has SPS/PPS/slice-header/RPS parsers to fill
+  VA-API / Vulkan Video parameter structures. `cros-libva` (BSD-3) links libva at build time;
+  loading libva / Vulkan at runtime (`libloading`, `ash`) keeps the app starting without them.
+- Phase 2.1 comparison script: `vkcheck.py` in the session scratchpad (lost between sessions;
+  re-create: 3 timed `-f null` runs per backend + `framemd5` of 60 downloaded P010 frames vs
+  software decode).
 
 ## Open problems
 
@@ -76,4 +91,17 @@ All of `FORK-PLAN.md` §1 and §1a (owner's). Agent decisions so far, all logged
 
 ## Exact next step
 
-(Updated at the end of the session.)
+Phase 2 acceptance work (zero-copy decode → display is done and committed; see §7):
+1. `xm5-multicut` drops ~24/360 at cuts: the next clip must be decoded from its keyframe to the
+   cut point before the playhead arrives; look at how `FrameServer::schedule_playback` prefetches
+   across a cut and give the next clip's first frame enough lead (GPU decode is cheap: ~24 ms per
+   picture, up to 29 pictures from the keyframe).
+2. `xm5-scrub` p95 must be ≤ 1.5× the time to decode one GOP (≈ 30 pictures at 41 fps ≈ 0.73 s →
+   p95 ≤ 1.1 s; now 1.54 s).
+3. Fallback with the hardware path pulled (Settings Off; `FILMCRAFT_VAAPI_DEVICE=/dev/null`; libva
+   missing) and a mid-stream failure (`NativeVaDecoder::fail_after`) → ffmpeg pipe → software.
+4. 2-hour playback soak without VRAM/RAM growth (control channel or bench loop).
+5. Full `xm5` suite (Phase 2 acceptance is a full-suite phase), `cargo xtask ci`, then the Phase 2
+   build (tag phase-2, `~/Apps/filmcraft-builds/phase-2`, NOTES.md, latest symlink).
+Useful: bench prints `VA surfaces` and `cache VRAM`; `FILMCRAFT_VRAM_CACHE_MB` overrides the VRAM
+budget; `FILMCRAFT_NO_GPU_IMPORT` disables the Vulkan import (read-back path).

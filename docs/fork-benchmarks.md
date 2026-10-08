@@ -135,3 +135,44 @@ The ffmpeg pipe ceiling (§1a.5 of the plan): ffmpeg itself delivers 6.2K P010 a
 download and write are serial). FilmCraft's decoder now reaches 18–20 fps, 80–90 % of that, so
 playback still cannot reach 29.97 fps on this path and shows nothing (the scheduler issue, Phase
 3). The CPU and memory wins carry over; real-time 6.2K is Phase 2's job (no pipe, no download).
+
+## Phase 2: in-process VA-API, frames stay on the GPU (synthetic, full suite)
+
+Commit `55c3942`, binary `target/fork-bench/bench-phase2`, `bench --section xm5` (full),
+2026-10-08, load 2–5 during playback cases (12–13 during the CPU-bound graded export). Decode
+path: libva in process (`crates/platform/src/va_hevc.rs`), each decoded VA surface exported as
+DMA-BUF and imported into the wgpu Vulkan device (`crates/gpu/src/interop.rs`), drawn in place.
+**Synthetic.** Ceilings unchanged (43.2 / 34.1 / 29.8 / 19.5 fps).
+
+| scenario | Phase 0 | Phase 1 (quick) | **Phase 2** | CPU ms/frame P0 → P2 | VRAM / RSS peak (P2) |
+|---|---|---|---|---|---|
+| decode (media stack) | 16.2 fps | 17.7–20.1 fps | **40.9 fps (95 % of ceiling)** | 84.0 → **1.2** | 3.0 GB / 0.1 GB |
+| `xm5-play-full` 60 s | 0 / 1798 | 0 shown | **1798 / 0** | 45.8 → **1.8** | 6.5 GB / 0.2 GB |
+| `xm5-jkl` L 2× | 0 / 597 | 0 | 50 / 549 | 13.1 → 1.2 | 7.5 GB |
+| `xm5-jkl` L 4× | 0 / 600 | 0 | 1 / 599 | 2.3 → 1.3 | |
+| `xm5-jkl` J 1× | 0 / 300 | 0 | 160 / 141 | 13.6 → 2.2 | 8.5 GB |
+| `xm5-jkl` J 2× | 8 / 583 | 0 | 136 / 426 | 16.9 → 1.3 | |
+| `xm5-play-graded` | 0 / 1798 | – | 0 / 1798 (Lumetri on the CPU: Phase 4) | 45.5 → 218.3 | 7.6 GB / 2.5 GB |
+| `xm5-scrub` 50 seeks | p50 1778 / p95 2722 ms | (quick) | **p50 358 / p95 743 ms** | | 7.1 GB / 0.9 GB |
+| `xm5-multicut` 60 s | 0 / 1780 | 0 | 1477 / 303 (drops right after cuts: Phase 3.1) | 42.1 → 2.0 | 10.7 GB / 0.7 GB |
+| `xm5-export-4k` | 5.1 fps | – | 5.2 fps (CPU render: Phases 4–5) | | 6.9 GB RSS |
+| `xm5-export-4k` graded | 0.7 fps | – | 0.8 fps | | 18.1 GB RSS (was 23.0) |
+| `xm5-export-6k` | 3.9 fps | – | 4.0 fps | | 9.5 GB RSS |
+| `xm5-422-play` | placeholder frames | – | placeholder frames (Phase 6) | | |
+
+Graded playback costs more CPU per frame than at baseline because frames now arrive and are
+graded on the CPU (Lumetri) instead of being dropped before decoding; it still shows nothing.
+**Soak:** 120 min, 214 314 shown / 3 dropped, RSS 187–227 MB without a trend, VRAM flat after
+warm-up (FORK-PLAN §7). **Fallback:** in-process → ffmpeg pipe → software tested; VA-API
+pulled → software (13.7 fps); Vulkan import off → read-back path (240/0, quick).
+
+### Phase 2 acceptance (synthetic)
+
+| check | result |
+|---|---|
+| decode throughput ≥ 90 % of the "frames stay on GPU" ceiling | **95 %** (40.9 / 43.2 fps) ✓ |
+| `xm5-play-full` drops nothing with CPU ms/frame < 3 | **1798 / 0, 1.8 ms** ✓ |
+| `xm5-multicut` drops nothing | ✗ 303 / 1780, all right after cuts (VCN headroom 41 vs 30 fps; deferred to Phase 3.1 decode-ahead scheduling) |
+| `xm5-scrub` p95 ≤ 1.5 × one-GOP decode (≈ 30 / 41 fps = 0.73 s → 1.1 s) | **743 ms** ✓ |
+| 2-hour soak: no VRAM / RAM growth | ✓ |
+| hardware path pulled → clean fallback | ✓ (Settings Off, device pulled, mid-stream failure, import off) |

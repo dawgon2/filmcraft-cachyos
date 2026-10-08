@@ -29,6 +29,14 @@ pub mod ffmpeg;
 pub mod hevc_export;
 pub mod hybrid;
 #[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+pub mod va;
+#[cfg(target_os = "linux")]
+pub mod va_hevc;
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+mod va_sys;
+#[cfg(target_os = "linux")]
 pub mod vaapi;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
@@ -58,14 +66,21 @@ pub fn register() -> Availability {
     {
         // H.265 / HEVC export (VA-API or libx265), independent of hardware decoding
         hevc_export::register();
-        if ffmpeg::ffmpeg().is_none() {
-            return Availability::Unavailable("ffmpeg is not installed");
+        // in-process VA-API (HEVC) first, the ffmpeg pipe (H.264 / HEVC) behind it
+        let native = va::Display::get();
+        let pipe = ffmpeg::ffmpeg().is_some() && ffmpeg::vaapi_device().is_some();
+        if let Err(e) = &native {
+            log::info!("in-process VA-API unavailable: {e}");
         }
-        if ffmpeg::vaapi_device().is_none() {
-            return Availability::Unavailable("no VA-API device (ffmpeg cannot open one)");
+        if native.is_err() && !pipe {
+            return Availability::Unavailable("no VA-API (libva) and no ffmpeg with a VA-API device");
         }
         filmcraft_codecs::register_video_decoder(vaapi_factory);
-        Availability::Available("VA-API (ffmpeg)")
+        Availability::Available(match (native.is_ok(), pipe) {
+            (true, true) => "VA-API (in process, ffmpeg fallback)",
+            (true, false) => "VA-API (in process)",
+            _ => "VA-API (ffmpeg)",
+        })
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
@@ -98,7 +113,9 @@ pub fn hardware_decoder_for(entry: &filmcraft_isobmff::SampleEntry) -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        filmcraft_codecs::hw::NalStreamInfo::from_entry(entry).and_then(|r| r.ok()).is_some_and(|info| vaapi::VaapiDecoder::new(info).is_ok())
+        filmcraft_codecs::hw::NalStreamInfo::from_entry(entry)
+            .and_then(|r| r.ok())
+            .is_some_and(|info| va_hevc::NativeVaDecoder::new(info.clone()).is_ok() || vaapi::VaapiDecoder::new(info).is_ok())
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
@@ -125,16 +142,38 @@ pub fn videotoolbox_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<fi
     }
 }
 
-/// The VA-API factory: a [`HybridDecoder`] around [`vaapi::VaapiDecoder`] for `avcC` / `hvcC`
-/// streams VA-API can decode, `None` otherwise (and while Hardware decoding is Off).
+/// The VA-API factory: a [`HybridDecoder`] around the in-process decoder
+/// ([`va_hevc::NativeVaDecoder`], HEVC, frames left on the GPU) with the ffmpeg pipe
+/// ([`vaapi::VaapiDecoder`]) behind it, or the pipe alone for streams the in-process path does not
+/// take (H.264); `None` when neither takes the stream (and while Hardware decoding is Off).
 #[cfg(target_os = "linux")]
 pub fn vaapi_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft_codecs::Result<Box<dyn filmcraft_codecs::VideoDecoder>>> {
     if !filmcraft_codecs::hw::hardware_decoding() {
         return None;
     }
     let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(entry)?.ok()?;
-    match vaapi::VaapiDecoder::new(info.clone()) {
-        Ok(d) => Some(Ok(Box::new(HybridDecoder::new(Box::new(d), entry.clone(), info)))),
+    let pipe = |info: filmcraft_codecs::hw::NalStreamInfo| -> Result<Box<dyn filmcraft_codecs::VideoDecoder>, String> {
+        if ffmpeg::ffmpeg().is_none() {
+            return Err("ffmpeg is not installed".into());
+        }
+        vaapi::VaapiDecoder::new(info).map(|d| Box::new(d) as Box<dyn filmcraft_codecs::VideoDecoder>)
+    };
+    let primary: Result<Box<dyn filmcraft_codecs::VideoDecoder>, String> = match va_hevc::NativeVaDecoder::new(info.clone()) {
+        Ok(d) => Ok(Box::new(d)),
+        Err(why) => {
+            log::info!("in-process VA-API declined {} video: {why}", entry.codec.name());
+            pipe(info.clone())
+        }
+    };
+    match primary {
+        Ok(d) => {
+            let native = d.name() == va_hevc::NAME;
+            let mut h = HybridDecoder::new(d, entry.clone(), info.clone());
+            if native {
+                h = h.with_fallback(Box::new(move || pipe(info)));
+            }
+            Some(Ok(Box::new(h)))
+        }
         Err(why) => {
             log::info!("hardware decoding declined for {} video: {why}", entry.codec.name());
             filmcraft_codecs::hw::note_hw_declined();

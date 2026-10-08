@@ -49,7 +49,7 @@ fn vendor(node: &str) -> Option<u32> {
 }
 
 /// Render nodes in preference order: discrete GPUs first (AMD, NVIDIA, others), Intel last.
-fn render_nodes() -> Vec<String> {
+pub(crate) fn render_nodes() -> Vec<String> {
     let mut nodes: Vec<String> = std::fs::read_dir("/dev/dri")
         .map(|d| {
             d.filter_map(|e| e.ok())

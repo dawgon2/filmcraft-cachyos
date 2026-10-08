@@ -34,7 +34,10 @@ use std::sync::{Arc, RwLock};
 pub use apv::ApvSource;
 pub use audio::AudioFileSource;
 pub use gop::{FRAME_BUDGET, GopStats, cached_bytes, gop_stats, live_decoders};
-pub use gop::{auto_limits, configure as configure_decode_cache, installed_ram, limits as decode_cache_limits};
+pub use gop::{
+    auto_limits, auto_vram_budget, configure as configure_decode_cache, configure_vram, installed_ram, installed_vram, limits as decode_cache_limits,
+    vram_usage,
+};
 pub use mkv::MkvSource;
 pub use mp4::Mp4Source;
 pub use mpeg::MpegSource;

@@ -37,6 +37,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["std", "time"] }
 
+# blocking adapter / device requests when FilmCraft creates the wgpu device (Linux interop)
+[target.'cfg(target_os = "linux")'.dependencies]
+pollster = "0.4"
+
 [dev-dependencies]
 pollster = "0.4"
 filmcraft-codecs = { workspace = true }
@@ -44,4 +48,5 @@ filmcraft-codecs = { workspace = true }
 # itself stays OS-independent and web-portable)
 filmcraft-platform = { workspace = true }
 filmcraft-interchange = { workspace = true }
+filmcraft-isobmff = { workspace = true }
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }

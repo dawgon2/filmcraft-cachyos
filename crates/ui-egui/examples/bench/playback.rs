@@ -134,8 +134,14 @@ impl Display {
             }
             adapter
                 .and_then(|a| {
-                    // the features the app's device gets (`wgpu_configuration`)
-                    let desc = eframe::wgpu::DeviceDescriptor { required_features: a.features() & filmcraft_gpu::wanted_features(), ..Default::default() };
+                    // the device the app gets (`wgpu_configuration`): with DMA-BUF import on Linux
+                    let desc = filmcraft_ui_egui::device_descriptor(&a);
+                    #[cfg(target_os = "linux")]
+                    if std::env::var_os("FILMCRAFT_NO_GPU_IMPORT").is_none()
+                        && let Some(Ok(d)) = filmcraft_gpu::interop::create_device(&a, &desc)
+                    {
+                        return Some(d);
+                    }
                     pollster::block_on(a.request_device(&desc)).ok()
                 })
                 .map(|(d, q)| {
@@ -364,6 +370,15 @@ impl Bench {
                     rep.on_time += 1;
                     rep.slack.push(ms(*due - r.finished));
                 } else {
+                    if std::env::var_os("FILMCRAFT_BENCH_TRACE").is_some() {
+                        eprintln!(
+                            "late frame {f}: {:.0} ms after due (queued {:.0} ms before due, service {:.0} ms, source {:.0} ms)",
+                            ms(r.finished - *due),
+                            ms(due.saturating_duration_since(r.queued)),
+                            ms(r.finished - r.started),
+                            ms(r.source_wall)
+                        );
+                    }
                     rep.slack.push(-ms(r.finished - *due));
                 }
             }

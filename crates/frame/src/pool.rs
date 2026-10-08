@@ -115,6 +115,8 @@ pub fn recycle(frame: Arc<VideoFrame>) {
         PixelData::Yuv8 { planes, alpha, .. } => planes.into_iter().chain(alpha).for_each(|p| give(&U8, p)),
         PixelData::Yuv16 { planes, alpha, .. } => planes.into_iter().chain(alpha).for_each(|p| give(&U16, p)),
         PixelData::Yuv16Bi { y, uv, .. } => [y, uv].into_iter().for_each(|p| give(&U16, p)),
+        // GPU memory goes back to its decoder when dropped
+        PixelData::Gpu(_) => {}
     }
 }
 

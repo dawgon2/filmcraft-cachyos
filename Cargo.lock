@@ -1932,6 +1932,7 @@ version = "0.2.1"
 dependencies = [
  "filmcraft-color",
  "filmcraft-time",
+ "log",
  "rayon",
  "serde",
 ]
@@ -1965,6 +1966,7 @@ dependencies = [
 name = "filmcraft-gpu"
 version = "0.2.1"
 dependencies = [
+ "ash",
  "bytemuck",
  "filmcraft-color",
  "filmcraft-frame",
@@ -2111,6 +2113,7 @@ dependencies = [
  "filmcraft-media",
  "filmcraft-testkit",
  "filmcraft-time",
+ "libloading",
  "log",
  "objc2-core-foundation",
  "objc2-core-media",
@@ -2232,6 +2235,7 @@ dependencies = [
  "filmcraft-geom",
  "filmcraft-gpu",
  "filmcraft-interchange",
+ "filmcraft-isobmff",
  "filmcraft-media",
  "filmcraft-platform",
  "filmcraft-project",

@@ -28,6 +28,9 @@ pub fn decode_json() -> Value {
         "cacheBudgetMB": filmcraft_codecs::decode_cache_limits().0 as f64 / 1e6,
         // live decoders idle sources are trimmed to (Auto: from the installed RAM)
         "maxLiveDecoders": filmcraft_codecs::decode_cache_limits().1,
+        // decoded frames held in GPU memory (hardware decoders' surfaces) and their budget
+        "vramMB": filmcraft_codecs::vram_usage().0 as f64 / 1e6,
+        "vramBudgetMB": filmcraft_codecs::vram_usage().1 as f64 / 1e6,
         // plane buffers of evicted frames waiting for the next decoded pictures, and how many
         // planes were decoded into a recycled buffer
         "planePoolMB": filmcraft_frame::pool::stats().idle_bytes as f64 / 1e6,
@@ -38,6 +41,9 @@ pub fn decode_json() -> Value {
         // Settings ▸ Playback ▸ Hardware decoding: pictures from OS hardware decoders vs ours,
         // hardware decoders created, streams handed to software up front, mid-stream fallbacks.
         "hardware": {
+            // streams started per hardware backend, and why the last one gave a stream up
+            "backends": filmcraft_codecs::hw::backend_stats().0.into_iter().map(|(k, v)| (k, json!(v))).collect::<serde_json::Map<String, Value>>(),
+            "lastFallback": filmcraft_codecs::hw::backend_stats().1,
             "enabled": filmcraft_codecs::hw::hardware_decoding(),
             "frames": hw.frames,
             "softwareFrames": g.frames.saturating_sub(hw.frames),

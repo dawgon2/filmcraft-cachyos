@@ -265,9 +265,17 @@ pub fn gpu_compositor_unsupported(adapter: &eframe::wgpu::Adapter) -> Option<Str
 
 /// The wgpu setup for the app window: eframe's defaults plus the device features the GPU
 /// compositor uses when the adapter has them (16-bit normalized textures: 10-bit video uploads
-/// without a CPU conversion). Pass as `NativeOptions::wgpu_options`.
+/// without a CPU conversion). On Linux with Vulkan, FilmCraft creates the device itself with
+/// DMA-BUF import, so hardware-decoded frames are drawn where the decoder wrote them
+/// (`filmcraft_gpu::interop`, docs/adr/0002-linux-video-interop.md); if that fails, eframe's own
+/// device setup is used. Pass as `NativeOptions::wgpu_options`.
 pub fn wgpu_configuration() -> eframe::egui_wgpu::WgpuConfiguration {
     let mut c = eframe::egui_wgpu::WgpuConfiguration::default();
+    #[cfg(target_os = "linux")]
+    if let Some(existing) = interop_setup() {
+        c.wgpu_setup = eframe::egui_wgpu::WgpuSetup::Existing(existing);
+        return c;
+    }
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup {
         let base = n.device_descriptor.clone();
         n.device_descriptor = std::sync::Arc::new(move |adapter| {
@@ -277,6 +285,45 @@ pub fn wgpu_configuration() -> eframe::egui_wgpu::WgpuConfiguration {
         });
     }
     c
+}
+
+/// The device descriptor eframe would use on `adapter`, plus the compositor's features.
+pub fn device_descriptor(adapter: &eframe::wgpu::Adapter) -> eframe::wgpu::DeviceDescriptor<'static> {
+    eframe::wgpu::DeviceDescriptor {
+        label: Some("filmcraft device"),
+        required_features: adapter.features() & filmcraft_gpu::wanted_features(),
+        // as egui-wgpu: textures large enough for 4K+ surfaces
+        required_limits: eframe::wgpu::Limits { max_texture_dimension_2d: 8192, ..eframe::wgpu::Limits::default() },
+        ..Default::default()
+    }
+}
+
+/// A Vulkan instance, the high-performance adapter and a device with DMA-BUF import (Linux).
+#[cfg(target_os = "linux")]
+fn interop_setup() -> Option<eframe::egui_wgpu::WgpuSetupExisting> {
+    use eframe::wgpu;
+    if std::env::var_os("FILMCRAFT_NO_GPU_IMPORT").is_some() {
+        return None;
+    }
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        flags: wgpu::InstanceFlags::from_build_config().with_env(),
+        backend_options: wgpu::BackendOptions::from_env_or_default(),
+        memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+        display: None,
+    });
+    let power = wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance);
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: power, ..Default::default() })).ok()?;
+    match filmcraft_gpu::interop::create_device(&adapter, &device_descriptor(&adapter))? {
+        Ok((device, queue)) => {
+            log::info!("GPU: {} with DMA-BUF import (hardware-decoded frames drawn in place)", adapter.get_info().name);
+            Some(eframe::egui_wgpu::WgpuSetupExisting { instance, adapter, device, queue })
+        }
+        Err(e) => {
+            log::warn!("GPU device with DMA-BUF import failed ({e}); using the default device");
+            None
+        }
+    }
 }
 
 impl FilmcraftApp {

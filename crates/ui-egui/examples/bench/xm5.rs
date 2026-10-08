@@ -307,15 +307,22 @@ fn play_row(name: &str, r: &PlayReport, fps: f64, smp: &Sampled, adapter: &str) 
     v["cores_needed"] = json!(r.process_cpu / frames * fps / 1000.0);
     v["hw_frames"] = json!(filmcraft_codecs::hw::hw_stats().frames);
     v["sampled"] = smp.json();
+    #[cfg(target_os = "linux")]
+    {
+        v["va_surfaces"] = json!(filmcraft_platform::va::live_surfaces());
+    }
+    v["decode_vram_mb"] = json!(filmcraft_codecs::vram_usage().0 as f64 / 1e6);
     v["load"] = json!(r.load);
     eprintln!(
-        "xm5 {name}: {}/{} shown/dropped, CPU {:.1} ms/frame, GPU {:.0} %, VRAM {:.0} MB, RSS {:.0} MB (load {})",
+        "xm5 {name}: {}/{} shown/dropped, CPU {:.1} ms/frame, GPU {:.0} %, VRAM {:.0} MB, RSS {:.0} MB, VA surfaces {}, cache VRAM {:.0} MB (load {})",
         r.shown,
         r.dropped,
         r.process_cpu / frames,
         smp.gpu_busy_mean,
         smp.vram_max_mb,
         smp.rss_max_mb,
+        v["va_surfaces"],
+        filmcraft_codecs::vram_usage().0 as f64 / 1e6,
         r.load
     );
     v
@@ -385,6 +392,10 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
     }
     if o.wants("export") {
         rows.extend(export(o));
+    }
+    // only when asked for by name: hours long
+    if o.only.as_deref().is_some_and(|x| x.contains("soak")) {
+        rows.extend(soak(o));
     }
     if o.wants("422-play") {
         let mut s = Session::default();
@@ -598,4 +609,47 @@ fn export(o: &Opts) -> Vec<Value> {
     }
     let _ = std::fs::remove_dir_all(&dir);
     rows
+}
+
+// ------------------------------------------------------------------------------------ soak
+
+/// Play the 6.2K sequence in a loop for `FILMCRAFT_SOAK_MINUTES` (default 120) and sample memory
+/// every minute: RSS, GPU memory in use, the decode cache's GPU memory and live VA surfaces must
+/// not grow (FORK-PLAN Phase 2 acceptance).
+fn soak(o: &Opts) -> Vec<Value> {
+    let minutes: u64 = std::env::var("FILMCRAFT_SOAK_MINUTES").ok().and_then(|v| v.parse().ok()).unwrap_or(120);
+    let mut s = Session::default();
+    let Some(a) = import(&mut s, PLAY) else { return Vec::new() };
+    let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, 60.0)], true);
+    let bench = new_bench(&s, 55.0);
+    let mut display = Display::new(o.gpu);
+    let dev = amd_gpu_sysfs();
+    let vram = || dev.as_ref().and_then(|d| read_num(&d.join("mem_info_vram_used"))).unwrap_or(0.0) / 1e6;
+    let t0 = Instant::now();
+    let mut samples = Vec::new();
+    let (mut shown, mut dropped, mut plays) = (0u64, 0u64, 0u64);
+    while t0.elapsed() < Duration::from_secs(minutes * 60) {
+        let r = bench.play(&s, seq, &mut display, 1.0, Tick::ZERO, "soak");
+        shown += r.shown;
+        dropped += r.dropped;
+        plays += 1;
+        #[cfg(target_os = "linux")]
+        let surfaces = filmcraft_platform::va::live_surfaces();
+        #[cfg(not(target_os = "linux"))]
+        let surfaces = 0;
+        let row = json!({
+            "minute": t0.elapsed().as_secs_f64() / 60.0, "rss_mb": rss_bytes().unwrap_or(0.0) / 1e6, "vram_mb": vram(),
+            "cache_vram_mb": filmcraft_codecs::vram_usage().0 as f64 / 1e6, "va_surfaces": surfaces, "shown": r.shown, "dropped": r.dropped,
+        });
+        eprintln!("soak {row}");
+        samples.push(row);
+    }
+    let first = samples.first().cloned().unwrap_or_default();
+    let last = samples.last().cloned().unwrap_or_default();
+    let grow = |k: &str| last[k].as_f64().unwrap_or(0.0) - first[k].as_f64().unwrap_or(0.0);
+    vec![json!({
+        "case": "xm5-soak", "minutes": minutes, "plays": plays, "shown": shown, "dropped": dropped,
+        "rss_growth_mb": grow("rss_mb"), "vram_growth_mb": grow("vram_mb"), "cache_vram_growth_mb": grow("cache_vram_mb"),
+        "va_surfaces_growth": grow("va_surfaces"), "samples": samples, "load": load_avg(),
+    })]
 }

@@ -51,12 +51,13 @@ These came from the owner during the first session and bind every later session.
    - VA-API is the primary backend **unless** Vulkan Video is at least 20 % faster **and** its
      decoded frames match VA-API's (checksums or PSNR on the same frames); then Vulkan Video is
      primary. Record numbers and decision in `docs/adr/0002-linux-video-interop.md` and §7.
-   - Implement **both**: the primary first, passing Phase 2's acceptance checks; then the other
-     as backup behind the same backend interface. Fallback order: primary → backup → ffmpeg pipe
-     → built-in software decoder. If the primary fails to start or errors mid-stream, switch to
-     the backup automatically and log why.
-   - Settings choice **Auto / VA-API / Vulkan Video** to force either; `perf.stats` shows the
-     active backend. The same structure for encoding in Phase 5.
+   - **(changed 2026-10-08)** Implement **only the primary** in Phase 2 (decode) and Phase 5
+     (encode), behind a backend interface that lets the other be added later without a rewrite.
+     Fallback for now: primary → ffmpeg pipe → built-in software decoder (encode: primary →
+     ffmpeg `hevc_vaapi` → ffmpeg `libx265`). If the primary fails to start or errors mid-stream,
+     fall back automatically and log why. `perf.stats` shows the active backend.
+   - The other backend, the Settings choice **Auto / VA-API / Vulkan Video**, and backup
+     switching between the two are **Phase 8** (below).
    - Design the backend interface so NVIDIA NVDEC/NVENC can be added later (owner's RTX 4050
      laptop); do **not** implement NVIDIA backends here (this machine cannot test them).
 5. **Pipe ceiling (Phase 1).** The owner referred to a "pipe-ceiling rule for Phase 1" whose text
@@ -249,7 +250,8 @@ pulling the hardware path (Settings Off, or `vainfo` broken) falls back cleanly.
    if cpal's ALSA host is the problem.
 
 **Accept:** `xm5-jkl`: 1× and 2× forward and 1× reverse drop nothing; 4× shows a steady
-picture with no audio glitches or UI freezes; audio underruns = 0 over 10 minutes.
+picture with no audio glitches or UI freezes; audio underruns = 0 over 10 minutes. (Added when closing Phase 2:) `xm5-multicut` drops nothing (cuts between 6.2K clips
+entered mid-GOP: schedule the next clip's catch-up into the decoder's spare capacity).
 
 ### Phase 4: The colour pipeline on the GPU
 
@@ -331,6 +333,24 @@ drops nothing; export from 4:2:2 originals works and matches the source chroma.
 **Accept:** the soak test passes; all §4 scenarios are documented in `docs/fork-benchmarks.md`
 with Phase 0 vs final numbers.
 
+### Phase 8: backup hardware backends (added by the owner, 2026-10-08)
+
+Implement the hardware backend that the Phase 2 ffmpeg comparison did **not** choose (Vulkan
+Video or VA-API), for decode and encode, behind the same backend interface as the primary:
+1. Decode: the backup backend with the same `PixelData` GPU frames, reordering, seek and
+   fallback behaviour as the primary.
+2. Encode: the backup hardware encoder behind the Phase 5 encoder interface.
+3. Fallback order: primary → backup → ffmpeg pipe → built-in software (encode: primary → backup
+   → ffmpeg `hevc_vaapi` → `libx265`). If the primary fails to start or errors mid-stream,
+   switch to the backup automatically and log why.
+4. Settings choice **Auto / VA-API / Vulkan Video** (decode and encode) to force either one;
+   `perf.stats` reports the active backend.
+5. Keep the interface ready for NVIDIA NVDEC/NVENC; don't implement them.
+
+**Accept:** forcing each backend in Settings plays `xm5-play-full` and exports `xm5-export-4k`;
+breaking the primary (e.g. a test hook or `FILMCRAFT_VAAPI_DEVICE=/dev/null`) falls back to the
+backup mid-stream without a visible stall; parity tests between the two backends pass.
+
 ## 6. Comparing with Resolve (optional, owner-run)
 
 Resolve isn't available inside this environment. If the owner has Resolve Studio on Windows on this
@@ -400,11 +420,108 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   re-zeroing a recycled 78 MB plane. Pipe size experiment: 64 KiB vs 1 MiB pipe made no difference
   (22.2 vs 21.8 fps): the cap is ffmpeg's serial download + write, not the pipe.
 - **Phase 1.4 (done):** decode cache from installed RAM (`gop::auto_limits`: RAM/5 in 1–16 GiB →
-  6.4 GB here; live decoders RAM/8 GiB in 2–8 → 4), per-cache floor 24–64 frames by frame size
+  6.4 GB here; live decoders RAM/8 GiB in 2–8 → 3: 31.1 GiB reported), per-cache floor 24–64 frames by frame size
   (was 64 always: ≈ 5 GB per 6.2K clip in use), Settings ▸ Memory ▸ "Decoded source frames
   (0 = Auto)" (`memory.decodeCacheMb`), `perf.stats` `cacheBudgetMB` + `maxLiveDecoders`.
 - **Phase 1 acceptance (synthetic, quick pass):** CPU ms/frame −59 % in play-full (45.8 → 18.9),
   −66 % in decode (84 → 26–29) ✓ (≥ 40 %); parity tests ✓; "play-full drops nothing" ✗ on this
   path: decode 18–20 fps vs the 22 fps pipe ceiling (§1a.5, accepted on that basis; real time is
   Phase 2). RSS in play-full 5.5 → 2.2 GB.
+- **Phase 1 committed (`bc2771c`, tag `phase-1`).** Build ready: `~/Apps/filmcraft-builds/phase-1/`
+  (`filmcraft`, `filmcraft-cli`, `NOTES.md`), `latest` → phase-1, launcher
+  `~/.local/share/applications/filmcraft-fork.desktop` ("FilmCraft (fork)", icon, StartupWMClass;
+  `desktop-file-validate` clean). Smoke test: starts, UI 60 fps, perf.stats decode budget 6.7 GB,
+  3 live decoders (Auto), quits cleanly. `../craft-fonts` is not cloned, so the build has no
+  Japanese UI font (as upstream without `CRAFT_FONTS_DIR`).
+- **Owner change (2026-10-08):** only the primary hardware backend in Phases 2 and 5; the other one,
+  the Settings choice and backup switching moved to the new **Phase 8** (§5). §1a.4 updated.
+- **Phase 2.1 (done, synthetic):** ffmpeg comparison on `xm5_420_2997_60s.mov`, frames on the
+  GPU, `-f null`, 3 runs: VA-API 43.2 / 43.2 / 43.2 fps, Vulkan Video 40.9 / 40.8 / 41.1 fps
+  (5 % slower); framemd5 of 60 downloaded frames: VA-API = Vulkan = software 60/60. Rule (§1a.4):
+  Vulkan is not ≥ 20 % faster → **VA-API is the primary backend** (route B: libva + DMA-BUF
+  import). ADR 0002 written (libva loaded at run time via bindgen `--dynamic-loading` + `libloading`,
+  parameters from `crates/hevc`, GPU-resident `PixelData`, interop in `crates/gpu/src/interop.rs`,
+  backend list ready for Vulkan Video (Phase 8) and NVDEC). Tool: `bindgen-cli` 0.73.2 installed
+  in `~/.cargo/bin` (user-level) to generate the committed bindings.
+- **Phase 2.2a-1 (done):** `filmcraft_hevc::accel`: `AccelDecoder<A: Accelerator>` runs the
+  software decoder's bitstream side (parameter sets, RASL skipping, POC, RPS + missing refs, ref
+  lists, DPB bumping; `Dpb` / `RefPic` / `RefPicSet` / `build_ref_lists` made generic over the
+  picture type) and hands each picture to an `Accelerator` as an `AccelPicture` (refs with
+  St/Lt/Foll usage, slices as original NAL bytes + header + VA-style data offset / emulation
+  bytes, list indices). `tests/accel.rs`: output POC order identical to the software decoder on
+  all 39 conformance fixtures; conformance still bit-exact. Agent decision: intermediate steps run
+  fmt / clippy / tests of the touched crates and dependents + `layers` + `wasm`; the full
+  `cargo xtask ci` runs at every phase boundary (a full run is ~40 min).
+- **Phase 2.2a-2 (done):** in-process libva. `crates/platform/src/va_sys.rs` (bindgen 0.73.2,
+  dynamic loading, `--dynamic-link-require-all --with-derive-default`, no panicking paths),
+  `va.rs` (safe RAII wrapper: `Display` on the AMD node, `Config`, `Context`, `SurfacePool` /
+  `Surface` returned to the pool on drop, `Buffer`, read-back via vaGetImage), `va_hevc.rs`
+  (`VaHevc: Accelerator` filling VAPictureParameterBufferHEVC / VAIQMatrixBufferHEVC /
+  VASliceParameterBufferHEVC; `NativeVaDecoder: VideoDecoder`). **Bit-exact with ffmpeg's
+  reference on all 39 conformance fixtures** (`tests/va_native.rs`; Mesa wants scaling lists in
+  raster order of each 4×4 / 8×8 matrix, not the coded diagonal order the VA header suggests) and
+  with FilmCraft's software decoder on the synthetic 6.2K clip (27/27). Speed with a synchronous
+  read-back of every picture: **24.6 fps** at 6.2K (ffmpeg pipe: 18–20; synthetic). Not yet
+  registered in the media stack.
+- **Phase 2.2b + 2.3 + 2.4 (done, synthetic quick pass):** zero-copy decode → display.
+  `PixelData::Gpu(Arc<dyn GpuSurface>)` (frame crate: format, coded size, crop origin, DMA-BUF
+  export, fallible `download`, `liveness` token; CPU paths read back through `to_planar`).
+  `va.rs`: surfaces exported once as DRM PRIME (separate layers), each surface's memory has a
+  process-unique id + liveness (libva reuses surface ids), pools keep ≤ 4 spare surfaces and
+  destroy the rest. `crates/gpu/src/interop.rs` (only `unsafe` module of the gpu crate; crate lints
+  now `deny` + `undocumented_unsafe_blocks`, per ADR 0002): `create_device` (wgpu-hal
+  `open_with_callback` + `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`,
+  `VK_EXT_image_drm_format_modifier`), `Importer` (plane → `VkImage` with DRM modifier → wgpu
+  texture, cached, dropped when the surface dies). The app (`wgpu_configuration` →
+  `WgpuSetup::Existing`, opt-out `FILMCRAFT_NO_GPU_IMPORT`) and the bench use that device.
+  `tests/va_interop.rs` (ui-egui): drawn-in-place == read-back on every frame (Main and Main10).
+  Registered: in-process VA-API HEVC first, ffmpeg pipe as the next hardware decoder
+  (`HybridDecoder::with_fallback` chain), software last; `perf.stats` `decode.hardware.backends`
+  + `lastFallback`. VRAM accounting: GOP caches charge GPU frames their memory (`gpu_bytes`), a
+  VRAM budget (Auto = VRAM/4 = 3.2 GB here, Settings ▸ Memory ▸ "Decoded frames in GPU memory",
+  env `FILMCRAFT_VRAM_CACHE_MB`), and the monitor frame cache charges plans for GPU frames too
+  (it held unlimited surfaces before: 9.4 GB). Results (quick pass, synthetic): **decode 41.3 fps =
+  96 % of the 43.2 fps ceiling, 1.5 ms CPU/frame**; **play-full 240/0 shown/dropped, 2.1 ms
+  CPU/frame, 4.75 GB VRAM total, RSS 0.2 GB**; scrub p50 0.5 s / p95 1.5 s; multicut 346/13 (drops
+  at cuts; Phase 2 acceptance needs 0) at 11.0 GB VRAM peak; JKL L 2× and reverse still drop
+  (Phase 3). Decisions: per-clip floor stays 24 frames (16 doubled multicut drops: measured);
+  VRAM/4 not VRAM/2 (VRAM/2 exhausted the card with four 6.2K clips); the monitor frame cache
+  charges a GPU frame 16 MB (full 78 MB left room for ~9 plans, fewer than the prefetch window);
+  **dead end:** requesting the first frame after the next cut early (20–60 frames past the
+  prefetch window) made multicut much worse (274/86 – 145/215 vs 346/13 without), removed.
+- **Phase 2 checks (synthetic):** real app smoke test (control channel, 6.2K clip on a sequence):
+  in-process VA-API, 223/0 shown/dropped, UI 60 fps, Program monitor shows the picture. Fallback
+  chain test (`tests/vaapi.rs::in_process_failure_continues_on_the_pipe_then_in_software`):
+  in-process failing mid-stream → ffmpeg pipe → software, output identical to software decode;
+  **bug found and fixed:** after a hand-over to a second hardware decoder, pictures the first had
+  returned came out again (hardware output now goes through `merge`). Pulled hardware:
+  `FILMCRAFT_VAAPI_DEVICE=/dev/null` → software decode 13.7 fps, no crash; `FILMCRAFT_NO_GPU_IMPORT`
+  → read-back path 240/0. Scrub (50 seeks): **p50 410 ms, p95 710 ms** (target ≤ 1.5 × one-GOP
+  decode ≈ 1.1 s ✓; 19.7 pictures decoded per seek).
+- **Phase 2 soak (synthetic): passed.** `bench --section xm5 --only soak` (new case,
+  `FILMCRAFT_SOAK_MINUTES`), 120 min, 130 plays of 55 s: 214 314 shown / 3 dropped (builds ran
+  meanwhile), RSS 187–227 MB without a trend (+12 MB net), VRAM +252 MB in the first 2 minutes
+  (3 surfaces warming up) then flat, decode-cache VRAM flat, VA surfaces 67 → 70.
+- **Multicut analysis:** every remaining drop (13/360) is the first 1–3 frames after a cut
+  (`FILMCRAFT_BENCH_TRACE=1` lists late frames): the next clip is entered mid-GOP and needs up
+  to ~29 pictures of catch-up (~0.5 s), but VCN decodes 6.2K at ~41 fps against 30 fps of
+  playback, so only ~11 fps of spare capacity exist; requesting the next clip earlier (cut
+  prefetch, or a deeper prefetch window: 20 → 35 drops, 24 → 52–75) runs both decodes on the
+  one engine at once and makes things worse. A real fix schedules catch-up into spare capacity
+  (decode in priority order / decode-ahead): **deferred to Phase 3.1** (decision: Phase 2's
+  zero-copy goal is met; this is playback scheduling). Also tried without gain but kept (sound
+  on their own): hardware decoders have their own live cap (8; software keeps the RAM-based
+  cap), surface pools shared per format/size across decoders (4 pools, 8 spares).
+- **Bug found by the full suite and fixed:** a dropped `FrameServer` never stopped its worker
+  threads, which kept its caches (and the decoded frames / GPU surfaces in them) alive for the
+  life of the process. Harmless in the app (one server) but every bench play makes a new one, so
+  later cases in one process ran out of VRAM (VA surfaces 141 → 409, 12.5 GB) and the Phase 0
+  bench's RSS growth (5.4 → 10 GB) had the same cause. Drop now stops the workers and empties
+  the caches (`frames::tests::dropping_the_server_stops_its_workers`).
+- **Phase 2 acceptance (synthetic, full suite, `docs/fork-benchmarks.md` "Phase 2"):** decode
+  40.9 fps = 95 % of the ceiling ✓; play-full 1798/0 at 1.8 ms CPU/frame ✓; scrub p95 743 ms
+  (≤ 1.1 s) ✓; 2-hour soak ✓; fallback ✓; **multicut 1477/303 ✗** — all drops right after cuts
+  (see the analysis above). **Decision:** Phase 2 is closed with this exception, because its
+  goal (in-process zero-copy decode → display) is met and the cut drops are playback
+  scheduling; "`xm5-multicut` drops nothing" is added to Phase 3's acceptance.
 
