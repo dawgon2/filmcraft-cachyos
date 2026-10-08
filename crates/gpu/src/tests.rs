@@ -1,12 +1,88 @@
 use super::*;
+use filmcraft_frame::Chroma;
 use filmcraft_geom::{Affine, Vec2};
 use filmcraft_render::Blend;
 use filmcraft_render::plan::execute_cpu;
 
 fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
+    device_with(wanted_features())
+}
+
+/// A device with whichever of `features` the adapter has.
+fn device_with(features: wgpu::Features) -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
+    let desc = wgpu::DeviceDescriptor { required_features: adapter.features() & features, ..Default::default() };
+    pollster::block_on(adapter.request_device(&desc)).ok()
+}
+
+/// The upload paths to test: 16-bit normalized planes (when the adapter has them) and half floats.
+fn devices() -> Vec<(&'static str, wgpu::Device, wgpu::Queue)> {
+    let mut v = Vec::new();
+    if let Some((d, q)) = device_with(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+        && d.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+    {
+        v.push(("unorm16", d, q));
+    }
+    if let Some((d, q)) = device_with(wgpu::Features::empty()) {
+        v.push(("f16", d, q));
+    }
+    v
+}
+
+/// A 10-bit 4:2:0 or 4:2:2 picture, luma with ramps and fine detail, chroma flat (the GPU
+/// interpolates chroma and the CPU repeats it, so detailed chroma would not compare exactly), as planar
+/// [`PixelData::Yuv16`] and as the same samples MSB-aligned in [`PixelData::Yuv16Bi`] (P010 / P210).
+fn yuv10_pair(w: u32, h: u32, chroma: Chroma) -> (Arc<VideoFrame>, Arc<VideoFrame>) {
+    let (sx, sy) = chroma.shifts();
+    let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));
+    let y: Vec<u16> = (0..w * h).map(|i| (64 + ((i % w) * 876 / w + (i / w) * 3 + (i % 7) * 11) % 877) as u16).collect();
+    let u: Vec<u16> = vec![420; (cw * ch) as usize];
+    let v: Vec<u16> = vec![610; (cw * ch) as usize];
+    let uv: Vec<u16> = u.iter().zip(&v).flat_map(|(a, b)| [a << 6, b << 6]).collect();
+    let mk = |data| Arc::new(VideoFrame { width: w, height: h, data, color: filmcraft_color::ColorInfo::REC709, par: (1, 1), pts: Default::default() });
+    let bi = mk(PixelData::Yuv16Bi { y: Arc::new(y.iter().map(|c| c << 6).collect()), uv: Arc::new(uv), chroma, bits: 10 });
+    let planar = mk(PixelData::Yuv16 { planes: [Arc::new(y), Arc::new(u), Arc::new(v)], chroma, bits: 10, alpha: None });
+    (planar, bi)
+}
+
+/// A P010 / P210 frame draws exactly as the same samples in planar form, on both upload paths
+/// (16-bit normalized and half floats give the same result), and close to the CPU conversion
+/// (`to_linear_f32`, through `to_planar`).
+#[test]
+fn biplanar_and_16bit_uploads_match_the_cpu() {
+    let mut by_path: Vec<(&str, Chroma, Vec<f32>)> = Vec::new();
+    for (path, dev, q) in devices() {
+        for chroma in [Chroma::C420, Chroma::C422] {
+            let (w, h) = (66u32, 38u32);
+            let (planar, bi) = yuv10_pair(w, h, chroma);
+            let want = planar.to_linear_f32();
+            assert_eq!(bi.to_linear_f32(), want, "CPU: to_planar differs");
+            let mut c = GpuCompositor::new(&dev, &q);
+            let fx = filmcraft_render::plan::LayerFx { size: (w, h), decimation: 1, ops: Vec::new() };
+            let (_, _, from_planar) = c.effect_image(&planar, &fx).expect("effect image");
+            let (_, _, from_bi) = c.effect_image(&bi, &fx).expect("effect image");
+            let diff = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+            assert!(diff(&from_planar, &from_bi) < 1e-6, "{path} {chroma:?}: biplanar differs from planar");
+            let worst = diff(&want, &from_bi);
+            assert!(worst < 1e-3, "{path} {chroma:?}: max diff from the CPU {worst}");
+            if let Some((p, _, other)) = by_path.iter().find(|(p, c, _)| *p != path && *c == chroma) {
+                assert!(diff(other, &from_bi) < 1e-5, "{path} vs {p} {chroma:?}: upload paths differ");
+            }
+            by_path.push((path, chroma, from_bi));
+            // the prepared (worker-converted) upload draws the same as the inline one
+            let plan = FramePlan::Layers {
+                width: w as usize,
+                height: h as usize,
+                layers: vec![PlanLayer { frame: bi.clone(), matrix: Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None }],
+            };
+            c.composite(&plan);
+            let inline = c.read_output().expect("readback");
+            let mut b = GpuCompositor::new(&dev, &q);
+            b.composite_prepared(&plan, Some(&prepare(&plan)));
+            assert!(inline == b.read_output().expect("readback"), "{path}: prepared upload differs");
+        }
+    }
 }
 
 fn yuv_frame(w: u32, h: u32) -> Arc<VideoFrame> {
@@ -275,10 +351,12 @@ fn yuv_alpha_frame(w: u32, h: u32, bits: u32) -> Arc<VideoFrame> {
 /// the CPU compositor over an opaque background. (It used to draw such a layer opaque.)
 #[test]
 fn gpu_draws_yuv_alpha_plane_like_the_cpu() {
-    let Some((dev, q)) = device() else {
-        eprintln!("no GPU adapter; skipping");
-        return;
-    };
+    for (_, dev, q) in devices() {
+        draws_yuv_alpha_plane_like_the_cpu(&dev, &q);
+    }
+}
+
+fn draws_yuv_alpha_plane_like_the_cpu(dev: &wgpu::Device, q: &wgpu::Queue) {
     let (w, h) = (320usize, 180usize);
     let pixels = filmcraft_media::generators::render(
         &filmcraft_media::Generator::Demo(filmcraft_media::DemoScene::OceanSunset),
@@ -290,7 +368,7 @@ fn gpu_draws_yuv_alpha_plane_like_the_cpu() {
     );
     let background = Arc::new(VideoFrame::rgba8(320, 180, pixels));
     for bits in [8, 10, 12] {
-        let mut c = GpuCompositor::new(&dev, &q);
+        let mut c = GpuCompositor::new(dev, q);
         let plan = FramePlan::Layers {
             width: w,
             height: h,

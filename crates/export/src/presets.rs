@@ -46,6 +46,11 @@ fn h264(size: Option<(u32, u32)>, kbps: u32, max_kbps: u32) -> ExportSettings {
     }
 }
 
+/// H.265 / HEVC in MP4 (AAC audio), encoded by the system ffmpeg: VA-API, else libx265.
+fn hevc(size: Option<(u32, u32)>, kbps: u32, max_kbps: u32, bit_depth: u8) -> ExportSettings {
+    ExportSettings { format: Format::Hevc, hevc_bit_depth: bit_depth, ..h264(size, kbps, max_kbps) }
+}
+
 fn adaptive(bpp: f32) -> ExportSettings {
     ExportSettings { adaptive_bitrate: Some(bpp), max_bitrate_kbps: None, ..h264(None, 10_000, 0) }
 }
@@ -96,6 +101,7 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
     let ms = "Match Source";
     let web = "Web & Social";
     let bc = "Broadcast";
+    let hv = "H.265 / HEVC";
     let vertical = ExportSettings { scaling: Scaling::ScaleToFill, ..h264(Some((1080, 1920)), 12_000, 16_000) };
     vec![
         p(DEFAULT_PRESET, ms, "H.264 at the sequence's frame size and rate; bitrate adapts to the frame size (0.2 bits per pixel)", adaptive(0.2)),
@@ -118,6 +124,31 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
             ExportSettings { bitrate_mode: BitrateMode::Vbr2Pass, ..h264(Some((3840, 2160)), 50_000, 65_000) },
         ),
         p("Social Vertical 1080×1920", web, "H.264 9:16 portrait for short-form social video, scaled to fill, 12 Mbps", vertical),
+        p(
+            "H.265 / HEVC (MP4)",
+            hv,
+            "HEVC Main at the sequence's frame size and rate, VBR adapting to the frame size (0.1 bits per pixel), AAC 320 kbps; GPU (VA-API) when available, else x265",
+            ExportSettings { adaptive_bitrate: Some(0.1), max_bitrate_kbps: None, ..hevc(None, 10_000, 0, 8) },
+        ),
+        p(
+            "H.265 / HEVC (MP4) 10-bit",
+            hv,
+            "HEVC Main 10 at the sequence's frame size and rate, VBR 0.12 bits per pixel, AAC 320 kbps",
+            ExportSettings { adaptive_bitrate: Some(0.12), max_bitrate_kbps: None, ..hevc(None, 12_000, 0, 10) },
+        ),
+        p("H.265 / HEVC 2160p 4K", hv, "HEVC Main 3840×2160, VBR 40 Mbps target, 50 Mbps max, AAC 320 kbps", hevc(Some((3840, 2160)), 40_000, 50_000, 8)),
+        p(
+            "H.265 / HEVC 2160p 4K 10-bit",
+            hv,
+            "HEVC Main 10 3840×2160, VBR 50 Mbps target, 60 Mbps max, AAC 320 kbps",
+            hevc(Some((3840, 2160)), 50_000, 60_000, 10),
+        ),
+        p(
+            "H.265 / HEVC Constant Quality",
+            hv,
+            "HEVC Main at the sequence's frame size and rate, constant quality 22 (CRF with x265, QP with VA-API), AAC 320 kbps",
+            ExportSettings { crf: Some(22), ..hevc(None, 20_000, 30_000, 8) },
+        ),
         p("Apple ProRes 422 HQ", bc, "QuickTime, ProRes 422 HQ, 24-bit 48 kHz PCM", mov(Format::ProRes, "hq")),
         p("Apple ProRes 422", bc, "QuickTime, ProRes 422, 24-bit 48 kHz PCM", mov(Format::ProRes, "standard")),
         p("Apple ProRes 422 LT", bc, "QuickTime, ProRes 422 LT, 24-bit 48 kHz PCM", mov(Format::ProRes, "lt")),

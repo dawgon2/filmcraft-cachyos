@@ -84,13 +84,17 @@ fn assign_reassigns_conflicts_and_undoes() {
     // add a second shortcut, keep a conflict on purpose
     s.execute("shortcuts.set", json!({"command": "edit.undo", "keys": "Cmd+Z", "add": true})).unwrap();
     assert_eq!(s.shortcuts.for_command("edit.undo").iter().filter(|b| b.panel.is_none()).count(), 2);
+    // (`shortcuts.set` reports this platform's conflicts: the Linux / Windows keymap has some of
+    // its own where the Mac's Cmd and Ctrl bindings fold together, so count only the new one)
+    let before = s.shortcuts.conflicts(Platform::current()).len();
     let r = s.execute("shortcuts.set", json!({"command": "edit.redo", "keys": "M", "keepConflicts": true})).unwrap();
-    assert_eq!(r["conflicts"].as_array().unwrap().len(), 1, "{r}");
+    assert_eq!(r["conflicts"].as_array().unwrap().len(), before + 1, "{r}");
+    assert!(r["conflicts"].as_array().unwrap().iter().any(|c| c["keys"] == json!("M")), "{r}");
     let c = s.execute("shortcuts.conflicts", json!({"platform": "mac"})).unwrap();
     assert_eq!(c["conflicts"][0]["keys"], json!("M"));
     // undo / redo within the editor
     s.execute("shortcuts.undo", json!({})).unwrap();
-    assert!(s.execute("shortcuts.conflicts", json!({})).unwrap()["conflicts"].as_array().unwrap().is_empty());
+    assert!(s.execute("shortcuts.conflicts", json!({"platform": "mac"})).unwrap()["conflicts"].as_array().unwrap().is_empty());
     s.execute("shortcuts.undo", json!({})).unwrap();
     s.execute("shortcuts.undo", json!({})).unwrap();
     assert_eq!(s.shortcuts.primary("edit.undo").as_deref(), Some("Cmd+Z"));

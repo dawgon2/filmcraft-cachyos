@@ -34,7 +34,7 @@ use std::sync::Arc;
 use rayon::prelude::*;
 
 use filmcraft_color::{Matrix, Range, Transfer};
-use filmcraft_frame::{Chroma, PixelData, VideoFrame};
+use filmcraft_frame::{PixelData, VideoFrame};
 use filmcraft_render::Blend;
 use filmcraft_render::plan::{FramePlan, PlanLayer};
 
@@ -54,6 +54,8 @@ struct Uploaded {
     views: [wgpu::TextureView; 4],
     kind: u32,
     code_scale: f32,
+    /// Multiplier from a loaded Y'CbCr texel to its code (see [`SrcInfo::texel_scale`]).
+    texel_scale: f32,
     /// Multiplier from the alpha texture's sample to alpha 0..1; 0 when the frame has no alpha plane.
     alpha_scale: f32,
     chroma: (u32, u32),
@@ -85,6 +87,21 @@ pub struct GpuCompositor {
     fx: Option<fx::FxStage>,
     /// Total bytes uploaded (stats).
     pub uploaded_bytes: u64,
+    /// The device has `TEXTURE_FORMAT_16BIT_NORM`: 9–16-bit planes upload as they are
+    /// (`R16Unorm` / `Rg16Unorm`) instead of being converted to half floats on the CPU.
+    unorm16: bool,
+}
+
+/// Whether the last compositor made has 16-bit normalized textures: [`prepare`] (run on frame
+/// workers, away from the device) then leaves 9–16-bit planes alone. Only a hint for speed: a
+/// compositor ignores half-float planes it was handed when it uploads 16-bit ones as they are,
+/// and converts planes it was not handed.
+static UNORM16: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The device features a [`GpuCompositor`] uses when the adapter has them: request these when
+/// creating the device (`adapter.features() & filmcraft_gpu::wanted_features()`).
+pub fn wanted_features() -> wgpu::Features {
+    wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
 }
 
 fn tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -194,11 +211,19 @@ fn codes_to_f16_bytes(v: &[u16], bits: u32) -> Vec<u8> {
 
 /// Convert a frame's texels for upload (None when it uploads as it is).
 pub fn prepare_frame(f: &VideoFrame) -> Option<Prepared> {
+    prepare_frame_for(f, UNORM16.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// [`prepare_frame`] for a compositor with (`unorm16`) or without 16-bit normalized textures.
+fn prepare_frame_for(f: &VideoFrame, unorm16: bool) -> Option<Prepared> {
     match &f.data {
         PixelData::RgbaF32(d) => Some(Prepared { planes: vec![f32_to_f16_bytes(d)] }),
+        PixelData::Yuv16 { .. } | PixelData::Yuv16Bi { .. } if unorm16 => None,
         PixelData::Yuv16 { planes, bits, alpha, .. } => {
             Some(Prepared { planes: planes.iter().chain(alpha.as_ref()).map(|p| codes_to_f16_bytes(p, *bits)).collect() })
         }
+        // MSB-aligned samples: sample / 65536 = code / 2^bits, exact in a half float
+        PixelData::Yuv16Bi { y, uv, .. } => Some(Prepared { planes: vec![codes_to_f16_bytes(y, 16), codes_to_f16_bytes(uv, 16)] }),
         PixelData::Rgba8(_) | PixelData::Yuv8 { .. } => None,
     }
 }
@@ -213,6 +238,8 @@ pub fn prepare(plan: &FramePlan) -> PreparedPlan {
 
 impl GpuCompositor {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let unorm16 = device.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
+        UNORM16.store(unorm16, std::sync::atomic::Ordering::Relaxed);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("filmcraft-composite"),
             source: wgpu::ShaderSource::Wgsl(include_str!("composite.wgsl").into()),
@@ -342,6 +369,7 @@ impl GpuCompositor {
             dummy,
             fx,
             uploaded_bytes: 0,
+            unorm16,
         }
     }
 
@@ -399,6 +427,7 @@ impl GpuCompositor {
             PixelData::RgbaF32(d) => Arc::as_ptr(d) as *const u8 as usize,
             PixelData::Yuv8 { planes, .. } => Arc::as_ptr(&planes[0]) as *const u8 as usize,
             PixelData::Yuv16 { planes, .. } => Arc::as_ptr(&planes[0]) as *const u8 as usize,
+            PixelData::Yuv16Bi { y, .. } => Arc::as_ptr(y) as *const u8 as usize,
         };
         let key = (id, f.width, f.height);
         self.clock += 1;
@@ -416,6 +445,7 @@ impl GpuCompositor {
                     views: [v, dummy(), dummy(), dummy()],
                     kind: 0,
                     code_scale: 1.0,
+                    texel_scale: 1.0,
                     alpha_scale: 0.0,
                     chroma: (w, h),
                     last_used: self.clock,
@@ -436,6 +466,7 @@ impl GpuCompositor {
                     views: [v, dummy(), dummy(), dummy()],
                     kind: 1,
                     code_scale: 1.0,
+                    texel_scale: 1.0,
                     alpha_scale: 0.0,
                     chroma: (w, h),
                     last_used: self.clock,
@@ -453,7 +484,8 @@ impl GpuCompositor {
                 Uploaded {
                     views: [y, u, v, a.unwrap_or_else(dummy)],
                     kind: 2,
-                    code_scale: 255.0,
+                    code_scale: 256.0,
+                    texel_scale: 255.0,
                     alpha_scale,
                     chroma: (cw, ch),
                     last_used: self.clock,
@@ -463,27 +495,78 @@ impl GpuCompositor {
             PixelData::Yuv16 { planes, chroma, bits, alpha } => {
                 let (sx, sy) = chroma.shifts();
                 let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));
+                let bits = (*bits).clamp(1, 16);
                 let scale = (1u32 << bits) as f32;
-                let owned;
-                let p = match prep {
-                    Some(p) => p,
-                    None => {
-                        owned = Prepared { planes: planes.iter().chain(alpha.as_ref()).map(|p| codes_to_f16_bytes(p, *bits)).collect() };
-                        &owned
-                    }
+                // codes in the low bits: R16Unorm loads code / 65535, half floats code / 2^bits
+                let (views, a, texel_scale) = if self.unorm16 {
+                    let f = wgpu::TextureFormat::R16Unorm;
+                    let y = self.plane_texture(w, h, f, bytemuck::cast_slice(&planes[0]), 2);
+                    let u = self.plane_texture(cw, ch, f, bytemuck::cast_slice(&planes[1]), 2);
+                    let v = self.plane_texture(cw, ch, f, bytemuck::cast_slice(&planes[2]), 2);
+                    let a = alpha.as_ref().map(|a| self.plane_texture(w, h, f, bytemuck::cast_slice(a), 2));
+                    ([y, u, v], a, 65535.0)
+                } else {
+                    let owned;
+                    let p = match prep.filter(|p| p.planes.len() == 3 + alpha.is_some() as usize) {
+                        Some(p) => p,
+                        None => {
+                            owned = Prepared { planes: planes.iter().chain(alpha.as_ref()).map(|p| codes_to_f16_bytes(p, bits)).collect() };
+                            &owned
+                        }
+                    };
+                    let f = wgpu::TextureFormat::R16Float;
+                    let y = self.plane_texture(w, h, f, &p.planes[0], 2);
+                    let u = self.plane_texture(cw, ch, f, &p.planes[1], 2);
+                    let v = self.plane_texture(cw, ch, f, &p.planes[2], 2);
+                    let a = alpha.as_ref().and_then(|_| p.planes.get(3)).map(|b| self.plane_texture(w, h, f, b, 2));
+                    ([y, u, v], a, scale)
                 };
-                let y = self.plane_texture(w, h, wgpu::TextureFormat::R16Float, &p.planes[0], 2);
-                let u = self.plane_texture(cw, ch, wgpu::TextureFormat::R16Float, &p.planes[1], 2);
-                let v = self.plane_texture(cw, ch, wgpu::TextureFormat::R16Float, &p.planes[2], 2);
-                // (full-resolution alpha plane: its codes span 0..2^bits - 1, hence the scale)
-                let a = alpha.as_ref().and_then(|_| p.planes.get(3)).map(|b| self.plane_texture(w, h, wgpu::TextureFormat::R16Float, b, 2));
-                let alpha_scale = if a.is_some() { scale / (scale - 1.0) } else { 0.0 };
-                let _ = Chroma::C420;
+                // (full-resolution alpha plane: its codes span 0..2^bits - 1, hence the scale; the
+                // shader multiplies its texel by alpha_scale: texel × texel_scale / (2^bits - 1))
+                let alpha_scale = if a.is_some() { texel_scale / (scale - 1.0) } else { 0.0 };
+                let [y, u, v] = views;
                 Uploaded {
                     views: [y, u, v, a.unwrap_or_else(dummy)],
                     kind: 2,
                     code_scale: scale,
+                    texel_scale,
                     alpha_scale,
+                    chroma: (cw, ch),
+                    last_used: self.clock,
+                    _pixels: f.data.clone(),
+                }
+            }
+            PixelData::Yuv16Bi { y, uv, chroma, bits } => {
+                let (sx, sy) = chroma.shifts();
+                let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));
+                let bits = (*bits).clamp(1, 16);
+                let scale = (1u32 << bits) as f32;
+                // MSB-aligned: R16Unorm loads (code << (16 - bits)) / 65535, half floats
+                // (code << (16 - bits)) / 65536
+                let lsb = (1u32 << (16 - bits)) as f32;
+                let (yv, uvv, texel_scale) = if self.unorm16 {
+                    let yv = self.plane_texture(w, h, wgpu::TextureFormat::R16Unorm, bytemuck::cast_slice(y), 2);
+                    let uvv = self.plane_texture(cw, ch, wgpu::TextureFormat::Rg16Unorm, bytemuck::cast_slice(uv), 4);
+                    (yv, uvv, 65535.0 / lsb)
+                } else {
+                    let owned;
+                    let p = match prep.filter(|p| p.planes.len() == 2) {
+                        Some(p) => p,
+                        None => {
+                            owned = Prepared { planes: vec![codes_to_f16_bytes(y, 16), codes_to_f16_bytes(uv, 16)] };
+                            &owned
+                        }
+                    };
+                    let yv = self.plane_texture(w, h, wgpu::TextureFormat::R16Float, &p.planes[0], 2);
+                    let uvv = self.plane_texture(cw, ch, wgpu::TextureFormat::Rg16Float, &p.planes[1], 4);
+                    (yv, uvv, 65536.0 / lsb)
+                };
+                Uploaded {
+                    views: [yv, uvv, dummy(), dummy()],
+                    kind: 3,
+                    code_scale: scale,
+                    texel_scale,
+                    alpha_scale: 0.0,
                     chroma: (cw, ch),
                     last_used: self.clock,
                     _pixels: f.data.clone(),
@@ -505,15 +588,24 @@ impl GpuCompositor {
     /// The source description of an uploaded frame.
     fn src_info(&self, f: &VideoFrame, key: (usize, u32, u32)) -> Option<SrcInfo> {
         let up = self.uploads.get(&key)?;
-        Some(SrcInfo { kind: up.kind, code_scale: up.code_scale, alpha: up.alpha_scale, chroma: up.chroma, size: (f.width, f.height), color: f.color })
+        Some(SrcInfo {
+            kind: up.kind,
+            code_scale: up.code_scale,
+            texel_scale: up.texel_scale,
+            alpha: up.alpha_scale,
+            chroma: up.chroma,
+            size: (f.width, f.height),
+            color: f.color,
+        })
     }
 
     fn uniforms(src: &SrcInfo, m: &filmcraft_geom::Affine, opacity: f32, blend: Blend, out: (u32, u32)) -> [f32; 28] {
         let (kr, kb) = src.color.matrix.kr_kb();
-        let bits_scale = src.code_scale / 255.0; // code units relative to 8-bit
+        // code units relative to 8-bit (2^(bits - 8)), as `filmcraft_color::normalize_y` / `_c`
+        let bits_scale = src.code_scale / 256.0;
         let (yo, ys, co, cs) = match (src.color.range, src.kind) {
-            (Range::Limited, 2) => (16.0 * bits_scale, 219.0 * bits_scale, 128.0 * bits_scale, 224.0 * bits_scale),
-            (Range::Full, 2) => (0.0, src.code_scale - 1.0, src.code_scale / 2.0, src.code_scale - 1.0),
+            (Range::Limited, 2 | 3) => (16.0 * bits_scale, 219.0 * bits_scale, 128.0 * bits_scale, 224.0 * bits_scale),
+            (Range::Full, 2 | 3) => (0.0, src.code_scale - 1.0, src.code_scale / 2.0, src.code_scale - 1.0),
             _ => (0.0, 1.0, 0.0, 1.0),
         };
         let transfer = match src.color.transfer {
@@ -555,7 +647,7 @@ impl GpuCompositor {
             footprint.max(1.0),
             blend.index() as f32,
             src.alpha,
-            0.0,
+            src.texel_scale,
             0.0,
         ]
     }
@@ -645,6 +737,7 @@ impl GpuCompositor {
             let src = self.src_info(&l.frame, *k).unwrap_or(SrcInfo {
                 kind: 1,
                 code_scale: 1.0,
+                texel_scale: 1.0,
                 alpha: 0.0,
                 chroma: (1, 1),
                 size: (l.frame.width, l.frame.height),
@@ -678,7 +771,7 @@ impl GpuCompositor {
             // what the layer draws: the effect result (linear premultiplied RGBA) or the frame
             let (u, tex) = match &job {
                 Some(j) => {
-                    let s = SrcInfo { kind: 1, code_scale: 1.0, alpha: 0.0, chroma: l.size(), size: l.size(), color: l.frame.color };
+                    let s = SrcInfo { kind: 1, code_scale: 1.0, texel_scale: 1.0, alpha: 0.0, chroma: l.size(), size: l.size(), color: l.frame.color };
                     (Self::uniforms(&s, &l.matrix, l.opacity, l.blend, (w, h)), [j.result.clone(), self.dummy.clone(), self.dummy.clone(), self.dummy.clone()])
                 }
                 None => {
@@ -888,7 +981,11 @@ impl GpuCompositor {
 /// float, 2 YUV planes), code scale, chroma plane size, picture size and colour description.
 struct SrcInfo {
     kind: u32,
+    /// 2^bits of a Y'CbCr source (256 for 8-bit; code units for the range offsets).
     code_scale: f32,
+    /// Loaded texel × this = code (255 for R8Unorm, 65535 for R16Unorm, 2^bits for half floats
+    /// of code / 2^bits, less for MSB-aligned planes).
+    texel_scale: f32,
     /// Alpha texture sample → alpha (0: the frame has no alpha plane).
     alpha: f32,
     chroma: (u32, u32),

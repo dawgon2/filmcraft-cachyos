@@ -59,6 +59,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub use commands::{CommandSpec, command_specs, find as find_command};
+pub use filmcraft_codecs::{cached_bytes as decoded_cache_bytes, decode_cache_limits};
 pub use filmcraft_export as export;
 pub use filmcraft_project as project;
 pub use filmcraft_render as render;

@@ -34,7 +34,19 @@ objc2-core-media = "0.3.2"
 objc2-core-video = "0.3.2"
 objc2-video-toolbox = "0.3.2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# P010 from the ffmpeg pipe read straight into u16 planes (safe casts)
+bytemuck = "1"
+filmcraft-bitstream = { workspace = true }
+filmcraft-color = { workspace = true }
+filmcraft-export = { workspace = true }
+filmcraft-hevc = { workspace = true }
+rayon = { workspace = true }
+filmcraft-frame = { workspace = true }
+filmcraft-time = { workspace = true }
+
 [dev-dependencies]
+rayon = { workspace = true }
 filmcraft-testkit = { workspace = true }
 filmcraft-media = { workspace = true }
 filmcraft-frame = { workspace = true }

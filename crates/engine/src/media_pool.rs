@@ -247,7 +247,16 @@ impl MediaPool {
                 }
             },
         };
-        self.sources.write().unwrap_or_else(|e| e.into_inner()).insert(item, (key, src.clone()));
+        // Parallel render workers can all miss above and open the file at once: the first one
+        // stored wins, so every worker shares one source (one decoder and one GOP cache) instead
+        // of decoding the same GOP once per worker.
+        let mut sources = self.sources.write().unwrap_or_else(|e| e.into_inner());
+        if let Some((k, s)) = sources.get(&item)
+            && (k.is_empty() || *k == key)
+        {
+            return Some(s.clone());
+        }
+        sources.insert(item, (key, src.clone()));
         Some(src)
     }
 

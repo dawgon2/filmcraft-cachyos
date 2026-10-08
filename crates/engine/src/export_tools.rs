@@ -212,6 +212,21 @@ pub fn settings_from_params(s: &Session, p: &Value, cmd: &str) -> Result<(Option
     if let Some(v) = str_p(p, "apvProfile") {
         settings.apv_profile = v.to_string();
     }
+    if let Some(v) = u64_p(p, "crf").or_else(|| u64_p(p, "qp")) {
+        if v > 51 {
+            return Err(bad(cmd, "crf / qp: 0–51"));
+        }
+        settings.crf = Some(v as u8);
+    }
+    if let Some(v) = u64_p(p, "bitDepth").or_else(|| u64_p(p, "hevcBitDepth")) {
+        if !matches!(v, 8 | 10) {
+            return Err(bad(cmd, "bitDepth: 8 | 10"));
+        }
+        settings.hevc_bit_depth = v as u8;
+    }
+    if let Some(v) = str_p(p, "hevcEncoder").or_else(|| str_p(p, "encoder")) {
+        settings.hevc_encoder = filmcraft_export::HevcEncoder::from_name(v).ok_or_else(|| bad(cmd, "hevcEncoder: auto | vaapi | x265"))?;
+    }
     if let Some(v) = str_p(p, "mxfVideoCodec") {
         settings.mxf_video_codec = serde_json::from_value(json!(v)).map_err(|_| bad(cmd, "mxfVideoCodec: dnxhr | proRes | h264"))?;
     }

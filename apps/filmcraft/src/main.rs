@@ -105,6 +105,7 @@ fn main() -> eframe::Result {
             // Wayland matches the window to `packaging/linux/ai.storyteller.filmcraft.desktop`.
             .with_app_id(APP_ID),
         event_loop_builder: agent_event_loop(control_port.is_some()),
+        wgpu_options: filmcraft_ui_egui::wgpu_configuration(),
         ..Default::default()
     };
     let started = eframe::run_native(
@@ -275,6 +276,8 @@ mod tests {
     fn startup_registers_the_hardware_decoders_without_a_logger() {
         assert!(!log::log_enabled!(log::Level::Info));
         let hardware = super::register_hardware_decoders();
-        assert_eq!(filmcraft_platform::registered(), cfg!(target_os = "macos"), "{hardware:?}");
+        // macOS always has VideoToolbox; Linux has VA-API when ffmpeg can open a device
+        let expect = cfg!(target_os = "macos") || matches!(hardware, filmcraft_platform::Availability::Available(_));
+        assert_eq!(filmcraft_platform::registered(), expect, "{hardware:?}");
     }
 }

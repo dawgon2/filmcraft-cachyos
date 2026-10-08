@@ -61,6 +61,10 @@ pub enum Format {
     #[default]
     #[serde(rename = "h264", alias = "H264")]
     H264,
+    /// MPEG-4 (or QuickTime), H.265 / HEVC video + AAC audio. Encoded by the system ffmpeg
+    /// (VA-API hardware, else libx265) where the platform layer registers it ([`available`]).
+    #[serde(rename = "hevc", alias = "Hevc")]
+    Hevc,
     /// QuickTime, Apple ProRes 422 (HQ unless the settings pick another flavour) + PCM.
     #[serde(rename = "prores", alias = "ProRes")]
     ProRes,
@@ -102,6 +106,7 @@ impl Format {
     pub fn from_name(s: &str) -> Option<Format> {
         Some(match s.to_ascii_lowercase().replace([' ', '-', '_', '.'], "").as_str() {
             "h264" | "mp4" | "avc" | "m4v" => Format::H264,
+            "hevc" | "h265" | "x265" | "hvc1" | "hev1" | "h265hevc" | "h265hevcmp4" | "hevcmp4" => Format::Hevc,
             "prores" | "mov" | "appleprores" => Format::ProRes,
             "dnxhr" | "dnxhd" | "dnx" | "avid" | "aviddnxhr" | "aviddnxhd" | "vc3" => Format::DnxHr,
             "apv" | "apv1" => Format::Apv,
@@ -121,6 +126,7 @@ impl Format {
     pub fn id(self) -> &'static str {
         match self {
             Format::H264 => "h264",
+            Format::Hevc => "hevc",
             Format::ProRes => "prores",
             Format::DnxHr => "dnxhr",
             Format::Apv => "apv",
@@ -137,7 +143,7 @@ impl Format {
     }
     pub fn extension(self) -> &'static str {
         match self {
-            Format::H264 => "mp4",
+            Format::H264 | Format::Hevc => "mp4",
             Format::ProRes | Format::DnxHr | Format::Apv | Format::Mjpeg => "mov",
             Format::PngSequence => "png",
             Format::TiffSequence => "tif",
@@ -151,6 +157,7 @@ impl Format {
     pub fn label(self) -> &'static str {
         match self {
             Format::H264 => "H.264",
+            Format::Hevc => "H.265 / HEVC",
             Format::ProRes => "Apple ProRes",
             Format::DnxHr => "Avid DNxHR",
             Format::Apv => "APV",
@@ -169,8 +176,9 @@ impl Format {
     pub fn is_mxf(self) -> bool {
         matches!(self, Format::MxfOp1a | Format::MxfOpAtom)
     }
-    pub const ALL: [Format; 13] = [
+    pub const ALL: [Format; 14] = [
         Format::H264,
+        Format::Hevc,
         Format::ProRes,
         Format::DnxHr,
         Format::Apv,
@@ -247,6 +255,16 @@ pub struct ExportSettings {
     /// H.264 level × 10 (41 = 4.1); None = the lowest level that fits. A level below what the
     /// stream needs is raised.
     pub h264_level: Option<u8>,
+    /// HEVC bit depth: 8 (Main) or 10 (Main 10); anything else is 8.
+    #[serde(default)]
+    pub hevc_bit_depth: u8,
+    /// Which HEVC encoder runs.
+    #[serde(default)]
+    pub hevc_encoder: HevcEncoder,
+    /// Constant quality instead of a bitrate: CRF (libx265) / QP (VA-API), 0–51, lower is better.
+    /// None = the bitrate settings apply.
+    #[serde(default)]
+    pub crf: Option<u8>,
     pub bitrate_mode: BitrateMode,
     /// VBR maximum bitrate (None = 1.5 × target).
     pub max_bitrate_kbps: Option<u32>,
@@ -428,6 +446,9 @@ impl Default for ExportSettings {
             field_order: FieldOrder::Progressive,
             h264_profile: H264Profile::High,
             h264_level: None,
+            hevc_bit_depth: 8,
+            hevc_encoder: HevcEncoder::Auto,
+            crf: None,
             bitrate_mode: BitrateMode::default(),
             max_bitrate_kbps: None,
             adaptive_bitrate: None,
@@ -560,9 +581,30 @@ pub fn register_audio_encoder(f: AudioEncoderFactory) {
     audio_factories().write().unwrap_or_else(|e| e.into_inner()).insert(0, f);
 }
 
-/// Whether a format can currently be exported. Every [`Format`] has a built-in encoder; this stays
-/// as the hook for formats whose encoders are registered at runtime.
+fn runtime_formats() -> &'static RwLock<Vec<Format>> {
+    static F: OnceLock<RwLock<Vec<Format>>> = OnceLock::new();
+    F.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+/// Formats whose encoders are not built in ([`Format::Hevc`]: the platform layer's ffmpeg encoder).
+pub fn runtime_format(format: Format) -> bool {
+    format == Format::Hevc
+}
+
+/// Mark a runtime format exportable (its encoder was registered with [`register_encoder`]).
+pub fn register_format(format: Format) {
+    let mut g = runtime_formats().write().unwrap_or_else(|e| e.into_inner());
+    if !g.contains(&format) {
+        g.push(format);
+    }
+}
+
+/// Whether a format can currently be exported: built-in formats always, runtime formats once
+/// their encoder was registered ([`register_format`]).
 pub fn available(format: Format) -> bool {
+    if runtime_format(format) {
+        return runtime_formats().read().unwrap_or_else(|e| e.into_inner()).contains(&format);
+    }
     Format::ALL.contains(&format)
 }
 
@@ -992,6 +1034,102 @@ pub fn rgba_to_yuv420_8(rgba: &[u8], w: usize, h: usize, y: &mut Vec<u8>, u: &mu
     });
 }
 
+/// Limited-range 10-bit 4:2:0 as `yuv420p10le` bytes (Y plane, then Cb, then Cr; 2×2 chroma
+/// average) from encoded R'G'B' in 0..1: `px(i)` is pixel `i` (row-major). Matrix (Kr, Kb).
+/// `out` is resized to the frame; pixels past the source come out black.
+pub fn rgb_to_yuv420p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: usize, kr: f32, kb: f32, out: &mut Vec<u8>) {
+    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    let kg = 1.0 - kr - kb;
+    let (sb, sr) = (2.0 * (1.0 - kb), 2.0 * (1.0 - kr));
+    out.resize((w * h + 2 * cw * ch) * 2, 0);
+    if w == 0 || h == 0 {
+        return;
+    }
+    let (yp, c) = out.split_at_mut(w * h * 2);
+    let (up, vp) = c.split_at_mut(cw * ch * 2);
+    yp.par_chunks_mut(w * 4).zip(up.par_chunks_mut(cw * 2).zip(vp.par_chunks_mut(cw * 2))).enumerate().for_each(|(cy, (yr, (ur, vr)))| {
+        let rows = yr.len() / (w * 2);
+        let mut us = vec![0f32; cw];
+        let mut vs = vec![0f32; cw];
+        let mut cnt = vec![0f32; cw];
+        for dy in 0..rows {
+            let row = cy * 2 + dy;
+            for x in 0..w {
+                let [r, g, b] = px(row * w + x);
+                let yy = kr * r + kg * g + kb * b;
+                let q = ((64.0 + 876.0 * yy).round().clamp(4.0, 1019.0) as u16).to_le_bytes();
+                if let Some(d) = yr.get_mut((dy * w + x) * 2..(dy * w + x) * 2 + 2) {
+                    d.copy_from_slice(&q);
+                }
+                if let (Some(u), Some(v), Some(n)) = (us.get_mut(x / 2), vs.get_mut(x / 2), cnt.get_mut(x / 2)) {
+                    *u += (b - yy) / sb;
+                    *v += (r - yy) / sr;
+                    *n += 1.0;
+                }
+            }
+        }
+        for cx in 0..cw {
+            let n = cnt.get(cx).copied().unwrap_or(0.0).max(1.0);
+            let cb = ((512.0 + 896.0 * us.get(cx).copied().unwrap_or(0.0) / n).round().clamp(4.0, 1019.0) as u16).to_le_bytes();
+            let cr = ((512.0 + 896.0 * vs.get(cx).copied().unwrap_or(0.0) / n).round().clamp(4.0, 1019.0) as u16).to_le_bytes();
+            if let Some(d) = ur.get_mut(cx * 2..cx * 2 + 2) {
+                d.copy_from_slice(&cb);
+            }
+            if let Some(d) = vr.get_mut(cx * 2..cx * 2 + 2) {
+                d.copy_from_slice(&cr);
+            }
+        }
+    });
+}
+
+/// An encoder frame as 4:2:0 planar bytes for an external encoder: `yuv420p` (8-bit) or
+/// `yuv420p10le` (10-bit), BT.709 limited range for SDR, the signalled matrix for HDR.
+pub fn frame_to_yuv420p(f: &EncoderFrame, signal: ColorSignal, ten_bit: bool, out: &mut Vec<u8>) {
+    let (w, h) = (f.width as usize, f.height as usize);
+    let (kr, kb) = signal.kr_kb();
+    match (f.hdr, ten_bit) {
+        (Some(rgb), true) => rgb_to_yuv420p10le(
+            |i| match rgb.get(i * 3..i * 3 + 3) {
+                Some(p) => [p[0], p[1], p[2]],
+                None => [0.0; 3],
+            },
+            w,
+            h,
+            kr,
+            kb,
+            out,
+        ),
+        (None, true) => rgb_to_yuv420p10le(
+            |i| match f.rgba.get(i * 4..i * 4 + 3) {
+                Some(p) => [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0],
+                None => [0.0; 3],
+            },
+            w,
+            h,
+            0.2126,
+            0.0722,
+            out,
+        ),
+        (hdr, false) => {
+            let (mut y, mut u, mut v) = (Vec::new(), Vec::new(), Vec::new());
+            match hdr {
+                Some(rgb) if rgb.len() >= w * h * 3 => rgbf_to_yuv420_8(rgb, w, h, kr, kb, &mut y, &mut u, &mut v),
+                _ if f.rgba.len() >= w * h * 4 => rgba_to_yuv420_8(f.rgba, w, h, &mut y, &mut u, &mut v),
+                _ => {
+                    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+                    y = vec![16; w * h];
+                    u = vec![128; cw * ch];
+                    v = vec![128; cw * ch];
+                }
+            }
+            out.clear();
+            out.extend_from_slice(&y);
+            out.extend_from_slice(&u);
+            out.extend_from_slice(&v);
+        }
+    }
+}
+
 /// Limited-range 8-bit 4:2:0 from encoded R'G'B' floats with matrix (Kr, Kb).
 #[allow(clippy::too_many_arguments)]
 pub fn rgbf_to_yuv420_8(rgb: &[f32], w: usize, h: usize, kr: f32, kb: f32, y: &mut Vec<u8>, u: &mut Vec<u8>, v: &mut Vec<u8>) {
@@ -1225,7 +1363,7 @@ pub fn export(project: &Arc<Project>, seq: ItemId, settings: &ExportSettings, so
             }
             (total, count)
         }
-        Format::H264 | Format::ProRes | Format::DnxHr | Format::Apv | Format::Mjpeg | Format::MxfOp1a | Format::MxfOpAtom => {
+        Format::H264 | Format::Hevc | Format::ProRes | Format::DnxHr | Format::Apv | Format::Mjpeg | Format::MxfOp1a | Format::MxfOpAtom => {
             // Handled by the stepped exporter above; reaching here would be a dispatch bug.
             return Err(ExportError::Unsupported(format!("{:?} must run as a stepped export", settings.format)));
         }

@@ -2,8 +2,9 @@
 //!
 //! [`register`] puts the platform's hardware decoder factory in front of FilmCraft's own decoders
 //! (`filmcraft_codecs::register_video_decoder`). Today that is VideoToolbox on macOS for H.264
-//! (`avcC`) and HEVC (`hvcC`) streams, 8- and 10-bit, 4:2:0 and 4:2:2; on other systems
-//! registration does nothing and reports [`Availability::Unavailable`].
+//! (`avcC`) and HEVC (`hvcC`) streams, 8- and 10-bit, 4:2:0 and 4:2:2; on Linux, VA-API through
+//! the system ffmpeg run as a child process ([`vaapi`]; H.264 8-bit and HEVC Main / Main 10,
+//! 4:2:0); elsewhere registration does nothing and reports [`Availability::Unavailable`].
 //!
 //! Hardware decoding never makes a file undecodable:
 //!
@@ -22,7 +23,13 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
+#[cfg(target_os = "linux")]
+pub mod ffmpeg;
+#[cfg(target_os = "linux")]
+pub mod hevc_export;
 pub mod hybrid;
+#[cfg(target_os = "linux")]
+pub mod vaapi;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 pub mod videotoolbox;
@@ -47,7 +54,20 @@ pub fn register() -> Availability {
         filmcraft_codecs::register_video_decoder(videotoolbox_factory);
         Availability::Available("VideoToolbox")
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        // H.265 / HEVC export (VA-API or libx265), independent of hardware decoding
+        hevc_export::register();
+        if ffmpeg::ffmpeg().is_none() {
+            return Availability::Unavailable("ffmpeg is not installed");
+        }
+        if ffmpeg::vaapi_device().is_none() {
+            return Availability::Unavailable("no VA-API device (ffmpeg cannot open one)");
+        }
+        filmcraft_codecs::register_video_decoder(vaapi_factory);
+        Availability::Available("VA-API (ffmpeg)")
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         Availability::Unavailable("no hardware video decoder for this system yet")
     }
@@ -59,7 +79,11 @@ pub fn registered() -> bool {
     {
         filmcraft_codecs::video_decoder_registered(videotoolbox_factory)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        filmcraft_codecs::video_decoder_registered(vaapi_factory)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         false
     }
@@ -72,7 +96,11 @@ pub fn hardware_decoder_for(entry: &filmcraft_isobmff::SampleEntry) -> bool {
     {
         filmcraft_codecs::hw::NalStreamInfo::from_entry(entry).and_then(|r| r.ok()).is_some_and(|info| videotoolbox::VtDecoder::new(info).is_ok())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        filmcraft_codecs::hw::NalStreamInfo::from_entry(entry).and_then(|r| r.ok()).is_some_and(|info| vaapi::VaapiDecoder::new(info).is_ok())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = entry;
         false
@@ -89,6 +117,24 @@ pub fn videotoolbox_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<fi
     let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(entry)?.ok()?;
     match videotoolbox::VtDecoder::new(info.clone()) {
         Ok(vt) => Some(Ok(Box::new(HybridDecoder::new(Box::new(vt), entry.clone(), info)))),
+        Err(why) => {
+            log::info!("hardware decoding declined for {} video: {why}", entry.codec.name());
+            filmcraft_codecs::hw::note_hw_declined();
+            None
+        }
+    }
+}
+
+/// The VA-API factory: a [`HybridDecoder`] around [`vaapi::VaapiDecoder`] for `avcC` / `hvcC`
+/// streams VA-API can decode, `None` otherwise (and while Hardware decoding is Off).
+#[cfg(target_os = "linux")]
+pub fn vaapi_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft_codecs::Result<Box<dyn filmcraft_codecs::VideoDecoder>>> {
+    if !filmcraft_codecs::hw::hardware_decoding() {
+        return None;
+    }
+    let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(entry)?.ok()?;
+    match vaapi::VaapiDecoder::new(info.clone()) {
+        Ok(d) => Some(Ok(Box::new(HybridDecoder::new(Box::new(d), entry.clone(), info)))),
         Err(why) => {
             log::info!("hardware decoding declined for {} video: {why}", entry.codec.name());
             filmcraft_codecs::hw::note_hw_declined();

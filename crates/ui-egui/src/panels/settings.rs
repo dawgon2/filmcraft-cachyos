@@ -392,6 +392,16 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
         "memoryInfo" => {
             let (used, budget) = app.frames.cache_usage();
             note(ui, &t, &format!("Decoded frames held for the monitors and thumbnails: {} of {}.", mb(used as u64), mb(budget as u64)));
+            let (budget, decoders) = filmcraft_engine::decode_cache_limits();
+            note(
+                ui,
+                &t,
+                &format!(
+                    "Decoded source frames shared by all clips: {} of {}, up to {decoders} live decoders.",
+                    mb(filmcraft_engine::decoded_cache_bytes() as u64),
+                    mb(budget as u64)
+                ),
+            );
             note(ui, &t, "FilmCraft keeps the rest of the RAM free for other applications.");
         }
         "mediaCacheInfo" => {

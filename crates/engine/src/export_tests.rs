@@ -68,6 +68,14 @@ fn every_builtin_preset_exports_and_ffprobe_confirms() {
     let dir = Scratch::new("presets");
     for pr in &presets {
         let name = pr["name"].as_str().unwrap();
+        // runtime formats (H.265 / HEVC: the platform layer's ffmpeg encoder, tested in
+        // crates/platform/tests/hevc_export.rs) are only exportable once registered
+        let format =
+            s.execute("export.presets.get", json!({"name": name})).unwrap()["settings"]["format"].as_str().and_then(filmcraft_export::Format::from_name);
+        if format.is_some_and(|f| !filmcraft_export::available(f)) {
+            eprintln!("SKIPPED {name}: its encoder is not registered in this process");
+            continue;
+        }
         let sub = dir.0.join(format!("p{}", filmcraft_export::presets::preset_key(name)));
         std::fs::create_dir_all(&sub).unwrap();
         let path = sub.join("Demo").to_string_lossy().to_string();

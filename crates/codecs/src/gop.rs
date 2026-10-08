@@ -216,21 +216,52 @@ const MAX_LIVE_DECODERS: usize = 4;
 /// the next clip being prefetched): it keeps its decoder whatever the count.
 const IDLE: Duration = Duration::from_secs(3);
 
-/// Decoded frames all caches may hold together before idle ones give theirs up. Each cache also
-/// has its own budget, which alone let every clip on a timeline keep hundreds of MB of frames
-/// nobody was looking at.
+/// Decoded frames all caches may hold together before idle ones give theirs up, until
+/// [`configure`] sets the process's own (Settings ▸ Memory ▸ Decoded frame cache, or
+/// [`auto_limits`] from the installed RAM). Each cache also has its own budget, which alone let
+/// every clip on a timeline keep hundreds of MB of frames nobody was looking at.
 pub const FRAME_BUDGET: usize = 1 << 30;
+
+/// The shared budget and live-decoder cap for a machine with `ram` bytes of memory (None:
+/// unknown): a fifth of the RAM for decoded frames (1–16 GiB: 6.2K 10-bit frames are 78 MB, so
+/// 1 GiB holds only 13 of them), and a decoder per 8 GiB (2–8).
+pub fn auto_limits(ram: Option<u64>) -> (usize, usize) {
+    let Some(ram) = ram.filter(|r| *r > 0) else { return (FRAME_BUDGET, MAX_LIVE_DECODERS) };
+    let budget = (ram / 5).clamp(1 << 30, 16 << 30);
+    let decoders = (ram / (8 << 30)).clamp(2, 8);
+    (usize::try_from(budget).unwrap_or(FRAME_BUDGET), usize::try_from(decoders).unwrap_or(MAX_LIVE_DECODERS))
+}
+
+/// Physical memory in bytes (Linux `/proc/meminfo`; None elsewhere or when unreadable).
+pub fn installed_ram() -> Option<u64> {
+    let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kb: u64 = info.lines().find_map(|l| l.strip_prefix("MemTotal:"))?.trim().trim_end_matches("kB").trim().parse().ok()?;
+    kb.checked_mul(1024)
+}
+
+/// Set the process-wide decoded-frame budget (bytes, at least 64 MiB) and live-decoder cap (1–64).
+pub fn configure(budget: usize, max_decoders: usize) {
+    let p = Pool::global();
+    p.budget.store(budget.max(64 << 20), Ordering::Relaxed);
+    p.max_decoders.store(max_decoders.clamp(1, 64), Ordering::Relaxed);
+}
+
+/// The process-wide decoded-frame budget and live-decoder cap in force (`perf.stats`).
+pub fn limits() -> (usize, usize) {
+    let p = Pool::global();
+    (p.budget.load(Ordering::Relaxed), p.max_decoders.load(Ordering::Relaxed))
+}
 
 /// What the caches of a process share: the cap on live decoders and the frame budget.
 struct Pool {
     caches: Mutex<Vec<Weak<Shared>>>,
     /// Caches that hold a decoder.
     decoders: AtomicUsize,
-    max_decoders: usize,
+    max_decoders: AtomicUsize,
     idle: Duration,
     /// Bytes of the frames the caches hold.
     bytes: AtomicUsize,
-    budget: usize,
+    budget: AtomicUsize,
 }
 
 /// The part of a [`GopCache`] its pool reaches.
@@ -258,13 +289,24 @@ fn try_state(c: &Shared) -> Option<MutexGuard<'_, State>> {
 
 impl Pool {
     fn new(max_decoders: usize, idle: Duration, budget: usize) -> Self {
-        Self { caches: Mutex::new(Vec::new()), decoders: AtomicUsize::new(0), max_decoders, idle, bytes: AtomicUsize::new(0), budget }
+        Self {
+            caches: Mutex::new(Vec::new()),
+            decoders: AtomicUsize::new(0),
+            max_decoders: AtomicUsize::new(max_decoders),
+            idle,
+            bytes: AtomicUsize::new(0),
+            budget: AtomicUsize::new(budget),
+        }
     }
 
     /// The pool of every cache in the process.
     fn global() -> Arc<Pool> {
         static POOL: std::sync::OnceLock<Arc<Pool>> = std::sync::OnceLock::new();
-        POOL.get_or_init(|| Arc::new(Pool::new(MAX_LIVE_DECODERS, IDLE, FRAME_BUDGET))).clone()
+        POOL.get_or_init(|| {
+            let (budget, decoders) = auto_limits(installed_ram());
+            Arc::new(Pool::new(decoders, IDLE, budget))
+        })
+        .clone()
     }
 
     fn register(&self, c: &Arc<Shared>) {
@@ -295,11 +337,12 @@ impl Pool {
     #[must_use = "drop the released decoders with no cache lock held"]
     fn trim_decoders(&self, me: &Shared) -> Vec<Box<dyn VideoDecoder>> {
         let mut released = Vec::new();
-        if self.decoders.load(Ordering::Relaxed) <= self.max_decoders {
+        let max = self.max_decoders.load(Ordering::Relaxed);
+        if self.decoders.load(Ordering::Relaxed) <= max {
             return released;
         }
         for c in self.idle_others(me, |st| st.decoder.is_some()) {
-            if self.decoders.load(Ordering::Relaxed) <= self.max_decoders {
+            if self.decoders.load(Ordering::Relaxed) <= max {
                 break;
             }
             if let Some(mut st) = try_state(&c) {
@@ -313,7 +356,8 @@ impl Pool {
     /// use keep theirs (each within its own budget): a frame evicted before it is shown costs a
     /// re-decode from the keyframe.
     fn trim_frames(&self, me: &Shared) {
-        let over = || self.bytes.load(Ordering::Relaxed) > self.budget;
+        let budget = self.budget.load(Ordering::Relaxed);
+        let over = || self.bytes.load(Ordering::Relaxed) > budget;
         if !over() {
             return;
         }
@@ -348,11 +392,20 @@ pub struct GopCache {
     budget: usize,
 }
 
-/// The cache always has room for this many frames, whatever their size: a frame-threaded decoder
-/// runs up to ~2x its thread count ahead of the frame it returns, and playback prefetches ahead
-/// of the playhead, so a byte budget alone would evict 4K frames before they are shown and force
-/// a re-decode from the keyframe.
+/// The cache always has room for this many frames of up to [`MIN_FRAMES_BYTES`] together: a
+/// frame-threaded decoder runs up to ~2x its thread count ahead of the frame it returns, and
+/// playback prefetches ahead of the playhead (14–24 frames), so a byte budget alone would evict
+/// 4K frames before they are shown and force a re-decode from the keyframe.
 const MIN_FRAMES: usize = 64;
+/// ... but large frames get fewer: 64 6.2K 10-bit frames would be 5 GB per clip in use.
+const MIN_FRAMES_BYTES: usize = 3 << 29;
+/// Never fewer than this (the deepest playback prefetch).
+const MIN_FRAMES_LARGE: usize = 24;
+
+/// Frames of `frame_bytes` each a cache in use always keeps (see [`MIN_FRAMES`]).
+fn min_frames(frame_bytes: usize) -> usize {
+    (MIN_FRAMES_BYTES / frame_bytes.max(1)).clamp(MIN_FRAMES_LARGE, MIN_FRAMES)
+}
 
 /// A running decoder up to this many samples before the wanted sample's sync sample keeps going
 /// rather than restarting at the sync sample.
@@ -411,7 +464,7 @@ impl GopCache {
         } else {
             st.drafts.remove(&pts);
         }
-        let budget = self.budget.max(MIN_FRAMES * f.byte_size());
+        let budget = self.budget.max(min_frames(f.byte_size()).saturating_mul(f.byte_size()));
         let before = st.bytes;
         st.bytes += f.byte_size();
         if let Some(old) = st.frames.insert(pts, Arc::new(f)) {
@@ -956,6 +1009,22 @@ mod tests {
         drop(st);
         assert_eq!(pool.decoders.load(Ordering::Relaxed), 1);
         assert_eq!(index_of(&ca.frame(&a, 5_000).expect("frame")), 5);
+    }
+
+    #[test]
+    fn limits_follow_the_installed_ram_and_frame_size() {
+        let gib = 1u64 << 30;
+        assert_eq!(auto_limits(None), (FRAME_BUDGET, MAX_LIVE_DECODERS));
+        assert_eq!(auto_limits(Some(0)), (FRAME_BUDGET, MAX_LIVE_DECODERS));
+        assert_eq!(auto_limits(Some(32 * gib)), ((32 * gib / 5) as usize, 4));
+        assert_eq!(auto_limits(Some(4 * gib)), (1 << 30, 2), "small machines: 1 GiB, 2 decoders");
+        assert_eq!(auto_limits(Some(512 * gib)), (16 << 30, 8), "capped");
+        assert_eq!(auto_limits(Some(u64::MAX)).1, 8);
+        // 1080p 8-bit keeps 64 frames, 4K 10-bit 64, 6.2K 10-bit 24 (not 5 GB), absurd sizes 24
+        assert_eq!(min_frames(1920 * 1080 * 3 / 2), 64);
+        assert_eq!(min_frames(3840 * 2160 * 3), 64);
+        assert_eq!(min_frames(6240 * 4160 * 3), 24);
+        assert_eq!((min_frames(0), min_frames(usize::MAX)), (64, 24));
     }
 
     #[test]

@@ -45,12 +45,12 @@ impl<T> Shelf<T> {
         Some(b)
     }
 
-    fn give(&mut self, mut b: Vec<T>, max_bytes: usize) {
+    fn give(&mut self, b: Vec<T>, max_bytes: usize) {
         let n = Self::size(&b);
         if n < MIN_BYTES || self.bytes.saturating_add(n) > max_bytes {
             return;
         }
-        b.clear();
+        // contents kept: [`take_u16_filled`] hands them out without clearing them again
         self.bytes += n;
         self.bufs.push(b);
     }
@@ -61,6 +61,13 @@ static U16: Mutex<Shelf<u16>> = Mutex::new(Shelf::new());
 static REUSED: AtomicU64 = AtomicU64::new(0);
 
 fn take<T>(shelf: &Mutex<Shelf<T>>, len: usize) -> Vec<T> {
+    let mut b = take_any(shelf, len);
+    b.clear();
+    b
+}
+
+/// A recycled buffer with whatever it held, or a new empty one.
+fn take_any<T>(shelf: &Mutex<Shelf<T>>, len: usize) -> Vec<T> {
     let found = shelf.lock().unwrap_or_else(PoisonError::into_inner).take(len);
     match found {
         Some(b) => {
@@ -88,6 +95,16 @@ pub fn take_u16(len: usize) -> Vec<u16> {
     take(&U16, len)
 }
 
+/// `len` samples to be overwritten whole (a plane read straight from a decoder): a recycled
+/// buffer keeps its old samples instead of being zeroed again (a 6.2K picture is 78 MB of
+/// stores); only samples beyond its old length are zeroed.
+pub fn take_u16_filled(len: usize) -> Vec<u16> {
+    let mut b = take_any(&U16, len);
+    b.truncate(len);
+    b.resize(len, 0);
+    b
+}
+
 /// Hand back a frame nobody needs any more: its planes are kept for the next [`take_u8`] /
 /// [`take_u16`] unless something else still holds the frame or a plane.
 pub fn recycle(frame: Arc<VideoFrame>) {
@@ -97,6 +114,7 @@ pub fn recycle(frame: Arc<VideoFrame>) {
         PixelData::RgbaF32(_) => {}
         PixelData::Yuv8 { planes, alpha, .. } => planes.into_iter().chain(alpha).for_each(|p| give(&U8, p)),
         PixelData::Yuv16 { planes, alpha, .. } => planes.into_iter().chain(alpha).for_each(|p| give(&U16, p)),
+        PixelData::Yuv16Bi { y, uv, .. } => [y, uv].into_iter().for_each(|p| give(&U16, p)),
     }
 }
 
@@ -118,6 +136,23 @@ pub fn stats() -> PoolStats {
 mod tests {
     use super::*;
     use crate::Chroma;
+
+    #[test]
+    fn filled_buffers_have_the_length_asked_for() {
+        // a recycled buffer longer, shorter or new: always exactly `len` initialised samples
+        for len in [70_000usize, 40_000, 90_000, 0] {
+            let b = take_u16_filled(len);
+            assert_eq!(b.len(), len);
+            recycle(Arc::new(VideoFrame {
+                width: 1,
+                height: 1,
+                data: PixelData::Yuv16Bi { y: Arc::new(b), uv: Arc::new(Vec::new()), chroma: Chroma::C420, bits: 10 },
+                color: filmcraft_color::ColorInfo::REC709,
+                par: (1, 1),
+                pts: filmcraft_time::Tick::ZERO,
+            }));
+        }
+    }
 
     #[test]
     fn shelf_hands_back_a_fitting_buffer_and_stays_within_its_budget() {

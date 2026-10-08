@@ -126,13 +126,15 @@ pub fn decode_all(d: &mut dyn VideoDecoder, samples: &[(Vec<u8>, i64)]) -> Vec<D
 }
 
 /// Assert two decoders' outputs are the same pictures (pts order, size, format, colour, aspect
-/// and every sample).
+/// and every sample; a biplanar picture is compared as its planar codes).
 pub fn assert_same(what: &str, a: &[DecodedFrame], b: &[DecodedFrame]) {
     let pa: Vec<i64> = a.iter().map(|f| f.pts).collect();
     let pb: Vec<i64> = b.iter().map(|f| f.pts).collect();
     assert_eq!(pa, pb, "{what}: pts sequence");
     for (x, y) in a.iter().zip(b) {
-        let (fx, fy) = (&x.frame, &y.frame);
+        // a biplanar (P010) picture compares by its codes, as planar
+        let (px, py) = (x.frame.to_planar(), y.frame.to_planar());
+        let (fx, fy) = (px.as_ref().unwrap_or(&x.frame), py.as_ref().unwrap_or(&y.frame));
         assert_eq!((fx.width, fx.height, fx.par, fx.color), (fy.width, fy.height, fy.par, fy.color), "{what}: pts {} geometry / colour", x.pts);
         match (&fx.data, &fy.data) {
             (PixelData::Yuv8 { planes: p, chroma: c, .. }, PixelData::Yuv8 { planes: q, chroma: d, .. }) => {

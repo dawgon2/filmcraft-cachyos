@@ -147,10 +147,10 @@ pub fn seek(o: &Opts) -> Vec<Value> {
 
 // ------------------------------------------------------------------------------------ playback
 
-fn new_bench(s: &Session, seconds: f64) -> Bench {
+pub fn new_bench(s: &Session, seconds: f64) -> Bench {
     let server = FrameServer::new(s.media.clone(), s.services.clone(), s.previews.clone(), FrameServer::default_workers());
     server.set_profiling(true);
-    Bench { server, refresh_hz: 60.0, seconds, draft: false }
+    Bench { server, refresh_hz: 60.0, seconds, draft: false, speed: 1.0 }
 }
 
 /// Program-monitor playback through the real scheduler (see `playback.rs`), frames shown vs

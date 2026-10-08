@@ -38,7 +38,19 @@ pub fn import(s: &mut Session, path: &Path) -> ItemId {
 /// One clip per track from t = 0 (`layers[0]` on V1), with (scale %, position, rotation°,
 /// opacity %) Motion/Opacity settings per layer.
 pub fn build_sequence(s: &mut Session, w: u32, h: u32, layers: &[(ItemId, f64, Option<(f64, f64)>, f64, f64)], effects: &[&str], secs: f64) -> ItemId {
-    let rate = FrameRate::FPS_23_976;
+    build_sequence_at(s, w, h, FrameRate::FPS_23_976, layers, effects, secs)
+}
+
+/// [`build_sequence`] at a given sequence frame rate.
+pub fn build_sequence_at(
+    s: &mut Session,
+    w: u32,
+    h: u32,
+    rate: FrameRate,
+    layers: &[(ItemId, f64, Option<(f64, f64)>, f64, f64)],
+    effects: &[&str],
+    secs: f64,
+) -> ItemId {
     let sizes: Vec<(u32, u32)> = layers
         .iter()
         .map(|l| match s.project.item(l.0).map(|i| &i.kind) {
@@ -105,21 +117,35 @@ pub struct Display {
     present: Vec<Duration>,
     ui_cpu: Duration,
     uploaded: u64,
+    /// The wgpu adapter in use ("" on the CPU path).
+    pub adapter: String,
 }
 
 impl Display {
     pub fn new(gpu: bool) -> Self {
+        let mut name = String::new();
         let gpu = if gpu {
             let instance = eframe::wgpu::Instance::default();
-            let adapter = pollster::block_on(instance.request_adapter(&eframe::wgpu::RequestAdapterOptions::default())).ok();
-            adapter.and_then(|a| pollster::block_on(a.request_device(&eframe::wgpu::DeviceDescriptor::default())).ok()).map(|(d, q)| {
-                let c = filmcraft_gpu::GpuCompositor::new(&d, &q);
-                (c, d)
-            })
+            // as eframe picks it for the app window: the high-performance (discrete) adapter
+            let opts = eframe::wgpu::RequestAdapterOptions { power_preference: eframe::wgpu::PowerPreference::HighPerformance, ..Default::default() };
+            let adapter = pollster::block_on(instance.request_adapter(&opts)).ok();
+            if let Some(a) = &adapter {
+                name = a.get_info().name;
+            }
+            adapter
+                .and_then(|a| {
+                    // the features the app's device gets (`wgpu_configuration`)
+                    let desc = eframe::wgpu::DeviceDescriptor { required_features: a.features() & filmcraft_gpu::wanted_features(), ..Default::default() };
+                    pollster::block_on(a.request_device(&desc)).ok()
+                })
+                .map(|(d, q)| {
+                    let c = filmcraft_gpu::GpuCompositor::new(&d, &q);
+                    (c, d)
+                })
         } else {
             None
         };
-        Self { gpu, last: None, present: Vec::new(), ui_cpu: Duration::ZERO, uploaded: 0 }
+        Self { gpu, last: None, present: Vec::new(), ui_cpu: Duration::ZERO, uploaded: 0, adapter: name }
     }
 
     pub fn gpu_available(&self) -> bool {
@@ -217,6 +243,9 @@ pub fn ms(d: Duration) -> f64 {
 }
 
 pub fn load_avg() -> String {
+    if let Ok(l) = std::fs::read_to_string("/proc/loadavg") {
+        return l.split_whitespace().take(3).collect::<Vec<_>>().join(" ");
+    }
     Command::new("sysctl")
         .args(["-n", "vm.loadavg"])
         .output()
@@ -232,6 +261,8 @@ pub struct Bench {
     /// Play with draft decoding (Settings ▸ Playback ▸ Draft decoding), as the monitor does at
     /// 1/2 resolution or lower.
     pub draft: bool,
+    /// Play speed (JKL): 1 = normal, 2 / 4 = L pressed twice / three times, negative = reverse.
+    pub speed: f64,
 }
 
 impl Bench {
@@ -239,12 +270,17 @@ impl Bench {
     pub fn play(&self, s: &Session, seq: ItemId, display: &mut Display, scale: f32, start: Tick, label: &str) -> PlayReport {
         let q = s.project.sequence(seq).expect("seq");
         let rate = q.settings.frame_rate;
-        let end = (start + Tick::from_seconds_f64(self.seconds)).min(q.duration());
+        let speed = if self.speed == 0.0 { 1.0 } else { self.speed };
+        let end = if speed > 0.0 {
+            (start + Tick::from_seconds_f64(self.seconds * speed)).min(q.duration())
+        } else {
+            Tick::ZERO.max(start - Tick::from_seconds_f64(self.seconds * -speed))
+        };
         let project = s.project.clone();
         let target = display.target(seq);
         let size = (scale * 1000.0) as u32;
         let mut meter = PlaybackMeter::default();
-        meter.start(1.0);
+        meter.start(speed);
         self.server.take_records();
         let gop0 = filmcraft_codecs::gop_stats();
         let (p0, ui0, up0) = (process_cpu_time().unwrap_or_default(), display.ui_cpu, display.uploaded);
@@ -257,10 +293,10 @@ impl Bench {
         let t_pre = Instant::now();
         loop {
             let key = FrameKey { target, frame: first, size, revision: s.revision, draft: self.draft };
-            self.server.schedule_playback(key, rate, scale, &project, 1.0, true);
+            self.server.schedule_playback(key, rate, scale, &project, speed, true);
             let exact = display.refresh(&self.server, key);
             meter.refresh(first, exact);
-            if self.server.preroll_ready(key, 1.0, last_frame) || t_pre.elapsed().as_secs_f64() >= PREROLL_TIMEOUT_S {
+            if self.server.preroll_ready(key, speed, last_frame) || t_pre.elapsed().as_secs_f64() >= PREROLL_TIMEOUT_S {
                 break;
             }
             std::thread::sleep(period);
@@ -272,14 +308,14 @@ impl Bench {
         let mut frame;
         loop {
             let now = Instant::now();
-            let t = start + Tick::from_seconds_f64((now - anchor).as_secs_f64());
-            if t >= end {
+            let t = start + Tick::from_seconds_f64((now - anchor).as_secs_f64() * speed);
+            if (speed > 0.0 && t >= end) || (speed < 0.0 && t <= end) {
                 break;
             }
             frame = rate.frame_at(t);
             due_at.entry(frame).or_insert(now);
             let key = FrameKey { target, frame, size, revision: s.revision, draft: self.draft };
-            self.server.schedule_playback(key, rate, scale, &project, 1.0, false);
+            self.server.schedule_playback(key, rate, scale, &project, speed, false);
             let exact = display.refresh(&self.server, key);
             meter.refresh(frame, exact);
             next += period;
@@ -319,7 +355,8 @@ impl Bench {
             ..Default::default()
         };
         let last = rate.frame_at(end - Tick(1));
-        for f in first..=last {
+        let (lo, hi) = if speed > 0.0 { (first, last) } else { (rate.frame_at(end), first) };
+        for f in lo..=hi {
             let Some(due) = due_at.get(&f) else { continue };
             rep.due += 1;
             if let Some(r) = by_frame.get(&f) {
@@ -775,7 +812,7 @@ pub fn cli_main() {
                 // A fresh frame server per run so caches start cold, as after opening a project.
                 let server = FrameServer::new(s.media.clone(), s.services.clone(), s.previews.clone(), args.workers);
                 server.set_profiling(true);
-                let bench = Bench { server, refresh_hz: args.refresh, seconds: args.seconds, draft: false };
+                let bench = Bench { server, refresh_hz: args.refresh, seconds: args.seconds, draft: false, speed: 1.0 };
                 let mut display = Display::new(args.gpu);
                 if args.gpu && display.gpu.is_none() {
                     eprintln!("no GPU adapter; using the CPU path");

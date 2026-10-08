@@ -84,6 +84,40 @@ impl BitrateMode {
     }
 }
 
+/// The HEVC encoder an [`crate::Format::Hevc`] export runs (through the system ffmpeg).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HevcEncoder {
+    /// VA-API hardware encoding when the GPU takes the size and profile, else libx265.
+    #[default]
+    Auto,
+    /// VA-API hardware encoding only (`hevc_vaapi`).
+    #[serde(alias = "hevc_vaapi", alias = "hardware")]
+    Vaapi,
+    /// Software encoding only (`libx265`).
+    #[serde(alias = "libx265", alias = "software")]
+    X265,
+}
+
+impl HevcEncoder {
+    pub const ALL: [HevcEncoder; 3] = [HevcEncoder::Auto, HevcEncoder::Vaapi, HevcEncoder::X265];
+    pub fn label(self) -> &'static str {
+        match self {
+            HevcEncoder::Auto => "Auto (hardware if available)",
+            HevcEncoder::Vaapi => "Hardware (VA-API)",
+            HevcEncoder::X265 => "Software (x265)",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<HevcEncoder> {
+        Some(match s.to_ascii_lowercase().replace([' ', '-', '_'], "").as_str() {
+            "auto" => HevcEncoder::Auto,
+            "vaapi" | "hevcvaapi" | "hardware" | "hw" | "gpu" => HevcEncoder::Vaapi,
+            "x265" | "libx265" | "software" | "sw" | "cpu" => HevcEncoder::X265,
+            _ => return None,
+        })
+    }
+}
+
 /// Container of H.264 exports.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -392,8 +426,8 @@ impl ExportSettings {
     pub fn audio_codec(&self) -> AudioCodec {
         match (self.format, self.audio.codec) {
             (Format::Wav | Format::Aiff | Format::MxfOp1a | Format::MxfOpAtom, _) => AudioCodec::Pcm,
-            (Format::H264, _) if self.multiplexer == Multiplexer::Mp4 => AudioCodec::Aac,
-            (_, AudioCodec::Auto) if self.format == Format::H264 => AudioCodec::Aac,
+            (Format::H264 | Format::Hevc, _) if self.multiplexer == Multiplexer::Mp4 => AudioCodec::Aac,
+            (_, AudioCodec::Auto) if matches!(self.format, Format::H264 | Format::Hevc) => AudioCodec::Aac,
             (_, AudioCodec::Auto) => AudioCodec::Pcm,
             (_, c) => c,
         }
@@ -411,7 +445,7 @@ impl ExportSettings {
 
     /// File extension of the output.
     pub fn extension(&self) -> &'static str {
-        if self.format == Format::H264 && self.multiplexer == Multiplexer::Mov { "mov" } else { self.format.extension() }
+        if matches!(self.format, Format::H264 | Format::Hevc) && self.multiplexer == Multiplexer::Mov { "mov" } else { self.format.extension() }
     }
 
     /// Estimated output size in bytes for `duration` of a sequence (`seq_w`×`seq_h` at `seq_rate`).
@@ -422,6 +456,11 @@ impl ExportSettings {
         let px = r.width as f64 * r.height as f64;
         let video_bps = match self.video_format() {
             Format::H264 => r.target_kbps as f64 * 1000.0,
+            // constant quality: roughly 0.08 bits per pixel at CRF 23, halving every 6 steps
+            Format::Hevc => match self.crf {
+                Some(q) => px * fps * 0.08 * 2f64.powf((23.0 - q.min(51) as f64) / 6.0),
+                None => r.target_kbps as f64 * 1000.0,
+            },
             Format::ProRes => crate::prores_profile(&self.prores_profile).nominal_mbps_1080p30() * 1e6 * px / (1920.0 * 1080.0) * fps / 29.97,
             Format::DnxHr => {
                 // nominal 1080p29.97 data rates of the DNxHR profiles (Mb/s)
@@ -494,6 +533,17 @@ impl ExportSettings {
                     };
                     v += &format!(", keyframe every {} frames", r.keyint);
                 }
+                Format::Hevc => {
+                    v += if self.hevc_bit_depth == 10 { ", Main 10" } else { ", Main" };
+                    v += &match self.crf {
+                        Some(q) => format!(", constant quality {}", q.min(51)),
+                        None => match self.bitrate_mode {
+                            BitrateMode::Cbr => format!(", CBR, {}", mbps(r.target_kbps)),
+                            _ => format!(", VBR, Target {}, Max {}", mbps(r.target_kbps), mbps(r.max_kbps)),
+                        },
+                    };
+                    v += &format!(", keyframe every {} frames, {}", r.keyint, self.hevc_encoder.label());
+                }
                 Format::ProRes => {
                     use filmcraft_prores::Profile;
                     v += match crate::prores_profile(&self.prores_profile) {
@@ -524,8 +574,8 @@ impl ExportSettings {
             "No audio".to_string()
         };
         let container = match self.format {
-            Format::H264 if self.multiplexer == Multiplexer::Mov => "QuickTime",
-            Format::H264 => "MP4",
+            Format::H264 | Format::Hevc if self.multiplexer == Multiplexer::Mov => "QuickTime",
+            Format::H264 | Format::Hevc => "MP4",
             Format::ProRes | Format::DnxHr | Format::Apv | Format::Mjpeg => "QuickTime",
             Format::MxfOp1a | Format::MxfOpAtom => self.mxf_video_codec.label(),
             Format::PngSequence | Format::TiffSequence | Format::BmpSequence => "Image sequence",

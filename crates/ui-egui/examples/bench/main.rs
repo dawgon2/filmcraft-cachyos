@@ -19,6 +19,7 @@ mod fixtures;
 #[allow(dead_code)]
 mod playback;
 mod sections;
+mod xm5;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -90,6 +91,8 @@ fn run_section(name: &str, o: &Opts) -> Value {
         "timeline" => sections::timeline(o),
         "export" => sections::export(o),
         "project" => sections::project(o),
+        // fork-only, heavy, not in the default set: 6.2K HEVC (FORK-PLAN.md §4)
+        "xm5" => xm5::xm5(o),
         _ => panic!("unknown section {name} (one of {})", SECTIONS.join(", ")),
     };
     json!({"section": name, "rows": rows, "wall_s": t0.elapsed().as_secs_f64(), "load_before": load0, "load_after": playback::load_avg()})

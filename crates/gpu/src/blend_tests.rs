@@ -7,6 +7,7 @@
 //! flip a pixel whose blend lands on its 0.5 threshold.
 
 use super::*;
+use filmcraft_frame::Chroma;
 use filmcraft_geom::{Affine, Vec2};
 use filmcraft_render::plan::execute_cpu;
 

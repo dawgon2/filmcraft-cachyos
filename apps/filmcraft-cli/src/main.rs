@@ -28,15 +28,20 @@ SUBCOMMANDS
   import <file>...              import media into the project
   export <out> [--preset name] [--format f] [--range r] [--start s --end s] [--settings json]
          [--scale f] [--quality 0-100] [--no-audio] [--queue]
+         [--fps r] [--width w --height h] [--bitrate kbps] [--max-bitrate kbps]
+         [--crf 0-51] [--bit-depth 8|10] [--encoder auto|vaapi|x265]
                                 export the active sequence and wait for it to finish: with an
                                 export preset (`export --list-presets`; built-in or the user's), or
-                                a format (h264|prores|dnxhr|apv|mjpeg|mxf-op1a|mxf-opatom|png|tiff|bmp|gif|wav|aiff, guessed
+                                a format (h264|hevc|prores|dnxhr|apv|mjpeg|mxf-op1a|mxf-opatom|png|tiff|bmp|gif|wav|aiff, guessed
                                 from the extension); --range entire|inOut|workArea, or a custom
                                 range in seconds; --settings is ExportSettings JSON merged over the
                                 preset; --scale renders at a fraction of the frame size (0.5 =
                                 half); --quality 0-100 for the formats that take one; --no-audio
                                 leaves the sound out; --queue adds to the export queue and runs it
-                                instead
+                                instead. HEVC (H.265, through the system ffmpeg): --encoder
+                                vaapi (GPU) | x265 (CPU) | auto (GPU, else CPU); --bit-depth 10 for
+                                Main 10; --crf for constant quality (CRF with x265, QP with VA-API)
+                                instead of --bitrate / --max-bitrate (kbps)
   export --list-presets [query] list export presets (name, category, format) as JSON
   render --seconds S --out f.png [--scale 0.5]   render one Program frame to PNG
   probe <media> [--image-sequence]
@@ -305,7 +310,18 @@ async fn main() {
                     p["format"] = json!(format);
                 }
             }
-            for (k, key) in [("--scale", "scale"), ("--quality", "quality")] {
+            for (k, key) in [
+                ("--scale", "scale"),
+                ("--quality", "quality"),
+                ("--fps", "fps"),
+                ("--width", "width"),
+                ("--height", "height"),
+                ("--bitrate", "bitrateKbps"),
+                ("--max-bitrate", "maxBitrateKbps"),
+                ("--crf", "crf"),
+                ("--bit-depth", "bitDepth"),
+                ("--encoder", "hevcEncoder"),
+            ] {
                 if let Some(v) = a.opt(k) {
                     p[key] = parse_value(v);
                 }

@@ -52,6 +52,12 @@ pub enum PixelData {
     Yuv8 { planes: [Arc<Vec<u8>>; 3], chroma: Chroma, alpha: Option<Arc<Vec<u8>>> },
     /// 9–16-bit planar Y'CbCr stored in u16 (`bits` significant bits).
     Yuv16 { planes: [Arc<Vec<u16>>; 3], chroma: Chroma, bits: u32, alpha: Option<Arc<Vec<u16>>> },
+    /// 9–16-bit Y'CbCr in two planes, as hardware decoders hand it over (P010 / P016 for 4:2:0,
+    /// P210 for 4:2:2): `y` is the luma plane (width × height), `uv` the Cb and Cr samples
+    /// interleaved at chroma resolution (2 × chroma width per row). Samples are MSB-aligned:
+    /// a `bits`-bit code `c` is stored as `c << (16 - bits)`. The GPU uploads the planes as they
+    /// are; CPU paths go through [`VideoFrame::to_planar`]. No alpha.
+    Yuv16Bi { y: Arc<Vec<u16>>, uv: Arc<Vec<u16>>, chroma: Chroma, bits: u32 },
 }
 
 #[derive(Clone, Debug)]
@@ -88,7 +94,7 @@ impl VideoFrame {
             PixelData::Rgba8(_) => "RGBA 8-bit".into(),
             PixelData::RgbaF32(_) => "RGBA 32-bit float".into(),
             PixelData::Yuv8 { chroma, .. } => format!("YUV {} 8-bit", chroma.label()),
-            PixelData::Yuv16 { chroma, bits, .. } => format!("YUV {} {bits}-bit", chroma.label()),
+            PixelData::Yuv16 { chroma, bits, .. } | PixelData::Yuv16Bi { chroma, bits, .. } => format!("YUV {} {bits}-bit", chroma.label()),
         }
     }
 
@@ -99,7 +105,41 @@ impl VideoFrame {
             PixelData::RgbaF32(d) => d.len() * 4,
             PixelData::Yuv8 { planes, alpha, .. } => planes.iter().map(|p| p.len()).sum::<usize>() + alpha.as_ref().map_or(0, |a| a.len()),
             PixelData::Yuv16 { planes, alpha, .. } => (planes.iter().map(|p| p.len()).sum::<usize>() + alpha.as_ref().map_or(0, |a| a.len())) * 2,
+            PixelData::Yuv16Bi { y, uv, .. } => (y.len() + uv.len()) * 2,
         }
+    }
+
+    /// A biplanar frame ([`PixelData::Yuv16Bi`]) as planar [`PixelData::Yuv16`] (codes in the
+    /// low bits, chroma deinterleaved), for the CPU paths; None for every other layout. A plane
+    /// shorter than the frame size says (damaged input) reads as black / neutral there.
+    pub fn to_planar(&self) -> Option<VideoFrame> {
+        let PixelData::Yuv16Bi { y, uv, chroma, bits } = &self.data else { return None };
+        let (w, h) = (self.width as usize, self.height as usize);
+        let (sx, sy) = chroma.shifts();
+        let (cw, ch) = (w.div_ceil(1 << sx), h.div_ceil(1 << sy));
+        let bits = (*bits).clamp(1, 16);
+        let shift = 16 - bits;
+        let mut yp = pool::take_u16(w * h);
+        yp.resize(w * h, 0);
+        let src = y.get(..w * h).unwrap_or(&[]);
+        yp.par_chunks_mut(w.max(1)).zip(src.par_chunks(w.max(1))).for_each(|(d, s)| {
+            for (d, s) in d.iter_mut().zip(s) {
+                *d = s >> shift;
+            }
+        });
+        let mid = 1u16 << (bits - 1);
+        let (mut u, mut v) = (pool::take_u16(cw * ch), pool::take_u16(cw * ch));
+        u.resize(cw * ch, mid);
+        v.resize(cw * ch, mid);
+        let src = uv.get(..cw * ch * 2).unwrap_or(&[]);
+        u.par_chunks_mut(cw.max(1)).zip(v.par_chunks_mut(cw.max(1))).zip(src.par_chunks(cw.max(1) * 2)).for_each(|((ur, vr), s)| {
+            for ((a, b), pair) in ur.iter_mut().zip(vr.iter_mut()).zip(s.as_chunks::<2>().0) {
+                *a = pair[0] >> shift;
+                *b = pair[1] >> shift;
+            }
+        });
+        let data = PixelData::Yuv16 { planes: [Arc::new(yp), Arc::new(u), Arc::new(v)], chroma: *chroma, bits, alpha: None };
+        Some(VideoFrame { width: self.width, height: self.height, data, color: self.color, par: self.par, pts: self.pts })
     }
 
     /// A planar Y'CbCr frame reduced by `n` (2, 4, 8…) in each direction: every sample (luma,
@@ -109,6 +149,9 @@ impl VideoFrame {
     pub fn box_decimated(&self, n: usize) -> Option<VideoFrame> {
         if n < 2 {
             return None;
+        }
+        if let Some(p) = self.to_planar() {
+            return p.box_decimated(n);
         }
         let (w, h) = (self.width as usize, self.height as usize);
         let (ow, oh) = ((w / n).max(1), (h / n).max(1));
@@ -142,7 +185,7 @@ impl VideoFrame {
                     alpha: alpha.as_ref().map(|a| Arc::new(box_plane(a, w, h, ow, oh, n))),
                 }
             }
-            PixelData::Rgba8(_) | PixelData::RgbaF32(_) => return None,
+            PixelData::Rgba8(_) | PixelData::RgbaF32(_) | PixelData::Yuv16Bi { .. } => return None,
         };
         Some(VideoFrame { width: ow as u32, height: oh as u32, data, color: self.color, par: self.par, pts: self.pts })
     }
@@ -155,6 +198,9 @@ impl VideoFrame {
         let q = quarter_turns % 4;
         if q == 0 {
             return self.clone();
+        }
+        if let Some(p) = self.to_planar() {
+            return p.rotated(q);
         }
         let (w, h) = (self.width as usize, self.height as usize);
         let data = match &self.data {
@@ -177,6 +223,8 @@ impl VideoFrame {
                     alpha: alpha.as_ref().map(|a| Arc::new(rotate_plane(a, w, h, 1, q))),
                 }
             }
+            // converted to planar above
+            PixelData::Yuv16Bi { .. } => return self.clone(),
         };
         let (width, height, par) = if q % 2 == 1 { (self.height, self.width, (self.par.1, self.par.0)) } else { (self.width, self.height, self.par) };
         VideoFrame { width, height, data, color: self.color, par, pts: self.pts }
@@ -199,6 +247,9 @@ impl VideoFrame {
     /// transfer. Float frames are already linear and ignore it.
     pub fn to_linear_f32_decimated_with(&self, n: usize, decode: Option<&DecodeTable>) -> (usize, usize, Vec<f32>) {
         let n = n.max(1);
+        if let Some(p) = self.to_planar() {
+            return p.to_linear_f32_decimated_with(n, decode);
+        }
         let (w, h) = (self.width as usize, self.height as usize);
         let (ow, oh) = ((w / n).max(1), (h / n).max(1));
         let mut out = vec![0f32; ow * oh * 4];
@@ -332,6 +383,8 @@ impl VideoFrame {
                     }
                 });
             }
+            // converted to planar above
+            PixelData::Yuv16Bi { .. } => {}
         }
         (ow, oh, out)
     }
@@ -531,6 +584,48 @@ fn rotate_chroma<T: Copy + Default + Send + Sync>(planes: &[Arc<Vec<T>>; 3], chr
 
 #[cfg(test)]
 mod tests {
+
+    fn p010(w: u32, h: u32, y: Vec<u16>, uv: Vec<u16>, chroma: Chroma) -> VideoFrame {
+        VideoFrame {
+            width: w,
+            height: h,
+            data: PixelData::Yuv16Bi { y: Arc::new(y), uv: Arc::new(uv), chroma, bits: 10 },
+            color: ColorInfo::REC709,
+            par: (1, 1),
+            pts: Tick::ZERO,
+        }
+    }
+
+    #[test]
+    fn biplanar_frames_convert_to_planar_codes() {
+        // 3×2 4:2:0: chroma 2×1, odd width rounds up
+        let f = p010(
+            3,
+            2,
+            [64u16, 940, 512, 100, 200, 1023].iter().map(|c| c << 6).collect(),
+            [100u16, 900, 512, 0].iter().map(|c| c << 6).collect(),
+            Chroma::C420,
+        );
+        let p = f.to_planar().expect("biplanar");
+        let PixelData::Yuv16 { planes, chroma, bits, alpha } = &p.data else { panic!("planar") };
+        assert_eq!((*chroma, *bits, alpha.is_none()), (Chroma::C420, 10, true));
+        assert_eq!((planes[0].as_slice(), planes[1].as_slice(), planes[2].as_slice()), (&[64, 940, 512, 100, 200, 1023][..], &[100, 512][..], &[900, 0][..]));
+        assert_eq!((f.format_label(), f.byte_size()), ("YUV 4:2:0 10-bit".to_string(), (6 + 4) * 2));
+        assert_eq!(f.to_rgba8(), p.to_rgba8());
+        assert_eq!(f.box_decimated(2).map(|d| d.to_rgba8()), p.box_decimated(2).map(|d| d.to_rgba8()));
+        assert_eq!(f.rotated(1).to_rgba8(), p.rotated(1).to_rgba8());
+        assert!(p.to_planar().is_none(), "already planar");
+    }
+
+    #[test]
+    fn damaged_biplanar_frames_do_not_panic() {
+        // planes shorter than the size says (a broken decoder) and an absurd bit depth
+        let f = p010(64, 32, vec![1 << 15; 10], vec![], Chroma::C422);
+        let p = f.to_planar().expect("biplanar");
+        assert_eq!(p.to_rgba8().len(), 64 * 32 * 4);
+        let g = VideoFrame { data: PixelData::Yuv16Bi { y: Arc::new(vec![]), uv: Arc::new(vec![]), chroma: Chroma::C444, bits: 99 }, ..f };
+        assert_eq!(g.to_linear_f32().len(), 64 * 32 * 4);
+    }
 
     #[test]
     fn rotation_turns_every_plane_clockwise() {

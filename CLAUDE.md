@@ -1,3 +1,8 @@
+> **Personal fork.** This checkout is the owner's fork (branch `hevc-vaapi`). Every session must
+> first read [`FORK-PLAN.md`](FORK-PLAN.md) (including §1a "Standing instructions") and
+> [`docs/fork/HANDOFF.md`](docs/fork/HANDOFF.md). Where FORK-PLAN.md's rules conflict with the
+> upstream rules below (or AGENTS.md), FORK-PLAN.md wins.
+
 # FilmCraft — instructions for agents
 
 FilmCraft is a clean-room, open-source, pure-Rust non-linear video editor targeting Adobe Premiere Pro parity (and beyond). Native on macOS, Windows, Linux; web via WASM. Sibling of `../photocraft` (Photoshop), `../printcraft` (Acrobat) and `../vectorcraft` (Illustrator; formerly DrawCraft), with the same conventions.

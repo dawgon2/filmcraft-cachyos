@@ -386,11 +386,14 @@ pub struct MemoryPrefs {
     pub ram_reserved_gb: u32,
     /// Decoded-frame cache budget of the monitors and thumbnails (MB).
     pub frame_cache_mb: u32,
+    /// Decoded source frames all clips keep for scrubbing and reverse play (MB; 0 = Auto: a
+    /// fifth of the installed RAM, 1–16 GB).
+    pub decode_cache_mb: u32,
 }
 
 impl Default for MemoryPrefs {
     fn default() -> Self {
-        Self { ram_reserved_gb: 4, frame_cache_mb: 768 }
+        Self { ram_reserved_gb: 4, frame_cache_mb: 768, decode_cache_mb: 0 }
     }
 }
 
@@ -940,6 +943,7 @@ static CATEGORIES: &[Category] = &[
             Row::Custom("memoryInfo"),
             f("memory.ramReservedGb", "RAM reserved for other applications", int(1.0, 1024.0, "GB"), false),
             f("memory.frameCacheMb", "Frame cache for monitors and thumbnails", int(64.0, 65_536.0, "MB"), true),
+            f("memory.decodeCacheMb", "Decoded source frames (0 = Auto)", int(0.0, 262_144.0, "MB"), true),
         ],
     },
     Category {
@@ -1131,6 +1135,18 @@ impl crate::autosave::Preferences {
     /// factories consult (new decoders only).
     pub fn apply_hardware_decoding(&self) {
         filmcraft_codecs::hw::set_hardware_decoding(self.playback.hardware_decoding != "off");
+        self.apply_decode_cache();
+    }
+
+    /// Settings ▸ Memory ▸ Decoded source frames: the budget all clips' decoded frames share (Auto
+    /// from the installed RAM; the live-decoder cap always follows the RAM).
+    pub fn apply_decode_cache(&self) {
+        let (auto_budget, decoders) = filmcraft_codecs::auto_limits(filmcraft_codecs::installed_ram());
+        let budget = match self.memory.decode_cache_mb {
+            0 => auto_budget,
+            mb => (mb as usize).saturating_mul(1 << 20),
+        };
+        filmcraft_codecs::configure_decode_cache(budget, decoders);
     }
 
     /// Values of one category as a JSON object.

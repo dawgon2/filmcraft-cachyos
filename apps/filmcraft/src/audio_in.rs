@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use filmcraft_engine::voiceover::{AudioInput, InputFormat};
 
+use crate::audio::device_name;
+
 pub struct CpalIn {
     /// Host name (Settings ▸ Audio Hardware ▸ Device Class; empty = default host).
     host: String,
@@ -35,7 +37,7 @@ fn host(name: &str) -> cpal::Host {
 fn device(h: &cpal::Host, name: &str) -> Option<cpal::Device> {
     if !name.is_empty()
         && let Ok(mut devs) = h.input_devices()
-        && let Some(d) = devs.find(|d| d.name().is_ok_and(|n| n == name))
+        && let Some(d) = devs.find(|d| device_name(d).is_some_and(|n| n == name))
     {
         return Some(d);
     }
@@ -48,7 +50,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl AudioInput for CpalIn {
     fn devices(&self) -> Vec<String> {
-        host(&self.host).input_devices().map(|d| d.filter_map(|x| x.name().ok()).collect()).unwrap_or_default()
+        host(&self.host).input_devices().map(|d| d.filter_map(|x| device_name(&x)).collect()).unwrap_or_default()
     }
     fn channels(&self, name: &str) -> u16 {
         device(&host(&self.host), name).and_then(|d| d.default_input_config().ok()).map(|c| c.channels()).unwrap_or(0)
@@ -72,18 +74,18 @@ impl AudioInput for CpalIn {
                         .supported_input_configs()
                         .ok()
                         .and_then(|mut it| {
-                            it.find(|c| c.sample_format() == cpal::SampleFormat::F32 && (c.min_sample_rate().0..=c.max_sample_rate().0).contains(&sample_rate))
-                                .and_then(|c| c.try_with_sample_rate(cpal::SampleRate(sample_rate)))
+                            it.find(|c| c.sample_format() == cpal::SampleFormat::F32 && (c.min_sample_rate()..=c.max_sample_rate()).contains(&sample_rate))
+                                .and_then(|c| c.try_with_sample_rate(sample_rate))
                         })
                         .unwrap_or(default);
                     if cfg.sample_format() != cpal::SampleFormat::F32 {
                         return Err(format!("unsupported input sample format {:?}", cfg.sample_format()));
                     }
                     let ch = cfg.channels() as usize;
-                    let fmt = InputFormat { sample_rate: cfg.sample_rate().0, channels: cfg.channels() };
+                    let fmt = InputFormat { sample_rate: cfg.sample_rate(), channels: cfg.channels() };
                     let stream = dev
                         .build_input_stream(
-                            &cfg.into(),
+                            cfg.into(),
                             move |data: &[f32], _| {
                                 let mut b = lock(&buf);
                                 if b.len() != ch {

@@ -19,6 +19,14 @@ const VALUED: &[&str] = &[
     "--end",
     "--data-dir",
     "--settings",
+    "--fps",
+    "--width",
+    "--height",
+    "--bitrate",
+    "--max-bitrate",
+    "--crf",
+    "--bit-depth",
+    "--encoder",
 ];
 
 #[derive(Debug, Default)]

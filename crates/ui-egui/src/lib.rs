@@ -263,6 +263,22 @@ pub fn gpu_compositor_unsupported(adapter: &eframe::wgpu::Adapter) -> Option<Str
     None
 }
 
+/// The wgpu setup for the app window: eframe's defaults plus the device features the GPU
+/// compositor uses when the adapter has them (16-bit normalized textures: 10-bit video uploads
+/// without a CPU conversion). Pass as `NativeOptions::wgpu_options`.
+pub fn wgpu_configuration() -> eframe::egui_wgpu::WgpuConfiguration {
+    let mut c = eframe::egui_wgpu::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup {
+        let base = n.device_descriptor.clone();
+        n.device_descriptor = std::sync::Arc::new(move |adapter| {
+            let mut d = base(adapter);
+            d.required_features |= adapter.features() & filmcraft_gpu::wanted_features();
+            d
+        });
+    }
+    c
+}
+
 impl FilmcraftApp {
     /// Enable the GPU compositor on the eframe wgpu device.
     pub fn set_wgpu(&mut self, rs: eframe::egui_wgpu::RenderState) {
