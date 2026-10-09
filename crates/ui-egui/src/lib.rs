@@ -231,13 +231,36 @@ pub struct GpuState {
     pub broken: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Largest texture side the device accepts.
     pub max_texture: u32,
+    /// Scopes from the Program monitor's picture (fork Phase 4.4): when the scopes panel last
+    /// asked for them, the read-back in flight, and the latest samples.
+    pub scopes_wanted: Option<web_time::Instant>,
+    pub scope_pending: Option<(FrameKey, filmcraft_gpu::scopes::ScopeReadback)>,
+    pub scope_signal: Option<(FrameKey, Arc<filmcraft_scopes::Signal>)>,
+    /// Scope samples read back so far (`perf.stats` `scopes.gpuSamples`).
+    pub scope_samples: u64,
+    /// The last picture was composited with Maximum Render Quality.
+    pub last_hq: bool,
+}
+
+impl GpuState {
+    /// Pick up a finished scope read-back.
+    pub fn poll_scopes(&mut self) {
+        if let Some((key, r)) = &self.scope_pending
+            && let Some(px) = r.try_take()
+        {
+            let (w, h) = (r.w as usize, r.h as usize);
+            self.scope_signal = Some((*key, Arc::new(filmcraft_scopes::Signal::from_rgba8_max(w, h, &px, w, h))));
+            self.scope_pending = None;
+            self.scope_samples += 1;
+        }
+    }
 }
 
 /// Largest texture side a plan needs on the GPU (output and every layer).
 fn plan_side(plan: &filmcraft_render::plan::FramePlan) -> usize {
     use filmcraft_render::plan::FramePlan;
     match plan {
-        FramePlan::Layers { width, height, layers } => {
+        FramePlan::Layers { width, height, layers, .. } => {
             layers.iter().map(|l| l.frame.width.max(l.frame.height) as usize).fold((*width).max(*height), usize::max)
         }
         FramePlan::Image(img) => img.w.max(img.h),
@@ -347,7 +370,21 @@ impl FilmcraftApp {
         match made {
             Ok(compositor) if !broken.load(std::sync::atomic::Ordering::Relaxed) => {
                 let max_texture = rs.device.limits().max_texture_dimension_2d;
-                self.gpu = Some(GpuState { render_state: rs, compositor, texture: None, last_key: None, size: (0, 0), last_ms: 0.0, broken, max_texture });
+                self.gpu = Some(GpuState {
+                    render_state: rs,
+                    compositor,
+                    texture: None,
+                    last_key: None,
+                    size: (0, 0),
+                    last_ms: 0.0,
+                    broken,
+                    max_texture,
+                    scopes_wanted: None,
+                    scope_pending: None,
+                    scope_signal: None,
+                    scope_samples: 0,
+                    last_hq: false,
+                });
             }
             _ => log::error!("GPU compositor failed to initialise; compositing on the CPU"),
         }
@@ -370,8 +407,13 @@ impl FilmcraftApp {
             self.disable_gpu("device error");
             return None;
         }
+        // Maximum Render Quality (Lanczos minification) for a paused picture; playback keeps
+        // the cheaper supersampling
+        let hq = !self.playback.playing && self.session.active_sequence().is_some_and(|q| q.settings.max_render_quality);
         let g = self.gpu.as_mut()?;
+        g.poll_scopes();
         if g.last_key == Some(key)
+            && g.last_hq == hq
             && let Some(t) = g.texture
         {
             return Some((t, g.size));
@@ -381,6 +423,8 @@ impl FilmcraftApp {
             return None;
         }
         let t0 = web_time::Instant::now();
+        g.compositor.set_high_quality(hq);
+        g.last_hq = hq;
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let (view, size) = g.compositor.composite_prepared(&plan.plan, Some(&plan.prepared));
             (view.clone(), size)
@@ -391,6 +435,10 @@ impl FilmcraftApp {
         };
         let g = self.gpu.as_mut()?;
         g.last_ms = t0.elapsed().as_secs_f32() * 1000.0;
+        // scopes open: sample this picture for them (one read-back in flight at a time)
+        if g.scope_pending.is_none() && g.scopes_wanted.is_some_and(|t| t.elapsed().as_secs_f32() < 0.5) {
+            g.scope_pending = g.compositor.request_scope_samples(filmcraft_scopes::MAX_W as u32, filmcraft_scopes::MAX_H as u32).map(|r| (key, r));
+        }
         let mut renderer = g.render_state.renderer.write();
         let id = match g.texture {
             Some(id) => {
@@ -1604,9 +1652,9 @@ mod gpu_fallback_tests {
         let layer =
             |w, h| PlanLayer { frame: frame(w, h), matrix: filmcraft_geom::Affine::IDENTITY, opacity: 1.0, blend: filmcraft_render::Blend::Normal, fx: None };
         // a 4K source in an HD sequence still needs a 3840-wide texture on the GPU
-        let p = FramePlan::Layers { width: 1920, height: 1080, layers: vec![layer(64, 64), layer(3840, 2160)] };
+        let p = FramePlan::Layers { output: None, width: 1920, height: 1080, layers: vec![layer(64, 64), layer(3840, 2160)] };
         assert_eq!(super::plan_side(&p), 3840);
-        let p = FramePlan::Layers { width: 1920, height: 1080, layers: vec![] };
+        let p = FramePlan::Layers { output: None, width: 1920, height: 1080, layers: vec![] };
         assert_eq!(super::plan_side(&p), 1920);
         let p = FramePlan::Image(filmcraft_render::Image::new(800, 4000));
         assert_eq!(super::plan_side(&p), 4000);

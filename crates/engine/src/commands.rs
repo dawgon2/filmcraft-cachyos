@@ -339,6 +339,44 @@ pub fn with_links(s: &Session, clips: &[ClipId]) -> Vec<ClipId> {
     out
 }
 
+/// A sequence preset (fork Phase 4.5): delivery sizes for 6.2K X-M5 footage. The `xm5-*`
+/// presets grade in DaVinci Wide Gamut / Intermediate (fork ADR 0003, §1a.14); the others in
+/// Rec. 709.
+pub struct SequencePreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub width: u32,
+    pub height: u32,
+    pub rate: filmcraft_time::FrameRate,
+    pub working: filmcraft_color::WorkingSpace,
+}
+
+pub fn sequence_presets() -> Vec<SequencePreset> {
+    use filmcraft_color::WorkingSpace::{DaVinciWide, Rec709};
+    use filmcraft_time::FrameRate;
+    let (r24, r30) = (FrameRate::FPS_23_976, FrameRate::FPS_29_97);
+    let p = |id, label, width, height, rate, working| SequencePreset { id, label, width, height, rate, working };
+    vec![
+        p("uhd-2398", "UHD 4K 3840×2160 23.976", 3840, 2160, r24, Rec709),
+        p("uhd-2997", "UHD 4K 3840×2160 29.97", 3840, 2160, r30, Rec709),
+        p("vertical-2398", "Vertical 4K 2160×3840 23.976", 2160, 3840, r24, Rec709),
+        p("vertical-2997", "Vertical 4K 2160×3840 29.97", 2160, 3840, r30, Rec709),
+        p("xm5-uhd-2398", "X-M5 UHD 4K 23.976 (DaVinci Wide Gamut)", 3840, 2160, r24, DaVinciWide),
+        p("xm5-uhd-2997", "X-M5 UHD 4K 29.97 (DaVinci Wide Gamut)", 3840, 2160, r30, DaVinciWide),
+        p("xm5-vertical-2398", "X-M5 Vertical 4K 23.976 (DaVinci Wide Gamut)", 2160, 3840, r24, DaVinciWide),
+        p("xm5-vertical-2997", "X-M5 Vertical 4K 29.97 (DaVinci Wide Gamut)", 2160, 3840, r30, DaVinciWide),
+        // 6.2K 3:2 shot through a 1.6× anamorphic lens desqueezes to exactly 2.40:1
+        p("xm5-anamorphic-2398", "X-M5 Anamorphic 1.6x Scope 3840×1600 23.976 (DaVinci Wide Gamut)", 3840, 1600, r24, DaVinciWide),
+        p("xm5-anamorphic-2997", "X-M5 Anamorphic 1.6x Scope 3840×1600 29.97 (DaVinci Wide Gamut)", 3840, 1600, r30, DaVinciWide),
+        p("xm5-6k-2398", "X-M5 6.2K 6240×4160 23.976 (DaVinci Wide Gamut)", 6240, 4160, r24, DaVinciWide),
+        p("xm5-6k-2997", "X-M5 6.2K 6240×4160 29.97 (DaVinci Wide Gamut)", 6240, 4160, r30, DaVinciWide),
+    ]
+}
+
+pub fn sequence_preset(id: &str) -> Option<SequencePreset> {
+    sequence_presets().into_iter().find(|p| p.id == id)
+}
+
 pub(crate) fn default_seq_settings_for(info: &filmcraft_media::MediaInfo) -> SequenceSettings {
     let mut st = SequenceSettings::default();
     if let Some(v) = &info.video {
@@ -625,12 +663,18 @@ fn build() -> Vec<CommandSpec> {
             "Sequence…",
             ["File", "New"],
             Some("Cmd+N"),
-            r#"{"name":str,"width":u32=1920,"height":u32=1080,"fps":f64=23.976,"sampleRate":u32=48000,"video":n=3,"audio":n=3,"mix":"Stereo|Mono|5.1|Adaptive"?,"trackType":"Standard|Mono|5.1|Adaptive"?,"fromItem":itemId?}"#,
+            r#"{"name":str,"preset":"uhd-2398|uhd-2997|vertical-2398|vertical-2997|xm5-uhd-2398|xm5-uhd-2997|xm5-vertical-2398|xm5-vertical-2997|xm5-anamorphic-2398|xm5-anamorphic-2997|xm5-6k-2398|xm5-6k-2997"?,"width":u32?,"height":u32?,"fps":f64?,"sampleRate":u32=48000,"video":n=3,"audio":n=3,"mix":"Stereo|Mono|5.1|Adaptive"?,"trackType":"Standard|Mono|5.1|Adaptive"?,"fromItem":itemId?}"#,
             always,
             |s, p| {
                 let mut st = SequenceSettings::default();
                 if let Some(from) = item_p(p, "fromItem").and_then(|i| s.project.item(i)).and_then(|i| i.as_media()) {
                     st = default_seq_settings_for(&from.info);
+                }
+                // a preset first; explicit width / height / fps still override it
+                if let Some(id) = str_p(p, "preset") {
+                    let pr = sequence_preset(id).ok_or_else(|| bad("file.newSequence", format!("unknown preset `{id}` (see sequence.presets)")))?;
+                    (st.width, st.height, st.frame_rate) = (pr.width, pr.height, pr.rate);
+                    st.color.working = pr.working;
                 }
                 if let Some(w) = u64_p(p, "width") {
                     st.width = w as u32;
@@ -684,6 +728,13 @@ fn build() -> Vec<CommandSpec> {
                 Ok(json!({"sequence": id.0}))
             }
         ),
+        query!("sequence.presets", "Sequence Presets", r#"{}"#, |_, _| {
+            let v: Vec<Value> = sequence_presets()
+                .iter()
+                .map(|p| json!({"id": p.id, "label": p.label, "width": p.width, "height": p.height, "fps": p.rate.as_f64(), "working": p.working.id()}))
+                .collect();
+            Ok(json!({"presets": v}))
+        }),
         cmd!("file.newBin", "Bin", ["File", "New"], Some("Cmd+B"), r#"{"name":str,"parent":binId?}"#, always, |s, p| {
             let n = str_p(p, "name").unwrap_or("New Bin").to_string();
             let parent = u64_p(p, "parent").map(filmcraft_project::BinId);

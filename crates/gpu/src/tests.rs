@@ -72,6 +72,7 @@ fn biplanar_and_16bit_uploads_match_the_cpu() {
             by_path.push((path, chroma, from_bi));
             // the prepared (worker-converted) upload draws the same as the inline one
             let plan = FramePlan::Layers {
+                output: None,
                 width: w as usize,
                 height: h as usize,
                 layers: vec![PlanLayer { frame: bi.clone(), matrix: Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None }],
@@ -118,6 +119,7 @@ fn gpu_matches_cpu_plan() {
     let rgba = Arc::new(VideoFrame::rgba8(320, 180, pixels));
     let (w, h) = (320usize, 180usize);
     let plan = FramePlan::Layers {
+        output: None,
         width: w,
         height: h,
         layers: vec![
@@ -188,6 +190,7 @@ fn prepared_upload_matches_inline_conversion() {
     let f32_layer: Vec<f32> = (0..w * h * 4).map(|i| ((i * 37) % 1000) as f32 / 1000.0 * if i % 4 == 3 { 1.0 } else { 0.6 }).collect();
     let rgbaf = Arc::new(VideoFrame::rgba_f32(w, h, f32_layer.clone()));
     let layers = FramePlan::Layers {
+        output: None,
         width: w as usize,
         height: h as usize,
         layers: vec![
@@ -221,8 +224,12 @@ fn upload_cache_keeps_buffers_alive() {
     let mut c = GpuCompositor::new(&dev, &q);
     let px = Arc::new(vec![200u8; 16 * 8 * 4]);
     let frame = Arc::new(VideoFrame { width: 16, height: 8, data: PixelData::Rgba8(px.clone()), ..(*yuv_frame(16, 8)).clone() });
-    let plan =
-        FramePlan::Layers { width: 16, height: 8, layers: vec![PlanLayer { frame, matrix: Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None }] };
+    let plan = FramePlan::Layers {
+        output: None,
+        width: 16,
+        height: 8,
+        layers: vec![PlanLayer { frame, matrix: Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None }],
+    };
     c.composite(&plan);
     drop(plan);
     assert!(Arc::strong_count(&px) > 1, "cached upload must own its pixel buffer");
@@ -370,6 +377,7 @@ fn draws_yuv_alpha_plane_like_the_cpu(dev: &wgpu::Device, q: &wgpu::Queue) {
     for bits in [8, 10, 12] {
         let mut c = GpuCompositor::new(dev, q);
         let plan = FramePlan::Layers {
+            output: None,
             width: w,
             height: h,
             layers: vec![
@@ -388,6 +396,7 @@ fn draws_yuv_alpha_plane_like_the_cpu(dev: &wgpu::Device, q: &wgpu::Queue) {
         // the transparent left edge shows the background, the opaque right edge the layer
         let at = |img: &[u8], x: usize| (img[(90 * w + x) * 4], img[(90 * w + x) * 4 + 1], img[(90 * w + x) * 4 + 2]);
         let bg = execute_cpu(&FramePlan::Layers {
+            output: None,
             width: w,
             height: h,
             layers: vec![PlanLayer { frame: background.clone(), matrix: Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None }],
@@ -396,5 +405,87 @@ fn draws_yuv_alpha_plane_like_the_cpu(dev: &wgpu::Device, q: &wgpu::Queue) {
         let (l, r, b0) = (at(&gpu, 1), at(&gpu, w - 2), at(&bg, 1));
         assert!((l.0 as i32 - b0.0 as i32).abs() <= 6 && (l.1 as i32 - b0.1 as i32).abs() <= 6, "{bits}-bit: left edge {l:?} vs background {b0:?}");
         assert!(r != at(&bg, w - 2), "{bits}-bit: right edge {r:?} should differ from the background");
+    }
+}
+
+/// The scope samples read from the composited output are the samples `filmcraft_scopes::Signal`
+/// picks from the read-back frame (fork Phase 4.4).
+#[test]
+fn scope_samples_match_the_read_back_frame() {
+    use filmcraft_render::plan::{FramePlan, PlanLayer};
+    let Some((dev, q)) = super::blend_tests::device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    for (w, h) in [(1000usize, 563usize), (320, 180), (481, 271)] {
+        let plan = FramePlan::Layers {
+            width: w,
+            height: h,
+            layers: vec![PlanLayer::new(
+                super::blend_tests::ramp_layer(w as u32, h as u32, 2),
+                filmcraft_geom::Affine::IDENTITY,
+                1.0,
+                filmcraft_render::blend::Blend::Normal,
+            )],
+            output: None,
+        };
+        c.composite(&plan);
+        let (fw, fh, full) = c.read_output().expect("readback");
+        let r = c.request_scope_samples(480, 270).expect("scope samples");
+        let mut got = None;
+        for _ in 0..2000 {
+            got = r.try_take();
+            if got.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let got = got.expect("read back in time");
+        let want = filmcraft_scopes::Signal::from_rgba8_max(fw as usize, fh as usize, &full, 480, 270);
+        let ours = filmcraft_scopes::Signal::from_rgba8_max(r.w as usize, r.h as usize, &got, r.w as usize, r.h as usize);
+        assert_eq!((ours.w, ours.h), (want.w, want.h), "{w}×{h}");
+        assert_eq!(ours.rgb, want.rgb, "{w}×{h}");
+    }
+}
+
+/// Maximum Render Quality: the compositor's Lanczos-3 minification matches
+/// `Image::transformed_hq` (6.2K → 4K-like ×0.615, and ×0.3 with bilinear taps).
+#[test]
+fn high_quality_resample_matches_cpu() {
+    use filmcraft_render::plan::{FramePlan, PlanLayer};
+    let Some((dev, q)) = super::blend_tests::device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    c.set_high_quality(true);
+    let (sw, sh) = (624usize, 416usize);
+    let px: Vec<f32> = (0..sw * sh)
+        .flat_map(|i| {
+            let (x, y) = ((i % sw) as f32, (i / sw) as f32);
+            let v = 0.5 + 0.3 * (x * 0.37).sin() * (y * 0.23).cos();
+            [v, v * 0.8, 1.0 - v, 1.0]
+        })
+        .collect();
+    let frame = Arc::new(VideoFrame::rgba_f32(sw as u32, sh as u32, px.clone()));
+    let src = filmcraft_render::Image { w: sw, h: sh, px };
+    for s in [3840.0 / 6240.0, 0.3] {
+        let (w, h) = ((sw as f64 * s).round() as usize, (sh as f64 * s).round() as usize);
+        let m = filmcraft_geom::Affine::scale(s, s);
+        let plan = FramePlan::Layers {
+            width: w,
+            height: h,
+            layers: vec![PlanLayer::new(frame.clone(), m, 1.0, filmcraft_render::blend::Blend::Normal)],
+            output: None,
+        };
+        c.composite(&plan);
+        let (_, _, gpu) = c.read_output().expect("readback");
+        let cpu = src.transformed_hq(w, h, &m).over_black_rgba8();
+        let mut d: Vec<u8> = cpu.iter().zip(&gpu).map(|(a, b)| a.abs_diff(*b)).collect();
+        d.sort_unstable();
+        let (p99, max) = (d[d.len() * 99 / 100], d[d.len() - 1]);
+        eprintln!("×{s:.3}: 8-bit p99 {p99} max {max}");
+        assert!(p99 <= 1 && max <= 3, "×{s}: p99 {p99} max {max}");
     }
 }

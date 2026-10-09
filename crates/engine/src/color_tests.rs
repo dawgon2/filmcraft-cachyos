@@ -254,3 +254,52 @@ fn hdr_lumetri_and_mastering_metadata_through_commands() {
     let r = s.execute("media.colorInfo", json!({"item": item.0})).unwrap();
     assert!(r["hdrMetadata"].is_null() && r["toneMapPeakNits"].is_null(), "{r}");
 }
+
+/// Interpret Footage ▸ Pixel Aspect Ratio: conform to 1.6× anamorphic (by id or N:D), back to
+/// the file's, and bad values refused (fork Phase 4.6).
+#[test]
+fn interpret_footage_sets_the_pixel_aspect() {
+    let mut s = Session::default();
+    s.execute("file.openDemoProject", json!({})).unwrap();
+    let item = s.project.items.iter().find(|(_, i)| matches!(i.kind, filmcraft_project::ItemKind::Media(_))).map(|(id, _)| *id).unwrap();
+    let par = |s: &Session| if let Some(filmcraft_project::ItemKind::Media(m)) = s.project.item(item).map(|i| &i.kind) { m.interpret.par } else { None };
+    let r = s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "anamorphic-1.6"})).unwrap();
+    assert_eq!((par(&s), r["pixelAspect"].as_str()), (Some((8, 5)), Some("8:5")));
+    s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "auto"})).unwrap();
+    assert_eq!(par(&s), None);
+    s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "16:10"})).unwrap();
+    assert_eq!(par(&s), Some((16, 10)));
+    for bad in ["0:1", "1:0", "wide", "99999:1"] {
+        assert!(s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": bad})).is_err(), "{bad}");
+    }
+    assert!(s.execute("clip.interpretFootage", json!({"items": [item.0]})).is_err());
+    let list = s.execute("media.pixelAspects", json!({})).unwrap();
+    assert!(list["pixelAspects"].as_array().unwrap().iter().any(|p| p["ratio"] == "8:5" && p["label"].as_str().is_some_and(|l| l.contains("1.6"))));
+}
+
+/// Fit / Fill an anamorphic clip: the scale fits the desqueezed width, the anchor stays the
+/// centre in source pixels.
+#[test]
+fn fit_and_fill_use_the_desqueezed_width() {
+    let mut s = Session::default();
+    s.execute("file.openDemoProject", json!({})).unwrap();
+    let (clip, item, settings) = {
+        let q = s.active_sequence().unwrap();
+        let it = &q.video_tracks[0].items[0];
+        (it.id, it.item, q.settings.clone())
+    };
+    s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "anamorphic-1.6"})).unwrap();
+    let (w, h) = filmcraft_render::source_size(&s.project, item).unwrap();
+    let (fw, fh) = (f64::from(settings.width), f64::from(settings.height));
+    for (cmd, fill) in [("clip.fitToFrame", false), ("clip.fillFrame", true)] {
+        s.execute("timeline.select", json!({"clips": [clip.0]})).unwrap();
+        s.execute(cmd, json!({})).unwrap();
+        let q = s.active_sequence().unwrap();
+        let m = q.find_item(clip).unwrap().1.effect("motion").unwrap();
+        let (sx, sy) = (fw / (f64::from(w) * 1.6), fh / f64::from(h));
+        let want = if fill { sx.max(sy) } else { sx.min(sy) } * 100.0;
+        assert!((m.f64_at("scale", filmcraft_time::Tick::ZERO) - want).abs() < 1e-6, "{cmd}");
+        let a = m.vec2_at("anchor", filmcraft_time::Tick::ZERO);
+        assert_eq!((a.x, a.y), (f64::from(w) / 2.0, f64::from(h) / 2.0), "{cmd}");
+    }
+}

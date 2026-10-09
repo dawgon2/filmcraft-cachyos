@@ -31,7 +31,8 @@ fn effects_list_reports_folders_and_badges() {
     assert_eq!(wsz["category"], json!(["Video Effects", "Distort"]));
     assert_eq!(find("vr_rotate_sphere")["folder"], "Immersive Video");
     assert_eq!(find("crop")["category"], json!(["Legacy", "Video Effects"]));
-    assert_eq!(find("luma_key")["badges"], json!({"accelerated": true, "float32": true, "yuv": true}));
+    // (fork: ⚡ = drawn on the GPU; Luma Key is not yet)
+    assert_eq!(find("luma_key")["badges"], json!({"accelerated": false, "float32": true, "yuv": true}));
     assert_eq!(find("lens_flare")["folder"], "Lights & Glows");
     let n =
         arr.iter().filter(|e| e["kind"] == "Video" && e["category"][0] == "Video Effects" && e["folder"] != "Obsolete" && e["folder"] != Value::Null).count();

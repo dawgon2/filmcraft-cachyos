@@ -355,8 +355,12 @@ impl VideoFrame {
         // Encoded (0..1, quantised to 12 bits) → linear lookup for this frame's transfer.
         let info = self.color;
         let lin: Vec<f32> = if decode.is_some() { Vec::new() } else { (0..4096).map(|i| to_linear(i as f32 / 4095.0, info.transfer)).collect() };
+        // a linear transfer passes values through unclamped (a colour-managed frame handed over as
+        // its signal keeps its super-whites, as on the GPU)
+        let linear = info.transfer == filmcraft_color::Transfer::Linear;
         let q = |v: f32| match decode {
             Some(t) => t.lookup(v),
+            None if linear => v,
             None => lin[(v.clamp(0.0, 1.0) * 4095.0 + 0.5) as usize],
         };
         let inv = 1.0 / (n * n) as f32;

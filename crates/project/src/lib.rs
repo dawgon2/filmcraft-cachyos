@@ -162,6 +162,37 @@ pub enum MediaRef {
     Generator(Generator),
 }
 
+/// Pixel aspect ratios offered wherever one can be chosen (Interpret Footage ▸ Conform to,
+/// Export): id, label, ratio. "Anamorphic 1.6x" is for footage shot through a 1.6× anamorphic
+/// lens (fork §1a.13).
+pub const PIXEL_ASPECTS: &[(&str, &str, (u32, u32))] = &[
+    ("square", "Square Pixels (1.0)", (1, 1)),
+    ("d1-ntsc", "D1/DV NTSC (0.9091)", (10, 11)),
+    ("d1-pal", "D1/DV PAL (1.0940)", (59, 54)),
+    ("hd-anamorphic", "HD Anamorphic 1080 (1.333)", (4, 3)),
+    ("dvcpro-hd", "DVCPRO HD (1.5)", (3, 2)),
+    ("anamorphic-1.6", "Anamorphic 1.6x (1.6)", (8, 5)),
+    ("anamorphic-2", "Anamorphic 2:1 (2.0)", (2, 1)),
+];
+
+/// A pixel aspect ratio as a number (1 for a zero term), limited to 0.1…10.
+pub fn par_ratio(p: (u32, u32)) -> f64 {
+    if p.0 == 0 || p.1 == 0 {
+        return 1.0;
+    }
+    (f64::from(p.0) / f64::from(p.1)).clamp(0.1, 10.0)
+}
+
+/// A pixel aspect by id (`PIXEL_ASPECTS`) or as `N:D` (1…10 000 each).
+pub fn parse_par(s: &str) -> Option<(u32, u32)> {
+    if let Some((_, _, r)) = PIXEL_ASPECTS.iter().find(|(id, _, _)| *id == s) {
+        return Some(*r);
+    }
+    let (n, d) = s.split_once(':')?;
+    let (n, d): (u32, u32) = (n.trim().parse().ok()?, d.trim().parse().ok()?);
+    ((1..=10_000).contains(&n) && (1..=10_000).contains(&d)).then_some((n, d))
+}
+
 /// Overrides applied when interpreting footage (Modify ▸ Interpret Footage).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Interpretation {

@@ -38,12 +38,14 @@ use filmcraft_frame::{PixelData, VideoFrame};
 use filmcraft_render::Blend;
 use filmcraft_render::plan::{FramePlan, PlanLayer};
 
+pub mod colorops;
 pub mod fx;
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 pub mod interop;
 pub mod lut;
 pub mod mask;
+pub mod scopes;
 pub use lut::GpuLut;
 pub use mask::GpuMask;
 
@@ -88,6 +90,14 @@ pub struct GpuCompositor {
     /// The effect stage (None on devices without compute shaders or storage textures: layers
     /// with effects are then rendered on the CPU here).
     fx: Option<fx::FxStage>,
+    /// Maximum Render Quality: minified layers are resampled through a Lanczos-3 filter.
+    high_quality: bool,
+    /// Scope samples of the output (compute devices only).
+    scope_sampler: Option<scopes::ScopeSampler>,
+    /// The output transform of colour-managed sequences (with the effect stage).
+    out_pass: Option<colorops::OutputPass>,
+    /// Where the output pass writes (then copied back into the accumulator).
+    post: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
     /// Total bytes uploaded (stats).
     pub uploaded_bytes: u64,
     /// The device has `TEXTURE_FORMAT_16BIT_NORM`: 9–16-bit planes upload as they are
@@ -361,6 +371,8 @@ impl GpuCompositor {
         });
         let dummy = dummy_tex.create_view(&Default::default());
         let fx = fx::FxStage::supported(device).then(|| fx::FxStage::new(device, &shader, &layer_bgl));
+        let out_pass = fx.is_some().then(|| colorops::OutputPass::new(device));
+        let scope_sampler = fx.is_some().then(|| scopes::ScopeSampler::new(device));
         Self {
             device: device.clone(),
             queue: queue.clone(),
@@ -377,6 +389,10 @@ impl GpuCompositor {
             clock: 0,
             dummy,
             fx,
+            high_quality: false,
+            scope_sampler,
+            out_pass,
+            post: None,
             uploaded_bytes: 0,
             unorm16,
             #[cfg(target_os = "linux")]
@@ -664,6 +680,21 @@ impl GpuCompositor {
         })
     }
 
+    /// Maximum Render Quality on or off (the Program monitor sets it from the sequence while
+    /// paused; playback keeps the cheaper supersampling).
+    pub fn set_high_quality(&mut self, on: bool) {
+        self.high_quality = on;
+    }
+
+    /// A layer's uniforms with the resample quality: Lanczos-3 when minifying with Maximum Render
+    /// Quality (`p3.w`; `p2.w` is the footprint).
+    fn with_quality(&self, mut un: [f32; 28]) -> [f32; 28] {
+        if self.high_quality && un[23] > filmcraft_render::image::HQ_MIN_FOOTPRINT {
+            un[27] = 1.0;
+        }
+        un
+    }
+
     fn uniforms(src: &SrcInfo, m: &filmcraft_geom::Affine, opacity: f32, blend: Blend, out: (u32, u32)) -> [f32; 28] {
         let (kr, kb) = src.color.matrix.kr_kb();
         // code units relative to 8-bit (2^(bits - 8)), as `filmcraft_color::normalize_y` / `_c`
@@ -737,9 +768,20 @@ impl GpuCompositor {
     /// [`composite`](Self::composite) with texel conversions already done by [`prepare`] (the
     /// result is identical; only the upload work on this thread differs).
     pub fn composite_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> (wgpu::TextureView, (u32, u32)) {
+        // a colour-managed sequence's output transform needs the compute stage: without it, the
+        // whole frame is made on the CPU
+        if let FramePlan::Layers { output: Some(_), .. } = plan
+            && self.out_pass.is_none()
+        {
+            return self.composite_prepared(&FramePlan::Image(filmcraft_render::plan::execute_cpu(plan)), None);
+        }
+        let output = match plan {
+            FramePlan::Layers { output, .. } => output.clone(),
+            FramePlan::Image(_) => None,
+        };
         let owned;
         let (w, h, layers): (u32, u32, &[PlanLayer]) = match plan {
-            FramePlan::Layers { width, height, layers } => (*width as u32, *height as u32, layers.as_slice()),
+            FramePlan::Layers { width, height, layers, .. } => (*width as u32, *height as u32, layers.as_slice()),
             FramePlan::Image(img) => {
                 let frame = match prep.and_then(|p| p.image.as_ref()) {
                     // The texels come from `prep`; the frame only carries size and colour.
@@ -756,7 +798,10 @@ impl GpuCompositor {
             }
         };
         let (w, h) = (w.max(1), h.max(1));
-        let accum_view = Self::target(&self.device, &mut self.accum, w, h, ACCUM_FORMAT, wgpu::TextureUsages::COPY_SRC);
+        let accum_view = Self::target(&self.device, &mut self.accum, w, h, ACCUM_FORMAT, wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST);
+        let post_view = output
+            .as_ref()
+            .map(|_| Self::target(&self.device, &mut self.post, w, h, ACCUM_FORMAT, wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC));
         let backdrop_view = if layers.iter().any(|l| l.blend.reads_destination()) {
             Some(Self::target(&self.device, &mut self.backdrop, w, h, ACCUM_FORMAT, wgpu::TextureUsages::COPY_DST))
         } else {
@@ -837,7 +882,10 @@ impl GpuCompositor {
             let (u, tex) = match &job {
                 Some(j) => {
                     let s = SrcInfo { kind: 1, code_scale: 1.0, texel_scale: 1.0, alpha: 0.0, chroma: l.size(), size: l.size(), color: l.frame.color };
-                    (Self::uniforms(&s, &l.matrix, l.opacity, l.blend, (w, h)), [j.result.clone(), self.dummy.clone(), self.dummy.clone(), self.dummy.clone()])
+                    (
+                        self.with_quality(Self::uniforms(&s, &l.matrix, l.opacity, l.blend, (w, h))),
+                        [j.result.clone(), self.dummy.clone(), self.dummy.clone(), self.dummy.clone()],
+                    )
                 }
                 None => {
                     // (a layer with effects only gets here if its job failed, which the CPU
@@ -850,7 +898,7 @@ impl GpuCompositor {
                         }
                         None => l.matrix,
                     };
-                    (Self::uniforms(&src, &m, l.opacity, l.blend, (w, h)), views)
+                    (self.with_quality(Self::uniforms(&src, &m, l.opacity, l.blend, (w, h))), views)
                 }
             };
             jobs.push(job);
@@ -885,9 +933,18 @@ impl GpuCompositor {
         // ends it, copies the accumulator under its quad into the backdrop and draws on its own.
         let accum_tex = self.accum.as_ref().map(|a| a.0.clone());
         let backdrop_tex = self.backdrop.as_ref().map(|b| b.0.clone());
+        let post_tex = self.post.as_ref().map(|p| p.0.clone());
         let mut cleared = false;
+        let mut converted = output.is_none();
         let mut i = 0;
         while i < bind_groups.len() || !cleared {
+            // the output transform, before the first display-referred layer (captions)
+            if let (false, true, Some(o)) = (converted, cleared, output.as_ref())
+                && o.at <= i
+            {
+                converted = true;
+                self.record_output(&mut enc, &accum_view, post_view.as_ref(), (accum_tex.as_ref(), post_tex.as_ref()), (w, h), &o.ops);
+            }
             // a layer's effects run right before it is drawn (pooled working textures are reused
             // by the next layer with effects)
             if let (Some(Some(job)), Some(f)) = (jobs.get(i), self.fx.as_ref()) {
@@ -926,6 +983,9 @@ impl GpuCompositor {
             }
             i = end;
         }
+        if let (false, Some(o)) = (converted, output.as_ref()) {
+            self.record_output(&mut enc, &accum_view, post_view.as_ref(), (accum_tex.as_ref(), post_tex.as_ref()), (w, h), &o.ops);
+        }
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("resolve"),
@@ -946,6 +1006,28 @@ impl GpuCompositor {
         }
         self.queue.submit([enc.finish()]);
         (out_view, (w, h))
+    }
+
+    /// The output transform on the accumulator: into `post`, then copied back.
+    fn record_output(
+        &self,
+        enc: &mut wgpu::CommandEncoder,
+        accum: &wgpu::TextureView,
+        post: Option<&wgpu::TextureView>,
+        (accum_tex, post_tex): (Option<&wgpu::Texture>, Option<&wgpu::Texture>),
+        (w, h): (u32, u32),
+        ops: &[filmcraft_color::ops::ColorOp],
+    ) {
+        let (Some(pass), Some(post), Some(src), Some(dst)) = (self.out_pass.as_ref(), post, post_tex, accum_tex) else { return };
+        if pass.record(&self.device, &self.queue, enc, accum, post, (w, h), ops).is_none() {
+            log::warn!("output transform of {} ops too large for the GPU program; shown unconverted", ops.len());
+            return;
+        }
+        enc.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo { texture: src, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: dst, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
     }
 
     /// Run the effect stage of a layer alone: `frame` decoded into its working image and `fx`
@@ -1005,6 +1087,14 @@ impl GpuCompositor {
         drop(data);
         buf.unmap();
         Some((w, h, out))
+    }
+
+    /// Start reading back the scope samples of the last composited picture (at most `max_w` ×
+    /// `max_h`, picked as `filmcraft_scopes::Signal` picks them), without waiting. None without
+    /// an output or on devices without compute shaders.
+    pub fn request_scope_samples(&self, max_w: u32, max_h: u32) -> Option<scopes::ScopeReadback> {
+        let (_, view, size) = self.output.as_ref()?;
+        self.scope_sampler.as_ref()?.request(&self.device, &self.queue, view, *size, (max_w, max_h))
     }
 
     /// Read the output back as RGBA8 (tests / screenshots / thumbnails).
@@ -1097,6 +1187,8 @@ fn quad_bounds(l: &PlanLayer, w: u32, h: u32) -> Option<(u32, u32, u32, u32)> {
 
 #[cfg(test)]
 mod blend_tests;
+#[cfg(test)]
+mod colorops_tests;
 #[cfg(test)]
 mod fx_tests;
 #[cfg(test)]

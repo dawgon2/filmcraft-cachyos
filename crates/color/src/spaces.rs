@@ -34,6 +34,8 @@ pub enum Gamut {
     Awg4,
     /// DJI D-Gamut.
     DGamut,
+    /// DaVinci Wide Gamut (the fork's grading working space, ADR 0003).
+    DaVinciWide,
 }
 
 impl Gamut {
@@ -51,6 +53,7 @@ impl Gamut {
             Gamut::Awg3 => [[0.6840, 0.3130], [0.2210, 0.8480], [0.0861, -0.1020]],
             Gamut::Awg4 => [[0.7347, 0.2653], [0.1424, 0.8576], [0.0991, -0.0308]],
             Gamut::DGamut => [[0.71, 0.31], [0.21, 0.88], [0.09, -0.08]],
+            Gamut::DaVinciWide => crate::ops::DWG_PRIMARIES,
         }
     }
 
@@ -167,10 +170,14 @@ pub enum ColorSpace {
     DLogDGamut,
     /// Linear light with BT.709 primaries (EXR-style float sources).
     Linear709,
+    /// Fujifilm F-Log / F-Gamut (F-Gamut has the BT.2020 primaries).
+    FLogFGamut,
+    /// Fujifilm F-Log2 / F-Gamut.
+    FLog2FGamut,
 }
 
 impl ColorSpace {
-    pub const ALL: [ColorSpace; 16] = [
+    pub const ALL: [ColorSpace; 18] = [
         ColorSpace::Rec709,
         ColorSpace::Srgb,
         ColorSpace::Rec2020,
@@ -186,6 +193,8 @@ impl ColorSpace {
         ColorSpace::LogC4Awg4,
         ColorSpace::AppleLog,
         ColorSpace::DLogDGamut,
+        ColorSpace::FLogFGamut,
+        ColorSpace::FLog2FGamut,
         ColorSpace::Linear709,
     ];
 
@@ -208,6 +217,8 @@ impl ColorSpace {
             ColorSpace::AppleLog => "applelog",
             ColorSpace::DLogDGamut => "dlog-dgamut",
             ColorSpace::Linear709 => "linear709",
+            ColorSpace::FLogFGamut => "flog-fgamut",
+            ColorSpace::FLog2FGamut => "flog2-fgamut",
         }
     }
 
@@ -228,6 +239,8 @@ impl ColorSpace {
             ColorSpace::LogC4Awg4 => "ARRI LogC4 / ARRI Wide Gamut 4",
             ColorSpace::AppleLog => "Apple Log / Rec. 2020",
             ColorSpace::DLogDGamut => "DJI D-Log / D-Gamut",
+            ColorSpace::FLogFGamut => "Fujifilm F-Log / F-Gamut",
+            ColorSpace::FLog2FGamut => "Fujifilm F-Log2 / F-Gamut",
             ColorSpace::Linear709 => "Linear (Rec. 709 primaries)",
         }
     }
@@ -242,7 +255,10 @@ impl ColorSpace {
     pub fn gamut(self) -> Gamut {
         match self {
             ColorSpace::Rec709 | ColorSpace::Srgb | ColorSpace::Linear709 => Gamut::Bt709,
-            ColorSpace::Rec2020 | ColorSpace::Rec2100Pq | ColorSpace::Rec2100Hlg | ColorSpace::AppleLog => Gamut::Bt2020,
+            // F-Gamut is defined with the BT.2020 primaries (Fujifilm F-Log / F-Log2 data sheets)
+            ColorSpace::Rec2020 | ColorSpace::Rec2100Pq | ColorSpace::Rec2100Hlg | ColorSpace::AppleLog | ColorSpace::FLogFGamut | ColorSpace::FLog2FGamut => {
+                Gamut::Bt2020
+            }
             ColorSpace::P3D65 => Gamut::P3D65,
             ColorSpace::SLog3SGamut3Cine => Gamut::SGamut3Cine,
             ColorSpace::SLog3SGamut3 => Gamut::SGamut3,
@@ -269,6 +285,8 @@ impl ColorSpace {
             ColorSpace::LogC4Awg4 => Curve::Log(LogCurve::LogC4),
             ColorSpace::AppleLog => Curve::Log(LogCurve::AppleLog),
             ColorSpace::DLogDGamut => Curve::Log(LogCurve::DLog),
+            ColorSpace::FLogFGamut => Curve::Log(LogCurve::FLog),
+            ColorSpace::FLog2FGamut => Curve::Log(LogCurve::FLog2),
         }
     }
 
@@ -302,16 +320,20 @@ pub enum WorkingSpace {
     Rec709,
     Rec2100Pq,
     Rec2100Hlg,
+    /// DaVinci Wide Gamut / DaVinci Intermediate (fork ADR 0003): scene-linear DaVinci Wide Gamut
+    /// compositing, grading on the DaVinci Intermediate signal, Rec. 709 output.
+    DaVinciWide,
 }
 
 impl WorkingSpace {
-    pub const ALL: [WorkingSpace; 3] = [WorkingSpace::Rec709, WorkingSpace::Rec2100Pq, WorkingSpace::Rec2100Hlg];
+    pub const ALL: [WorkingSpace; 4] = [WorkingSpace::Rec709, WorkingSpace::Rec2100Pq, WorkingSpace::Rec2100Hlg, WorkingSpace::DaVinciWide];
 
     pub fn id(self) -> &'static str {
         match self {
             WorkingSpace::Rec709 => "rec709",
             WorkingSpace::Rec2100Pq => "rec2100-pq",
             WorkingSpace::Rec2100Hlg => "rec2100-hlg",
+            WorkingSpace::DaVinciWide => "dwg-di",
         }
     }
     pub fn label(self) -> &'static str {
@@ -319,6 +341,7 @@ impl WorkingSpace {
             WorkingSpace::Rec709 => "Rec. 709",
             WorkingSpace::Rec2100Pq => "Rec. 2100 PQ",
             WorkingSpace::Rec2100Hlg => "Rec. 2100 HLG",
+            WorkingSpace::DaVinciWide => "DaVinci Wide Gamut / Intermediate",
         }
     }
     pub fn parse(s: &str) -> Option<WorkingSpace> {
@@ -326,8 +349,14 @@ impl WorkingSpace {
         let n = norm(s);
         WorkingSpace::ALL.into_iter().find(|w| norm(w.id()) == n || norm(w.label()) == n)
     }
+    /// An HDR display space (Rec. 2100 PQ / HLG): exports carry an HDR signal.
     pub fn is_hdr(self) -> bool {
-        self != WorkingSpace::Rec709
+        matches!(self, WorkingSpace::Rec2100Pq | WorkingSpace::Rec2100Hlg)
+    }
+    /// Scene-linear wide-gamut grading space (DaVinci Wide Gamut): log media enters without tone
+    /// mapping, and the output transform tone maps.
+    pub fn is_scene_referred(self) -> bool {
+        self == WorkingSpace::DaVinciWide
     }
     /// The colour space exports of this sequence are encoded in.
     pub fn output_space(self) -> ColorSpace {
@@ -335,6 +364,7 @@ impl WorkingSpace {
             WorkingSpace::Rec709 => ColorSpace::Rec709,
             WorkingSpace::Rec2100Pq => ColorSpace::Rec2100Pq,
             WorkingSpace::Rec2100Hlg => ColorSpace::Rec2100Hlg,
+            WorkingSpace::DaVinciWide => ColorSpace::Rec709,
         }
     }
 }
@@ -354,17 +384,37 @@ impl ColorPipeline {
 
     /// Linear primaries of the compositing space.
     pub fn working_gamut(&self) -> Gamut {
-        if self.working.is_hdr() || self.wide_gamut { Gamut::Bt2020 } else { Gamut::Bt709 }
+        if self.working.is_scene_referred() {
+            Gamut::DaVinciWide
+        } else if self.working.is_hdr() || self.wide_gamut {
+            Gamut::Bt2020
+        } else {
+            Gamut::Bt709
+        }
     }
     /// The classic pipeline: linear BT.709, display-referred SDR.
     pub fn is_plain(&self) -> bool {
-        !self.working.is_hdr() && !self.wide_gamut
+        self.working == WorkingSpace::Rec709 && !self.wide_gamut
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fujifilm_log_spaces_parse_and_use_bt2020_primaries() {
+        for (txt, cs, curve) in [
+            ("flog2-fgamut", ColorSpace::FLog2FGamut, LogCurve::FLog2),
+            ("Fujifilm F-Log2 / F-Gamut", ColorSpace::FLog2FGamut, LogCurve::FLog2),
+            ("flog-fgamut", ColorSpace::FLogFGamut, LogCurve::FLog),
+        ] {
+            assert_eq!(ColorSpace::parse(txt), Some(cs), "{txt}");
+            assert_eq!(cs.curve(), Curve::Log(curve));
+            assert_eq!(cs.gamut(), Gamut::Bt2020);
+            assert!(cs.is_log() && cs.is_hdr());
+        }
+    }
 
     #[test]
     fn bt709_npm_matches_published_matrix() {

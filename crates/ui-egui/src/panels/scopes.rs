@@ -65,6 +65,37 @@ pub fn frame_signal(app: &mut FilmcraftApp, ctx: &egui::Context, slot: &str, fra
     {
         return Some(ScopeFrame { signal: s.clone(), key, pq: *p, space });
     }
+    // The Program monitor's own picture, sampled on the GPU (fork Phase 4.4): no second render.
+    // While playing the latest sampled frame is shown (live scopes); paused, the frame itself.
+    // Without it for a while (no GPU, the Program monitor hidden) the frame workers render one.
+    if !pq && let Some(g) = app.gpu.as_mut() {
+        g.scopes_wanted = Some(web_time::Instant::now());
+        g.poll_scopes();
+        let playing = app.playback.playing;
+        let live = g.scope_signal.clone().filter(|(k, _)| k.target == Target::Sequence(seq_id) && k.revision == rev && (playing || k.frame == frame));
+        if g.scope_pending.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+        if let Some((k, s)) = live {
+            let key = hash_of((seq_id.0, k.frame, rev, pq));
+            ctx.data_mut(|d| d.insert_temp(id, (key, s.clone(), pq)));
+            return Some(ScopeFrame { signal: s, key, pq, space });
+        }
+        let waited = egui::Id::new(("scope-gpu-wait", slot));
+        let since: Option<(u64, web_time::Instant)> = ctx.data(|d| d.get_temp(waited));
+        let start = match since {
+            Some((k, t)) if k == key => t,
+            _ => {
+                let now = web_time::Instant::now();
+                ctx.data_mut(|d| d.insert_temp(waited, (key, now)));
+                now
+            }
+        };
+        if start.elapsed().as_secs_f32() < 0.3 {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+            return cached.filter(|c| c.2 == pq).map(|(k, s, p)| ScopeFrame { signal: s, key: k, pq: p, space });
+        }
+    }
     let fresh = if pq {
         filmcraft_engine::scopes::scope_signal(&app.session, rate.tick_of(frame), 0.125, true)
     } else {

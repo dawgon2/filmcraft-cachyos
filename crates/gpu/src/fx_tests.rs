@@ -52,7 +52,7 @@ fn half(v: f32) -> f32 {
 /// Linear premultiplied test picture, every value representable in half floats: hue sweep along
 /// x, lightness along y, a grey ramp, black and white columns, super-whites (up to 1.6), and
 /// alpha 1 / partial / 0 bands.
-fn picture(w: u32, h: u32) -> Vec<f32> {
+pub(super) fn picture(w: u32, h: u32) -> Vec<f32> {
     let mut px = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
         for x in 0..w {
@@ -81,7 +81,7 @@ fn picture(w: u32, h: u32) -> Vec<f32> {
 }
 
 /// Max |cpu − gpu| (finite values required) and the share of values off by more than 0.02.
-fn compare(cpu: &[f32], gpu: &[f32]) -> (f32, f64) {
+pub(super) fn compare(cpu: &[f32], gpu: &[f32]) -> (f32, f64) {
     assert_eq!(cpu.len(), gpu.len());
     let mut worst = 0f32;
     let mut flips = 0usize;
@@ -385,6 +385,7 @@ fn gpu_effect_layers_match_cpu_plan() {
     let ramp = ramp_layer(160, 120, 0);
     for mode in [Blend::Normal, Blend::Screen, Blend::Multiply, Blend::Overlay] {
         let plan = FramePlan::Layers {
+            output: None,
             width: w,
             height: h,
             layers: vec![
@@ -432,11 +433,12 @@ fn plain_layers_skip_the_effect_stage() {
         return;
     };
     let mut c = GpuCompositor::new(&dev, &q);
-    let plan = FramePlan::Layers { width: 64, height: 36, layers: vec![PlanLayer::new(yuv_frame(64, 36), Affine::IDENTITY, 1.0, Blend::Normal)] };
+    let plan = FramePlan::Layers { output: None, width: 64, height: 36, layers: vec![PlanLayer::new(yuv_frame(64, 36), Affine::IDENTITY, 1.0, Blend::Normal)] };
     c.composite(&plan);
     assert!(c.fx.as_ref().is_some_and(fx::FxStage::is_idle));
     let fx = LayerFx { size: (64, 36), decimation: 1, ops: vec![FxOp::BlackWhite] };
     let with = FramePlan::Layers {
+        output: None,
         width: 64,
         height: 36,
         layers: vec![PlanLayer { fx: Some(Arc::new(fx)), ..PlanLayer::new(yuv_frame(64, 36), Affine::IDENTITY, 1.0, Blend::Normal) }],
@@ -461,6 +463,7 @@ fn layers_with_effects_fall_back_to_the_cpu_without_a_stage() {
         .filter_map(|e| FxOp::eval(e, &cx(Tick::ZERO, 1.0), 160, 120))
         .collect();
     let plan = FramePlan::Layers {
+        output: None,
         width: 200,
         height: 150,
         layers: vec![

@@ -1235,7 +1235,8 @@ fn plan_job(job: &Job, seq: ItemId, pool: &Arc<MediaPool>, services: &Arc<dyn Se
                 fx: None,
             });
         }
-        return (filmcraft_render::plan::FramePlan::Layers { width: w, height: h, layers }, true);
+        // (a render preview is display-referred already: no output transform)
+        return (filmcraft_render::plan::FramePlan::Layers { width: w, height: h, layers, output: None }, true);
     }
     let provider = provider(job, pool, services);
     (filmcraft_render::plan::plan_frame(&job.project, seq, job.time, opts, &provider), false)

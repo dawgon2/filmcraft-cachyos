@@ -75,7 +75,13 @@ impl Pipeline {
         let geom = Geometry::new(settings, q.settings.width, q.settings.height, r.width, r.height);
         let pipe = q.settings.color;
         let out_tf = hdr_out.then(|| filmcraft_color::OutputTransform::new(&pipe, pipe.working.output_space()));
-        let opts = RenderOptions { scale: geom.render_scale, captions: settings.burn_captions, working_output: hdr_out, ..Default::default() };
+        let opts = RenderOptions {
+            scale: geom.render_scale,
+            captions: settings.burn_captions,
+            working_output: hdr_out,
+            high_quality: settings.max_render_quality || q.settings.max_render_quality,
+            ..Default::default()
+        };
         let effects = settings.effects.clone();
         let overlay = if effects.image_overlay.enabled && !effects.image_overlay.path.is_empty() {
             Some(load_overlay(&effects.image_overlay.path, r.width as f32 * effects.image_overlay.size_percent.clamp(0.5, 100.0) / 100.0)?)

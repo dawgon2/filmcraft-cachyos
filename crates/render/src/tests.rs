@@ -351,6 +351,74 @@ fn draft_reduced_resolution_plans_carry_decimated_yuv() {
     }
 }
 
+/// A Y'CbCr clip interpreted as F-Log2 / F-Gamut in a Rec. 709 sequence is a GPU layer: the frame's
+/// signal, then its input transform as the first colour operations (fork ADR 0003), drawing what
+/// the CPU renderer draws.
+#[test]
+fn log_media_plans_its_input_transform_on_the_gpu() {
+    let (mut p, red, _ocean, seq, mut map) = setup();
+    let matte = GeneratorSource::new(Generator::ColorMatte { color: [0.0, 0.0, 0.0, 1.0] }, 320, 180, FrameRate::FPS_24, Tick(10 * TICKS_PER_SECOND));
+    map.0.insert(red, Arc::new(YuvSource(matte)) as SharedSource);
+    if let Some(ItemKind::Media(m)) = p.item_mut(red).map(|i| &mut i.kind) {
+        m.interpret.color_space = Some(filmcraft_color::ColorSpace::FLog2FGamut);
+    }
+    place(&mut p, seq, 0, red, 0, 48);
+    let t = FrameRate::FPS_24.tick_of(3);
+    for scale in [1.0f32, 0.5] {
+        let opts = RenderOptions { scale, ..Default::default() };
+        let plan = plan::plan_frame(&p, seq, t, opts, &map);
+        let plan::FramePlan::Layers { layers, .. } = &plan else { panic!("GPU-drawable") };
+        let fx = layers[0].fx.as_ref().expect("a colour-managed layer runs the effect stage");
+        assert!(matches!(fx.ops.first(), Some(crate::gpufx::FxOp::ColorChain(_))), "{:?}", fx.ops);
+        assert_eq!(layers[0].frame.color.transfer, filmcraft_color::Transfer::Linear, "the signal, not light");
+        let got = plan::execute_cpu(&plan);
+        let reference = render_sequence(&p, seq, t, opts, &map);
+        let mut diffs: Vec<f32> = got.px.chunks(4).zip(reference.px.chunks(4)).flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs())).collect();
+        diffs.sort_by(f32::total_cmp);
+        let (p99, max) = (diffs[diffs.len() * 99 / 100], diffs[diffs.len() - 1]);
+        if scale == 1.0 {
+            // the same conversion per pixel (tables sampled differently: ~1e-4)
+            assert!(max < 2e-3, "scale 1: max {max}");
+        } else {
+            // At 1/2 the reference averages light before tone mapping (box decimation) and the
+            // plan after (the layer is converted at full size, then scaled): they part where the
+            // test picture's blue channel climbs steeply into F-Log2's clipped highlights.
+            assert!(p99 < 2e-2, "scale 1/2: p99 {p99}, max {max}");
+        }
+    }
+}
+
+/// A DaVinci Wide Gamut / Intermediate sequence composites on the GPU too: F-Log2 media enters the
+/// scene-linear working space (no tone mapping), and the plan's output stage converts to Rec. 709
+/// for the monitor, drawing what the CPU renderer draws.
+#[test]
+fn davinci_wide_gamut_sequences_plan_an_output_stage() {
+    let (mut p, red, _ocean, seq, mut map) = setup();
+    let matte = GeneratorSource::new(Generator::ColorMatte { color: [0.0, 0.0, 0.0, 1.0] }, 320, 180, FrameRate::FPS_24, Tick(10 * TICKS_PER_SECOND));
+    map.0.insert(red, Arc::new(YuvSource(matte)) as SharedSource);
+    if let Some(ItemKind::Media(m)) = p.item_mut(red).map(|i| &mut i.kind) {
+        m.interpret.color_space = Some(filmcraft_color::ColorSpace::FLog2FGamut);
+    }
+    if let Some(q) = p.sequence_mut(seq) {
+        q.settings.color.working = filmcraft_color::WorkingSpace::DaVinciWide;
+        q.settings.working_space = filmcraft_color::WorkingSpace::DaVinciWide.label().into();
+    }
+    place(&mut p, seq, 0, red, 0, 48);
+    let t = FrameRate::FPS_24.tick_of(3);
+    let opts = RenderOptions { scale: 1.0, ..Default::default() };
+    let plan = plan::plan_frame(&p, seq, t, opts, &map);
+    let plan::FramePlan::Layers { layers, output, .. } = &plan else { panic!("GPU-drawable") };
+    let o = output.as_ref().expect("an output stage");
+    assert_eq!(o.at, layers.len(), "no captions: converted after every layer");
+    let got = plan::execute_cpu(&plan);
+    let reference = render_sequence(&p, seq, t, opts, &map);
+    let max = got.px.iter().zip(&reference.px).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(max < 2e-3, "max diff {max}");
+    // exports ask for the working space itself: the CPU renders it
+    let working = plan::plan_frame(&p, seq, t, RenderOptions { working_output: true, ..opts }, &map);
+    assert!(matches!(working, plan::FramePlan::Image(_)));
+}
+
 /// A damaged project can hold a multi-camera clip whose angle is the clip itself. Planning and
 /// rendering its frame must end: the plan's multi-camera shortcut used to recurse until the stack
 /// overflowed.
@@ -368,4 +436,68 @@ fn a_multicam_clip_showing_itself_plans_and_renders_to_an_end() {
     assert!(img.w > 0 && img.h > 0);
     let img = render_sequence(&p, a, Tick::ZERO, opts, &sources);
     assert!(img.w > 0 && img.h > 0);
+}
+
+/// A clip with a masked Lumetri and an opacity mask stays on the GPU (`FxOp::Masked`,
+/// `FxOp::OpacityMask`) and draws what the CPU renderer draws.
+#[test]
+fn masked_effects_and_opacity_masks_plan_on_the_gpu() {
+    use filmcraft_geom::Vec2;
+    use filmcraft_project::{Mask, MaskMode, MaskPath};
+    let (mut p, red, _ocean, seq, map) = setup();
+    place(&mut p, seq, 0, red, 0, 48);
+    let item = &mut p.sequence_mut(seq).unwrap().video_tracks[0].items[0];
+    let mut e = filmcraft_project::find_effect("lumetri").unwrap().instance();
+    e.param_mut("exposure").unwrap().value = ParamValue::Float(1.0);
+    e.param_mut("saturation").unwrap().value = ParamValue::Float(30.0);
+    let mut m = Mask::new("window", MaskPath::ellipse(Vec2::new(160.0, 90.0), Vec2::new(90.0, 60.0)));
+    m.feather = filmcraft_project::Param::new(ParamValue::Float(20.0));
+    e.masks.push(m);
+    item.effects.push(e);
+    let mut om = Mask::new("cut", MaskPath::rect(20.0, 20.0, 300.0, 160.0));
+    om.mode = MaskMode::Add;
+    item.effect_mut("opacity").unwrap().masks.push(om);
+    let t = FrameRate::FPS_24.tick_of(3);
+    let opts = RenderOptions::default();
+    let plan = plan::plan_frame(&p, seq, t, opts, &map);
+    let plan::FramePlan::Layers { layers, .. } = &plan else { panic!("GPU-drawable") };
+    let fx = layers[0].fx.as_ref().expect("the effect stage");
+    assert!(matches!(fx.ops.as_slice(), [crate::gpufx::FxOp::Masked { .. }, crate::gpufx::FxOp::OpacityMask { .. }]), "{:?}", fx.ops);
+    let got = plan::execute_cpu(&plan);
+    let reference = render_sequence(&p, seq, t, opts, &map);
+    let max = got.px.iter().zip(&reference.px).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+    assert!(max < 2e-3, "max {max}");
+}
+
+/// A clip shot through a 1.6× anamorphic lens (Interpret Footage ▸ Conform to Anamorphic 1.6x)
+/// is desqueezed on a square-pixel sequence: a 320 × 180 clip at 100 % covers 512 × 180, on the
+/// CPU and in the GPU plan; Scale to Frame Size fits the desqueezed width (fork Phase 4.6).
+#[test]
+fn anamorphic_clips_are_desqueezed() {
+    let (mut p, red, _ocean, seq, map) = setup();
+    if let Some(ItemKind::Media(m)) = p.item_mut(red).map(|i| &mut i.kind) {
+        m.interpret.par = Some((8, 5));
+    }
+    if let Some(q) = p.sequence_mut(seq) {
+        q.settings.width = 640;
+    }
+    place(&mut p, seq, 0, red, 0, 48);
+    let t = FrameRate::FPS_24.tick_of(3);
+    let q = p.sequence(seq).unwrap();
+    assert!((crate::clip_par(&p, q, red) - 1.6).abs() < 1e-9);
+    let opts = RenderOptions::default();
+    let red_at = |img: &Image, x: usize| img.get(x, 90)[0] > 0.5;
+    let cpu = render_sequence(&p, seq, t, opts, &map);
+    // centred: 320 − 256 = 64 … 576
+    assert!(red_at(&cpu, 66) && red_at(&cpu, 573) && !red_at(&cpu, 61) && !red_at(&cpu, 578));
+    let plan = plan::plan_frame(&p, seq, t, opts, &map);
+    let gpu_like = plan::execute_cpu(&plan);
+    assert!(red_at(&gpu_like, 66) && red_at(&gpu_like, 573) && !red_at(&gpu_like, 61) && !red_at(&gpu_like, 578));
+    // Scale to Frame Size: 512 wide fits 640 × 180 by height (scale 1): unchanged
+    p.sequence_mut(seq).unwrap().video_tracks[0].items[0].scale_to_frame = true;
+    let fitted = render_sequence(&p, seq, t, opts, &map);
+    assert!(red_at(&fitted, 66) && !red_at(&fitted, 61));
+    // on a 1.6× sequence the clip is square again
+    p.sequence_mut(seq).unwrap().settings.par = (8, 5);
+    assert!((crate::clip_par(&p, p.sequence(seq).unwrap(), red) - 1.0).abs() < 1e-9);
 }

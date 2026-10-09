@@ -125,8 +125,65 @@ fn sample(p: vec2<f32>) -> vec4<f32> {
     return vec4(to_linear(vec3(R, G, B)) * a, a);
 }
 
+// `image::lanczos3`
+fn lanczos3(x0: f32) -> f32 {
+    let x = abs(x0);
+    if x < 1e-6 {
+        return 1.0;
+    }
+    if x >= 3.0 {
+        return 0.0;
+    }
+    let px = 3.14159265 * x;
+    return 3.0 * sin(px) * sin(px / 3.0) / (px * px);
+}
+
+// `image::lanczos_taps` along one axis: first tap, spacing, count
+fn lanczos_taps(c: f32, fp: f32) -> vec3<f32> {
+    let r = 3.0 * fp;
+    if fp <= 2.0 {
+        let first = floor(c - r - 0.5) + 0.5;
+        return vec3(first, 1.0, min(floor(c + r - first) + 1.0, 64.0));
+    }
+    return vec3(c - r, fp / 2.0, 13.0);
+}
+
+// Maximum Render Quality minification (`Image::transformed_hq`): a Lanczos-3 filter scaled to
+// the footprint, normalised; alpha clamped to 0…1 and colour to ≥ 0.
+fn layer_color_hq(sp: vec2<f32>) -> vec4<f32> {
+    let fp = u.p2.w;
+    let tx = lanczos_taps(sp.x, fp);
+    let ty = lanczos_taps(sp.y, fp);
+    var acc = vec4(0.0);
+    var wsum = 0.0;
+    for (var j = 0u; j < u32(ty.z); j++) {
+        let y = ty.x + f32(j) * ty.y;
+        let wy = lanczos3((y - sp.y) / fp);
+        if wy == 0.0 {
+            continue;
+        }
+        for (var i = 0u; i < u32(tx.z); i++) {
+            let x = tx.x + f32(i) * tx.y;
+            let w = lanczos3((x - sp.x) / fp) * wy;
+            if w == 0.0 {
+                continue;
+            }
+            acc += sample(vec2(x, y)) * w;
+            wsum += w;
+        }
+    }
+    if abs(wsum) <= 1e-6 {
+        return vec4(0.0);
+    }
+    let c = acc / wsum;
+    return vec4(max(c.rgb, vec3(0.0)), clamp(c.a, 0.0, 1.0)) * u.p0.x;
+}
+
 // The layer's premultiplied linear colour at this pixel, opacity applied.
 fn layer_color(sp: vec2<f32>) -> vec4<f32> {
+    if u.p3.w > 0.5 {
+        return layer_color_hq(sp);
+    }
     let n = max(u32(u.p0.z), 1u);
     let fp = u.p2.w;
     var acc = vec4(0.0);

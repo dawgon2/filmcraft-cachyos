@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 pub mod grade;
 pub mod log;
 pub mod lut;
+pub mod ops;
 pub mod spaces;
 pub mod transform;
 

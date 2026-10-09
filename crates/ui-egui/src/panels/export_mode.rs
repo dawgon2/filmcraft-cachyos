@@ -363,14 +363,10 @@ const RATES: [(&str, FrameRate); 11] = [
     ("60", FrameRate::FPS_60),
 ];
 
-const PARS: [(&str, Option<(u32, u32)>); 6] = [
-    ("Square Pixels (1.0)", None),
-    ("D1/DV NTSC (0.9091)", Some((10, 11))),
-    ("D1/DV PAL (1.0940)", Some((59, 54))),
-    ("HD Anamorphic 1080 (1.333)", Some((4, 3))),
-    ("DVCPRO HD (1.5)", Some((3, 2))),
-    ("Anamorphic 2:1 (2.0)", Some((2, 1))),
-];
+/// The Pixel Aspect Ratio menu: `filmcraft_project::PIXEL_ASPECTS` (square = none).
+fn pars() -> Vec<(&'static str, Option<(u32, u32)>)> {
+    filmcraft_project::PIXEL_ASPECTS.iter().map(|(_, label, r)| (*label, (*r != (1, 1)).then_some(*r))).collect()
+}
 
 fn settings_column(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
@@ -578,10 +574,13 @@ fn video_section(ui: &mut egui::Ui, reg: &mut Reg, s: &mut ExportSettings, t: &T
         }
     });
     row(ui, t, "Aspect", |ui| {
-        let cur = PARS.iter().find(|(_, p)| *p == s.pixel_aspect).map(|(l, _)| l.to_string()).unwrap_or_else(|| "Custom".into());
-        let labels: Vec<(String, bool)> = PARS.iter().map(|(l, _)| (l.to_string(), true)).collect();
-        if let Some(i) = combo(ui, reg, "export.video.aspect", &cur, &labels, 220.0) {
-            s.pixel_aspect = PARS[i].1;
+        let pars = pars();
+        let cur = pars.iter().find(|(_, p)| *p == s.pixel_aspect).map(|(l, _)| l.to_string()).unwrap_or_else(|| "Custom".into());
+        let labels: Vec<(String, bool)> = pars.iter().map(|(l, _)| (l.to_string(), true)).collect();
+        if let Some(i) = combo(ui, reg, "export.video.aspect", &cur, &labels, 220.0)
+            && let Some((_, r)) = pars.get(i)
+        {
+            s.pixel_aspect = *r;
         }
     });
     if s.format.is_mxf() {

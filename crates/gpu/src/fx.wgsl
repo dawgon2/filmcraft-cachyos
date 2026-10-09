@@ -45,6 +45,7 @@ const OP_HFLIP: u32 = 26u;
 const OP_VFLIP: u32 = 27u;
 const OP_MIRROR: u32 = 28u;
 const OP_OFFSET: u32 = 29u;
+const OP_MEDIAN_MASK: u32 = 30u;
 
 fn size() -> vec2<i32> {
     return vec2<i32>(i32(u.i0.y), i32(u.i0.z));
@@ -391,6 +392,35 @@ fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
                 }
             }
             return acc * (1.0 / f32(2 * r + 1));
+        }
+        case OP_MEDIAN_MASK: {
+            // `effects::median_filter` of a mask (in every channel) over the (2r+1)² window
+            // clipped to the image, mixed in by p0.x (HSL Secondary ▸ Denoise)
+            let r = i32(u.i1.x);
+            var win: array<f32, 49>;
+            var n = 0u;
+            for (var y = max(p.y - r, 0); y <= min(p.y + r, s.y - 1); y++) {
+                for (var x = max(p.x - r, 0); x <= min(p.x + r, s.x - 1); x++) {
+                    if n < 49u {
+                        win[n] = ld(vec2(x, y)).x;
+                        n++;
+                    }
+                }
+            }
+            let k = n / 2u;
+            for (var i = 0u; i <= k; i++) {
+                var lo = i;
+                for (var j = i + 1u; j < n; j++) {
+                    if win[j] < win[lo] {
+                        lo = j;
+                    }
+                }
+                let t = win[i];
+                win[i] = win[lo];
+                win[lo] = t;
+            }
+            let m = ld(p).x;
+            return vec4(m + (win[k] - m) * min(u.p0.x, 1.0));
         }
         case OP_DIRECTIONAL: {
             let steps = u.i1.x;

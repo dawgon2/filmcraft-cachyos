@@ -38,8 +38,13 @@ for limited- and full-range files.
 | ARRI LogC4 | ARRI Wide Gamut 4 | ARRI, *ARRI LogC4 Logarithmic Color Space — Specification* (2022) | CV | a = (2¹⁸ − 16)/117.45, b = 928/1023, c = 95/1023, s = 7·ln2·2^(7 − 14c/b)/(a·b), t = (2^(6 − 14c/b) − 64)/a; y ≥ 0: x = (2^(14(y − c)/b + 6) − 64)/a; else x = y·s + t |
 | Apple Log | BT.2020 | Apple, *Apple Log Profile* white paper (2023) | IRE | R0 = −0.05641088, Rt = 0.01, c = 47.28711236, β = 0.00964052, γ = 0.08550479, δ = 0.69336945; P ≥ c(Rt − R0)²: x = 2^((P − δ)/γ) − β; else x = √(P/c) + R0 |
 | DJI D-Log | D-Gamut | DJI, *White Paper on D-Log and D-Gamut of DJI Cinema Color System* (2017) | CV | y ≤ 0.14: x = (y − 0.0929)/6.025; else x = (10^(3.89616y − 2.27752) − 0.0108)/0.9892 |
+| Fujifilm F-Log | F-Gamut (= BT.2020) | FUJIFILM, *F-Log Data Sheet* Ver.1.0 (2016) | CV | y ≥ 0.100537775223865: x = (10^((y − d)/c) − b)/a; else x = (y − f)/e; a 0.555556, b 0.009468, c 0.344676, d 0.790453, e 8.735631, f 0.092864 (encode cut x = 0.00089) |
+| Fujifilm F-Log2 | F-Gamut (= BT.2020) | FUJIFILM, *F-Log2 Data Sheet* Ver.1.0 (2022) | CV | y ≥ 0.100686685370811: same form; a 5.555556, b 0.064829, c 0.245281, d 0.384316, e 8.799461, f 0.092864 (encode cut x = 0.000889) |
 
-The encoders are the exact inverses given in the same documents. DJI **D-Log M** is not
+The encoders are the exact inverses given in the same documents. (Fujifilm's rounded constants
+leave the two halves of F-Log 1e-4 apart at the cut, a tenth of a 10-bit code; decoding follows
+the data sheet's cut.) Reference values checked in the tests: F-Log 0 / 18 / 90 % → 95 / 470 / 705,
+F-Log2 → 95 / 400 / 570 (10-bit). DJI **D-Log M** is not
 implemented: DJI has not published its formula (only conversion LUTs), and we do not derive curves
 from third-party LUTs. (Checked again in October 2026: DJI's published white papers cover D-Log /
 D-Gamut only; D-Log M remains unsupported, so D-Log M footage should be interpreted with a LUT.)

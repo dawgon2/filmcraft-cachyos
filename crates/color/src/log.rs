@@ -42,11 +42,25 @@ pub enum LogCurve {
     AppleLog,
     /// DJI D-Log.
     DLog,
+    /// Fujifilm F-Log.
+    FLog,
+    /// Fujifilm F-Log2 (X-M5, X-H2(S), X-T5 and later: about 14 stops).
+    FLog2,
 }
 
 impl LogCurve {
-    pub const ALL: [LogCurve; 8] =
-        [LogCurve::SLog3, LogCurve::VLog, LogCurve::CLog2, LogCurve::CLog3, LogCurve::LogC3, LogCurve::LogC4, LogCurve::AppleLog, LogCurve::DLog];
+    pub const ALL: [LogCurve; 10] = [
+        LogCurve::SLog3,
+        LogCurve::VLog,
+        LogCurve::CLog2,
+        LogCurve::CLog3,
+        LogCurve::LogC3,
+        LogCurve::LogC4,
+        LogCurve::AppleLog,
+        LogCurve::DLog,
+        LogCurve::FLog,
+        LogCurve::FLog2,
+    ];
 
     pub fn domain(self) -> Domain {
         match self {
@@ -65,6 +79,8 @@ impl LogCurve {
             LogCurve::LogC4 => "ARRI LogC4",
             LogCurve::AppleLog => "Apple Log",
             LogCurve::DLog => "DJI D-Log",
+            LogCurve::FLog => "Fujifilm F-Log",
+            LogCurve::FLog2 => "Fujifilm F-Log2",
         }
     }
 
@@ -79,6 +95,8 @@ impl LogCurve {
             LogCurve::LogC4 => logc4_encode(x),
             LogCurve::AppleLog => apple_log_encode(x),
             LogCurve::DLog => dlog_encode(x),
+            LogCurve::FLog => FLOG.encode(x),
+            LogCurve::FLog2 => FLOG2.encode(x),
         }
     }
 
@@ -93,6 +111,8 @@ impl LogCurve {
             LogCurve::LogC4 => logc4_decode(y),
             LogCurve::AppleLog => apple_log_decode(y),
             LogCurve::DLog => dlog_decode(y),
+            LogCurve::FLog => FLOG.decode(y),
+            LogCurve::FLog2 => FLOG2.decode(y),
         }
     }
 
@@ -262,6 +282,37 @@ pub fn dlog_decode(y: f64) -> f64 {
     if y <= 0.14 { (y - 0.0929) / 6.025 } else { (10f64.powf(3.896_16 * y - 2.277_52) - 0.0108) / 0.9892 }
 }
 
+// ---------------------------------------------------------------- Fujifilm F-Log / F-Log2
+// FUJIFILM, "F-Log Data Sheet" Ver.1.0 (2016) and "F-Log2 Data Sheet" Ver.1.0 (2022): the same
+// form with different constants. Code values are 10-bit full scale (/1023).
+
+/// The constants of a Fujifilm log curve: `y = c·log10(a·x + b) + d` from `x ≥ cut1`, else
+/// `y = e·x + f`; decoding switches at `cut2` (= the encoded `cut1`).
+#[derive(Clone, Copy, Debug)]
+pub struct FujiLog {
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+    pub d: f64,
+    pub e: f64,
+    pub f: f64,
+    pub cut1: f64,
+    pub cut2: f64,
+}
+
+pub const FLOG: FujiLog = FujiLog { a: 0.555556, b: 0.009468, c: 0.344676, d: 0.790453, e: 8.735631, f: 0.092864, cut1: 0.00089, cut2: 0.100537775223865 };
+
+pub const FLOG2: FujiLog = FujiLog { a: 5.555556, b: 0.064829, c: 0.245281, d: 0.384316, e: 8.799461, f: 0.092864, cut1: 0.000889, cut2: 0.100686685370811 };
+
+impl FujiLog {
+    pub fn encode(&self, x: f64) -> f64 {
+        if x >= self.cut1 { self.c * (self.a * x + self.b).log10() + self.d } else { self.e * x + self.f }
+    }
+    pub fn decode(&self, y: f64) -> f64 {
+        if y >= self.cut2 { (10f64.powf((y - self.d) / self.c) - self.b) / self.a } else { (y - self.f) / self.e }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,6 +349,20 @@ mod tests {
         close(cv(LogCurve::SLog3, 0.0), 95.0, 0.01, "S-Log3 0%");
         close(cv(LogCurve::SLog3, 0.18), 420.0, 0.01, "S-Log3 18%");
         close(cv(LogCurve::SLog3, 0.9), 598.0, 0.5, "S-Log3 90%");
+        // Fujifilm F-Log: 0 % → 95, 18 % → 470, 90 % → 705 (F-Log Data Sheet, 10-bit).
+        close(cv(LogCurve::FLog, 0.0), 95.0, 0.05, "F-Log 0%");
+        close(cv(LogCurve::FLog, 0.18), 470.0, 0.5, "F-Log 18%");
+        close(cv(LogCurve::FLog, 0.9), 705.0, 0.5, "F-Log 90%");
+        // Fujifilm F-Log2: 0 % → 95, 18 % → 400, 90 % → 570 (F-Log2 Data Sheet, 10-bit).
+        close(cv(LogCurve::FLog2, 0.0), 95.0, 0.05, "F-Log2 0%");
+        close(cv(LogCurve::FLog2, 0.18), 400.0, 0.5, "F-Log2 18%");
+        close(cv(LogCurve::FLog2, 0.9), 570.0, 0.5, "F-Log2 90%");
+        // the decoding cut is the log half at the encoding cut; the published constants are
+        // rounded, so the linear half meets it within 1e-4 (a tenth of a 10-bit code)
+        for k in [FLOG, FLOG2] {
+            close(k.c * (k.a * k.cut1 + k.b).log10() + k.d, k.cut2, 1e-6, "F-Log cut2");
+            close(k.e * k.cut1 + k.f, k.cut2, 1.2e-4, "F-Log halves at the cut");
+        }
         // Panasonic: 0 % → 128, 18 % → 433, 90 % → 602 (V-Log manual, table).
         close(cv(LogCurve::VLog, 0.0), 128.0, 0.5, "V-Log 0%");
         close(cv(LogCurve::VLog, 0.18), 433.0, 0.5, "V-Log 18%");

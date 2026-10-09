@@ -18,6 +18,7 @@
 //! Working units are linear light with 1.0 = 203 cd/m² ([`crate::REFERENCE_WHITE_NITS`]) in HDR
 //! working spaces, as in [`crate::transform`].
 
+use crate::ops::{ColorOp, Tf};
 use crate::spaces::{Gamut, WorkingSpace};
 use crate::{REFERENCE_WHITE_NITS, hlg_inverse_oetf, hlg_oetf, linear_to_srgb, pq_eotf, pq_inverse_eotf, srgb_to_linear};
 
@@ -34,6 +35,9 @@ pub enum GradeSpace {
     Pq { white: f32, norm: f32 },
     /// HLG signal of a display with peak `white` cd/m² (`gamma` = its system gamma).
     Hlg { white: f32, gamma: f32 },
+    /// The DaVinci Intermediate signal of a DaVinci Wide Gamut working space (fork ADR 0003):
+    /// 0.336 is mid grey, 1.0 is 100× white; nothing clips.
+    DaVinciIntermediate,
 }
 
 impl GradeSpace {
@@ -44,17 +48,18 @@ impl GradeSpace {
             WorkingSpace::Rec709 => GradeSpace::Sdr,
             WorkingSpace::Rec2100Pq => GradeSpace::Pq { white, norm: pq_inverse_eotf(white / 10_000.0) },
             WorkingSpace::Rec2100Hlg => GradeSpace::Hlg { white, gamma: 1.2 + 0.42 * (white / 1000.0).log10() },
+            WorkingSpace::DaVinciWide => GradeSpace::DaVinciIntermediate,
         }
     }
 
     pub fn is_hdr(&self) -> bool {
-        !matches!(self, GradeSpace::Sdr)
+        matches!(self, GradeSpace::Pq { .. } | GradeSpace::Hlg { .. })
     }
 
     /// HDR White in cd/m² (None for SDR).
     pub fn white_nits(&self) -> Option<f32> {
         match *self {
-            GradeSpace::Sdr => None,
+            GradeSpace::Sdr | GradeSpace::DaVinciIntermediate => None,
             GradeSpace::Pq { white, .. } | GradeSpace::Hlg { white, .. } => Some(white),
         }
     }
@@ -64,6 +69,7 @@ impl GradeSpace {
     pub fn encode(&self, c: [f32; 3]) -> [f32; 3] {
         match *self {
             GradeSpace::Sdr => c.map(|v| linear_to_srgb(v.max(0.0))),
+            GradeSpace::DaVinciIntermediate => c.map(crate::ops::di_encode),
             GradeSpace::Pq { norm, .. } => c.map(|v| pq_inverse_eotf((v.max(0.0) * REFERENCE_WHITE_NITS as f32 / 10_000.0).min(1.0)) / norm),
             GradeSpace::Hlg { white, gamma } => {
                 // display light normalised to the peak, inverse OOTF (scene light), OETF
@@ -85,6 +91,7 @@ impl GradeSpace {
     pub fn decode(&self, v: [f32; 3]) -> [f32; 3] {
         match *self {
             GradeSpace::Sdr => v.map(|q| srgb_to_linear(q.clamp(0.0, 1.0))),
+            GradeSpace::DaVinciIntermediate => v.map(crate::ops::di_decode),
             GradeSpace::Pq { norm, .. } => v.map(|q| pq_eotf((q * norm).clamp(0.0, 1.0)) * 10_000.0 / REFERENCE_WHITE_NITS as f32),
             GradeSpace::Hlg { white, gamma } => {
                 // graded highlights may go past signal 1.0 (the display peak); keep them up to
@@ -98,6 +105,42 @@ impl GradeSpace {
                 let k = ys.powf(gamma - 1.0);
                 es.map(|e| e * k * white / REFERENCE_WHITE_NITS as f32)
             }
+        }
+    }
+
+    /// [`encode`](Self::encode) as colour operations (working linear → grading signal).
+    pub fn encode_ops(&self) -> Vec<ColorOp> {
+        let scale = |k: f32| ColorOp::Matrix { m: [[k, 0.0, 0.0], [0.0, k, 0.0], [0.0, 0.0, k]], offset: [0.0; 3] };
+        let non_negative = ColorOp::Clamp { lo: 0.0, hi: f32::MAX };
+        match *self {
+            GradeSpace::Sdr => vec![non_negative, ColorOp::Encode(Tf::Srgb)],
+            GradeSpace::DaVinciIntermediate => vec![ColorOp::Encode(Tf::DaVinciIntermediate)],
+            GradeSpace::Pq { norm, .. } => {
+                vec![scale(REFERENCE_WHITE_NITS as f32 / 10_000.0), ColorOp::Clamp { lo: 0.0, hi: 1.0 }, ColorOp::Encode(Tf::Pq), scale(1.0 / norm)]
+            }
+            GradeSpace::Hlg { white, gamma } => vec![
+                non_negative,
+                scale(REFERENCE_WHITE_NITS as f32 / white),
+                ColorOp::HlgOotf { weights: luma2020(), k: 1.0, exponent: (1.0 - gamma) / gamma },
+                ColorOp::Encode(Tf::Hlg),
+            ],
+        }
+    }
+
+    /// [`decode`](Self::decode) as colour operations (grading signal → working linear).
+    pub fn decode_ops(&self) -> Vec<ColorOp> {
+        let scale = |k: f32| ColorOp::Matrix { m: [[k, 0.0, 0.0], [0.0, k, 0.0], [0.0, 0.0, k]], offset: [0.0; 3] };
+        match *self {
+            GradeSpace::Sdr => vec![ColorOp::Clamp { lo: 0.0, hi: 1.0 }, ColorOp::Decode(Tf::Srgb)],
+            GradeSpace::DaVinciIntermediate => vec![ColorOp::Decode(Tf::DaVinciIntermediate)],
+            GradeSpace::Pq { norm, .. } => {
+                vec![scale(norm), ColorOp::Clamp { lo: 0.0, hi: 1.0 }, ColorOp::Decode(Tf::Pq), scale(10_000.0 / REFERENCE_WHITE_NITS as f32)]
+            }
+            GradeSpace::Hlg { white, gamma } => vec![
+                ColorOp::Clamp { lo: 0.0, hi: 1.5 },
+                ColorOp::Decode(Tf::Hlg),
+                ColorOp::HlgOotf { weights: luma2020(), k: white / REFERENCE_WHITE_NITS as f32, exponent: gamma - 1.0 },
+            ],
         }
     }
 
@@ -172,5 +215,29 @@ mod tests {
         // a brighter display has a higher system gamma (BT.2100: 1.2 + 0.42 log10(Lw / 1000))
         let GradeSpace::Hlg { gamma, .. } = GradeSpace::new(WorkingSpace::Rec2100Hlg, 2000.0) else { panic!() };
         assert!((gamma - 1.2 - 0.42 * 2f32.log10()).abs() < 1e-5);
+    }
+
+    /// The colour-operation forms run the same maths as `encode` / `decode`.
+    #[test]
+    fn grading_signal_as_colour_operations() {
+        let spaces = [
+            GradeSpace::new(WorkingSpace::Rec709, 1000.0),
+            GradeSpace::new(WorkingSpace::DaVinciWide, 1000.0),
+            GradeSpace::new(WorkingSpace::Rec2100Pq, 1000.0),
+            GradeSpace::new(WorkingSpace::Rec2100Pq, 4000.0),
+            GradeSpace::new(WorkingSpace::Rec2100Hlg, 1000.0),
+            GradeSpace::new(WorkingSpace::Rec2100Hlg, 400.0),
+        ];
+        let samples = [[0.0f32, 0.0, 0.0], [0.18, 0.18, 0.18], [1.0, 0.5, 0.25], [-0.1, 0.3, 2.0], [6.0, 4.0, 0.01], [0.9, 1.3, 1.2], [1e-6, 0.0, 0.0]];
+        for g in spaces {
+            let (enc, dec) = (g.encode_ops(), g.decode_ops());
+            for c in samples {
+                let (want, got) = (g.encode(c), crate::ops::apply_chain(&enc, c));
+                assert!(want.iter().zip(got).all(|(a, b)| (a - b).abs() <= 2e-6 + 2e-5 * a.abs()), "{g:?} encode {c:?}: {got:?} vs {want:?}");
+                let s = want;
+                let (want, got) = (g.decode(s), crate::ops::apply_chain(&dec, s));
+                assert!(want.iter().zip(got).all(|(a, b)| (a - b).abs() <= 1e-5 + 2e-5 * a.abs()), "{g:?} decode {s:?}: {got:?} vs {want:?}");
+            }
+        }
     }
 }

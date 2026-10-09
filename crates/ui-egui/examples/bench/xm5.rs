@@ -221,7 +221,35 @@ fn fill_scale(w: u32, h: u32) -> f64 {
 
 /// A Lumetri grade with Basic, Curves, HSL Secondary and Vignette in use, plus Sharpen, on every
 /// clip of V1. (F-Log2 → Rec.709 conversion arrives in Phase 4; until then this is the grade.)
+/// Interpret the media of `seq`'s V1 clips as F-Log2 / F-Gamut (the X-M5's log profile; the
+/// synthetic clips are not log-encoded, but the conversion costs the same).
+fn interpret_flog2(s: &mut Session, seq: ItemId) {
+    s.edit("interpret", |p: &mut Project, _| {
+        let media: Vec<ItemId> = p.sequence(seq).map(|q| q.video_tracks[0].items.iter().map(|it| it.item).collect()).unwrap_or_default();
+        for id in media {
+            if let Some(filmcraft_project::ItemKind::Media(m)) = p.item_mut(id).map(|i| &mut i.kind) {
+                m.interpret.color_space = Some(filmcraft_color::ColorSpace::FLog2FGamut);
+            }
+        }
+        Ok(())
+    })
+    .expect("interpret");
+}
+
+/// Make `seq` a DaVinci Wide Gamut / Intermediate sequence (the fork's grading space).
+fn set_dwg(s: &mut Session, seq: ItemId) {
+    s.edit("dwg", |p: &mut Project, _| {
+        if let Some(q) = p.sequence_mut(seq) {
+            q.settings.color.working = filmcraft_color::WorkingSpace::DaVinciWide;
+            q.settings.working_space = filmcraft_color::WorkingSpace::DaVinciWide.label().into();
+        }
+        Ok(())
+    })
+    .expect("dwg");
+}
+
 fn grade(s: &mut Session, seq: ItemId) {
+    interpret_flog2(s, seq);
     s.edit("grade", |p: &mut Project, _| {
         let q = p.sequence_mut(seq).expect("seq");
         for it in &mut q.video_tracks[0].items {
@@ -403,7 +431,13 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
         ("xm5-jkl J 2x", -2.0, 50.0, None),
         ("xm5-jkl J 2x warm", -2.0, 50.0, Some(15.0)),
     ];
-    if o.wants("play-full") || o.wants("play-half-draft") || o.wants("play-graded") || JKL.iter().any(|(name, ..)| o.wants(name)) {
+    if o.wants("play-full")
+        || o.wants("play-half-draft")
+        || o.wants("play-flog2")
+        || o.wants("play-dwg")
+        || o.wants("play-graded")
+        || JKL.iter().any(|(name, ..)| o.wants(name))
+    {
         let mut s = Session::default();
         if let Some(a) = import(&mut s, PLAY) {
             let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, 60.0)], true);
@@ -427,6 +461,19 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
                     if o.wants(name) {
                         play_after(&s, seq, o, name, secs, speed, Tick::from_seconds_f64(from), warm.map(Tick::from_seconds_f64), &mut rows);
                     }
+                }
+            }
+            if o.wants("play-flog2") {
+                interpret_flog2(&mut s, seq);
+                for _ in 0..o.repeat {
+                    play(&s, seq, o, "xm5-play-flog2", play_s, 1.0, Tick::ZERO, &mut rows);
+                }
+            }
+            if o.wants("play-dwg") {
+                interpret_flog2(&mut s, seq);
+                set_dwg(&mut s, seq);
+                for _ in 0..o.repeat {
+                    play(&s, seq, o, "xm5-play-dwg", play_s, 1.0, Tick::ZERO, &mut rows);
                 }
             }
             if o.wants("play-graded") {

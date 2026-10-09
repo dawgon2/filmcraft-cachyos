@@ -60,12 +60,41 @@ impl PlanLayer {
     }
 }
 
+/// The output transform of a colour-managed sequence (fork ADR 0003): after the layers before
+/// `at` are composited (in the working space), `ops` convert the picture for the monitor; the
+/// layers from `at` on (captions) are drawn onto the converted picture.
+#[derive(Clone, Debug)]
+pub struct OutputStage {
+    pub ops: Arc<[filmcraft_color::ops::ColorOp]>,
+    pub at: usize,
+}
+
 #[derive(Clone)]
 pub enum FramePlan {
-    /// Draw these layers over black.
-    Layers { width: usize, height: usize, layers: Vec<PlanLayer> },
+    /// Draw these layers over black (and convert for the monitor, see [`OutputStage`]).
+    Layers { width: usize, height: usize, layers: Vec<PlanLayer>, output: Option<OutputStage> },
     /// The CPU produced the final image (fallback).
     Image(crate::Image),
+}
+
+/// Whether `frame` is Y'CbCr (planar, biplanar or a GPU surface): its input transform can run on
+/// the GPU after the source draw.
+fn frame_is_yuv(frame: &VideoFrame) -> bool {
+    matches!(
+        frame.data,
+        filmcraft_frame::PixelData::Yuv8 { .. }
+            | filmcraft_frame::PixelData::Yuv16 { .. }
+            | filmcraft_frame::PixelData::Yuv16Bi { .. }
+            | filmcraft_frame::PixelData::Gpu(_)
+    )
+}
+
+/// The same frame read as its decoder-normalised signal: Y'CbCr → R'G'B' with no transfer
+/// function (the input transform's table decodes it). Shares the pixel data.
+fn signal_frame(frame: &Arc<VideoFrame>) -> Arc<VideoFrame> {
+    let mut f = VideoFrame::clone(frame);
+    f.color.transfer = filmcraft_color::Transfer::Linear;
+    Arc::new(f)
 }
 
 fn cpu_frame(img: crate::Image) -> Arc<VideoFrame> {
@@ -76,12 +105,12 @@ fn simple_transition(id: &str) -> bool {
     matches!(id, "cross_dissolve" | "dip_to_black" | "dip_to_white" | "morph_cut")
 }
 
-/// The standard effects of a media clip if the GPU can draw it (any blend mode, no opacity masks,
-/// every enabled standard effect unmasked and with a GPU implementation; empty without effects or
+/// The standard effects of a media clip if the GPU can draw it (any blend mode, every enabled
+/// standard effect with a GPU implementation, masked or not; empty without effects or
 /// with effects off). None: the clip is rendered on the CPU.
 fn gpu_chain<'a>(project: &Project, item: &'a TrackItem, opts: RenderOptions) -> Option<Vec<&'a filmcraft_project::EffectInstance>> {
     let is_media = project.item(item.item).is_some_and(|p| matches!(p.kind, ItemKind::Media(_) | ItemKind::Subclip { .. }));
-    if !is_media || item.has_opacity_masks() {
+    if !is_media {
         return None;
     }
     if !opts.effects {
@@ -92,8 +121,8 @@ fn gpu_chain<'a>(project: &Project, item: &'a TrackItem, opts: RenderOptions) ->
         if !e.enabled {
             continue;
         }
-        let masked = e.masks.iter().any(|m| m.mode != filmcraft_project::MaskMode::None);
-        if masked || !crate::gpufx::GPU_EFFECTS.contains(&e.effect.as_str()) {
+        // (masked effects too: `FxOp::Masked`)
+        if !crate::gpufx::gpu_capable(&e.effect) {
             return None;
         }
         chain.push(e);
@@ -105,8 +134,11 @@ fn gpu_chain<'a>(project: &Project, item: &'a TrackItem, opts: RenderOptions) ->
 pub fn plan_frame(project: &Project, seq_id: ItemId, t: Tick, opts: RenderOptions, sources: &dyn SourceProvider) -> FramePlan {
     let Some(seq) = project.sequence(seq_id) else { return FramePlan::Image(crate::Image::new(1, 1)) };
     let (w, h) = output_size(seq, opts.scale);
-    // HDR / wide-gamut sequences composite and convert on the CPU.
-    if !seq.settings.color.is_plain() {
+    // Colour-managed sequences (HDR, wide gamut, DaVinci Wide Gamut) composite in their working
+    // space and convert for the monitor at the end (`OutputStage`); asked for the working space
+    // itself (exports), they render on the CPU.
+    let pipe = seq.settings.color;
+    if !pipe.is_plain() && (opts.working_output || opts.depth > 0) {
         return FramePlan::Image(crate::render_sequence(project, seq_id, t, opts, sources));
     }
     // Whole-frame fallback: adjustment layers or complex transitions anywhere at t.
@@ -115,6 +147,12 @@ pub fn plan_frame(project: &Project, seq_id: ItemId, t: Tick, opts: RenderOption
     }
     let mut layers = Vec::new();
     push_tracks(project, seq, t, opts, sources, 0, &mut layers);
+    let output = if pipe.is_plain() {
+        None
+    } else {
+        let ops = crate::colorman::display_transform(&pipe).ops();
+        (!ops.is_empty()).then(|| OutputStage { ops: ops.into(), at: layers.len() })
+    };
     if opts.captions {
         for o in crate::caption_overlays(seq, t, w, h) {
             layers.push(PlanLayer::new(
@@ -125,7 +163,7 @@ pub fn plan_frame(project: &Project, seq_id: ItemId, t: Tick, opts: RenderOption
             ));
         }
     }
-    FramePlan::Layers { width: w, height: h, layers }
+    FramePlan::Layers { output, width: w, height: h, layers }
 }
 
 /// Whether the frame of `seq` at `t` can be planned as layers: no adjustment layer and no
@@ -289,19 +327,33 @@ fn push_item(
     if let Some(chain) = gpu_chain(project, item, opts) {
         let Some(src) = sources.source(item.item) else { return };
         let Some(size) = crate::source_size(project, item.item) else { return };
-        let motion = motion_matrix(seq, item, size, mt);
+        let motion = crate::motion_matrix_par(seq, item, size, crate::clip_par(project, seq, item.item), mt);
         let lin = ((motion.a * motion.a + motion.b * motion.b).sqrt()).max((motion.c * motion.c + motion.d * motion.d).sqrt());
         let want = (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32;
         let Ok(frame) = crate::clip_frame(src.as_ref(), item, ft, want) else { return };
         let cs = crate::colorman::source_space(project, item.item, &frame);
-        // log / HDR / wide-gamut media is converted on the CPU (below), and so are blended
-        // in-between frames (Frame Blending / Optical Flow on speed-changed clips)
-        let plain =
-            !crate::colorman::needs_management(&seq.settings.color, cs, &frame) && crate::interpolation_blend(item, t, src.info().frame_rate()).is_none();
-        if plain && !chain.is_empty() {
+        // blended in-between frames (Frame Blending / Optical Flow on speed-changed clips) are
+        // made on the CPU (below)
+        let single = crate::interpolation_blend(item, t, src.info().frame_rate()).is_none();
+        let managed = crate::colorman::needs_management(&seq.settings.color, cs, &frame);
+        // Log / HDR / wide-gamut Y'CbCr media: the GPU gets the decoded signal and converts it
+        // with the input transform as its first colour operations (fork ADR 0003); RGB stills
+        // keep the CPU conversion.
+        let input = (single && managed && frame_is_yuv(&frame)).then(|| {
+            let pipe = &seq.settings.color;
+            // (the content peak rounded as `colorman::input_transform` does)
+            let peak = crate::colorman::source_peak_nits(project, item.item).map(|p| f64::from(p.round() as u32));
+            let ops = filmcraft_color::transform::input_ops(cs, frame.color.range, pipe, peak);
+            FxOp::ColorChain(ops.into())
+        });
+        let plain = single && !managed;
+        let opacity_masked = item.has_opacity_masks();
+        if plain && (!chain.is_empty() || opacity_masked) || input.is_some() {
             // GPU effect stage: the working image the CPU would decode (`base_layer`), the
             // effects evaluated for it, placed as `item_layer` places it
-            let n = crate::decimation(frame.width as f32, size.0 as f32 * want);
+            // (a converted frame is decoded at full size: averaging its signal before the
+            // input transform would not be averaging light)
+            let n = if input.is_some() { 1 } else { crate::decimation(frame.width as f32, size.0 as f32 * want) };
             let (lw, lh) = ((frame.width as usize / n).max(1), (frame.height as usize / n).max(1));
             let px_scale = lw as f32 / size.0.max(1) as f32;
             let tc = "";
@@ -315,8 +367,29 @@ fn push_item(
                 env: None,
                 working: seq.settings.color.working,
             };
-            let ops: Option<Vec<FxOp>> = chain.iter().map(|e| FxOp::eval(e, &cx, lw, lh).filter(FxOp::gpu_ok)).collect();
-            if let Some(ops) = ops {
+            let mut ops: Option<Vec<FxOp>> = Some(input.clone().into_iter().collect());
+            for e in &chain {
+                let masks = crate::mask::prepare(&e.masks, mt, px_scale);
+                let more =
+                    FxOp::eval_all(e, &cx, lw, lh).map(|more| if masks.is_empty() { more } else { vec![FxOp::Masked { ops: more, masks: masks.into() }] });
+                match (ops.as_mut(), more) {
+                    (Some(v), Some(more)) if more.iter().all(FxOp::gpu_ok) => v.extend(more),
+                    _ => ops = None,
+                }
+            }
+            if opacity_masked && let Some(op) = item.effect("opacity").filter(|e| e.enabled && !e.masks.is_empty()) {
+                let masks = crate::mask::prepare(&op.masks, mt, px_scale);
+                let m = FxOp::OpacityMask { masks: masks.into() };
+                match ops.as_mut() {
+                    Some(v) if m.gpu_ok() => v.push(m),
+                    _ => ops = None,
+                }
+            }
+            // (an input transform followed by Lumetri: one pass)
+            if let Some(ops) = ops.map(crate::gpufx::fuse_color_chains) {
+                // a converted frame is handed over as its signal (the transfer applied by the
+                // input transform, not by the source draw)
+                let frame = if input.is_some() { signal_frame(&frame) } else { frame };
                 let m = Affine::scale(opts.scale as f64, opts.scale as f64)
                     .then_apply(&motion)
                     .then_apply(&Affine::scale(1.0 / px_scale as f64, 1.0 / px_scale as f64));
@@ -366,9 +439,12 @@ pub fn effect_image(frame: &VideoFrame, fx: &LayerFx) -> crate::Image {
 pub fn execute_cpu(plan: &FramePlan) -> crate::Image {
     match plan {
         FramePlan::Image(img) => img.clone(),
-        FramePlan::Layers { width, height, layers } => {
+        FramePlan::Layers { width, height, layers, output } => {
             let mut canvas = crate::Image::new(*width, *height);
-            for l in layers {
+            for (i, l) in layers.iter().enumerate() {
+                if let Some(o) = output.as_ref().filter(|o| o.at == i) {
+                    canvas.map_rgb(|c, _, _| filmcraft_color::ops::apply_chain(&o.ops, c));
+                }
                 let src = match &l.fx {
                     Some(fx) => effect_image(&l.frame, fx),
                     None => crate::Image { w: l.frame.width as usize, h: l.frame.height as usize, px: l.frame.to_linear_f32() },
@@ -379,6 +455,9 @@ pub fn execute_cpu(plan: &FramePlan) -> crate::Image {
                     src.transformed(*width, *height, &l.matrix)
                 };
                 crate::blend::composite(&mut canvas, &placed, l.opacity, l.blend);
+            }
+            if let Some(o) = output.as_ref().filter(|o| o.at >= layers.len()) {
+                canvas.map_rgb(|c, _, _| filmcraft_color::ops::apply_chain(&o.ops, c));
             }
             canvas
         }

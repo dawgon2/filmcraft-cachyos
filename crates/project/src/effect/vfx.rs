@@ -1095,12 +1095,8 @@ pub(super) fn apply_badges(v: &mut [EffectDef]) {
                 | "proc_amp"
         ) || folder == "Lights & Glows";
         let yuv = matches!(id, "proc_amp" | "lumetri" | "video_limiter" | "black_white" | "alpha_adjust" | "luma_key" | "track_matte");
-        let accel = match e.category.first().copied() {
-            Some("Legacy") => !matches!(id, "camera_blur"),
-            _ if folder == "Obsolete" => false,
-            _ => !matches!(id, "clone" | "stroke"),
-        };
-        e.accelerated = accel;
+        // (fork, Phase 4.3: the badge says what this build draws on the GPU, not Premiere's list)
+        e.accelerated = super::GPU_EFFECTS.contains(&id);
         e.float32 = a32;
         e.yuv = yuv;
     }
@@ -1201,7 +1197,8 @@ mod tests {
                 let d = find_effect_by_name(name).unwrap_or_else(|| panic!("missing {name}"));
                 assert_eq!(d.kind, EffectKind::Video, "{name}");
                 assert_eq!(d.category, &["Video Effects", *folder], "{name} folder");
-                assert_eq!(d.accelerated, !matches!(d.id, "clone" | "stroke"), "{name} accelerated badge");
+                // (fork: the badge says what this build draws on the GPU)
+                assert_eq!(d.accelerated, crate::effect::GPU_EFFECTS.contains(&d.id), "{name} accelerated badge");
                 n += 1;
             }
         }
@@ -1223,9 +1220,10 @@ mod tests {
         // badge spot checks
         let b = |n: &str| find_effect_by_name(n).map(|d| (d.accelerated, d.float32, d.yuv)).unwrap();
         assert_eq!(b("ProcAmp"), (true, true, true));
-        assert_eq!(b("Luma Key"), (true, true, true));
+        assert_eq!(b("Luma Key"), (false, true, true));
         assert_eq!(b("Black & White"), (true, false, true));
-        assert_eq!(b("Glint"), (true, true, false));
+        assert_eq!(b("Glint"), (false, true, false));
+        assert_eq!(b("Lumetri Color"), (true, true, true));
         assert_eq!(b("Sharpen"), (true, false, false));
     }
 

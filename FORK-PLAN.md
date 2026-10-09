@@ -314,6 +314,14 @@ Working space DaVinci Wide Gamut / DaVinci Intermediate (Blackmagic's published 
    it too where they list pixel aspects (e.g. a desqueezed 6.2K preset), with the control channel
    / CLI parameters and tests (a 1.6× clip on a square-pixel sequence fills the expected width).
 
+**Steps (agent, session 4; design in `docs/adr/0003-gpu-color-ops.md`):** 4.1 F-Log / F-Log2
+(done) → 4.2a `filmcraft_color::ops` (`ColorOp`, CPU oracle) + one fused WGSL pass + per-op
+parity tests → 4.2b input transforms as ops on the GPU (log / HDR / overridden clips stop being
+CPU layers) and the DWG / DI working space with its output transform → 4.3a Lumetri Basic +
+Creative as a chain → 4.3b Curves + Colour Wheels → 4.3c HSL Secondary (+ Refine), Vignette,
+Sharpen → 4.3d keys, masks, other effects as far as they matter for the workflow; truthful "GPU
+accelerated" badges → 4.4 scopes → 4.5 reframing → 4.6 anamorphic → acceptance (full suite).
+
 **Accept:** `xm5-play-graded` at Full drops nothing with CPU ms/frame < 5; scopes update live
 during playback; colour parity tests pass; an F-Log2 clip converted with the built-in transform
 matches Fujifilm's official LUT within a small tolerance.
@@ -752,3 +760,198 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   over 10 minutes; reduced resolution costs no CPU. `cargo xtask ci` green at `22d0e02` (one
   slip on the way: `83b5ac8` broke the wasm build, fixed in `22d0e02`: run `xtask wasm` on every
   step that touches `ui-egui`).
+- **Phase 3 committed and tagged (`phase-3` = `0909c2c`). Build ready:**
+  `~/Apps/filmcraft-builds/phase-3/` (`filmcraft`, `filmcraft-cli`, `NOTES.md`), `latest` →
+  phase-3, launcher valid (`desktop-file-validate`). Smoke test of the installed build (video-only
+  copy of the 6.2K clip, so nothing played on the speakers): in-process VA-API, 1× 133/0, L 2×
+  152/0, J 1× 90/3, 1× at 1/2 149/2. **Next: Phase 4** (the colour pipeline on the GPU; §1a.14).
+- **2026-10-08, session 4: Phase 4.1 F-Log / F-Log2 with F-Gamut (done).** `LogCurve::{FLog,
+  FLog2}` from Fujifilm's *F-Log Data Sheet* (2016) and *F-Log2 Data Sheet* (2022), constants in
+  `log::FLOG` / `FLOG2`; clip colour spaces `flog-fgamut` / `flog2-fgamut` ("Fujifilm F-Log2 /
+  F-Gamut"; F-Gamut = the BT.2020 primaries per the data sheets) in Interpret Footage, the
+  `clip.interpretFootage` command, `color.spaces`, the scopes' list and the built-in log → 709
+  LUTs (all built from `ColorSpace::ALL`). Tests: published reference values (F-Log 0/18/90 % →
+  95/470/705, F-Log2 → 95/400/570, 10-bit), the cut, round trips, mid grey through the input
+  transform. Note: the data sheets' rounded constants leave F-Log's two halves 1e-4 apart at the
+  cut; decoding follows the published cut. **Auto-detect from MOV metadata: not done** — how (or
+  whether) the X-M5 tags F-Log2 in its MOV is unknown without real footage (the owner has none);
+  revisit with the first real clip. Until then F-Log2 is set per clip (Modify ▸ Interpret
+  Footage). Flaky (pre-existing, global switch shared by parallel tests):
+  `engine settings_tests::hardware_decoding_setting_drives_the_decoder_switch`, passes alone.
+- **2026-10-08, session 4: Phase 4.2a colour operations (done).** ADR 0003 written (design:
+  `ColorOp`s with a CPU oracle, one fused GPU pass per run of per-pixel ops, DWG / DI working
+  space, Lumetri as a fixed chain). `filmcraft_color::ops`: `Matrix` (+ offset), `Decode` /
+  `Encode` (sRGB, γ 2.4, PQ, HLG, DaVinci Intermediate: analytic), `Table` (sampled 1D, 4097
+  points: every camera log decode, curves), `Lggo`, `Saturation`; `Gamut::DaVinciWide`;
+  DaVinci Intermediate from Blackmagic's document (0.18 → 0.336, 1 → 0.514, 100 → 1.000). GPU:
+  `FxOp::ColorChain` runs a chain in one compute pass (`gpu/src/colorops.{rs,wgsl}`, a program
+  of `f32` in a storage buffer, binding 4 of the FX stage). Parity (`colorops_tests`, AMD and
+  Intel): every op ≤ 1e-4 relative (most ≤ 1e-6), an F-Log2 → DWG / DI grade → 709 chain
+  1.5e-5. Table accuracy vs the f64 curves: ≤ 3e-5 relative except at three published kinks
+  (S-Log3 segments, F-Log's rounded halves, Apple Log's square root at black: ≤ 1e-5 linear,
+  Apple Log 1e-3 = a fifth of a code). Not used by the renderer yet: **next 4.2b** (input
+  transforms on the GPU, DWG / DI working space).
+- **2026-10-08, session 4: Phase 4.2b part 1 — input transforms on the GPU (done, synthetic).**
+  A Y'CbCr (or GPU-surface) clip that needs colour management in a Rec. 709 sequence (log, HDR,
+  wide gamut, any Interpret Footage override) is no longer a CPU layer: the plan hands the GPU
+  its signal (the frame with a linear transfer: Y'CbCr → R'G'B' only, unclamped, shared pixels)
+  and the input transform as the first `FxOp::ColorChain` (`transform::input_ops`: Clamp + the
+  decode table over `DecodeTable::for_curve`'s range, HLG OOTF, gamut matrix, BT.2390 tone map,
+  gamut compression / desaturation — new ops `HlgOotf`, `ToneMap`, `GamutCompress`,
+  `DesaturateIntoGamut`, `Clamp`, all with GPU parity ≤ 1e-4). Such a layer is converted at the
+  source's full size (averaging its signal before the log decode would not average light). Also
+  fixed: a frame with a linear transfer was clamped to 0…1 and quantised to 12 bits on the CPU.
+  **`xm5-play-flog2`** (new case: the 6.2K clip interpreted as F-Log2, Full, quick): **0/240 at
+  246.7 ms CPU/frame, RSS 3.5 GB → 240/0 at 3.4 ms, RSS 0.2 GB** (GPU 54 % busy). Tests:
+  `input_ops_match_the_input_transform` (every colour space × range × 3 pipelines vs
+  `InputTransform`), `log_media_plans_its_input_transform_on_the_gpu` (plan vs CPU render:
+  ≤ 2e-3 at full scale; at 1/2 the reference averages before tone mapping, the plan after),
+  GPU parity for every input transform. Next: part 2, the DWG / DI working space and the output
+  transform on the GPU (non-Rec. 709 sequences still composite on the CPU).
+- **2026-10-08, session 4: Phase 4.2b part 2 — DaVinci Wide Gamut / Intermediate working space,
+  output transform on the GPU (done, synthetic).** `WorkingSpace::DaVinciWide` (id `dwg-di`):
+  scene-linear DWG compositing (log media enters without tone mapping), Lumetri grades the DI
+  signal (`GradeSpace::DaVinciIntermediate`), the output transform tone maps from the log peak
+  (4000 cd/m², as log → Rec. 709 does) and maps to Rec. 709; exports stay SDR Rec. 709.
+  `WorkingSpace::is_hdr` now means PQ / HLG only (`is_scene_referred` for DWG). Colour-managed
+  sequences (DWG, HDR, wide gamut) no longer fall back to whole-frame CPU rendering for the
+  monitors: `FramePlan::Layers.output` (`OutputStage`: the display transform as ops, applied
+  after the working-space layers and before captions); the compositor runs it as one compute
+  pass on the accumulator (`colorops::OutputPass`, the chain shader for Rgba16Float) and copies it
+  back; devices without compute render such a frame on the CPU. Exports (working output) still
+  render on the CPU. Tests: `output_stage_converts_the_composite_like_the_cpu` (GPU vs CPU, 8-bit
+  p99 1, AMD and Intel), `davinci_wide_gamut_sequences_plan_an_output_stage` (plan vs CPU render
+  ≤ 2e-3). **`xm5-play-dwg`** (new case: 6.2K F-Log2 in a DWG sequence, quick): **240/0 at
+  3.0 ms CPU/frame** (before: whole frame on the CPU, like `play-flog2`'s 0/240 at 247 ms).
+  **Session 4 stopped here at the owner's request. Next: 4.3a Lumetri Basic + Creative as a
+  chain of colour operations** (ADR 0003; the CPU `effects::lumetri` stays the oracle).
+- **2026-10-09, session 5: Phase 4.3a Lumetri Basic + Creative as colour operations (done).**
+  New `ColorOp`s: `ToneRegions` (shadows / highlights), `Contrast`, `Specular`, `SplitTone`,
+  `Vignette` (positional: `apply_at` / `apply_chain_at`, the shader passes the pixel), and
+  `Saturation` gained `vibrance`; `HlgOotf` gives black for no light (the inverse OOTF's negative
+  exponent). `GradeSpace::{encode_ops, decode_ops}` (SDR, PQ, HLG, DI as ops; test against
+  `encode` / `decode`). `effects::lumetri_grade` builds Basic (without Input LUT) + Creative
+  (without Look) + Vignette as one chain; the CPU Lumetri runs it; `lumetri_gpu` hands it to the
+  GPU with Sharpen (`FxOp::Unsharp`) when Input LUT, Look, Curves, Wheels and HSL Secondary are
+  unused (`FxOp::eval_all`, `gpufx::gpu_capable`); an input transform followed by Lumetri is
+  fused into one pass (`fuse_color_chains`). Oracle: the replaced per-pixel code
+  (`lumetri_chain_tests`, 14 settings × Rec. 709 / DWG / PQ / HLG, ≤ 2e-4). GPU parity (AMD and
+  Intel): new ops ≤ 3e-7, whole grades ≤ 4.4e-5 (PQ). Gates: fmt, clippy, layers, wasm,
+  workspace tests (release) ✓. **Next: 4.3b** Curves + Colour Wheels, Input LUT / Look as
+  operations (3D LUT op, tetrahedral as `lut.rs`).
+- **2026-10-09, session 5: Phase 4.3b Curves, Colour Wheels, Look and LUTs as colour operations
+  (done).** New `ColorOp`s: `Curve` (per-channel tone curve, HDR slope-1 extension), `Wheels`,
+  `HslCurves` (hue vs hue / sat / luma, luma vs sat, sat vs sat), `Lut` (1D shaper + tetrahedral
+  3D cube from `.cube` / built-ins, mixed by intensity, `within_unit`), `Look` (the procedural
+  looks, moved to `ops::apply_look`). `effects::lumetri_ops` = Input LUT + Basic + Creative +
+  Look / Curves / Wheels as one chain; the CPU Lumetri runs it; the GPU takes every Lumetri
+  without HSL Secondary. `FxOp::gpu_ok` now also checks the program size
+  (`ops::MAX_GPU_PROGRAM` = 4 Mi values; a 256³ LUT stays on the CPU instead of being skipped).
+  Oracle (`lumetri_chain_tests`, old `Advanced` code kept `cfg(test)`): ≤ 2e-4, PQ ≤ 1e-3 (PQ's
+  steep decode magnifies last-bit scaling differences). GPU parity AMD + Intel: new ops ≤ 1.1e-6,
+  whole grades ≤ 7.7e-5. Gates + workspace tests (release) ✓. **Next: 4.3c** HSL Secondary
+  on the GPU: key pass (chain writing a mask), median + box blur on the mask, correction chain
+  reading the mask (ops get a mask register).
+- **2026-10-09, session 5: Phase 4.3c HSL Secondary on the GPU (done, synthetic).** Colour
+  operations got a mask register (`ColorOp::apply_px`, `apply_chain_px`); new ops `HslKey`
+  (writes the mask) and `HslCorrect` (correction / mask views inside it). `FxOp::HslSecondary`
+  = key chain → median of the mask (Denoise, ≤ 3 px on the GPU: `GPU_MEDIAN_MAX`) → box passes
+  (Blur) → masked correction chain; on the GPU the key and correction run as `colorops.wgsl`
+  `chain_key` / `chain_masked` passes (the image kept like Unsharp's original),
+  `OP_MEDIAN_MASK` in `fx.wgsl`. The CPU Lumetri runs the same op (old `hsl_secondary` kept as
+  the `cfg(test)` oracle). **All of Lumetri now draws on the GPU** (`lumetri_gpu` always Some).
+  Oracle ≤ 2e-4 (PQ ≤ 2e-3); GPU parity AMD + Intel ≤ 1.1e-6 (PQ ≤ 1e-4). Gates + workspace
+  tests (release) ✓. Quick pass (`target/bench/xm5-4.3c-quick-*.json`, load 5–7 right after the
+  test run): **play-graded 240/0 at 3.4 ms CPU/frame, GPU 87 %, VRAM 6.0 GB** (Phase 2: 0 shown,
+  218 ms/frame; target < 5 ms ✓ synthetic); play-flog2 240/0 at 3.4 ms (GPU 35 %); play-full
+  240/0 at 2.0 ms (GPU 17 %). GPU 87 % busy for the graded case: little headroom (fused passes,
+  half-float working textures are options if 2× or real footage needs it). **Next: 4.3d**
+  (keys, masks, other effects as far as the workflow needs; truthful GPU badges), then 4.4
+  scopes.
+- **2026-10-09, session 5: Phase 4.3d masks on the GPU, truthful badges (done).** Masked effects
+  (Premiere effect masks: e.g. Lumetri inside a power window) and clip opacity masks no longer
+  send a clip to the CPU: `FxOp::Masked { ops, masks }` (the effect's passes, then a mask pass
+  mixing with the image saved before them: a fourth pooled texture) and `FxOp::OpacityMask`
+  (scale by coverage); the mask pass (`colorops.wgsl` `mask_pass`) runs `mask.wgsl`'s coverage
+  maths per pixel (brute force over the polygon: ≤ 64 masks, ≤ 65 536 points on the GPU).
+  Parity AMD + Intel: masked Lumetri (with HSL Secondary and Sharpen inside) ≤ 3.6e-7; plan test
+  `masked_effects_and_opacity_masks_plan_on_the_gpu` (plan vs CPU render < 2e-3). **Badges:**
+  the ⚡ "GPU accelerated" badge now means drawn on the GPU in this build
+  (`filmcraft_project::effect::GPU_EFFECTS`, one list shared with the renderer:
+  `gpufx::gpu_capable`; test `the_badge_list_is_what_the_gpu_draws`); before, every video effect
+  but two showed it (Premiere's list). **Decision (agent):** keys (Luma / Ultra Key, Track Matte)
+  and the other CPU-only effects stay on the CPU: keying is not part of the X-M5 grade-and-deliver
+  workflow; revisit if it becomes one. Gates ✓; workspace tests ✓ except the known flaky
+  `hardware_decoding_setting_drives_the_decoder_switch` (passes alone). **Next: 4.4 scopes**
+  from the Program monitor's composited frame (GPU decimation to ≤ 480×270 + a small async
+  read-back) instead of a second ¼-size render per frame (which repeats a full-size input
+  transform for log media).
+- **2026-10-09, session 5: Phase 4.4 scopes from the graded picture in VRAM (done, synthetic).**
+  The Lumetri Scopes used to ask the frame workers for a second ¼-size render of every frame
+  (for log media a second full-size input transform + grade per frame). Now, while the scopes are
+  shown, every picture the Program monitor composites is sampled on the GPU
+  (`filmcraft_gpu::scopes`: a compute pass picks exactly `Signal::from_rgba8_max`'s nearest
+  samples, ≤ 480×270, from the output texture) and read back asynchronously (≈ 0.5 MB, one in
+  flight, `ScopeReadback::try_take` never waits); the panel uses the latest one while playing
+  (live) and the frame itself when paused, and falls back to the frame workers after 0.3 s
+  without one (no GPU, Program monitor hidden) or for Rec. 2100 PQ scopes. `perf.stats`
+  `scopes.gpuSamples`. Test `scope_samples_match_the_read_back_frame` (identical samples, AMD +
+  Intel). **Real app** (control channel, video-only copy of the 6.2K clip interpreted F-Log2,
+  Lumetri with exposure / contrast / curves / HSL Secondary / vignette, Program at Full, Color
+  workspace with the parade): **241 / 0 shown / dropped in 8 s, scopes 240 samples (every
+  frame)**; Editing workspace (no scopes) 241 / 0. The first play after loading dropped 109 of
+  227 (cold start, any workspace; later plays 0) — noted for Phase 7. Gates + workspace tests ✓.
+  **Next: 4.5 reframing** (Fill / Fit and `clip.scaleToFrameSize` exist; add a high-quality
+  GPU resample kernel for Maximum Render Quality (`SequenceSettings::max_render_quality`, unused
+  by the renderer so far) / export, sequence presets 3840×2160 and 2160×3840).
+- **2026-10-09, session 5: Phase 4.5 reframing (done).** **Maximum Render Quality** (sequence
+  setting, already stored but unused by the renderer; export's "Use Maximum Render Quality")
+  now resamples scaled-down clips through a **Lanczos-3** filter scaled to the footprint
+  (`Image::transformed_hq` on the CPU, `layer_color_hq` in `composite.wgsl`; taps on texel
+  centres up to a footprint of 2, else 13 bilinear taps per axis; normalised, alpha clamped;
+  edges repeat like the GPU's quad). Measured at 6.2K → 4K (×0.615): passband (0.7 Nyquist)
+  92 % contrast kept; beyond Nyquist 0.004 vs bilinear's 0.217 (≈ 55× less aliasing). GPU vs
+  CPU (AMD + Intel): 8-bit max 1. Used by exports with Maximum Render Quality (decoded at full
+  size, `RenderOptions::high_quality`) and by the Program monitor **while paused**; playback
+  keeps the box supersampling (decision (agent): the graded 6.2K playback already uses 87 % of
+  the GPU; a 100-tap filter per pixel would cost drops). **Sequence presets**
+  (`file.newSequence {preset}`, list `sequence.presets`): UHD 3840×2160 and vertical 2160×3840
+  at 23.976 / 29.97 in Rec. 709, the same as `xm5-*` in DaVinci Wide Gamut, and X-M5 6.2K
+  masters; explicit width / height / fps override a preset (they no longer default in the
+  schema, so a form sending defaults cannot undo a preset). Fill / Fit per clip already existed
+  (`clip.fillFrame`, `clip.fitToFrame`). Gates + workspace tests ✓. **Next: 4.6 anamorphic:**
+  the renderer ignores pixel aspect today (media PAR and the Interpret Footage override
+  `Interpretation::par` both unused): desqueeze in the Motion transform.
+- **2026-10-09, session 5: Phase 4.6 1.6× anamorphic (done).** The renderer ignored pixel aspect
+  (the media's and Interpret Footage's `Interpretation::par`): now `render::clip_par` (clip PAR
+  over sequence PAR) desqueezes in the Motion transform (`motion_matrix_par`: anchor in source
+  pixels, Scale to Frame Size and Fill / Fit on the desqueezed width), so the CPU render, the GPU
+  plan and the mask overlay agree. One list `filmcraft_project::PIXEL_ASPECTS` with
+  **"Anamorphic 1.6x (1.6)" (8:5)** feeds the Export dialog's Pixel Aspect Ratio menu and the
+  Interpret Footage dialog's new "Use from file / Conform to …" choice; `clip.interpretFootage
+  {pixelAspect: auto|id|N:D}`, list `media.pixelAspects`. Sequence presets
+  `xm5-anamorphic-2398/2997`: 3840×1600 (6.2K 3:2 × 1.6 = exactly 2.40:1), DWG. Tests:
+  `anamorphic_clips_are_desqueezed` (320×180 at 1.6× covers 512 px, CPU and plan),
+  `interpret_footage_sets_the_pixel_aspect`, `fit_and_fill_use_the_desqueezed_width` (clippy
+  caught the first version setting the anchor from the desqueezed width). Gates + workspace
+  tests ✓.
+- **Phase 4 acceptance, Fujifilm LUT check (done, finding).** Fujifilm's official X-M5 LUTs
+  (`dl.fujifilm-x.com/lut/x-m5-3d-lut-v100.zip`, unzipped into `target/fixtures/fujifilm-lut/`,
+  never committed); `FLog2_FGamut_to_FLog2_BT.709` keeps the F-Log2 tone and only changes the
+  gamut. Test `crates/color/tests/fujifilm_lut.rs` (skips without the file): **tone (greys)
+  matches to 0.054 of a 10-bit code**; colours do not: Fujifilm's LUT applies the gamut matrix
+  to the **log signal** (that model fits it to a mean 9.5 / max 44 codes), while the built-in
+  transform converts in linear light (mean 55 / max 453 codes from the LUT on saturated colours).
+  **Decision (agent):** keep the linear-light conversion (correct colour science, as Resolve's
+  colour management); the official `.cube` remains available as an Input LUT (now on the GPU)
+  for Fujifilm's rendering. The acceptance criterion "matches the official LUT within a small
+  tolerance" is met for tone, not for saturated colours, for the reason above.
+- **2026-10-09, session 5: Phase 4 accepted (synthetic; `docs/fork-benchmarks.md` "Phase 4
+  acceptance").** `xm5-play-graded` at Full **1798 / 0 at 2.4 ms CPU/frame** (target: no drops,
+  < 5 ms) ✓; scopes live during playback (real app, every frame) ✓; colour parity tests (every
+  op, Lumetri, HSL Secondary, masks, Lanczos; AMD + Intel) ✓; F-Log2 vs Fujifilm's official LUT:
+  tone exact (0.05 codes), saturated colours differ by Fujifilm's log-space gamut change
+  (recorded above; built-in stays linear-light) — accepted with that note. `cargo xtask ci`
+  green at `1ba85b6`. JKL L 2× in the full suite 188 / 20 vs alone 298 / 2 (ordering effect,
+  not a regression). Exports are still rendered on the CPU (graded 4K 0.6 fps): Phase 5.
+

@@ -415,3 +415,25 @@ fn fps_validation_keeps_real_rates_and_refuses_degenerate_ones() {
     assert_eq!(s.sequence_rate(), before);
     assert_eq!(s.execute("project.inspect", json!({})).unwrap().to_string().len(), n, "no sequence was created");
 }
+
+/// Sequence presets for X-M5 deliverables (fork Phase 4.5): UHD and vertical 4K, DaVinci Wide
+/// Gamut variants; explicit sizes still override a preset.
+#[test]
+fn sequence_presets_make_4k_and_vertical_sequences() {
+    let mut s = Session::default();
+    let list = s.execute("sequence.presets", json!({})).unwrap();
+    assert!(list["presets"].as_array().unwrap().len() >= 6);
+    for (preset, w, h, working) in [
+        ("uhd-2997", 3840, 2160, filmcraft_color::WorkingSpace::Rec709),
+        ("vertical-2398", 2160, 3840, filmcraft_color::WorkingSpace::Rec709),
+        ("xm5-vertical-2997", 2160, 3840, filmcraft_color::WorkingSpace::DaVinciWide),
+        ("xm5-6k-2398", 6240, 4160, filmcraft_color::WorkingSpace::DaVinciWide),
+    ] {
+        s.execute("file.newSequence", json!({"preset": preset})).unwrap();
+        let q = s.active_sequence().unwrap();
+        assert_eq!((q.settings.width, q.settings.height, q.settings.color.working), (w, h, working), "{preset}");
+    }
+    s.execute("file.newSequence", json!({"preset": "uhd-2398", "width": 1920, "height": 1080})).unwrap();
+    assert_eq!(s.active_sequence().unwrap().settings.width, 1920);
+    assert!(s.execute("file.newSequence", json!({"preset": "nope"})).is_err());
+}

@@ -687,7 +687,13 @@ impl Default for ProjectManagerDraft {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ColorDialog {
     /// `clip.interpretFootage`: the media items and the chosen colour space id ("auto" = metadata).
-    Interpret { items: Vec<u64>, color_space: String },
+    /// `pixel_aspect`: "auto" (from the file) or `N:D` (Conform to).
+    Interpret {
+        items: Vec<u64>,
+        color_space: String,
+        #[serde(default = "auto")]
+        pixel_aspect: String,
+    },
     /// `sequence.colorSettings`.
     Sequence { working_space: String, wide_gamut: bool, auto_tone_map: bool },
 }
@@ -823,4 +829,8 @@ impl Default for UiState {
             media_browser: Default::default(),
         }
     }
+}
+
+fn auto() -> String {
+    "auto".into()
 }

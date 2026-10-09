@@ -227,3 +227,43 @@ cap (`7373135`): multicut VRAM 9.1 GB, play-full 4.8 GB.
 | audio underruns = 0 over 10 minutes | **0** (56 247 callbacks) ✓ |
 | reduced resolution adds no CPU work | 1/2 + draft: 2.0 ms CPU/frame (Full 2.0) ✓ |
 | `cargo xtask ci` | green (`22d0e02`) ✓ |
+
+## Phase 4.3c quick pass (synthetic, 2026-10-09)
+
+Lumetri (Basic, Creative, Curves, Wheels, HSL Secondary, Vignette, Sharpen) fully on the GPU.
+`target/release/examples/bench --section xm5 --only CASE --quick` (load 5–7: right after a
+workspace test run). JSON: `target/bench/xm5-4.3c-quick-*.json`.
+
+| case | shown / dropped | CPU ms/frame | GPU busy | VRAM | before |
+|---|---|---|---|---|---|
+| play-graded | 240 / 0 | 3.4 | 87 % | 6.0 GB | Phase 2: 0 shown, 218 ms/frame |
+| play-flog2 | 240 / 0 | 3.4 | 35 % | 5.6 GB | 4.2b: 240 / 0 at 3.4 ms |
+| play-full | 240 / 0 | 2.0 | 17 % | 4.8 GB | Phase 3: 240 / 0 at 2.0 ms |
+
+## Phase 4 acceptance (synthetic, full suite, 2026-10-09)
+
+`target/release/examples/bench --section xm5 --json target/bench/xm5-phase4.json` (binary saved
+as `target/fork-bench/bench-phase4`), machine idle at the start (load 2.1 falling to 0.4; the
+4:2:2 case ran under load 8.6). Mesa / kernel / ffmpeg as in Phase 0.
+
+| case | Phase 4 | before (Phase 2 / 3) |
+|---|---|---|
+| ceilings: decode on GPU / + download / encode 4K / 6.2K | 43.2 / 34.0 / 29.9 / 19.5 fps | same |
+| decode (app) | 41.6 fps (96 %), 1.2 ms CPU/frame | 40.9 fps |
+| play-full (60 s) | 1798 / 0, 1.7 ms CPU/frame, GPU 19 % | 1798 / 0, 1.8 ms |
+| play-half-draft | 1798 / 0, 1.6 ms | 240 / 0 (quick) |
+| **play-graded** (F-Log2 + Lumetri Basic, Curves, HSL Secondary, vignette, Sharpen) | **1798 / 0, 2.4 ms CPU/frame, GPU 86 %, VRAM 6.0 GB** | Phase 2: nothing shown, 218 ms/frame |
+| play-flog2 | 1796 / 2, 3.0 ms, GPU 38 % | 0 / 240 (quick) at 247 ms before 4.2b |
+| play-dwg | 1798 / 0, 2.5 ms, GPU 42 % | — |
+| JKL L 2× (in the suite / alone) | 188 / 20 / **298 / 2, every 33 ms** | 299 / 1 |
+| JKL L 4× warm, J 1×, J 2× warm | 75 / 9 (max gap 512 ms), 298 / 3, 144 / 15 | 95 / 10, 296 / 4, 70 / 10 |
+| scrub p50 / p95 | 493 / 794 ms | 358 / 743 ms |
+| multicut | 1543 / 237 (Phase 6) | 325 / 35 (quick) |
+| export 4K / 4K graded / 6K | 4.9 / 0.6 / 4.0 fps (CPU render: Phase 5) | 5.1 / 0.7 / 3.9 |
+| 422-play | 569 / 0 placeholders (no 4:2:2 decoder: Phase 6) | same |
+
+Notes: L 2× in the full suite runs after the draft-playback case and inherits state (the known
+"results depend on earlier cases" pitfall); alone it is unchanged from Phase 3. Real app (control
+channel): graded 6.2K with the Color workspace's scopes open 241 / 0 per 8 s, scopes updated
+every frame (Phase 4.4).
+

@@ -1506,17 +1506,24 @@ fn fit_fill(s: &mut Session, p: &Value, fill: bool) -> Result<Value> {
     let clips = video_clips(s, p);
     let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let (fw, fh) = (q.settings.width as f64, q.settings.height as f64);
-    let sizes: Vec<(ClipId, (u32, u32))> =
-        clips.iter().filter_map(|c| q.find_item(*c).and_then(|(_, i)| filmcraft_render::source_size(&s.project, i.item)).map(|sz| (*c, sz))).collect();
+    // (source size, pixel aspect: anamorphic clips fit with their desqueezed width)
+    let sizes: Vec<(ClipId, (u32, u32), f64)> = clips
+        .iter()
+        .filter_map(|c| {
+            let (_, i) = q.find_item(*c)?;
+            let sz = filmcraft_render::source_size(&s.project, i.item)?;
+            Some((*c, sz, filmcraft_render::clip_par(&s.project, q, i.item)))
+        })
+        .collect();
     if sizes.is_empty() {
         return Err(bad(if fill { "clip.fillFrame" } else { "clip.fitToFrame" }, "select a video clip"));
     }
     let label = if fill { "Fill Frame" } else { "Fit to Frame" };
     let out = s.edit_sequence(label, |q, _, _| {
         let mut out = Vec::new();
-        for (c, (w, h)) in &sizes {
+        for (c, (w, h), par) in &sizes {
             let Some((_, it)) = q.find_item_mut(*c) else { continue };
-            let (sx, sy) = (fw / (*w).max(1) as f64, fh / (*h).max(1) as f64);
+            let (sx, sy) = (fw / ((*w).max(1) as f64 * par), fh / (*h).max(1) as f64);
             let pct = (if fill { sx.max(sy) } else { sx.min(sy) }) * 100.0;
             it.scale_to_frame = false;
             let Some(m) = it.effect_mut("motion") else { continue };

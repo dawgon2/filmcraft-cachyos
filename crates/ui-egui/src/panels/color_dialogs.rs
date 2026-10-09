@@ -30,7 +30,13 @@ pub fn open_interpret(app: &mut FilmcraftApp, params: &Value) {
         .and_then(|i| app.session.execute("media.colorInfo", json!({"item": i})).ok())
         .and_then(|v| v["override"].as_str().map(str::to_string))
         .unwrap_or_else(|| "auto".into());
-    app.ui.color_dialog = Some(ColorDialog::Interpret { items, color_space: current });
+    let pixel_aspect = items
+        .first()
+        .and_then(|i| app.session.project.item(filmcraft_project::ItemId(*i)))
+        .and_then(|it| if let filmcraft_project::ItemKind::Media(m) = &it.kind { m.interpret.par } else { None })
+        .map(|(n, d)| format!("{n}:{d}"))
+        .unwrap_or_else(|| "auto".into());
+    app.ui.color_dialog = Some(ColorDialog::Interpret { items, color_space: current, pixel_aspect });
 }
 
 pub fn open_sequence(app: &mut FilmcraftApp) {
@@ -63,7 +69,12 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
     let mut apply: Option<(&'static str, Value)> = None;
     let mut close = false;
     match &mut d {
-        ColorDialog::Interpret { items, color_space } => {
+        ColorDialog::Interpret { items, color_space, pixel_aspect } => {
+            let file_par = items
+                .first()
+                .and_then(|i| app.session.project.item(filmcraft_project::ItemId(*i)))
+                .and_then(|it| if let filmcraft_project::ItemKind::Media(m) = &it.kind { m.info.video.as_ref().map(|v| v.par) } else { None })
+                .unwrap_or((1, 1));
             let detected = items
                 .first()
                 .and_then(|i| app.session.execute("media.colorInfo", json!({"item": i})).ok())
@@ -85,9 +96,21 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                         }
                     }
                 });
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Pixel Aspect Ratio").strong());
+                let file_label = format!("Use Pixel Aspect Ratio from File ({:.4})", filmcraft_project::par_ratio(file_par));
+                if radio(app, ui, "colorDialog.par.auto", pixel_aspect == "auto", &file_label) {
+                    *pixel_aspect = "auto".into();
+                }
+                for (id, label, (n, d)) in filmcraft_project::PIXEL_ASPECTS {
+                    let v = format!("{n}:{d}");
+                    if radio(app, ui, &format!("colorDialog.par.{id}"), *pixel_aspect == v, &format!("Conform to: {label}")) {
+                        *pixel_aspect = v;
+                    }
+                }
                 let (ok, cancel) = buttons(app, ui);
                 if ok {
-                    apply = Some(("clip.interpretFootage", json!({"items": items, "colorSpace": color_space})));
+                    apply = Some(("clip.interpretFootage", json!({"items": items, "colorSpace": color_space, "pixelAspect": pixel_aspect})));
                 }
                 close = ok || cancel;
             });

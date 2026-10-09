@@ -217,7 +217,10 @@ impl InputTransform {
             Curve::Log(c) => (c.peak_linear() * REFERENCE_WHITE_NITS).clamp(REFERENCE_WHITE_NITS, LOG_PEAK_NITS),
             _ => REFERENCE_WHITE_NITS,
         };
-        let tone = (src.is_hdr() && !pipe.working.is_hdr() && pipe.auto_tone_map).then(|| ToneMap::new(peak, REFERENCE_WHITE_NITS));
+        // (only into a display-referred SDR working space: HDR spaces keep the highlights, and a
+        // scene-referred one tone maps on output)
+        let tone =
+            (src.is_hdr() && pipe.working == crate::spaces::WorkingSpace::Rec709 && pipe.auto_tone_map).then(|| ToneMap::new(peak, REFERENCE_WHITE_NITS));
         let wider = !identity_matrix && !gamut_within(src.gamut(), wg);
         // camera gamuts (log media) get the soft compression; display gamuts keep their in-gamut
         // colours exactly (BT.709 content in a BT.2020 file comes back unchanged)
@@ -259,6 +262,50 @@ impl InputTransform {
     pub fn convert(&self, rgb: [f32; 3]) -> [f32; 3] {
         self.apply(rgb.map(|v| self.table.lookup(v)))
     }
+}
+
+impl ToneMap {
+    /// The same operator as a colour operation (fork ADR 0003).
+    pub fn op(&self) -> crate::ops::ColorOp {
+        let (s, d) = (self.src_peak_nits, self.dst_peak_nits);
+        let ratio = crate::ops::Table::sample(0.0, 1.0, crate::ops::TABLE_SIZE, |e| {
+            let nits = pq_eotf(e as f32) as f64 * 10_000.0;
+            if nits <= 1e-6 { 1.0 } else { bt2390_eetf(nits, s, d) / nits }
+        });
+        crate::ops::ColorOp::ToneMap { src_peak: s as f32, dst_peak: d as f32, ratio }
+    }
+}
+
+/// The input transform of [`InputTransform::new`] as colour operations, for a frame whose values
+/// are the decoder-normalised signal (fork ADR 0003: run on the GPU in one pass). Per-channel
+/// decoding is a sampled table of [`decode_channel`].
+pub fn input_ops(src: ColorSpace, range: Range, pipe: &ColorPipeline, src_peak_nits: Option<f64>) -> Vec<crate::ops::ColorOp> {
+    use crate::ops::{ColorOp, TABLE_SIZE, Table};
+    let t = InputTransform::new(src, range, pipe, src_peak_nits);
+    let curve = src.curve();
+    let mut ops = Vec::new();
+    if curve != Curve::Linear {
+        // the signal range `DecodeTable::for_curve` decodes (outside it, the end values)
+        let (lo, hi) = if matches!(curve, Curve::Log(_)) { (-0.1, 1.1) } else { (0.0, 1.0) };
+        ops.push(ColorOp::Clamp { lo, hi });
+        ops.push(ColorOp::Table(Table::sample(lo, hi, TABLE_SIZE, |v| decode_channel(v, curve, range))));
+    }
+    if let Some((w, k)) = t.hlg {
+        ops.push(ColorOp::HlgOotf { weights: w, k, exponent: (HLG_GAMMA - 1.0) as f32 });
+    }
+    if !t.identity_matrix {
+        ops.push(ColorOp::Matrix { m: t.matrix, offset: [0.0; 3] });
+    }
+    if let Some(tm) = &t.tone {
+        ops.push(tm.op());
+    }
+    if t.compress {
+        ops.push(ColorOp::GamutCompress);
+    }
+    if let Some(w) = t.desaturate {
+        ops.push(ColorOp::DesaturateIntoGamut { weights: w });
+    }
+    ops
 }
 
 /// Whether gamut `a` lies inside gamut `b` (so no compression is needed going a → b).
@@ -303,13 +350,30 @@ impl OutputTransform {
     pub fn new(pipe: &ColorPipeline, target: ColorSpace) -> Self {
         let wg = pipe.working_gamut();
         let tg = target.gamut();
-        let tone = (pipe.working.is_hdr() && !target.is_hdr()).then(|| ToneMap::new(HDR_PEAK_NITS, REFERENCE_WHITE_NITS));
+        // HDR working spaces from their nominal peak; a scene-referred one (DaVinci Wide Gamut)
+        // from the log peak, as log media entering a Rec. 709 sequence is tone mapped
+        let src_peak = if pipe.working.is_scene_referred() { LOG_PEAK_NITS } else { HDR_PEAK_NITS };
+        let tone = ((pipe.working.is_hdr() || pipe.working.is_scene_referred()) && !target.is_hdr()).then(|| ToneMap::new(src_peak, REFERENCE_WHITE_NITS));
         let l = tg.luma();
         let compress = (!gamut_within(wg, tg)).then(|| [l[0] as f32, l[1] as f32, l[2] as f32]);
         OutputTransform { target, matrix: to_f32(&gamut_matrix(wg, tg)), identity_matrix: wg == tg, tone, compress }
     }
     pub fn is_identity(&self) -> bool {
         self.identity_matrix && self.tone.is_none()
+    }
+    /// [`apply`](Self::apply) as colour operations (fork ADR 0003).
+    pub fn ops(&self) -> Vec<crate::ops::ColorOp> {
+        let mut ops = Vec::new();
+        if let Some(t) = &self.tone {
+            ops.push(t.op());
+        }
+        if !self.identity_matrix {
+            ops.push(crate::ops::ColorOp::Matrix { m: self.matrix, offset: [0.0; 3] });
+        }
+        if let Some(w) = self.compress {
+            ops.push(crate::ops::ColorOp::DesaturateIntoGamut { weights: w });
+        }
+        ops
     }
     /// Working linear → target linear (SDR: 1.0 = white; HDR: working units).
     #[inline]
@@ -444,6 +508,31 @@ mod tests {
         // continuity at the threshold
         let a = gamut_compress([1.0, 0.2001, 0.5]);
         assert!((a[1] - 0.2001).abs() < 1e-3);
+    }
+
+    #[test]
+    fn input_ops_match_the_input_transform() {
+        use crate::ops::apply_chain;
+        let pipes = [ColorPipeline::REC709, hdr(WorkingSpace::Rec2100Pq), ColorPipeline { wide_gamut: true, ..ColorPipeline::REC709 }];
+        for pipe in pipes {
+            for cs in ColorSpace::ALL {
+                for range in [Range::Limited, Range::Full] {
+                    let t = InputTransform::new(cs, range, &pipe, None);
+                    let ops = input_ops(cs, range, &pipe, None);
+                    for i in 0..=40 {
+                        let v = i as f32 / 40.0;
+                        for rgb in [[v; 3], [v, v * 0.5, 0.1], [0.05, v, 1.0 - v]] {
+                            let want = t.convert(rgb);
+                            let got = apply_chain(&ops, rgb);
+                            for k in 0..3 {
+                                let d = (got[k] - want[k]).abs() / (1.0 + want[k].abs());
+                                assert!(d < 2e-3, "{cs:?} {range:?} {pipe:?} {rgb:?}: {got:?} vs {want:?}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

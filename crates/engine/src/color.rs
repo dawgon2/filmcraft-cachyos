@@ -40,11 +40,12 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             "clip.interpretFootage",
             "Interpret Footage…",
             &["Clip", "Modify"],
-            r#"{"items":[id]?,"colorSpace":"auto"|"<color space id>"}"#,
+            r#"{"items":[id]?,"colorSpace":"auto"|"<color space id>"?,"pixelAspect":"auto"|"<square|anamorphic-1.6|…>"|"N:D"?}"#,
             has_footage,
             interpret,
         ),
         query("color.spaces", "List Colour Spaces", "{}", spaces),
+        query("media.pixelAspects", "List Pixel Aspect Ratios", "{}", pixel_aspects),
         query("lumetri.presets", "List Lumetri Presets", r#"{"folder":str?}"#, list_presets),
         spec("lumetri.applyPreset", "Apply Lumetri Preset", &[], r#"{"name":str,"clips":[id]?}"#, has_seq, apply_preset),
         query(
@@ -297,20 +298,49 @@ fn interpret(s: &mut Session, p: &Value) -> Result<Value> {
     if items.is_empty() {
         return Err(bad("clip.interpretFootage", "no footage selected"));
     }
-    let cs = match str_p(p, "colorSpace") {
-        None => return Err(bad("clip.interpretFootage", "need `colorSpace` (auto or a colour space id)")),
-        Some("auto") | Some("") => None,
-        Some(c) => Some(ColorSpace::parse(c).ok_or_else(|| bad("clip.interpretFootage", format!("unknown colour space `{c}`")))?),
+    let (cs_p, par_p) = (str_p(p, "colorSpace"), str_p(p, "pixelAspect"));
+    if cs_p.is_none() && par_p.is_none() {
+        return Err(bad("clip.interpretFootage", "need `colorSpace` (auto or a colour space id) or `pixelAspect`"));
+    }
+    // Some(None): back to the file's metadata
+    let cs = match cs_p {
+        None => None,
+        Some("auto") | Some("") => Some(None),
+        Some(c) => Some(Some(ColorSpace::parse(c).ok_or_else(|| bad("clip.interpretFootage", format!("unknown colour space `{c}`")))?)),
+    };
+    let par = match par_p {
+        None => None,
+        Some("auto") | Some("") => Some(None),
+        Some(v) => Some(Some(
+            filmcraft_project::parse_par(v)
+                .ok_or_else(|| bad("clip.interpretFootage", format!("unknown pixel aspect `{v}` (an id of media.pixelAspects or N:D)")))?,
+        )),
     };
     s.edit("Interpret Footage", |pr, _| {
         for i in &items {
             if let Some(ItemKind::Media(m)) = pr.item_mut(*i).map(|it| &mut it.kind) {
-                m.interpret.color_space = cs;
+                if let Some(c) = cs {
+                    m.interpret.color_space = c;
+                }
+                if let Some(r) = par {
+                    m.interpret.par = r;
+                }
             }
         }
         Ok(())
     })?;
-    Ok(json!({"items": items.iter().map(|i| i.0).collect::<Vec<_>>(), "colorSpace": cs.map(|c| c.id()).unwrap_or("auto")}))
+    let first = items.first().and_then(|i| s.project.item(*i)).and_then(|it| if let ItemKind::Media(m) = &it.kind { Some(m) } else { None });
+    let cs_now = first.and_then(|m| m.interpret.color_space).map(|c| c.id()).unwrap_or("auto");
+    let par_now = first.and_then(|m| m.interpret.par).map(|(n, d)| format!("{n}:{d}")).unwrap_or_else(|| "auto".into());
+    Ok(json!({"items": items.iter().map(|i| i.0).collect::<Vec<_>>(), "colorSpace": cs_now, "pixelAspect": par_now}))
+}
+
+fn pixel_aspects(_: &mut Session, _: &Value) -> Result<Value> {
+    let v: Vec<Value> = filmcraft_project::PIXEL_ASPECTS
+        .iter()
+        .map(|(id, label, (n, d))| json!({"id": id, "label": label, "ratio": format!("{n}:{d}"), "value": filmcraft_project::par_ratio((*n, *d))}))
+        .collect();
+    Ok(json!({"pixelAspects": v}))
 }
 
 fn spaces(_: &mut Session, _: &Value) -> Result<Value> {

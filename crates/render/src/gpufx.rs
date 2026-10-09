@@ -161,7 +161,45 @@ pub enum FxOp {
         invert: bool,
         mask_only: bool,
     },
+    /// A chain of per-pixel colour operations (fork ADR 0003: input transforms, Lumetri), one
+    /// pass on the GPU. Built by the renderer, not from a single effect's parameters.
+    ColorChain(std::sync::Arc<[filmcraft_color::ops::ColorOp]>),
+    /// A keyed correction (Lumetri HSL Secondary): `key` sets each pixel's mask (0 where
+    /// transparent), a `median_r` median filter mixed in by `denoise` and box passes of radii
+    /// `blur` (rows, then columns; edges clamped) refine it, then `correct` runs with that mask.
+    HslSecondary {
+        key: std::sync::Arc<[filmcraft_color::ops::ColorOp]>,
+        median_r: u32,
+        denoise: f32,
+        blur: Vec<u32>,
+        correct: std::sync::Arc<[filmcraft_color::ops::ColorOp]>,
+    },
+    /// An effect limited to its masks (`mask::apply_effect`): `ops` run, then the result is mixed
+    /// with the image before them by the masks' coverage.
+    Masked {
+        ops: Vec<FxOp>,
+        masks: std::sync::Arc<[crate::mask::FlatMask]>,
+    },
+    /// The clip's opacity masks (`mask::apply_opacity_masks`): pixels scaled by the coverage.
+    OpacityMask {
+        masks: std::sync::Arc<[crate::mask::FlatMask]>,
+    },
 }
+
+/// Masks the GPU takes (more points or masks: the clip renders on the CPU).
+pub const GPU_MASK_POINTS: usize = 1 << 16;
+pub const GPU_MASKS: usize = 64;
+
+/// Whether the mask shader can take `masks` (finite, within the limits).
+fn masks_ok(masks: &[crate::mask::FlatMask]) -> bool {
+    let active = masks.iter().filter(|m| m.mode != filmcraft_project::MaskMode::None);
+    active.clone().count() <= GPU_MASKS
+        && active.clone().map(|m| m.pts.len()).sum::<usize>() <= GPU_MASK_POINTS
+        && active.into_iter().all(|m| [m.feather, m.expansion, m.opacity].iter().chain(m.pts.iter().flatten()).all(|v| v.is_finite()))
+}
+
+/// The largest median radius the GPU runs (a (2r+1)² window per pixel).
+pub const GPU_MEDIAN_MAX: u32 = 3;
 
 /// Effect ids [`FxOp::eval`] understands (the GPU-capable standard effects).
 pub const GPU_EFFECTS: &[&str] = &[
@@ -219,7 +257,57 @@ fn minifies(m: &Affine, w: usize, h: usize) -> bool {
     !minify.is_finite() || minify >= 2.0 && w >= 4 && h >= 4
 }
 
+/// Effects that become several [`FxOp`]s when the GPU can draw them ([`FxOp::eval_all`]).
+pub const GPU_CHAINED_EFFECTS: &[&str] = &["lumetri"];
+
+/// Whether [`FxOp::eval_all`] may give `effect` a GPU form (the effects' "GPU accelerated"
+/// badge, [`filmcraft_project::effect::GPU_EFFECTS`]).
+pub fn gpu_capable(effect: &str) -> bool {
+    filmcraft_project::effect::GPU_EFFECTS.contains(&effect)
+}
+
+#[cfg(test)]
+#[test]
+fn the_badge_list_is_what_the_gpu_draws() {
+    let mut ours: Vec<&str> = GPU_EFFECTS.iter().chain(GPU_CHAINED_EFFECTS).copied().collect();
+    let mut badges = filmcraft_project::effect::GPU_EFFECTS.to_vec();
+    ours.sort_unstable();
+    badges.sort_unstable();
+    assert_eq!(ours, badges);
+    for d in filmcraft_project::effect_defs().iter().filter(|d| d.kind == filmcraft_project::EffectKind::Video && !d.intrinsic) {
+        assert_eq!(d.accelerated, gpu_capable(d.id), "{}", d.id);
+    }
+}
+
+/// Fuse runs of adjacent colour chains into one chain (one GPU pass instead of several).
+pub fn fuse_color_chains(ops: Vec<FxOp>) -> Vec<FxOp> {
+    let mut out: Vec<FxOp> = Vec::with_capacity(ops.len());
+    for op in ops {
+        if let (Some(FxOp::ColorChain(a)), FxOp::ColorChain(b)) = (out.last_mut(), &op) {
+            let mut v = a.to_vec();
+            v.extend(b.iter().cloned());
+            *a = v.into();
+            continue;
+        }
+        out.push(op);
+    }
+    out
+}
+
 impl FxOp {
+    /// The GPU form of `e` at `cx.t` for a `w`×`h` working image: [`eval`](Self::eval)'s op, or
+    /// the several ops of a chained effect (Lumetri: a colour chain and Sharpen). None: no GPU
+    /// form (now), the effect is rendered on the CPU. Disabled effects give no ops.
+    pub fn eval_all(e: &EffectInstance, cx: &FxCtx, w: usize, h: usize) -> Option<Vec<FxOp>> {
+        if !e.enabled {
+            return Some(Vec::new());
+        }
+        match e.effect.as_str() {
+            "lumetri" => crate::effects::lumetri_gpu(e, cx, w, h),
+            _ => FxOp::eval(e, cx, w, h).map(|op| vec![op]),
+        }
+    }
+
     /// Evaluate `e` at `cx.t` for a `w`×`h` working image. None for effects without a GPU
     /// implementation (and for disabled effects).
     pub fn eval(e: &EffectInstance, cx: &FxCtx, w: usize, h: usize) -> Option<FxOp> {
@@ -458,6 +546,19 @@ impl FxOp {
             FxOp::ChannelMix { m } => m.iter().all(|r| fin(r)),
             FxOp::ColorReplace { sim, target, replace, replace_hsl, .. } => sim.is_finite() && fin(target) && fin(replace) && fin(replace_hsl),
             FxOp::AlphaAdjust { opacity, .. } => opacity.is_finite(),
+            FxOp::HslSecondary { key, median_r, denoise, correct, .. } => {
+                use filmcraft_color::ops::{ColorOp, MAX_GPU_PROGRAM, gpu_size};
+                key.iter().chain(correct.iter()).all(ColorOp::is_finite)
+                    && gpu_size(key) <= MAX_GPU_PROGRAM
+                    && gpu_size(correct) <= MAX_GPU_PROGRAM
+                    && *median_r <= GPU_MEDIAN_MAX
+                    && denoise.is_finite()
+            }
+            FxOp::Masked { ops, masks } => masks_ok(masks) && ops.iter().all(|o| !matches!(o, FxOp::Masked { .. } | FxOp::OpacityMask { .. }) && o.gpu_ok()),
+            FxOp::OpacityMask { masks } => masks_ok(masks),
+            FxOp::ColorChain(ops) => {
+                ops.iter().all(filmcraft_color::ops::ColorOp::is_finite) && filmcraft_color::ops::gpu_size(ops) <= filmcraft_color::ops::MAX_GPU_PROGRAM
+            }
         }
     }
 
@@ -707,6 +808,49 @@ impl FxOp {
                     } else {
                         p.copy_from_slice(&[c[0] * a, c[1] * a, c[2] * a, a]);
                     }
+                });
+            }
+            FxOp::ColorChain(ops) => img.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(ops, c, [x as f32, y as f32])),
+            FxOp::Masked { ops, masks } => {
+                let original = img.clone();
+                for op in ops {
+                    op.apply(img);
+                }
+                if let Some(cov) = crate::mask::coverage(masks, img.w, img.h) {
+                    crate::mask::mix(img, &original, &cov);
+                }
+            }
+            FxOp::OpacityMask { masks } => {
+                if let Some(cov) = crate::mask::coverage(masks, img.w, img.h) {
+                    crate::mask::scale_by(img, &cov);
+                }
+            }
+            FxOp::HslSecondary { key, median_r, denoise, blur, correct } => {
+                let (w, h) = (img.w, img.h);
+                let mut mask: Vec<f32> = img
+                    .px
+                    .par_chunks(4)
+                    .enumerate()
+                    .map(|(i, p)| {
+                        if p[3] <= 1e-6 {
+                            return 0.0;
+                        }
+                        let xy = [(i % w) as f32, (i / w) as f32];
+                        filmcraft_color::ops::apply_chain_px(key, Image::unpremul([p[0], p[1], p[2], p[3]]), xy, 1.0).1
+                    })
+                    .collect();
+                if *denoise > 0.0 && *median_r > 0 {
+                    let med = crate::effects::median_filter(&mask, w, h, *median_r as usize);
+                    mask.iter_mut().zip(med).for_each(|(m, d)| *m += (d - *m) * denoise.min(1.0));
+                }
+                if !blur.is_empty() {
+                    let radii: Vec<usize> = blur.iter().map(|r| *r as usize).collect();
+                    crate::effects::blur_plane_radii(&mut mask, w, h, &radii);
+                }
+                let mask = &mask;
+                img.map_rgb(|c, x, y| {
+                    let m = mask.get(y * w + x).copied().unwrap_or(0.0);
+                    filmcraft_color::ops::apply_chain_px(correct, c, [x as f32, y as f32], m).0
                 });
             }
         }

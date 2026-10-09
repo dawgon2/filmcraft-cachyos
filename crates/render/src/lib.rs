@@ -73,11 +73,14 @@ pub struct RenderOptions {
     /// Return the image in the sequence's working space (HDR exports, scopes) instead of
     /// converting it for an SDR monitor. Only matters for HDR / wide-gamut sequences.
     pub working_output: bool,
+    /// Maximum Render Quality: clips scaled down are resampled through a Lanczos-3 filter
+    /// ([`Image::transformed_hq`]) instead of bilinear with a box pre-filter.
+    pub high_quality: bool,
 }
 
 impl Default for RenderOptions {
     fn default() -> Self {
-        Self { scale: 1.0, effects: true, depth: 0, captions: false, working_output: false }
+        Self { scale: 1.0, effects: true, depth: 0, captions: false, working_output: false, high_quality: false }
     }
 }
 
@@ -197,7 +200,7 @@ pub(crate) fn render_seq_tracks(project: &Project, seq: &Sequence, t: Tick, opts
 /// it covers the whole output.
 fn adjustment_region(seq: &Sequence, item: &TrackItem, project: &Project, mt: Tick, scale: f32, w: usize, h: usize) -> Option<Image> {
     let size = source_size(project, item.item).unwrap_or((seq.settings.width, seq.settings.height));
-    let motion = motion_matrix(seq, item, size, mt);
+    let motion = motion_matrix_par(seq, item, size, clip_par(project, seq, item.item), mt);
     let s = scale as f64;
     let (fw, fh) = (((size.0 as f64 * s).round() as usize).max(1), ((size.1 as f64 * s).round() as usize).max(1));
     let m = Affine::scale(s, s).then_apply(&motion).then_apply(&Affine::scale(1.0 / s, 1.0 / s));
@@ -252,9 +255,31 @@ pub fn source_size(project: &Project, item: ItemId) -> Option<(u32, u32)> {
     }
 }
 
+/// The horizontal desqueeze of an item in `seq` (fork Phase 4.6): its pixel aspect (Modify ▸
+/// Interpret Footage override, else the media's own) over the sequence's. 1 for anything but
+/// media. A 1.6× anamorphic clip in a square-pixel sequence is 1.6.
+pub fn clip_par(project: &Project, seq: &Sequence, item: ItemId) -> f64 {
+    fn media_par(project: &Project, item: ItemId, depth: u32) -> (u32, u32) {
+        match project.item(item).map(|i| &i.kind) {
+            Some(ItemKind::Media(m)) => m.interpret.par.or_else(|| m.info.video.as_ref().map(|v| v.par)).unwrap_or((1, 1)),
+            Some(ItemKind::Subclip { parent, .. }) if depth < 8 => media_par(project, *parent, depth + 1),
+            _ => (1, 1),
+        }
+    }
+    (filmcraft_project::par_ratio(media_par(project, item, 0)) / filmcraft_project::par_ratio(seq.settings.par)).clamp(0.1, 10.0)
+}
+
 /// The Motion transform of an item at media time `mt`, mapping full-res source pixels to
-/// full-res sequence pixels.
+/// full-res sequence pixels (square source pixels; see [`motion_matrix_par`]).
 pub fn motion_matrix(seq: &Sequence, item: &TrackItem, src: (u32, u32), mt: Tick) -> Affine {
+    motion_matrix_par(seq, item, src, 1.0, mt)
+}
+
+/// [`motion_matrix`] for source pixels `par` sequence pixels wide ([`clip_par`]): the source is
+/// desqueezed horizontally first; anchor point, position and Scale to Frame Size work on the
+/// desqueezed picture (`src.0 × par` wide), the anchor still given in source pixels.
+pub fn motion_matrix_par(seq: &Sequence, item: &TrackItem, src: (u32, u32), par: f64, mt: Tick) -> Affine {
+    let par = if par.is_finite() { par.clamp(0.1, 10.0) } else { 1.0 };
     let (sw, sh) = (seq.settings.width as f64, seq.settings.height as f64);
     let mut pos = Vec2::new(sw / 2.0, sh / 2.0);
     let mut anchor = Vec2::new(src.0 as f64 / 2.0, src.1 as f64 / 2.0);
@@ -276,10 +301,10 @@ pub fn motion_matrix(seq: &Sequence, item: &TrackItem, src: (u32, u32), mt: Tick
         rot = m.f64_at("rotation", mt);
     }
     if item.scale_to_frame {
-        let fit = (sw / src.0 as f64).min(sh / src.1 as f64);
+        let fit = (sw / (src.0 as f64 * par)).min(sh / src.1 as f64);
         scale = scale * fit;
     }
-    Affine::motion(pos, scale, rot, anchor)
+    Affine::motion(pos, scale, rot, Vec2::new(anchor.x * par, anchor.y)).then_apply(&Affine::scale(par, 1.0))
 }
 
 /// Render one track item's layer at timeline time `t` into a canvas-sized image.
@@ -298,10 +323,11 @@ pub(crate) fn item_layer(
     // time inside a frame hold without Hold Filters).
     let mt = item.effect_time_at(t);
     let src_size = source_size(project, item.item)?;
-    let motion = motion_matrix(seq, item, src_size, mt);
+    let motion = motion_matrix_par(seq, item, src_size, clip_par(project, seq, item.item), mt);
     // How many output pixels one source pixel covers → request a reduced frame when possible.
     let lin = ((motion.a * motion.a + motion.b * motion.b).sqrt()).max((motion.c * motion.c + motion.d * motion.d).sqrt());
-    let want = (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32;
+    // (Maximum Render Quality decodes at full size: the Lanczos filter does all the scaling)
+    let want = if opts.high_quality { 1.0 } else { (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32 };
     let pi = project.item(item.item)?;
     if matches!(pi.kind, ItemKind::Graphic { .. }) && !(item.has_opacity_masks() || opts.effects && item.has_standard_effects()) {
         // vectors straight to the output: no resampling, crisp at any Motion scale
@@ -345,6 +371,8 @@ pub(crate) fn item_layer(
         && m.f.abs() < 1e-9
     {
         layer
+    } else if opts.high_quality {
+        layer.transformed_hq(w, h, &m)
     } else {
         layer.transformed(w, h, &m)
     };
@@ -386,7 +414,14 @@ pub(crate) fn base_layer(
             }
         }
         ItemKind::Sequence(nested) => {
-            let sub = RenderOptions { scale: want, effects: opts.effects, depth: opts.depth + 1, captions: false, working_output: true };
+            let sub = RenderOptions {
+                scale: want,
+                effects: opts.effects,
+                depth: opts.depth + 1,
+                captions: false,
+                working_output: true,
+                high_quality: opts.high_quality,
+            };
             match item.multicam_angle(nested) {
                 // a multi-camera clip shows its angle's track only (nothing for an audio-only angle)
                 Some(angle) => match nested.angle_video_track_index(angle) {
@@ -517,6 +552,9 @@ mod tests;
 
 #[cfg(test)]
 mod lumetri_hdr_tests;
+
+#[cfg(test)]
+mod lumetri_chain_tests;
 
 #[cfg(test)]
 #[path = "adjustment_tests.rs"]

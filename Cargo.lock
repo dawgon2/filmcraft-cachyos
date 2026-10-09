@@ -1974,6 +1974,7 @@ dependencies = [
  "filmcraft-media",
  "filmcraft-project",
  "filmcraft-render",
+ "filmcraft-scopes",
  "filmcraft-time",
  "log",
  "pollster 0.4.0",

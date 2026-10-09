@@ -117,6 +117,66 @@ impl Image {
         out
     }
 
+    /// Resample like [`transformed`](Self::transformed), but minifying through a Lanczos-3
+    /// filter scaled to the destination pixel's footprint (Maximum Render Quality, fork Phase 4.5:
+    /// the sharpness of Resolve's "Sharper" resize for 6.2K → 4K / HD). Magnification stays
+    /// bilinear. `filmcraft_gpu`'s compositor runs the same taps ([`lanczos_taps`]).
+    pub fn transformed_hq(&self, w: usize, h: usize, m: &Affine) -> Image {
+        let Some(inv) = m.inverse() else { return Image::new(w, h) };
+        let sx = (m.a * m.a + m.b * m.b).sqrt();
+        let sy = (m.c * m.c + m.d * m.d).sqrt();
+        let fp = (1.0 / sx.min(sy).max(1e-6)) as f32;
+        if !(fp > HQ_MIN_FOOTPRINT && fp.is_finite()) {
+            return self.transformed(w, h, m);
+        }
+        let mut out = Image::new(w, h);
+        let b = m.bounds(&filmcraft_geom::Rect::new(0.0, 0.0, self.w as f64, self.h as f64));
+        let y0 = (b.y.floor().max(0.0) as usize).min(h);
+        let y1 = (b.bottom().ceil().max(0.0) as usize).min(h);
+        let x0 = (b.x.floor().max(0.0) as usize).min(w);
+        let x1 = (b.right().ceil().max(0.0) as usize).min(w);
+        out.px.par_chunks_mut(w * 4).enumerate().skip(y0).take(y1.saturating_sub(y0)).for_each(|(y, row)| {
+            let py = y as f64 + 0.5;
+            for x in x0..x1 {
+                let px = x as f64 + 0.5;
+                let (u, v) = ((inv.a * px + inv.c * py + inv.e) as f32, (inv.b * px + inv.d * py + inv.f) as f32);
+                // pixels whose centre lies on the source (as the GPU rasterises the layer's quad);
+                // taps beyond its edges repeat the edge (no darkened border)
+                if !(0.0..=self.w as f32).contains(&u) || !(0.0..=self.h as f32).contains(&v) {
+                    continue;
+                }
+                let (bx, step, n) = lanczos_taps(u, fp);
+                let (by, _, _) = lanczos_taps(v, fp);
+                let mut acc = [0.0f32; 4];
+                let mut wsum = 0.0f32;
+                for j in 0..n {
+                    let ty = by + j as f32 * step;
+                    let wy = lanczos3((ty - v) / fp);
+                    if wy == 0.0 {
+                        continue;
+                    }
+                    for i in 0..n {
+                        let tx = bx + i as f32 * step;
+                        let wgt = lanczos3((tx - u) / fp) * wy;
+                        if wgt == 0.0 {
+                            continue;
+                        }
+                        let s = self.sample_bilinear_clamped(tx, ty);
+                        for k in 0..4 {
+                            acc[k] += s[k] * wgt;
+                        }
+                        wsum += wgt;
+                    }
+                }
+                if wsum.abs() > 1e-6 {
+                    let a = (acc[3] / wsum).clamp(0.0, 1.0);
+                    row[x * 4..x * 4 + 4].copy_from_slice(&[(acc[0] / wsum).max(0.0), (acc[1] / wsum).max(0.0), (acc[2] / wsum).max(0.0), a]);
+                }
+            }
+        });
+        out
+    }
+
     /// Half-size box downsample.
     pub fn downsample2(&self) -> Image {
         let (w, h) = ((self.w / 2).max(1), (self.h / 2).max(1));
@@ -196,5 +256,87 @@ impl Image {
             }
         });
         out
+    }
+}
+
+/// Footprints (source pixels per destination pixel) at or below this resample bilinearly even
+/// with Maximum Render Quality.
+pub const HQ_MIN_FOOTPRINT: f32 = 1.001;
+
+/// The windowed sinc of Lanczos-3.
+#[inline]
+pub fn lanczos3(x: f32) -> f32 {
+    let x = x.abs();
+    if x < 1e-6 {
+        return 1.0;
+    }
+    if x >= 3.0 {
+        return 0.0;
+    }
+    let px = std::f32::consts::PI * x;
+    3.0 * px.sin() * (px / 3.0).sin() / (px * px)
+}
+
+/// The taps of a Lanczos-3 filter of footprint `fp` around `u` along one axis: the first tap,
+/// the spacing and the count. Up to a footprint of 2 the taps sit on texel centres (spacing 1);
+/// wider footprints sample bilinearly every `fp / 2` pixels (at most 13 taps per axis).
+pub fn lanczos_taps(u: f32, fp: f32) -> (f32, f32, usize) {
+    let r = 3.0 * fp;
+    if fp <= 2.0 {
+        let first = (u - r - 0.5).floor() + 0.5;
+        let n = ((u + r - first).floor() as usize).saturating_add(1).min(64);
+        (first, 1.0, n)
+    } else {
+        let step = fp / 2.0;
+        (u - r, step, 13)
+    }
+}
+
+#[cfg(test)]
+mod hq_tests {
+    use super::*;
+
+    /// A vertical sine grating of `cycles` per source pixel (0.25 … 0.75 linear, opaque).
+    fn grating(w: usize, h: usize, cycles: f32) -> Image {
+        let mut img = Image::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                let v = 0.5 + 0.25 * (std::f32::consts::TAU * cycles * (x as f32 + 0.5)).sin();
+                img.px[(y * w + x) * 4..(y * w + x) * 4 + 4].copy_from_slice(&[v, v, v, 1.0]);
+            }
+        }
+        img
+    }
+
+    fn amplitude(img: &Image) -> f32 {
+        let y = img.h / 2;
+        let row: Vec<f32> = (8..img.w - 8).map(|x| img.get(x, y)[0]).collect();
+        let (lo, hi) = row.iter().fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        (hi - lo) / 2.0
+    }
+
+    /// 6.2K → 4K (×0.615): detail at 70 % of the new Nyquist keeps > 90 % of its contrast through
+    /// the Lanczos filter, while detail beyond the new Nyquist (which can only alias) is
+    /// suppressed far better than by the bilinear resample; flat areas stay flat and opaque to
+    /// the edge.
+    #[test]
+    fn maximum_render_quality_keeps_fine_detail() {
+        let s: f32 = 3840.0 / 6240.0;
+        let m = Affine::scale(s as f64, s as f64);
+        let (w, h) = ((624.0 * s).round() as usize, (64.0 * s).round() as usize);
+        let pass = grating(624, 64, 0.35 * s);
+        let a_pass = amplitude(&pass.transformed_hq(w, h, &m));
+        let stop = grating(624, 64, 0.8 * s);
+        let (a_stop_hq, a_stop_std) = (amplitude(&stop.transformed_hq(w, h, &m)), amplitude(&stop.transformed(w, h, &m)));
+        eprintln!("source 0.25: passband Lanczos {a_pass:.4}; beyond Nyquist Lanczos {a_stop_hq:.4}, bilinear {a_stop_std:.4}");
+        assert!(a_pass > 0.9 * 0.25, "passband {a_pass}");
+        assert!(a_stop_hq < 0.5 * a_stop_std && a_stop_hq < 0.06, "aliasing {a_stop_hq} vs {a_stop_std}");
+        let flat = Image::filled(624, 64, [0.3, 0.3, 0.3, 1.0]).transformed_hq(w, h, &m);
+        for y in 0..h {
+            for x in 0..w {
+                let p = flat.get(x, y);
+                assert!((p[0] - 0.3).abs() < 1e-4 && (p[3] - 1.0).abs() < 1e-5, "({x}, {y}) {p:?}");
+            }
+        }
     }
 }

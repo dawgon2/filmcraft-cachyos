@@ -1,13 +1,14 @@
 # Handoff: FilmCraft fork (6.2K HEVC on CachyOS + RX 6700 XT)
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**,
-§5 phases, §7 progress log), then this file. Updated 2026-10-08 in session 4 (Phase 3.2 done).
+§5 phases, §7 progress log), then this file. Updated 2026-10-09 in session 5 (Phase 4.1–4.6 done; next Phase 4 acceptance).
 
 ## Status
 
-- **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` (`bc2771c`), `phase-2` (`baa98f0`).
-- **Phase 0, 1, 2: done.** Builds in `~/Apps/filmcraft-builds/phase-1` and `phase-2`; `latest` →
-  `phase-2`; launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
+- **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` (`bc2771c`), `phase-2` (`baa98f0`),
+  `phase-3` (`0909c2c`).
+- **Phase 0, 1, 2, 3: done.** Builds in `~/Apps/filmcraft-builds/phase-1`, `phase-2`, `phase-3`;
+  `latest` → `phase-3`; launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
 - **Phase 2 in detail (all done):** in-process VA-API HEVC decode (bit-exact on 39 conformance
   fixtures), zero-copy display through the Vulkan DMA-BUF import, fallback chain in-process →
   ffmpeg pipe → software, VRAM budget, `FrameServer` drop fix. Acceptance (synthetic, full
@@ -18,7 +19,7 @@ For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing 
   soak** (214 314 shown / 3 dropped, no RAM/VRAM growth) ✓; **`cargo xtask ci`** green ✓;
   **Phase 2 build** made ✓. Not done: the **independent review of the unsafe / FFI code**
   (§1a.5: the instruction arrived after tagging) → **done in session 3** (three rounds, ADR 0002).
-- **Phase 3: started.** 3.1 committed (`cf4b841`): open-GOP seek fix, skipping unshown
+- **Phase 3: done** (session 4, tag `phase-3`; acceptance in `docs/fork-benchmarks.md`). 3.1 committed (`cf4b841`): open-GOP seek fix, skipping unshown
   pictures at cuts, decode priority gate, eviction by request span. **3.2 JKL committed**
   (session 4, FORK-PLAN §7): skimming grid with an adaptive step, skimming decode, reverse GOP
   playback, reverse decode pacing. L 2× 299/1, J 1× 296/4 (start-up), L 4× / J 2× steady
@@ -37,8 +38,28 @@ For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing 
    1.9 ms CPU/frame).
 4. ~~3.4 / 3.5~~ **done** (session 4): shuttle audio up to 2× (varispeed), 24-bit LPCM exact,
    10 min at 1× with 0 underruns, PulseAudio host on PipeWire.
-5. **Next: Phase 3 acceptance** (quick pass: decode, play-full, jkl, scrub, multicut), `cargo
-   xtask ci`, tag `phase-3`, build to `~/Apps/filmcraft-builds/phase-3` (§1a.9).
+5. ~~Phase 3 acceptance, CI, tag, build~~ **done** (session 4).
+6. **Phase 4 in progress** (design: `docs/adr/0003-gpu-color-ops.md`; steps in FORK-PLAN §5
+   Phase 4). Done: 4.1 F-Log / F-Log2 (`d79060f`), 4.2a colour ops + fused GPU pass
+   (`33c6c07`), 4.2b input transforms on the GPU (`c4e6aa9`) and the DWG / DI working space with
+   the GPU output stage (`b594e20`), **4.3a** Lumetri Basic + Creative + Vignette + Sharpen on the
+   GPU (session 5; `effects::lumetri_grade`, `lumetri_gpu`; oracle in `lumetri_chain_tests`).
+   **4.3b** Curves, Wheels, Input LUT, Look as `ColorOp`s (`effects::lumetri_ops`). **4.3c**
+   HSL Secondary (`FxOp::HslSecondary`: key / median / blur / masked chain). All of Lumetri is
+   on the GPU: quick pass play-graded 240/0 at 3.4 ms CPU/frame, GPU 87 % (FORK-PLAN §7).
+   **4.3d** effect masks / opacity masks on the GPU (`FxOp::Masked`, `OpacityMask`), ⚡ badge =
+   `filmcraft_project::effect::GPU_EFFECTS`; keys stay CPU (not in the workflow). **4.4**
+   scopes sampled from the Program monitor's composite on the GPU (`filmcraft_gpu::scopes`,
+   `GpuState::poll_scopes`); graded 6.2K with scopes open 241/0, scopes every frame. **4.5**
+   Lanczos-3 for Maximum Render Quality (export, paused Program monitor), sequence presets
+   (`sequence.presets`). **4.6**
+   1.6× anamorphic (desqueeze in `motion_matrix_par`, `PIXEL_ASPECTS`). Fujifilm LUT check done
+   (tone exact; colours differ by design, FORK-PLAN §7). **Next: Phase 4 acceptance**: full
+   `xm5` suite, `cargo xtask ci`, tag `phase-4`, build; 4.4 scopes; 4.5 reframing; 4.6 anamorphic; full suite.
+   Bench cases added: `play-flog2`, `play-dwg`, `play-half-draft` (`grade()` now also
+   interprets as F-Log2). Known flaky test (pre-existing): engine
+   `settings_tests::hardware_decoding_setting_drives_the_decoder_switch` (global switch shared
+   by parallel tests); passes alone.
 
 ## Added after the session
 
