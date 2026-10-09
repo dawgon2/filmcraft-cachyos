@@ -182,19 +182,48 @@ impl Config {
     }
 }
 
-/// A decoding context of a configuration and picture size.
+/// A decoding context of a configuration and picture size. `Send` but not `Sync`: a picture's
+/// begin / render / end sequence must not interleave with another thread's on the same context.
 pub struct Context {
     display: Arc<Display>,
     _config: Arc<Config>,
     pub id: sys::VAContextID,
     pub size: (u32, u32),
+    _not_sync: std::marker::PhantomData<std::cell::Cell<()>>,
 }
 
 impl Drop for Context {
     fn drop(&mut self) {
-        // SAFETY: `id` was created on this display and is destroyed once.
+        // SAFETY: `id` was created on this display and is destroyed once; every `Buffer` of the
+        // context borrows it, so none is left to be destroyed after it.
         unsafe { self.display.lib.vaDestroyContext(self.display.dpy, self.id) };
     }
+}
+
+/// A VA parameter struct and the buffer type it fills: the driver reads exactly one whole struct
+/// of the type from a buffer of that kind, so only these types can be passed
+/// ([`Context::param_buffer`]); sealed.
+pub trait ParamBuffer: Copy + sealed::Sealed {
+    const KIND: sys::VABufferType;
+}
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+macro_rules! param_buffer {
+    ($($t:ty => $kind:expr),* $(,)?) => {$(
+        impl sealed::Sealed for $t {}
+        impl ParamBuffer for $t {
+            const KIND: sys::VABufferType = $kind;
+        }
+    )*};
+}
+
+param_buffer! {
+    sys::VAPictureParameterBufferHEVC => sys::VABufferType_VAPictureParameterBufferType,
+    sys::VAIQMatrixBufferHEVC => sys::VABufferType_VAIQMatrixBufferType,
+    sys::VASliceParameterBufferHEVC => sys::VABufferType_VASliceParameterBufferType,
 }
 
 impl Context {
@@ -205,23 +234,47 @@ impl Context {
         let (w, h) = (i32::try_from(width).map_err(|_| "width")?, i32::try_from(height).map_err(|_| "height")?);
         // SAFETY: a valid config; no render-target list (null, 0); valid out-pointer.
         d.check(unsafe { d.lib.vaCreateContext(d.dpy, config.id, w, h, sys::VA_PROGRESSIVE as i32, std::ptr::null_mut(), 0, &mut id) }, "vaCreateContext")?;
-        Ok(Context { display: d.clone(), _config: config.clone(), id, size: (width, height) })
+        Ok(Context { display: d.clone(), _config: config.clone(), id, size: (width, height), _not_sync: std::marker::PhantomData })
     }
 
-    /// A parameter or slice-data buffer holding `data` (copied by libva).
-    pub fn buffer(&self, kind: sys::VABufferType, data: &[u8]) -> Result<Buffer, String> {
+    /// A parameter buffer holding a copy of `v`, of the kind its type fills.
+    pub fn param_buffer<T: ParamBuffer>(&self, v: &T) -> Result<Buffer<'_>, String> {
+        // SAFETY: `v` is a live `T`, readable for `size_of::<T>()` bytes; libva copies them with
+        // memcpy (padding included, which C may copy) and does not keep the pointer.
+        unsafe { self.create_buffer(T::KIND, (v as *const T).cast(), std::mem::size_of::<T>()) }
+    }
+
+    /// A slice-data buffer holding a copy of `data` (the slice NAL unit). The slice parameters
+    /// that go with it must lie within it (checked by the caller against `data.len()`).
+    pub fn slice_data(&self, data: &[u8]) -> Result<Buffer<'_>, String> {
+        // SAFETY: `data` is readable for `data.len()` bytes; libva copies them.
+        unsafe { self.create_buffer(sys::VABufferType_VASliceDataBufferType, data.as_ptr().cast(), data.len()) }
+    }
+
+    /// # Safety
+    /// `data` must be readable for `len` bytes, and hold what the driver expects of `kind`.
+    unsafe fn create_buffer(&self, kind: sys::VABufferType, data: *const std::ffi::c_void, len: usize) -> Result<Buffer<'_>, String> {
         let d = &self.display;
-        let size = u32::try_from(data.len()).map_err(|_| "buffer too large")?;
+        let size = u32::try_from(len).map_err(|_| "buffer too large")?;
         let mut id = 0;
-        // SAFETY: libva copies `size` bytes from `data` (valid for reads) into a new buffer; it does
-        // not write through the pointer despite the `*mut` in its signature.
-        d.check(unsafe { d.lib.vaCreateBuffer(d.dpy, self.id, kind, size, 1, data.as_ptr() as *mut _, &mut id) }, "vaCreateBuffer")?;
-        Ok(Buffer { display: d.clone(), id })
+        // SAFETY: (the caller's contract) libva copies `size` bytes from `data` into a new buffer;
+        // it does not write through the pointer despite the `*mut` in its signature.
+        d.check(unsafe { d.lib.vaCreateBuffer(d.dpy, self.id, kind, size, 1, data.cast_mut(), &mut id) }, "vaCreateBuffer")?;
+        Ok(Buffer { context: self, id })
     }
 
     /// Decode one picture into `target`: begin, render every buffer, end.
-    pub fn decode(&self, target: &Surface, buffers: &[Buffer]) -> Result<(), String> {
+    pub fn decode(&self, target: &Surface, buffers: &[Buffer<'_>]) -> Result<(), String> {
         let d = &self.display;
+        if buffers.iter().any(|b| !std::ptr::eq(b.context, self)) {
+            return Err("a buffer of another context".into());
+        }
+        // the driver writes a whole context-sized picture into the target: a surface of another
+        // display, or a smaller one, would be written out of bounds
+        let (tw, th) = target.pool.size;
+        if !Arc::ptr_eq(&target.pool.display, d) || tw < self.size.0 || th < self.size.1 {
+            return Err(format!("a {tw}x{th} target surface for a {}x{} context", self.size.0, self.size.1));
+        }
         // SAFETY: a valid context and surface of this display.
         d.check(unsafe { d.lib.vaBeginPicture(d.dpy, self.id, target.id) }, "vaBeginPicture")?;
         let mut ids: Vec<sys::VABufferID> = buffers.iter().map(|b| b.id).collect();
@@ -234,16 +287,19 @@ impl Context {
     }
 }
 
-/// A libva buffer, destroyed on drop.
-pub struct Buffer {
-    display: Arc<Display>,
+/// A libva buffer of a context, destroyed on drop (before the context: it borrows it, so a
+/// destroyed buffer id can never hit a later buffer that reused it).
+pub struct Buffer<'a> {
+    context: &'a Context,
     id: sys::VABufferID,
 }
 
-impl Drop for Buffer {
+impl Drop for Buffer<'_> {
     fn drop(&mut self) {
-        // SAFETY: `id` was created on this display and is destroyed once.
-        unsafe { self.display.lib.vaDestroyBuffer(self.display.dpy, self.id) };
+        let d = &self.context.display;
+        // SAFETY: `id` was created on this display and is destroyed once (libva does not destroy
+        // decode buffers in vaRenderPicture / vaEndPicture).
+        unsafe { d.lib.vaDestroyBuffer(d.dpy, self.id) };
     }
 }
 
@@ -279,10 +335,14 @@ impl SurfaceMem {
     }
 }
 
-/// A surface's memory exported as DMA-BUF: the description and the fds it owns.
+/// A surface's memory exported as DMA-BUF (the description owns the fds).
 pub struct Export {
     pub dmabuf: filmcraft_frame::DmaBuf,
-    _fds: Vec<std::os::fd::OwnedFd>,
+}
+
+/// Whether the rectangle (x, y, w, h) is non-empty and lies inside a surface of `size`.
+fn rect_fits((x, y, w, h): (u32, u32, u32, u32), size: (u32, u32)) -> bool {
+    w > 0 && h > 0 && x.checked_add(w).is_some_and(|r| r <= size.0) && y.checked_add(h).is_some_and(|b| b <= size.1)
 }
 
 impl Drop for SurfacePool {
@@ -327,10 +387,16 @@ impl SurfacePool {
         Arc::new(SurfacePool { display: display.clone(), rt_format, fourcc, size: (width, height), free: Mutex::new(Vec::new()), count: Default::default() })
     }
 
-    /// A spare surface, or a new one.
+    /// The spare surface returned longest ago, or a new one. Oldest first: a surface's last frame
+    /// may still be sampled by GPU work already submitted when it comes back, and the decoder
+    /// overwrites it on reuse; the longer it rests, the more surely that work has finished.
     pub fn get(self: &Arc<Self>) -> Result<Surface, String> {
-        if let Some((id, mem)) = self.free.lock().unwrap_or_else(PoisonError::into_inner).pop() {
-            return Ok(Surface { id, mem, pool: self.clone() });
+        {
+            let mut free = self.free.lock().unwrap_or_else(PoisonError::into_inner);
+            if !free.is_empty() {
+                let (id, mem) = free.remove(0);
+                return Ok(Surface { id, mem, pool: self.clone() });
+            }
         }
         static MEMORY_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let d = &self.display;
@@ -431,20 +497,24 @@ impl Surface {
             (0..n)
                 .map(|p| {
                     let obj = *l.object_index.get(p).ok_or("plane index")? as usize;
-                    let o = desc.objects.get(obj).filter(|_| obj < nobj).ok_or("object index out of range")?;
-                    Ok(filmcraft_frame::DmaBufPlane { fd: o.fd, offset: l.offset[p], pitch: l.pitch[p] })
+                    if obj >= nobj {
+                        return Err("object index out of range".into());
+                    }
+                    Ok(filmcraft_frame::DmaBufPlane { object: obj, offset: l.offset[p], pitch: l.pitch[p] })
                 })
                 .collect()
         };
+        let layers = [layer(&desc.layers[0])?, layer(&desc.layers[1])?];
         let dmabuf = filmcraft_frame::DmaBuf {
             layer_formats: [desc.layers[0].drm_format, desc.layers[1].drm_format],
             modifier,
-            layers: [layer(&desc.layers[0])?, layer(&desc.layers[1])?],
+            layers,
             width: desc.width,
             height: desc.height,
-            size: desc.objects[0].size as u64,
+            // the description owns the fds, so they stay open while any copy lives
+            objects: fds.into(),
         };
-        let e = Arc::new(Export { dmabuf, _fds: fds });
+        let e = Arc::new(Export { dmabuf });
         *self.mem.export.lock().unwrap_or_else(PoisonError::into_inner) = Some(e.clone());
         Ok(e)
     }
@@ -460,6 +530,10 @@ impl Surface {
     /// (`P010` / `NV12`): `f(plane index, row bytes)` for every row of the luma plane then the
     /// chroma plane. Syncs first.
     pub fn read(&self, rect: (u32, u32, u32, u32), mut f: impl FnMut(usize, usize, &[u8])) -> Result<(), String> {
+        let (x, y, w, h) = rect;
+        if !rect_fits(rect, self.pool.size) {
+            return Err(format!("rectangle {w}x{h} at ({x}, {y}) outside the {}x{} surface", self.pool.size.0, self.pool.size.1));
+        }
         self.sync()?;
         let d = &self.pool.display;
         let l = d.lib;
@@ -473,13 +547,16 @@ impl Surface {
         d.check(unsafe { l.vaQueryImageFormats(d.dpy, formats.as_mut_ptr(), &mut n) }, "vaQueryImageFormats")?;
         formats.truncate((n.max(0) as usize).min(max));
         let mut format = *formats.iter().find(|f| f.fourcc == fourcc).ok_or("the driver has no image format for the surface")?;
-        let (x, y, w, h) = rect;
+        let int = |v: u32| i32::try_from(v).map_err(|_| format!("{v} does not fit libva's int"));
+        let (xi, yi, wi, hi) = (int(x)?, int(y)?, int(w)?, int(h)?);
         let mut image: sys::VAImage = Default::default();
         // SAFETY: a valid format struct and out-pointer.
-        d.check(unsafe { l.vaCreateImage(d.dpy, &mut format, w as i32, h as i32, &mut image) }, "vaCreateImage")?;
+        d.check(unsafe { l.vaCreateImage(d.dpy, &mut format, wi, hi, &mut image) }, "vaCreateImage")?;
+        // a driver could hand back an image smaller than asked: the rows below are bounds-checked
         let result = (|| {
-            // SAFETY: the image was created above with the requested size; the rectangle lies in the surface.
-            d.check(unsafe { l.vaGetImage(d.dpy, self.id, x as i32, y as i32, w, h, image.image_id) }, "vaGetImage")?;
+            // SAFETY: the image was created above with the requested size; the rectangle lies in the
+            // surface (`rect_fits`).
+            d.check(unsafe { l.vaGetImage(d.dpy, self.id, xi, yi, w, h, image.image_id) }, "vaGetImage")?;
             let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
             // SAFETY: the image's buffer, mapped for reading into a valid out-pointer.
             d.check(unsafe { l.vaMapBuffer(d.dpy, image.buf, &mut ptr) }, "vaMapBuffer")?;
@@ -494,8 +571,8 @@ impl Surface {
             for (plane, &(nrows, row_bytes)) in rows.iter().enumerate() {
                 let (off, pitch) = (image.offsets[plane] as usize, image.pitches[plane] as usize);
                 for r in 0..nrows {
-                    let start = off + r * pitch;
-                    match bytes.get(start..start + row_bytes) {
+                    let start = r.checked_mul(pitch).and_then(|o| o.checked_add(off));
+                    match start.and_then(|s| bytes.get(s..s.checked_add(row_bytes)?)) {
                         Some(row) => f(plane, r, row),
                         None => ok = false,
                     }
@@ -508,5 +585,47 @@ impl Surface {
         // SAFETY: destroys the image created above, once.
         unsafe { l.vaDestroyImage(d.dpy, image.image_id) };
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, Context, Display, SurfacePool, rect_fits, sys};
+    use std::sync::Arc;
+
+    /// Unsafe-code review round 3: a context decodes only into surfaces of its display that hold a
+    /// whole picture (the driver would write past a smaller one). Skipped without VA-API.
+    #[test]
+    fn a_context_refuses_a_smaller_target_surface() {
+        let Ok(d) = Display::get() else {
+            eprintln!("no VA-API; skipped");
+            return;
+        };
+        let (profile, vld) = (sys::VAProfile_VAProfileHEVCMain, sys::VAEntrypoint_VAEntrypointVLD);
+        if !d.supports(profile, vld) {
+            eprintln!("no HEVC decode; skipped");
+            return;
+        }
+        let config = Arc::new(Config::new(&d, profile, vld, sys::VA_RT_FORMAT_YUV420).expect("config"));
+        let ctx = Context::new(&config, 256, 256).expect("context");
+        let small = SurfacePool::new(&d, sys::VA_RT_FORMAT_YUV420, sys::VA_FOURCC_NV12, 128, 256).get().expect("surface");
+        let err = ctx.decode(&small, &[]).expect_err("a smaller target is refused");
+        assert!(err.contains("128x256"), "{err}");
+        let fits = SurfacePool::new(&d, sys::VA_RT_FORMAT_YUV420, sys::VA_FOURCC_NV12, 256, 256).get().expect("surface");
+        // passes the check (the driver may still refuse an empty picture)
+        if let Err(e) = ctx.decode(&fits, &[]) {
+            assert!(!e.contains("target surface"), "{e}");
+        }
+    }
+
+    #[test]
+    fn read_rectangles_must_lie_in_the_surface() {
+        assert!(rect_fits((0, 0, 64, 32), (64, 32)));
+        assert!(rect_fits((8, 4, 56, 28), (64, 32)));
+        assert!(!rect_fits((0, 0, 0, 32), (64, 32)));
+        assert!(!rect_fits((1, 0, 64, 32), (64, 32)));
+        assert!(!rect_fits((0, 0, 64, 33), (64, 32)));
+        assert!(!rect_fits((u32::MAX, 0, 2, 1), (64, 32)));
+        assert!(!rect_fits((0, 0, u32::MAX, 1), (64, 32)));
     }
 }

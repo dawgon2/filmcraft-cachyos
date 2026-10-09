@@ -291,7 +291,8 @@ impl Mp4Source {
         // Nearest, not floor: with a coarse timescale (1000) sample times are rounded, and a
         // floored lookup lands one unit short of every frame whose time was rounded up.
         let late = filmcraft_media::cancel::catch_up().map(|m| (t - m).to_rational_round(1, ts));
-        self.video.frame_late(&Mp4Video { src: self, track: ti }, t.to_rational_round(1, ts), late)
+        let tol = filmcraft_media::cancel::skim().map(|d| d.to_rational_round(1, ts));
+        self.video.frame_skim(&Mp4Video { src: self, track: ti }, t.to_rational_round(1, ts), late, tol)
     }
 
     fn audio_packet(&self, st: &mut AudioState, i: usize) -> crate::Result<Arc<Vec<Vec<f32>>>> {

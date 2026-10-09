@@ -31,3 +31,21 @@ FilmCraft is a clean-room, open-source, pure-Rust non-linear video editor target
 - For UI work, **look at the result**: drive via the control channel and take `ui.screenshot`, compare with `plan/premiere/screenshots/` (maintainer-local; see [`docs/agents.md`](docs/agents.md) §3).
 - Parallel agents: separate git worktrees and `CARGO_TARGET_DIR=target/agent-<name>`; keep every `Cargo.toml` valid at all times (the `crates/*` glob means one broken manifest breaks everyone).
 - Test fixtures: generate with ffmpeg into `target/fixtures/` (never commit media). See [`docs/testing.md`](docs/testing.md).
+
+## FilmCraft fork (~/Projects/filmcraft-main): owner decisions added 2026-10-08
+
+These are the owner's decisions. At the start of your session, copy them into FORK-PLAN.md §1a
+(and the relevant phases) and HANDOFF.md, commit, then follow them.
+
+*Recorded in FORK-PLAN.md §1a.14–15, Phases 3, 4 and 6, and HANDOFF.md (2026-10-08, session 3).*
+
+1. Phase 4 design: build the GPU color pipeline as small, composable, individually tested
+   operations (lift/gamma/gain/offset, curves, HSL qualifier, LUT, color space transform,
+   saturation, etc.) with a clean interface, and implement Lumetri as a fixed chain of them.
+   A later plan will add a Resolve-style node grader that reuses the same operations, so no
+   grading math is written twice. Use DaVinci Wide Gamut / DaVinci Intermediate (from
+   Blackmagic's published specification) as the working color space, with F-Log2 / F-Gamut
+   as an input transform.
+2. "2× playback with zero dropped frames on original 6.2K media" belongs in Phase 6 next to
+   "zero drops at cuts" (both decoder-bound; need proxies or the render cache). If Phase 3 is
+   already closed, record it there; if not, Phase 3 accepts steady, gracefully skipping 2×/4×.

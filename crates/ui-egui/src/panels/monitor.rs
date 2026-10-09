@@ -149,7 +149,6 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
         let res = mv.effective_res(playing);
         let screen_scale = (pic.width() * ppp / frame_size.0 as f32).min(1.0);
         let scale = quantize_scale(res.scale().min(screen_scale.max(1.0 / 32.0)));
-        let frame = rate.frame_at(time);
         let rev = match target {
             Target::Item(i) => app.item_revision(i),
             _ => app.session.revision,
@@ -163,6 +162,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
             (_, t) => t,
         };
         // Draft decoding (opt-in): only while playing at 1/2 resolution or lower.
+        // faster than real time, playback shows the frames of a skimming grid
+        let frame = if playing { app.frames.playback_frame(target, rate.frame_at(time), app.playback.speed) } else { rate.frame_at(time) };
         let draft = crate::frames::draft_playback(playing, scale, app.session.prefs.playback.draft_decode);
         let key = FrameKey { target, frame, size: size_key, revision: rev, draft };
         let project = app.session.project.clone();
@@ -194,6 +195,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
             if std::mem::take(&mut app.playback.hidden) {
                 app.playback.meter.resync(frame, exact);
             } else {
+                app.playback.meter.set_step(app.frames.playback_step(target, app.playback.speed));
                 app.playback.meter.refresh(frame, exact);
             }
         }

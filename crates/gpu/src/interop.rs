@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::os::fd::{BorrowedFd, IntoRawFd};
+use std::os::fd::IntoRawFd;
 
 use ash::vk;
 use filmcraft_frame::{DmaBuf, GpuFormat, GpuSurface};
@@ -34,6 +34,10 @@ pub fn create_device(adapter: &wgpu::Adapter, desc: &wgpu::DeviceDescriptor<'_>)
     // SAFETY: the hal adapter is only used within this function, while `adapter` is alive, and we
     // do not destroy anything it owns.
     let hal = unsafe { adapter.as_hal::<Vulkan>() }?;
+    // the import's format queries are Vulkan 1.1 functions (instance and physical device)
+    if hal.shared_instance().instance_api_version() < vk::API_VERSION_1_1 || hal.physical_device_capabilities().properties().api_version < vk::API_VERSION_1_1 {
+        return None;
+    }
     if !EXTENSIONS.iter().all(|e| hal.physical_device_capabilities().supports_extension(e)) {
         return None;
     }
@@ -132,9 +136,13 @@ impl Importer {
             GpuFormat::P010 => (vk::Format::R16_UNORM, vk::Format::R16G16_UNORM, wgpu::TextureFormat::R16Unorm, wgpu::TextureFormat::Rg16Unorm),
             GpuFormat::Nv12 => (vk::Format::R8_UNORM, vk::Format::R8G8_UNORM, wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm),
         };
+        let (y_fourcc, c_fourcc) = layer_fourccs(format);
+        if d.layer_formats != [y_fourcc, c_fourcc] {
+            return Err(format!("layer formats {:#x} / {:#x} do not match {format:?}", d.layer_formats[0], d.layer_formats[1]));
+        }
         let (w, h) = (d.width.max(1), d.height.max(1));
-        let luma = self.import_plane(&d.layers[0], d.modifier, d.size, fy, wy, (w, h), "decoded luma")?;
-        let chroma = self.import_plane(&d.layers[1], d.modifier, d.size, fc, wc, (w.div_ceil(2), h.div_ceil(2)), "decoded chroma")?;
+        let luma = self.import_plane(d, 0, fy, wy, (w, h), "decoded luma")?;
+        let chroma = self.import_plane(d, 1, fc, wc, (w.div_ceil(2), h.div_ceil(2)), "decoded chroma")?;
         Ok(Imported {
             alive: std::sync::Weak::new(),
             luma: luma.create_view(&Default::default()),
@@ -144,26 +152,33 @@ impl Importer {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn import_plane(
         &self,
-        planes: &[filmcraft_frame::DmaBufPlane],
-        modifier: u64,
-        bo_size: u64,
+        d: &DmaBuf,
+        layer: usize,
         vk_format: vk::Format,
         format: wgpu::TextureFormat,
         (w, h): (u32, u32),
         label: &'static str,
     ) -> Result<wgpu::Texture, String> {
-        let first = planes.first().ok_or("a layer without planes")?;
-        if planes.iter().any(|p| p.fd != first.fd) {
-            return Err("planes of one layer in different buffer objects (disjoint images are not supported)".into());
-        }
+        let (planes, modifier) = (d.layers.get(layer).ok_or("layer index")?, d.modifier);
+        // One memory plane only: a modifier with metadata planes (compression) would need the
+        // metadata kept across the layout transition below, which only a foreign-queue acquire
+        // guarantees; such memory is read back instead.
+        let [first] = planes.as_slice() else {
+            return Err(format!("{} memory planes in a layer (only single-plane modifiers are imported)", planes.len()));
+        };
+        let object = d.objects.get(first.object).ok_or("plane of a missing buffer object")?;
         // SAFETY: the hal device is used only within this call, while `self.device` is alive.
         let hal = unsafe { self.device.as_hal::<Vulkan>() }.ok_or("not a Vulkan device")?;
         let dev = hal.raw_device().clone();
         // SAFETY: the instance outlives the device; only used for function pointers here.
         let instance = hal.shared_instance().raw_instance().clone();
+        if hal.shared_instance().instance_api_version() < vk::API_VERSION_1_1 {
+            return Err("Vulkan 1.1 is needed to import".into());
+        }
+        // creating an image with a modifier the device does not list for the format is invalid usage
+        check_modifier(&instance, hal.raw_physical_device(), vk_format, modifier, planes.len(), (w, h))?;
         let fd_api = ash::khr::external_memory_fd::Device::new(&instance, &dev);
         let layouts: Vec<vk::SubresourceLayout> = planes
             .iter()
@@ -193,14 +208,18 @@ impl Importer {
         };
         // SAFETY: valid image.
         let req = unsafe { dev.get_image_memory_requirements(image) };
-        if bo_size != 0 && req.size > bo_size {
-            destroy_image(&dev);
-            return Err(format!("the image needs {} bytes, the buffer has {bo_size}", req.size));
-        }
-        // our own reference on the buffer: Vulkan takes ownership of the fd only on success
-        // SAFETY: `first.fd` is open for as long as the surface lives, which outlives this call.
-        let fd = match unsafe { BorrowedFd::borrow_raw(first.fd) }.try_clone_to_owned() {
-            Ok(fd) => fd,
+        // our own reference on the buffer (Vulkan takes ownership of the fd only on success), and
+        // the buffer's real size from the kernel (DMA-BUFs report it through seeking to the end)
+        let fd = match object.try_clone().and_then(|fd| {
+            let mut f = std::fs::File::from(fd);
+            let size = std::io::Seek::seek(&mut f, std::io::SeekFrom::End(0))?;
+            Ok((std::os::fd::OwnedFd::from(f), size))
+        }) {
+            Ok((fd, size)) if req.size <= size => fd,
+            Ok((_, size)) => {
+                destroy_image(&dev);
+                return Err(format!("the image needs {} bytes, the buffer has {size}", req.size));
+            }
             Err(e) => {
                 destroy_image(&dev);
                 return Err(format!("dup: {e}"));
@@ -273,4 +292,73 @@ impl Importer {
         // DMA-BUF image without compression metadata (the decoder's surfaces).
         Ok(unsafe { self.device.create_texture_from_hal::<Vulkan>(hal_tex, &desc, wgpu::TextureUses::UNINITIALIZED) })
     }
+}
+
+/// The DRM fourccs of the luma and chroma layers of `format` (`R16` / `GR32`, `R8` / `GR88`).
+fn layer_fourccs(format: GpuFormat) -> (u32, u32) {
+    let fourcc = |c: &[u8; 4]| u32::from_le_bytes(*c);
+    match format {
+        GpuFormat::P010 => (fourcc(b"R16 "), fourcc(b"GR32")),
+        GpuFormat::Nv12 => (fourcc(b"R8  "), fourcc(b"GR88")),
+    }
+}
+
+/// Whether the device can make a sampled `format` image with DRM `modifier` in `planes` memory
+/// planes over imported DMA-BUF memory, `w`×`h` in size (vkCreateImage requires it; the queries
+/// are the ones the Vulkan spec prescribes for `VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT`).
+fn check_modifier(
+    instance: &ash::Instance,
+    pd: vk::PhysicalDevice,
+    format: vk::Format,
+    modifier: u64,
+    planes: usize,
+    (w, h): (u32, u32),
+) -> Result<(), String> {
+    let count = {
+        let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
+        let mut props = vk::FormatProperties2::default().push_next(&mut list);
+        // SAFETY: a live instance (Vulkan ≥ 1.1, checked by the caller) and physical device; the
+        // list without an array only receives the count.
+        unsafe { instance.get_physical_device_format_properties2(pd, format, &mut props) };
+        (list.drm_format_modifier_count as usize).min(1024)
+    };
+    let mut mods = vec![vk::DrmFormatModifierPropertiesEXT::default(); count];
+    let listed = {
+        let mut list = vk::DrmFormatModifierPropertiesListEXT::default().drm_format_modifier_properties(&mut mods);
+        let mut props = vk::FormatProperties2::default().push_next(&mut list);
+        // SAFETY: as above; the list points to `count` writable entries and says so.
+        unsafe { instance.get_physical_device_format_properties2(pd, format, &mut props) };
+        (list.drm_format_modifier_count as usize).min(count)
+    };
+    let m = mods
+        .get(..listed)
+        .and_then(|l| l.iter().find(|m| m.drm_format_modifier == modifier))
+        .ok_or_else(|| format!("format modifier {modifier:#x} not supported for {format:?}"))?;
+    if m.drm_format_modifier_plane_count as usize != planes {
+        return Err(format!("modifier {modifier:#x} has {} memory planes, the export {planes}", m.drm_format_modifier_plane_count));
+    }
+    if !m.drm_format_modifier_tiling_features.contains(vk::FormatFeatureFlags::SAMPLED_IMAGE) {
+        return Err(format!("modifier {modifier:#x} cannot be sampled as {format:?}"));
+    }
+    let mut drm = vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default().drm_format_modifier(modifier).sharing_mode(vk::SharingMode::EXCLUSIVE);
+    let mut external = vk::PhysicalDeviceExternalImageFormatInfo::default().handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+    let info = vk::PhysicalDeviceImageFormatInfo2::default()
+        .format(format)
+        .ty(vk::ImageType::TYPE_2D)
+        .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
+        .usage(vk::ImageUsageFlags::SAMPLED)
+        .push_next(&mut external)
+        .push_next(&mut drm);
+    let mut external_props = vk::ExternalImageFormatProperties::default();
+    let mut out = vk::ImageFormatProperties2::default().push_next(&mut external_props);
+    // SAFETY: valid chained in / out structs on a live instance and physical device.
+    unsafe { instance.get_physical_device_image_format_properties2(pd, &info, &mut out) }.map_err(|e| format!("modifier {modifier:#x} for {format:?}: {e}"))?;
+    let max = out.image_format_properties.max_extent;
+    if w > max.width || h > max.height {
+        return Err(format!("{w}x{h} exceeds the device's {}x{} for this format", max.width, max.height));
+    }
+    if !external_props.external_memory_properties.external_memory_features.contains(vk::ExternalMemoryFeatureFlags::IMPORTABLE) {
+        return Err("DMA-BUF memory is not importable for this image".into());
+    }
+    Ok(())
 }

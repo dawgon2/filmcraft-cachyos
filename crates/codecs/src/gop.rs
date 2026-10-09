@@ -4,7 +4,7 @@
 //! from the preceding sync sample, and cache every decoded frame (keyed by pts). Playback requests
 //! for the next frames therefore hit the cache or continue the running decoder without re-seeking.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, Weak};
 use std::time::Duration;
@@ -133,6 +133,17 @@ struct State {
     start: usize,
     /// Highest pts the running decoder has output since it started (pictures leave in pts order).
     out_max: i64,
+    /// The decoder is a hardware one (counted against the hardware cap).
+    hw_decoder: bool,
+    /// Whether samples are non-reference pictures ([`VideoDecoder::is_disposable`]), by sample
+    /// index, as far as looked up (bounded).
+    disposable: HashMap<usize, bool>,
+}
+
+/// A cache's decoded frames, under a lock of their own: a request for a cached frame never waits
+/// for the decoder (which may be busy decoding a GOP for another request for a second or more:
+/// reverse playback asks for the GOP before while it shows the cached one).
+struct Store {
     /// Decoded frames by presentation pts (bounded).
     frames: BTreeMap<i64, Arc<VideoFrame>>,
     /// The cached frames that were decoded in draft mode: served to draft requests only.
@@ -142,25 +153,83 @@ struct State {
     vram: usize,
     /// When a frame was last asked of this cache.
     last_used: Instant,
-    /// The decoder is a hardware one (counted against the hardware cap).
-    hw_decoder: bool,
+    /// Presentation times recently asked for (newest last): the frames between their minimum
+    /// and maximum are wanted, so eviction takes others first.
+    recent: std::collections::VecDeque<i64>,
+    /// Presentation times of frames recently handed out (newest last).
+    served: std::collections::VecDeque<i64>,
+    /// Requests move backwards (reverse playback), and the samples from a sync sample to the
+    /// frame last asked for: a whole GOP is decoded forward and then shown backwards, so the
+    /// cache keeps at least that many frames ([`GopCache::store`]).
+    reverse: bool,
+    reverse_span: usize,
 }
 
-impl State {
-    /// Give up the decoder (and the spare intra decoders): the next request that has to decode
-    /// makes a new one and restarts at a sync sample. Returned so they are dropped off the lock.
-    fn release_decoder(&mut self, pool: &Pool) -> Vec<Box<dyn VideoDecoder>> {
-        let mut out = std::mem::take(&mut self.spare);
-        if let Some(d) = self.decoder.take() {
-            if self.hw_decoder {
-                pool.hw_decoders.fetch_sub(1, Ordering::Relaxed);
-            } else {
-                pool.decoders.fetch_sub(1, Ordering::Relaxed);
-            }
-            out.push(d);
+/// Requests remembered for eviction (about a second of playback with its prefetch).
+const RECENT_REQUESTS: usize = 48;
+/// Recent requests that decide whether playback runs backwards.
+const REVERSE_WINDOW: usize = 12;
+/// Frames kept beyond the GOP being played backwards (the playhead's frame and pictures still in
+/// flight in the decoder).
+const REVERSE_MARGIN: usize = 8;
+
+/// Disposable flags remembered per cache before the map is cleared.
+const DISPOSABLE_FLAGS: usize = 8192;
+
+impl Store {
+    fn new() -> Self {
+        Self {
+            frames: BTreeMap::new(),
+            drafts: Default::default(),
+            bytes: 0,
+            vram: 0,
+            last_used: Instant::now(),
+            recent: std::collections::VecDeque::new(),
+            served: std::collections::VecDeque::new(),
+            reverse: false,
+            reverse_span: 0,
         }
-        self.next = usize::MAX;
-        out
+    }
+
+    /// The cached frame nearest to `pts` within `tol` either side (exact first), for a skimming
+    /// request.
+    fn near(&self, pts: i64, tol: i64, draft_ok: bool) -> Option<i64> {
+        let lo = pts.saturating_sub(tol);
+        let hi = pts.saturating_add(tol);
+        self.frames.range(lo..=hi).map(|(p, _)| *p).filter(|p| draft_ok || !self.drafts.contains(p)).min_by_key(|p| p.abs_diff(pts))
+    }
+
+    /// A cached frame that answers a request for `pts`: that exact one, or while skimming one
+    /// within the tolerance.
+    fn hit(&mut self, pts: i64, skim: Option<i64>, draft_ok: bool) -> Option<Arc<VideoFrame>> {
+        let at = if self.cached(pts, draft_ok).is_some() { pts } else { skim.and_then(|tol| self.near(pts, tol, draft_ok))? };
+        let f = self.frames.get(&at).cloned()?;
+        self.note_served(at);
+        Some(f)
+    }
+
+    /// A frame at `pts` was handed out.
+    fn note_served(&mut self, pts: i64) {
+        self.served.push_back(pts);
+        if self.served.len() > RECENT_REQUESTS {
+            self.served.pop_front();
+        }
+    }
+
+    /// Record a request for `pts` and update [`Self::reverse`]: most recent requests are earlier
+    /// than the one before them.
+    fn note_request(&mut self, pts: i64) {
+        self.recent.push_back(pts);
+        if self.recent.len() > RECENT_REQUESTS {
+            self.recent.pop_front();
+        }
+        let tail: Vec<i64> = self.recent.iter().rev().take(REVERSE_WINDOW + 1).copied().collect();
+        let back = tail.windows(2).filter(|w| matches!(w, [newer, older] if newer < older)).count();
+        let fwd = tail.windows(2).filter(|w| matches!(w, [newer, older] if newer > older)).count();
+        self.reverse = tail.len() > REVERSE_WINDOW / 2 && back > fwd;
+        if !self.reverse {
+            self.reverse_span = 0;
+        }
     }
 
     /// Evict frames, earliest first, while `more` says so.
@@ -185,6 +254,46 @@ impl State {
     /// The nearest usable frame at or before `pts` (robust to decoder pts quirks).
     fn at_or_before(&self, pts: i64, draft_ok: bool) -> Option<Arc<VideoFrame>> {
         self.cached(pts, draft_ok).or_else(|| self.frames.range(..=pts).rev().find(|(p, _)| draft_ok || !self.drafts.contains(p)).map(|(_, f)| f)).cloned()
+    }
+}
+
+impl State {
+    /// Whether sample `k` is a non-reference picture (looked up once per sample).
+    fn is_disposable(&mut self, s: &dyn VideoSamples, k: usize) -> crate::Result<bool> {
+        if let Some(d) = self.disposable.get(&k) {
+            return Ok(*d);
+        }
+        let data = s.read(k)?;
+        Ok(self.flag_disposable(k, Some(&data)))
+    }
+
+    /// [`Self::is_disposable`] with the sample's data at hand (`None`: the flag is known).
+    fn flag_disposable(&mut self, k: usize, data: Option<&[u8]>) -> bool {
+        if let Some(d) = self.disposable.get(&k) {
+            return *d;
+        }
+        let d = data.is_some_and(|data| self.decoder.as_ref().is_some_and(|dec| dec.is_disposable(data)));
+        if self.disposable.len() >= DISPOSABLE_FLAGS {
+            self.disposable.clear();
+        }
+        self.disposable.insert(k, d);
+        d
+    }
+
+    /// Give up the decoder (and the spare intra decoders): the next request that has to decode
+    /// makes a new one and restarts at a sync sample. Returned so they are dropped off the lock.
+    fn release_decoder(&mut self, pool: &Pool) -> Vec<Box<dyn VideoDecoder>> {
+        let mut out = std::mem::take(&mut self.spare);
+        if let Some(d) = self.decoder.take() {
+            if self.hw_decoder {
+                pool.hw_decoders.fetch_sub(1, Ordering::Relaxed);
+            } else {
+                pool.decoders.fetch_sub(1, Ordering::Relaxed);
+            }
+            out.push(d);
+        }
+        self.next = usize::MAX;
+        out
     }
 }
 
@@ -311,7 +420,9 @@ struct Pool {
 
 /// The part of a [`GopCache`] its pool reaches.
 struct Shared {
+    /// The decoder side; lock order: `state`, then `store` (`store` alone for cache hits).
     state: Mutex<State>,
+    store: Mutex<Store>,
     pool: Arc<Pool>,
 }
 
@@ -319,8 +430,9 @@ impl Drop for Shared {
     fn drop(&mut self) {
         let st = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
         drop(st.release_decoder(&self.pool));
-        self.pool.bytes.fetch_sub(st.bytes, Ordering::Relaxed);
-        self.pool.vram.fetch_sub(st.vram, Ordering::Relaxed);
+        let store = self.store.get_mut().unwrap_or_else(PoisonError::into_inner);
+        self.pool.bytes.fetch_sub(store.bytes, Ordering::Relaxed);
+        self.pool.vram.fetch_sub(store.vram, Ordering::Relaxed);
     }
 }
 
@@ -372,13 +484,16 @@ impl Pool {
 
     /// The idle caches other than `me` that `keep` selects, least recently used first. Other
     /// caches are only ever try-locked, so two caches trimming each other cannot deadlock.
-    fn idle_others(&self, me: &Shared, keep: impl Fn(&State) -> bool) -> Vec<Arc<Shared>> {
+    fn idle_others(&self, me: &Shared, keep: impl Fn(&State, &Store) -> bool) -> Vec<Arc<Shared>> {
         let all: Vec<Arc<Shared>> = self.caches.lock().unwrap_or_else(PoisonError::into_inner).iter().filter_map(Weak::upgrade).collect();
         let mut idle: Vec<(Instant, Arc<Shared>)> = all
             .into_iter()
             .filter(|c| !std::ptr::eq(Arc::as_ptr(c), me))
             .filter_map(|c| {
-                let used = try_state(&c).filter(|st| keep(st) && st.last_used.elapsed() >= self.idle).map(|st| st.last_used)?;
+                let st = try_state(&c)?;
+                let store = c.store.lock().unwrap_or_else(PoisonError::into_inner);
+                let used = (keep(&st, &store) && store.last_used.elapsed() >= self.idle).then_some(store.last_used)?;
+                drop((store, st));
                 Some((used, c))
             })
             .collect();
@@ -398,7 +513,7 @@ impl Pool {
         if !sw_over() && !hw_over() {
             return released;
         }
-        for c in self.idle_others(me, |st| st.decoder.is_some()) {
+        for c in self.idle_others(me, |st, _| st.decoder.is_some()) {
             if !sw_over() && !hw_over() {
                 break;
             }
@@ -420,12 +535,13 @@ impl Pool {
         if !over() {
             return;
         }
-        for c in self.idle_others(me, |st| !st.frames.is_empty()) {
+        for c in self.idle_others(me, |_, store| !store.frames.is_empty()) {
             if !over() {
                 break;
             }
-            if let Some(mut st) = try_state(&c) {
-                st.release_frames(self, over);
+            if let Some(st) = try_state(&c) {
+                c.store.lock().unwrap_or_else(PoisonError::into_inner).release_frames(self, over);
+                drop(st);
             }
         }
     }
@@ -469,6 +585,14 @@ fn min_frames(frame_bytes: usize) -> usize {
     (MIN_FRAMES_BYTES / frame_bytes.max(1)).clamp(MIN_FRAMES_LARGE, MIN_FRAMES)
 }
 
+/// Samples looked through for the next sync sample or its leading pictures (longer GOPs are
+/// decoded per request, as forwards).
+const MAX_GOP_SCAN: usize = 600;
+
+/// Samples either side of a skimming request's target searched for a reference picture to show
+/// instead (B-picture runs are shorter than this).
+const SKIM_SEARCH: usize = 8;
+
 /// A running decoder up to this many samples before the wanted sample's sync sample keeps going
 /// rather than restarting at the sync sample.
 const CONTINUE_THROUGH: usize = 48;
@@ -489,13 +613,10 @@ impl GopCache {
                 next: usize::MAX,
                 start: 0,
                 out_max: i64::MIN,
-                frames: BTreeMap::new(),
-                drafts: Default::default(),
-                bytes: 0,
-                vram: 0,
                 hw_decoder: false,
-                last_used: Instant::now(),
+                disposable: HashMap::new(),
             }),
+            store: Mutex::new(Store::new()),
             pool: pool.clone(),
         });
         pool.register(&shared);
@@ -520,8 +641,9 @@ impl GopCache {
         if self.rotation != 0 { f.rotated(self.rotation) } else { f }
     }
 
-    fn store(&self, st: &mut State, pts: i64, f: VideoFrame, draft: bool) {
+    fn store(&self, pts: i64, f: VideoFrame, draft: bool) {
         let f = self.finish(f);
+        let mut st = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
         if draft {
             st.drafts.insert(pts);
             DRAFT.fetch_add(1, Ordering::Relaxed);
@@ -530,7 +652,14 @@ impl GopCache {
         }
         // a frame costs its memory wherever it is (RAM, or GPU memory for hardware surfaces)
         let cost = f.byte_size() + f.gpu_bytes();
-        let budget = self.budget.max(min_frames(cost).saturating_mul(cost));
+        // Played backwards, a whole GOP is decoded forward before its last frame can be shown
+        // (frames already handed out go first, see below), within the GPU-memory budget (or
+        // half the shared RAM budget).
+        let reverse = if st.reverse { st.reverse_span } else { 0 };
+        let pool = &self.shared.pool;
+        let cap = if f.gpu_bytes() > 0 { pool.vram_budget.load(Ordering::Relaxed) } else { pool.budget.load(Ordering::Relaxed) / 2 };
+        let floor = min_frames(cost).max(reverse.min(cap / cost.max(1)));
+        let budget = self.budget.max(floor.saturating_mul(cost));
         let (before, vram_before) = (st.bytes, st.vram);
         st.bytes += f.byte_size();
         st.vram += f.gpu_bytes();
@@ -539,10 +668,26 @@ impl GopCache {
             st.vram -= old.gpu_bytes();
             filmcraft_frame::pool::recycle(old);
         }
-        // evict frames far from the most recent (keep a window around the working position)
+        // Evict frames outside the span recently asked for first: before it (already used), then
+        // beyond it (decoded ahead of every request); only then, the farther end from the newest
+        // decoded picture. Evicting a frame inside the span — one a queued job still wants —
+        // costs a seek back to its keyframe and a GOP of decoding.
+        let wanted = st.recent.iter().min().copied().zip(st.recent.iter().max().copied());
         while st.bytes + st.vram > budget && st.frames.len() > 2 {
             let (Some(&first), Some(&last)) = (st.frames.keys().next(), st.frames.keys().next_back()) else { break };
-            let victim = if pts - first > last - pts { first } else { last };
+            // Backwards, frames already handed out go first (their requests are done: the
+            // caller keeps what it rendered from them), then those after the span (shown), and
+            // only then the earliest (shown last).
+            let served = if st.reverse { st.frames.keys().rev().find(|p| **p != pts && st.served.contains(p)).copied() } else { None };
+            let victim = match wanted {
+                _ if served.is_some() => served.unwrap_or(first),
+                Some((_, hi)) if st.reverse && last > hi && last != pts => last,
+                _ if st.reverse => first,
+                Some((lo, _)) if first < lo => first,
+                Some((_, hi)) if last > hi && last != pts => last,
+                _ if pts - first > last - pts => first,
+                _ => last,
+            };
             if let Some(v) = st.frames.remove(&victim) {
                 st.drafts.remove(&victim);
                 st.bytes -= v.byte_size();
@@ -563,6 +708,7 @@ impl GopCache {
         } else {
             pool.vram.fetch_sub(vram_before - st.vram, Ordering::Relaxed);
         }
+        drop(st);
         pool.trim_frames(&self.shared);
     }
 
@@ -571,7 +717,7 @@ impl GopCache {
         count_frames(&out);
         for d in out {
             st.out_max = st.out_max.max(d.pts);
-            self.store(st, d.pts, d.frame, d.draft);
+            self.store(d.pts, d.frame, d.draft);
         }
     }
 
@@ -594,9 +740,20 @@ impl GopCache {
     /// ([`VideoDecoder::set_draft`]); its draft frames are cached for draft requests only, and an
     /// exact request for one re-decodes it.
     pub fn frame_late(&self, s: &dyn VideoSamples, target: i64, late_before: Option<i64>) -> crate::Result<Arc<VideoFrame>> {
+        self.frame_skim(s, target, late_before, None)
+    }
+
+    /// [`Self::frame_late`] while skimming (playback faster than real time or backwards at a
+    /// speed that steps over frames, see [`filmcraft_media::cancel::with_skim`]): any picture
+    /// within `tolerance` (track units) of `target` will do. A cached one is returned; a
+    /// non-reference target with a reference picture within the tolerance is replaced by it (it
+    /// is decoded anyway); every other non-reference picture on the way is left out; and a
+    /// target in a later GOP is reached by a seek rather than by decoding on through the GOP.
+    pub fn frame_skim(&self, s: &dyn VideoSamples, target: i64, late_before: Option<i64>, tolerance: Option<i64>) -> crate::Result<Arc<VideoFrame>> {
         let n = s.count();
-        let i = s.sample_at(target.max(0)).or_else(|| (n > 0).then(|| n - 1)).ok_or_else(|| CodecError::Decode("empty track".into()))?;
-        let want_pts = s.pts(i);
+        let mut i = s.sample_at(target.max(0)).or_else(|| (n > 0).then(|| n - 1)).ok_or_else(|| CodecError::Decode("empty track".into()))?;
+        let mut want_pts = s.pts(i);
+        let skim = tolerance.filter(|t| *t > 0);
         let me = self as *const Self as usize;
         if DecodingGuard::active(me) {
             return self.private_frame(s, i, want_pts, n);
@@ -606,12 +763,21 @@ impl GopCache {
         // after the guard on every return path: dropping a decoder can block (a hardware session
         // waits for its frames in flight) and must not hold this cache's lock.
         let mut released: Vec<Box<dyn VideoDecoder>> = Vec::new();
+        {
+            let mut store = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
+            store.last_used = Instant::now();
+            store.note_request(want_pts);
+            if let Some(f) = store.hit(want_pts, skim, draft) {
+                HITS.fetch_add(1, Ordering::Relaxed);
+                return Ok(f);
+            }
+        }
         let mut st = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
         let _decoding = DecodingGuard::enter(me);
-        st.last_used = Instant::now();
-        if let Some(f) = st.cached(want_pts, draft) {
+        // decoded meanwhile by the request this one waited for
+        if let Some(f) = self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).hit(want_pts, skim, draft) {
             HITS.fetch_add(1, Ordering::Relaxed);
-            return Ok(f.clone());
+            return Ok(f);
         }
         MISSES.fetch_add(1, Ordering::Relaxed);
         if st.decoder.is_none() {
@@ -635,7 +801,62 @@ impl GopCache {
         if st.intra {
             return self.intra_frame(st, s, i, want_pts);
         }
+        if let Some(tol) = skim {
+            // A sync sample shown within the tolerance costs one picture after a seek, where a
+            // leading picture of an open GOP costs the whole GOP before it (unless the decoder
+            // is running through that GOP anyway) and a picture deep in a GOP all the
+            // references before it.
+            let here = s.sync_before(i);
+            let after = s.sync_before(i.saturating_add(SKIM_SEARCH).min(n.saturating_sub(1)));
+            let leading = want_pts < s.pts(here);
+            let through_gop_before = st.next != usize::MAX && st.next <= here && here > 0 && st.next >= s.sync_before(here - 1);
+            let sync = [here, after]
+                .into_iter()
+                .filter(|k| *k != i && s.pts(*k).abs_diff(want_pts) <= tol.unsigned_abs())
+                .min_by_key(|k| s.pts(*k).abs_diff(want_pts));
+            if let Some(k) = sync
+                && (leading && !through_gop_before || st.next == usize::MAX || st.next > i || k > i)
+            {
+                i = k;
+                want_pts = s.pts(k);
+                if let Some(f) = self.cached(want_pts, draft) {
+                    HITS.fetch_add(1, Ordering::Relaxed);
+                    return Ok(f);
+                }
+            }
+        }
+        if let Some(tol) = skim
+            && st.is_disposable(s, i)?
+        {
+            // a reference picture near the target is decoded on the way anyway: show that
+            let lo = i.saturating_sub(SKIM_SEARCH);
+            let hi = i.saturating_add(SKIM_SEARCH).min(n.saturating_sub(1));
+            let mut best: Option<usize> = None;
+            for j in lo..=hi {
+                let d = s.pts(j).abs_diff(want_pts);
+                if j == i || d > tol.unsigned_abs() || best.is_some_and(|b| s.pts(b).abs_diff(want_pts) <= d) {
+                    continue;
+                }
+                if !st.is_disposable(s, j)? {
+                    best = Some(j);
+                }
+            }
+            if let Some(j) = best {
+                i = j;
+                want_pts = s.pts(j);
+                if let Some(f) = self.cached(want_pts, draft) {
+                    HITS.fetch_add(1, Ordering::Relaxed);
+                    return Ok(f);
+                }
+            }
+        }
         let mut key = s.sync_before(i);
+        // A leading picture (shown before the sync sample it follows in decode order: the RASL
+        // pictures of an open-GOP CRA) may reference the previous GOP, and a decoder starting at
+        // that CRA drops it: start from the sync sample before.
+        while key > 0 && want_pts < s.pts(key) {
+            key = s.sync_before(key - 1);
+        }
         // Continue the running decoder when it has passed the wanted sample's sync sample and
         // either has not reached the sample yet or has been fed it without outputting it yet
         // (a frame-threaded decoder holds many pictures in flight). Otherwise the frame was
@@ -643,8 +864,24 @@ impl GopCache {
         let running = st.next != usize::MAX && st.next <= n;
         // Decoding on through a short stretch into the next GOP is cheaper than a restart, and
         // playback wants those frames anyway.
-        let near = st.next <= key && key - st.next <= CONTINUE_THROUGH;
+        // (Skimming steps over most of the GOP: a seek is cheaper.)
+        let near = skim.is_none() && st.next <= key && key - st.next <= CONTINUE_THROUGH;
         let continuing = running && (st.next > key || near) && (i >= st.next || (st.start <= i && want_pts > st.out_max));
+        // Skimming forward, frames are asked for by several workers at once and the decoder may
+        // have passed this one (for a later frame, leaving out pictures nobody else wanted):
+        // rather than seek back a GOP, show the nearest frame decoded within a grid step
+        // (four tolerances).
+        let forward = !self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).reverse;
+        if let Some(tol) = skim
+            && running
+            && !continuing
+            && forward
+            && i < st.next
+            && let Some(f) = self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).hit(want_pts, Some(tol.saturating_mul(4)), draft)
+        {
+            HITS.fetch_add(1, Ordering::Relaxed);
+            return Ok(f);
+        }
         if !continuing {
             SEEKS.fetch_add(1, Ordering::Relaxed);
             // The container's sync flags may be wrong for the codec (an MP4 without `stss` marks
@@ -663,8 +900,29 @@ impl GopCache {
             st.start = key;
             st.out_max = i64::MIN;
         }
-        let limit = (i.max(st.next) + 64).min(n);
-        let late = late_before.unwrap_or(i64::MIN).min(want_pts);
+        // Backwards (exact frames), one run decodes every frame shown between this GOP's sync
+        // sample and the next one: through the next sync sample and its leading pictures, which
+        // are shown before it. Requests for the range arrive in any order (several workers), and
+        // a run that stopped at an earlier one would have to decode the GOP again for a later.
+        let reverse = skim.is_none() && self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).reverse;
+        let run_to = if reverse { Self::display_range_end(s, key, i, n) } else { i };
+        {
+            let mut store = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
+            if store.reverse && !continuing {
+                store.reverse_span = run_to.saturating_sub(st.start).saturating_add(REVERSE_MARGIN);
+            }
+        }
+        let limit = (run_to.max(st.next) + 64).min(n);
+        // Skimming, the next shown frame (a grid step, two tolerances, on) in another GOP means a
+        // seek: flush the target out right after feeding it instead of decoding on until it
+        // leaves the reorder buffer.
+        let flush_at_target = skim.is_some_and(|tol| {
+            let backwards = self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).reverse;
+            let next = s.sample_at(want_pts.saturating_add(tol.saturating_mul(2)).max(0));
+            backwards || next.is_none_or(|j| s.sync_before(j) != s.sync_before(i))
+        });
+        // skimming wants no picture but the target: every non-reference one is left out
+        let late = if skim.is_some() { i64::MAX } else { late_before.unwrap_or(i64::MIN).min(want_pts) };
         let Some(decoder) = st.decoder.as_mut() else {
             return Err(CodecError::Decode("no video decoder".into()));
         };
@@ -675,30 +933,80 @@ impl GopCache {
                 return Err(CodecError::Cancelled);
             }
             let k = st.next;
-            let data = s.read(k)?;
-            if k != i && s.pts(k) < late && st.decoder.as_ref().is_some_and(|d| d.is_disposable(&data)) {
+            let skippable = k != i && s.pts(k) < late;
+            // a sample known to be skipped is not read at all
+            let data = if skippable && st.disposable.get(&k) == Some(&true) { None } else { Some(s.read(k)?) };
+            if skippable && st.flag_disposable(k, data.as_deref()) {
                 st.next += 1;
                 SKIPPED.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
+            let data = match data {
+                Some(d) => d,
+                None => s.read(k)?,
+            };
+            let hw = st.hw_decoder;
             let Some(decoder) = st.decoder.as_mut() else {
                 return Err(CodecError::Decode("no video decoder".into()));
             };
-            let out = timed(|| decoder.decode(&data, s.pts(k)))?;
+            // a hardware decoder shares the GPU's decode engine: most urgent work first
+            let submitted = Instant::now();
+            let out = if hw { crate::hwgate::run(|| timed(|| decoder.decode(&data, s.pts(k)))) } else { timed(|| decoder.decode(&data, s.pts(k))) }?;
+            // a hardware decoder with time to spare is paced (see `cancel::with_pace`)
+            if let Some(rest) = filmcraft_media::cancel::pace().filter(|_| hw).and_then(|p| p.checked_sub(submitted.elapsed())) {
+                std::thread::sleep(rest);
+            }
             st.next += 1;
             DECODED.fetch_add(1, Ordering::Relaxed);
             self.store_output(&mut st, out);
-            if st.cached(want_pts, draft).is_some() {
+            if (self.cached(want_pts, draft).is_some() && k >= run_to) || (flush_at_target && k == i) {
+                break;
+            }
+            // Backwards, the next request seeks back anyway: once the range is decoded, flush it
+            // out (below) rather than decode the following pictures until it leaves the reorder
+            // buffer.
+            if k >= run_to && self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).reverse {
                 break;
             }
         }
-        if st.cached(want_pts, draft).is_none() {
-            let out = st.decoder.as_mut().map(|d| timed(|| d.flush())).unwrap_or_default();
+        if self.cached(want_pts, draft).is_none() {
+            let hw = st.hw_decoder;
+            let out = st.decoder.as_mut().map(|d| if hw { crate::hwgate::run(|| timed(|| d.flush())) } else { timed(|| d.flush()) }).unwrap_or_default();
             self.store_output(&mut st, out);
             st.next = usize::MAX;
         }
         // nearest decoded frame at or before the wanted pts (robust to decoder pts quirks)
-        st.at_or_before(want_pts, draft).ok_or_else(|| CodecError::Decode("frame not produced".into()))
+        let mut store = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
+        store.note_served(want_pts);
+        store.at_or_before(want_pts, draft).ok_or_else(|| CodecError::Decode("frame not produced".into()))
+    }
+
+    /// The last sample (decode order) of the frames shown from sync sample `key` to the next one:
+    /// that sync sample's leading pictures (at least `i`).
+    fn display_range_end(s: &dyn VideoSamples, key: usize, i: usize, n: usize) -> usize {
+        let mut next_sync = key.saturating_add(1);
+        while next_sync < n && s.sync_before(next_sync) != next_sync && next_sync - key < MAX_GOP_SCAN {
+            next_sync += 1;
+        }
+        if next_sync >= n || s.sync_before(next_sync) != next_sync {
+            return i;
+        }
+        let shown_at = s.pts(next_sync);
+        let mut end = next_sync;
+        while end + 1 < n && s.pts(end + 1) < shown_at && end - next_sync < MAX_GOP_SCAN {
+            end += 1;
+        }
+        end.max(i)
+    }
+
+    /// The cached frame at `pts` (see [`Store::cached`]).
+    fn cached(&self, pts: i64, draft_ok: bool) -> Option<Arc<VideoFrame>> {
+        self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).cached(pts, draft_ok).cloned()
+    }
+
+    /// The nearest usable cached frame at or before `pts`.
+    fn at_or_before(&self, pts: i64, draft_ok: bool) -> Option<Arc<VideoFrame>> {
+        self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).at_or_before(pts, draft_ok)
     }
 
     /// A nested request (see [`Self::frame`]): decode from the sync sample with a fresh decoder,
@@ -726,6 +1034,10 @@ impl GopCache {
         n: usize,
     ) -> crate::Result<Vec<crate::video::DecodedFrame>> {
         let mut key = s.sync_before(i);
+        // leading pictures of an open GOP need the GOP before (see `frame_late`)
+        while key > 0 && want_pts < s.pts(key) {
+            key = s.sync_before(key - 1);
+        }
         // Continue the running decoder when the wanted sample is ahead within this GOP run.
         let continuing = *next != usize::MAX && *next > key && *next <= i + 16 && *next <= n;
         if !continuing {
@@ -785,10 +1097,11 @@ impl GopCache {
         }
         let res = res?;
         count_frames(&res);
+        drop(st);
         for d in res {
-            self.store(&mut st, d.pts, d.frame, d.draft);
+            self.store(d.pts, d.frame, d.draft);
         }
-        st.at_or_before(want_pts, true).ok_or_else(|| CodecError::Decode("frame not produced".into()))
+        self.at_or_before(want_pts, true).ok_or_else(|| CodecError::Decode("frame not produced".into()))
     }
 }
 
@@ -987,6 +1300,60 @@ mod tests {
         assert_eq!(s3.resets.load(Ordering::Relaxed), 1);
     }
 
+    #[test]
+    fn skimming_shows_reference_pictures_and_leaves_the_others_out() {
+        let s = samples(300, 250, 2, false);
+        let c = GopCache::new(None);
+        // 41 is a non-reference picture: its reference neighbour within a frame is shown, and
+        // no non-reference picture on the way is decoded
+        let f = c.frame_skim(&s, 41_000, None, Some(1000)).expect("frame");
+        assert_eq!(index_of(&f), 40);
+        assert!(s.decodes.load(Ordering::Relaxed) <= 21 + 2 + 1, "fed {}", s.decodes.load(Ordering::Relaxed));
+        // the next frames of the grid continue the decoder
+        for t in [43_000, 45_000, 47_000] {
+            assert!(index_of(&c.frame_skim(&s, t, None, Some(1000)).expect("frame")).abs_diff((t / 1000) as usize) <= 1);
+        }
+        assert_eq!(s.resets.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn skimming_prefers_a_sync_sample_and_never_seeks_back() {
+        let s = samples(300, 30, 0, false);
+        let c = GopCache::new(None);
+        // a sync sample within the tolerance costs one picture
+        assert_eq!(index_of(&c.frame_skim(&s, 59_000, None, Some(2000)).expect("frame")), 60);
+        assert_eq!(s.decodes.load(Ordering::Relaxed), 1);
+        // a frame the decoder has passed (another worker asked for a later one first): the
+        // nearest decoded frame within a grid step rather than a seek back to its GOP
+        let resets = s.resets.load(Ordering::Relaxed);
+        assert_eq!(index_of(&c.frame_skim(&s, 57_000, None, Some(2000)).expect("frame")), 60);
+        assert_eq!(s.resets.load(Ordering::Relaxed), resets);
+        // the next GOP is reached by a seek, not by decoding through the rest of this one
+        assert_eq!(index_of(&c.frame_skim(&s, 90_000, None, Some(2000)).expect("frame")), 90);
+        assert!(s.decodes.load(Ordering::Relaxed) <= 3, "fed {}", s.decodes.load(Ordering::Relaxed));
+        // exact requests are unchanged
+        assert_eq!(index_of(&c.frame(&s, 57_000).expect("frame")), 57);
+    }
+
+    #[test]
+    fn playing_backwards_decodes_each_gop_once() {
+        // GOPs of 100 pictures, more than the cache keeps of them when not playing backwards
+        let s = samples(400, 100, 2, false);
+        let mut c = GopCache::new(None);
+        c.budget = 0;
+        assert!(min_frames(4) < 100);
+        for i in (0..400usize).rev() {
+            assert_eq!(index_of(&c.frame(&s, i as i64 * 1000).expect("frame")), i);
+        }
+        // one seek per GOP (the first request comes before the direction is known)
+        assert!(s.resets.load(Ordering::Relaxed) <= 5, "{} seeks", s.resets.load(Ordering::Relaxed));
+        // (plus part of the first GOP again: decoded before the direction was known, it was
+        // held to the usual floor)
+        assert!(s.decodes.load(Ordering::Relaxed) <= 400 + 5 * 4 + 40, "fed {}", s.decodes.load(Ordering::Relaxed));
+        // and holds about a GOP, not everything played
+        assert!(c.shared.store.lock().unwrap().frames.len() <= 100 + REVERSE_MARGIN + 2);
+    }
+
     fn is_draft(f: &VideoFrame) -> bool {
         match &f.data {
             filmcraft_frame::PixelData::Rgba8(d) => d[2] == 1,
@@ -1038,6 +1405,84 @@ mod tests {
         assert_eq!(index_of(&r.expect("cached")), 3);
         assert_eq!(index_of(&c.frame(&s, 7_000).expect("frame")), 7);
         assert_eq!(s.resets.load(Ordering::Relaxed), 1);
+    }
+
+    /// An open-GOP stream: every 10 samples a CRA, then two leading pictures (shown before it)
+    /// that reference the GOP before; a decoder started at a CRA drops its leading pictures, as
+    /// HEVC decoders drop RASL pictures.
+    struct OpenGop {
+        n: usize,
+        resets: Arc<AtomicUsize>,
+    }
+
+    impl OpenGop {
+        /// Decode-order sample → presentation time (in frames): CRA at 10k shown at 10k + 2,
+        /// leading samples 10k + 1, 10k + 2 shown at 10k, 10k + 1; others in order.
+        fn shown_at(k: usize) -> i64 {
+            match k % 10 {
+                0 if k > 0 => k as i64 + 2,
+                1 | 2 if k > 10 => k as i64 - 1,
+                _ => k as i64,
+            }
+        }
+    }
+
+    struct OpenGopDec {
+        start: Option<i64>,
+        resets: Arc<AtomicUsize>,
+    }
+
+    impl VideoDecoder for OpenGopDec {
+        fn decode(&mut self, _sample: &[u8], pts: i64) -> crate::Result<Vec<DecodedFrame>> {
+            let start = *self.start.get_or_insert(pts);
+            // leading pictures of the CRA decoding started at are dropped
+            if pts < start {
+                return Ok(Vec::new());
+            }
+            Ok(vec![picture((pts, false))])
+        }
+        fn flush(&mut self) -> Vec<DecodedFrame> {
+            Vec::new()
+        }
+        fn reset(&mut self) {
+            self.resets.fetch_add(1, Ordering::Relaxed);
+            self.start = None;
+        }
+        fn name(&self) -> &str {
+            "open gop"
+        }
+    }
+
+    impl VideoSamples for OpenGop {
+        fn count(&self) -> usize {
+            self.n
+        }
+        fn sample_at(&self, pts: i64) -> Option<usize> {
+            (0..self.n).find(|&k| self.pts(k) == pts).or_else(|| (0..self.n).filter(|&k| self.pts(k) <= pts).max_by_key(|&k| self.pts(k)))
+        }
+        fn pts(&self, k: usize) -> i64 {
+            Self::shown_at(k) * 1000
+        }
+        fn sync_before(&self, i: usize) -> usize {
+            i - i % 10
+        }
+        fn read(&self, k: usize) -> crate::Result<Vec<u8>> {
+            Ok(vec![k as u8])
+        }
+        fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>> {
+            Ok(Box::new(OpenGopDec { start: None, resets: self.resets.clone() }))
+        }
+    }
+
+    #[test]
+    fn leading_pictures_of_an_open_gop_seek_from_the_gop_before() {
+        // sample 21 (shown at frame 20, before the CRA at sample 20 shown at 22) used to be
+        // "not produced": the seek started at that CRA, whose decoder drops it
+        let s = OpenGop { n: 40, resets: Default::default() };
+        let c = GopCache::in_pool(None, Arc::new(Pool::new(4, Duration::from_secs(3600), FRAME_BUDGET)));
+        for frame in [20, 21, 30, 5, 11, 22] {
+            assert_eq!(index_of(&c.frame(&s, frame * 1000).expect("frame")), frame as usize, "frame {frame}");
+        }
     }
 
     #[test]
@@ -1153,7 +1598,7 @@ mod tests {
         let decodes = b.decodes.load(Ordering::Relaxed);
         assert!((0..=5).all(|i| index_of(&cb.frame(&b, i * 1000).expect("cached")) as i64 == i));
         assert_eq!(b.decodes.load(Ordering::Relaxed), decodes, "the clip in use lost nothing");
-        let st = ca.shared.state.lock().unwrap();
+        let st = ca.shared.store.lock().unwrap();
         assert_eq!((st.frames.len(), st.bytes), (4, 16));
         assert_eq!(st.frames.keys().next(), Some(&7_000));
         drop(st);

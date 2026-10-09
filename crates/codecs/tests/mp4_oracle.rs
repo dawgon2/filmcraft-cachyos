@@ -53,3 +53,34 @@ fn bframe_mp4_duration_is_the_decoded_frame_count() {
     let src = filmcraft_codecs::open_bytes("bframes_x264.mp4", bytes(&f)).unwrap();
     assert_eq!(src.info().duration, filmcraft_time::FrameRate::FPS_30.tick_of(n as i64));
 }
+
+/// The X-M5 records 24-bit LPCM in MOV (`in24`; little-endian with an `enda` box, as ffmpeg
+/// writes `pcm_s24le`). Full-scale noise uses all 24 bits; every sample must equal ffmpeg's (a
+/// 24-bit sample is exact in f32), in both byte orders, and a window read at random equals the
+/// same span of a full read.
+#[test]
+fn mov_24bit_lpcm_is_sample_exact() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    for codec in ["pcm_s24le", "pcm_s24be"] {
+        let name = format!("noise_{codec}.mov");
+        let Some(f) = fixture(&ff, &name, &["-f", "lavfi", "-i", "anoisesrc=color=white:amplitude=1:sample_rate=48000:d=2", "-ac", "2", "-c:a", codec]) else {
+            panic!("could not write {name}")
+        };
+        let src = filmcraft_codecs::open_bytes(&name, bytes(&f)).unwrap();
+        let a = src.info().audio.clone().unwrap();
+        assert_eq!((a.channels, a.sample_rate, a.bits_per_sample), (2, 48_000, Some(24)), "{name}");
+        let want = ffmpeg_audio_f32(&ff, &f, &[]);
+        let n = want.len() / 2;
+        let got = src.audio(0, n, 48_000).unwrap();
+        let mut differ = 0;
+        for i in 0..n {
+            for c in 0..2 {
+                differ += (got.channels[c][i] != want[i * 2 + c]) as usize;
+            }
+        }
+        assert_eq!(differ, 0, "{name}: {differ} of {} samples differ from ffmpeg's", 2 * n);
+        assert!(want.iter().any(|v| (v * 8_388_608.0).rem_euclid(256.0) != 0.0), "{name}: the low byte is exercised");
+        let win = src.audio(31_337, 4_800, 48_000).unwrap();
+        assert_eq!(win.channels[1][..], got.channels[1][31_337..31_337 + 4_800], "{name}: random access");
+    }
+}

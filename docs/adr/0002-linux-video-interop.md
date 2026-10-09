@@ -94,3 +94,50 @@ primary backend.** Vulkan Video becomes the backup in Phase 8.
   download), damaged-input tests and the fallback tests run on every Linux CI pass with a GPU.
 - Vulkan Video remains possible as a second backend on the same interface (Phase 8), and is the
   natural one where VA-API is missing.
+
+## Review of the unsafe / FFI code (FORK-PLAN §1a.5, 2026-10-08)
+
+Three review passes over every `unsafe` block and FFI boundary (`crates/platform/src/va.rs`,
+`va_hevc.rs`, `va_sys.rs` loading, `crates/gpu/src/interop.rs`), after the `phase-2` tag (the
+instruction arrived late; the tag was not moved). Each fix has a test.
+
+**Fixed.**
+- *Round 1:* parameter buffers are typed (`Context::param_buffer` over a sealed set of VA
+  structs) instead of reading padded structs as `&[u8]` (UB); a `Buffer` borrows its `Context`
+  (destroyed first, never submitted to another context); `Context` is `!Sync`; slice data offsets
+  checked against the NAL; read-back rectangle and row arithmetic checked; spare surfaces reused
+  oldest first; Vulkan import requires Vulkan 1.1 and checks the modifier, plane count, sampled
+  feature, max extent, importability and the layer fourccs. An fd of −1 panicked in
+  `BorrowedFd::borrow_raw` before (`va_interop::hostile_dmabuf_descriptions_are_refused`).
+- *Round 2:* a `DmaBuf` owns its buffer objects (`Arc<[OwnedFd]>`; planes name an object index),
+  so no description can carry a closed or foreign fd; only single-memory-plane layers are
+  imported; the buffer size comes from the kernel (seek to the end of the DMA-BUF), not libva's
+  report. HEVC parameters the driver trusts are refused when hostile: more than 15 references,
+  list entries past the filled slots, tile counts beyond VA's arrays or the picture, explicit tile
+  sizes that don't fit (`va_hevc::tests::hostile_tile_sizes_are_refused`; u32 overflow panicked in
+  debug builds before).
+- *Round 3:* `Context::decode` refuses a target surface of another display or smaller than the
+  context (the driver would write past it; `va::tests::a_context_refuses_a_smaller_target_surface`);
+  `Surface::read` converts coordinates to libva's `int` with a check instead of `as`.
+
+**Checked and kept.** libva is loaded once into a never-unloaded static with every symbol
+required (`--dynamic-link-require-all`); function pointers never outlive the library. Every
+libva object (display, config, context, buffer, surface, image, mapping) is RAII and destroyed
+once, on error paths too; exported fds are owned immediately after `vaExportSurfaceHandle`.
+`Display: Send + Sync` relies on libva / Mesa serialising per display; contexts are not shared.
+Pictures are synced (`vaSyncSurface`) before they are handed out, so sampling follows the
+decoder's write. Vulkan takes the dup'd fd only on success (closed by us otherwise); image and
+memory are destroyed on every failure path; wgpu-hal owns them afterwards (`Dedicated`).
+
+**Residual risks (accepted, documented).**
+- The imported image starts in `UNDEFINED` and wgpu moves it to the sampled layout; Vulkan allows
+  that transition to discard contents. It keeps them for the uncompressed single-plane modifiers
+  RADV and Intel export (tested every frame: in place == read back); compressed modifiers are
+  refused. The strictly correct form is an acquire from `VK_QUEUE_FAMILY_FOREIGN_EXT`, which wgpu
+  does not expose.
+- A surface goes back to the decoder's pool when the last frame holding it drops; GPU work already
+  submitted may still sample it while the decoder overwrites it (oldest-first reuse makes this
+  unlikely). This can only show a wrong picture, never touch freed memory: Vulkan holds its own
+  reference on the DMA-BUF.
+- The bindings are generated from the installed libva headers; a libva with a different ABI for
+  the same soname would be a libva bug.

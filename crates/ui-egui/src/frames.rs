@@ -72,6 +72,14 @@ struct Job {
     /// zero for the frame due now), so a decoder catching up may skip pictures only late frames
     /// need (`filmcraft_media::cancel::with_catch_up`).
     catch_up: Option<Tick>,
+    /// While playback steps over frames: any frame within this much of `time` will do
+    /// (`filmcraft_media::cancel::with_skim`).
+    skim: Option<Tick>,
+    /// Hardware-decode pace while playing backwards (`filmcraft_media::cancel::with_pace`).
+    pace: Option<Duration>,
+    /// When the frame is due on screen ([`now_us`] clock): hardware decoders serve the most
+    /// urgent job first (`filmcraft_codecs::hwgate`).
+    deadline: u64,
     time: Tick,
     /// Output scale relative to the target's frame size.
     scale: f32,
@@ -99,6 +107,139 @@ struct Shared {
     /// The server was dropped: workers exit (else they would keep the caches, and the decoded
     /// frames and GPU surfaces in them, alive for the life of the process).
     stop: AtomicBool,
+    /// Which frames playback faster than real time shows ([`FrameServer::playback_frame`]).
+    skim: Mutex<HashMap<Target, SkimControl>>,
+}
+
+/// Display steps (timeline frames between shown frames) playback faster than real time may use.
+const SKIM_STEPS: [i64; 18] = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 30, 40, 48, 60, 90, 120];
+/// Grid frames judged at a time: the step goes up when [`SKIM_LATE`] of the last
+/// [`SKIM_WINDOW`] were not on screen while due, and down after [`SKIM_CALM`] grid frames in a
+/// row were, with the frames ahead already ready.
+const SKIM_WINDOW: usize = 8;
+const SKIM_LATE: usize = 3;
+/// This many late of the window: two rungs at once (far behind; climbing one rung at a time
+/// would stall the picture for seconds).
+const SKIM_FAR_BEHIND: usize = 6;
+const SKIM_CALM: usize = 48;
+/// After a change of step, wait this long before judging again (the new grid's frames need
+/// time to come in).
+const SKIM_SETTLE: Duration = Duration::from_millis(500);
+
+/// Fast-forward / fast-reverse frame skipping (JKL above 1×), like Resolve: the playhead shows
+/// every `step`-th timeline frame (a fixed grid, so the frames prefetched are the frames shown),
+/// starting at the speed's natural step (2 at 2×) and stepping up the ladder when the decoders
+/// fall behind and back down when they have room, so the picture keeps an even cadence instead
+/// of stalling. The step chosen for a speed is remembered for the next time it is played.
+#[derive(Debug, Default)]
+pub struct SkimControl {
+    speed: f64,
+    step: i64,
+    /// Grid frame due and whether it was ready at some refresh while due.
+    due: Option<(i64, bool)>,
+    /// Whether each recent grid frame was ready in time (newest last).
+    history: VecDeque<bool>,
+    settled: Option<Instant>,
+    /// Step last used per speed (speed × 1000).
+    remembered: HashMap<i64, i64>,
+    /// The last change was a step down, and how many calm grid frames a step down needs now:
+    /// doubled each time a step down has to be undone (the decoders were only just keeping up).
+    stepped_down: bool,
+    calm: usize,
+}
+
+impl SkimControl {
+    /// The natural step at `speed`: the frames a refresh at the timeline's rate passes over.
+    pub fn base_step(speed: f64) -> i64 {
+        if speed.abs() <= 1.0 + 1e-9 { 1 } else { (speed.abs().round() as i64).clamp(1, SKIM_STEPS[SKIM_STEPS.len() - 1]) }
+    }
+
+    fn speed_key(speed: f64) -> i64 {
+        (speed * 1000.0).round() as i64
+    }
+
+    /// The step in force at `speed` (switching to it if playback changed speed).
+    pub fn step(&mut self, speed: f64) -> i64 {
+        if self.step == 0 || (self.speed - speed).abs() > 1e-9 {
+            let base = Self::base_step(speed);
+            self.speed = speed;
+            self.step = self.remembered.get(&Self::speed_key(speed)).copied().unwrap_or(base).max(base);
+            self.due = None;
+            self.history.clear();
+            self.settled = None;
+        }
+        self.step
+    }
+
+    /// Playback started or stopped: judge afresh (the remembered steps stay).
+    pub fn restart(&mut self) {
+        self.due = None;
+        self.history.clear();
+        self.settled = None;
+    }
+
+    /// One refresh while playing at `speed`: grid frame `frame` is due and `ready` says whether
+    /// it is ready; `ahead_ready` whether frames well ahead are ready already (room to spare).
+    /// Returns the step to use from now on.
+    pub fn refresh(&mut self, speed: f64, frame: i64, ready: bool, ahead_ready: bool, now: Instant) -> i64 {
+        let step = self.step(speed);
+        if step == 1 && Self::base_step(speed) == 1 {
+            // normal speed and slower: every frame is shown, never skipped on purpose
+            return step;
+        }
+        match self.due {
+            Some((f, seen)) if f == frame => self.due = Some((f, seen || ready)),
+            Some((_, seen)) => {
+                self.history.push_back(seen);
+                if self.history.len() > self.calm.max(SKIM_CALM) {
+                    self.history.pop_front();
+                }
+                self.due = Some((frame, ready));
+            }
+            None => self.due = Some((frame, ready)),
+        }
+        let settled = self.settled.is_none_or(|t| now.saturating_duration_since(t) >= SKIM_SETTLE);
+        if !settled {
+            return step;
+        }
+        let recent_late = self.history.iter().rev().take(SKIM_WINDOW).filter(|ok| !**ok).count();
+        let base = Self::base_step(speed);
+        // (three late in a row climb at once: waiting for a full window at a large step would
+        // stall the picture for seconds)
+        let new = if recent_late >= SKIM_LATE {
+            let rungs = if recent_late >= SKIM_FAR_BEHIND { 2 } else { 1 };
+            SKIM_STEPS.iter().copied().filter(|s| *s > step).take(rungs).last().unwrap_or(step)
+        } else if self.history.len() >= self.calm.max(SKIM_CALM) && recent_late == 0 && self.history.iter().all(|ok| *ok) && ahead_ready {
+            SKIM_STEPS.iter().rev().copied().find(|s| *s < step && *s >= base).unwrap_or(step)
+        } else {
+            step
+        };
+        if new != step {
+            if new > step && self.stepped_down {
+                self.calm = (self.calm.max(SKIM_CALM) * 2).min(SKIM_CALM * 8);
+            }
+            self.stepped_down = new < step;
+            self.step = new;
+            self.remembered.insert(Self::speed_key(speed), new);
+            self.history.clear();
+            self.due = None;
+            self.settled = Some(now);
+        }
+        self.step
+    }
+
+    /// The grid frame shown while `frame` is under the playhead.
+    pub fn snap(frame: i64, step: i64) -> i64 {
+        if step <= 1 { frame } else { frame.div_euclid(step) * step }
+    }
+
+    /// How far from the wanted time a skimming frame may be (frames): half the step, so any
+    /// frame of the grid cell will do (a sync sample in it costs one picture, where a frame deep
+    /// in a GOP costs every reference picture before it). The picture still changes once per
+    /// shown frame, at an even cadence.
+    pub fn tolerance(step: i64) -> i64 {
+        if step <= 1 { 0 } else { step / 2 }
+    }
 }
 
 /// Cumulative frame-job statistics (`perf.stats`): cheap enough to keep on all the time.
@@ -250,6 +391,10 @@ pub struct GpuPlan {
     pub prepared: filmcraft_gpu::PreparedPlan,
 }
 
+/// Plans for frames playback has passed that are kept (stepping back a few frames after a stop
+/// stays instant); see `PlanCache::retire_passed`.
+const KEEP_PASSED: usize = 8;
+
 /// What a cached plan is charged per GPU-resident layer frame (see [`GpuPlan::bytes`]).
 const GPU_PLAN_CHARGE: usize = 16 << 20;
 
@@ -288,6 +433,32 @@ impl PlanCache {
             *used = clock;
             p.clone()
         })
+    }
+
+    /// Playback of `target` is at `frame` moving in `dir`: plans it has passed (more than
+    /// `margin` frames behind) are evicted before any other (least recently used first would
+    /// evict the frames prefetched ahead, which were made before the ones just shown).
+    ///
+    /// Beyond the [`KEEP_PASSED`] nearest, they are dropped at once: each can keep a decoded 6.2K
+    /// surface (78 MB of GPU memory) alive, and a timeline cutting between four 6.2K clips came
+    /// within 0.1 GB of a 12 GB card's memory with the plan cache full of frames already shown.
+    fn retire_passed(&mut self, target: Target, frame: i64, dir: i64, margin: i64) {
+        let mut passed: Vec<(i64, FrameKey)> = Vec::new();
+        for (k, (_, used, _)) in self.map.iter_mut() {
+            let behind = (frame - k.frame).saturating_mul(dir);
+            if k.target == target && behind > margin {
+                *used = 0;
+                passed.push((behind, *k));
+            }
+        }
+        if passed.len() > KEEP_PASSED {
+            passed.sort_unstable_by_key(|(behind, _)| *behind);
+            for (_, k) in passed.get(KEEP_PASSED..).unwrap_or_default() {
+                if let Some((_, _, b)) = self.map.remove(k) {
+                    self.bytes = self.bytes.saturating_sub(b);
+                }
+            }
+        }
     }
 
     fn insert(&mut self, k: FrameKey, p: GpuPlan) {
@@ -348,9 +519,36 @@ pub struct FrameServer {
 }
 
 /// Frames queued ahead of the playhead while playing (and how far ahead a queued job may be
-/// before it is dropped as stale).
-pub fn prefetch_depth(speed: f64) -> i64 {
-    if speed.abs() > 1.5 { 24 } else { 14 }
+/// before it is dropped as stale), in shown frames of `step` timeline frames each.
+///
+/// Backwards a decoder has to decode a whole GOP forward before the first frame of it (its last
+/// one) can be shown, so reverse playback asks for frames more than a GOP (of up to ~1 s) ahead.
+/// With large steps a dozen shown frames are already seconds of the timeline.
+pub fn prefetch_depth(speed: f64, step: i64) -> i64 {
+    if speed < 0.0 && step <= 2 {
+        // (timeline frames: a GOP and more)
+        REVERSE_PREFETCH / step.max(1)
+    } else if step >= 8 {
+        12
+    } else if speed.abs() > 1.5 {
+        24
+    } else {
+        14
+    }
+}
+
+/// Frames reverse playback asks for ahead of the playhead (see [`prefetch_depth`]).
+pub const REVERSE_PREFETCH: i64 = 40;
+
+/// Pictures per frame interval reverse playback lets a hardware decoder submit (an open GOP
+/// needs ~1.13 per frame: the GOP and the leading pictures of the next): measured on 6.2K, 1.2
+/// (28 ms per picture at 29.97) played backwards with 1 frame of 300 dropped, unpaced ~25.
+pub const REVERSE_PACE: f64 = 1.25;
+
+/// Microseconds since the first call (the clock of job deadlines).
+fn now_us() -> u64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_micros().min(u64::MAX as u128) as u64
 }
 
 /// Playback starts its clock once this many frames from the playhead are ready, or after
@@ -362,6 +560,17 @@ pub const PREROLL_FRAMES: i64 = 6;
 /// [`FrameServer::request`]); earlier non-reference pictures are skipped on the way.
 pub const SCRUB_KEEP_S: f64 = 2.0;
 pub const PREROLL_TIMEOUT_S: f64 = 0.5;
+
+/// Backwards, a decoder can only show a GOP once it has decoded all of it, and the GOP before it
+/// is decoded while that one plays: playback starts once [`REVERSE_PREROLL_FRAMES`] (about a
+/// second) are ready, or after [`REVERSE_PREROLL_TIMEOUT_S`].
+pub const REVERSE_PREROLL_FRAMES: i64 = 30;
+pub const REVERSE_PREROLL_TIMEOUT_S: f64 = 2.0;
+
+/// How long playback at `speed` waits for its first frames (see [`PREROLL_FRAMES`]).
+pub fn preroll_timeout(speed: f64) -> f64 {
+    if speed < 0.0 && SkimControl::base_step(speed) == 1 { REVERSE_PREROLL_TIMEOUT_S } else { PREROLL_TIMEOUT_S }
+}
 
 /// Which frames playback asks for, given the per-frame render cost (s), the displayed frame rate
 /// and the worker count: `(lead, stride)`. While the workers keep up, every frame from the
@@ -406,6 +615,7 @@ impl FrameServer {
             in_flight: Mutex::new(Vec::new()),
             profiling: AtomicBool::new(false),
             records: Mutex::new(Vec::new()),
+            skim: Mutex::new(HashMap::new()),
             render_cost: Mutex::new(0.0),
             workers: workers.max(1),
             stats: Mutex::new(FrameStats::default()),
@@ -506,10 +716,24 @@ impl FrameServer {
     /// non-reference pictures, while nearby frames stay decoded (and cached) for scrubbing back.
     pub fn request(&self, key: FrameKey, time: Tick, scale: f32, project: &Arc<Project>, prio: u32) {
         let late = (prio == 0).then(|| Tick::from_seconds_f64(SCRUB_KEEP_S));
-        self.request_job(key, time, scale, project, prio, false, late);
+        // wanted now (the frame on screen), thumbnails and the like after it
+        self.request_job(key, time, scale, project, prio, false, late, None, None, now_us().saturating_add(prio as u64 * 1_000));
     }
 
-    fn request_job(&self, key: FrameKey, time: Tick, scale: f32, project: &Arc<Project>, prio: u32, prefetch: bool, catch_up: Option<Tick>) {
+    #[allow(clippy::too_many_arguments)]
+    fn request_job(
+        &self,
+        key: FrameKey,
+        time: Tick,
+        scale: f32,
+        project: &Arc<Project>,
+        prio: u32,
+        prefetch: bool,
+        catch_up: Option<Tick>,
+        skim: Option<Tick>,
+        pace: Option<Duration>,
+        deadline: u64,
+    ) {
         let hit = || self.shared.stats.lock().unwrap_or_else(|e| e.into_inner()).request_hits += 1;
         if self.shared.done.lock().unwrap_or_else(|e| e.into_inner()).map.contains_key(&key)
             || self.shared.plans.lock().unwrap_or_else(|e| e.into_inner()).map.contains_key(&key)
@@ -524,12 +748,16 @@ impl FrameServer {
         let mut q = self.shared.queue.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(j) = q.iter_mut().find(|j| j.key == key) {
             j.prio = j.prio.min(prio);
+            j.deadline = j.deadline.min(deadline);
             j.prefetch &= prefetch;
             // the playhead only moves on: the newest (smallest) margin
             j.catch_up = match (j.catch_up, catch_up) {
                 (Some(a), Some(b)) => Some(a.min(b)),
                 (a, b) => a.or(b),
             };
+            // an exact request for the frame wins over a skimming one
+            j.skim = j.skim.zip(skim).map(|(a, b)| a.min(b));
+            j.pace = j.pace.zip(pace).map(|(a, b)| a.min(b));
             drop(q);
             hit();
             return;
@@ -547,7 +775,20 @@ impl FrameServer {
                 }
             }
         }
-        q.push_back(Job { key, queued: Instant::now(), cancel: Default::default(), prefetch, catch_up, time, scale, project: project.clone(), prio });
+        q.push_back(Job {
+            key,
+            queued: Instant::now(),
+            cancel: Default::default(),
+            prefetch,
+            catch_up,
+            skim,
+            pace,
+            deadline,
+            time,
+            scale,
+            project: project.clone(),
+            prio,
+        });
         drop(q);
         self.shared.cv.notify_one();
     }
@@ -561,32 +802,85 @@ impl FrameServer {
     /// finish ([`playback_plan`]). While `preroll` (clock not started yet) every frame is wanted.
     pub fn schedule_playback(&self, key: FrameKey, rate: filmcraft_time::FrameRate, scale: f32, project: &Arc<Project>, speed: f64, preroll: bool) {
         let dir = if speed < 0.0 { -1 } else { 1 };
-        let step = speed.abs().max(1.0) as i64;
+        let step = {
+            let mut all = self.shared.skim.lock().unwrap_or_else(|e| e.into_inner());
+            let sk = all.entry(key.target).or_default();
+            let step = sk.step(speed);
+            if preroll {
+                sk.restart();
+                step
+            } else {
+                let ready = self.is_ready(&key);
+                // room to spare: a frame half the prefetch window ahead is ready already
+                let probe = key.frame + prefetch_depth(speed, step) / 2 * dir * step;
+                let ahead_ready = self.is_ready(&FrameKey { frame: probe, ..key });
+                sk.refresh(speed, key.frame, ready, ahead_ready, Instant::now())
+            }
+        };
+        let skim = (step > 1).then(|| rate.tick_of(SkimControl::tolerance(step)));
+        // Backwards at normal speed a GOP is decoded at a time, well ahead (see
+        // `prefetch_depth`): pace it to REVERSE_PACE pictures per frame interval.
+        let pace = (dir < 0 && step == 1).then(|| Duration::from_secs_f64(1.0 / (rate.as_f64().max(1.0) * REVERSE_PACE)));
         let fps = rate.as_f64() * speed.abs().max(1.0) / step as f64;
         let (lead, stride) = if preroll { (1, 1) } else { playback_plan(self.render_cost(), fps, self.shared.workers) };
+        // when a frame `ahead` display frames from the playhead is due
+        let now = now_us();
+        let frame_us = 1e6 / (rate.as_f64() * speed.abs().max(1e-3));
+        let due = |ahead: i64| now.saturating_add((ahead.max(0) as f64 * frame_us) as u64);
         if lead <= 1 {
             // the frame due now; once the clock runs, the frames before it are late
-            self.request_job(key, rate.tick_of(key.frame), scale, project, 0, false, (!preroll && dir > 0).then_some(Tick::ZERO));
+            self.request_job(key, rate.tick_of(key.frame), scale, project, 0, false, (!preroll && dir > 0).then_some(Tick::ZERO), skim, pace, now);
         }
-        let ahead = prefetch_depth(speed);
+        let ahead = prefetch_depth(speed, step);
         for i in 0..ahead {
             let f = key.frame + (lead + i * stride) * dir * step;
             if f >= 0 {
                 // forward play: frames before the playhead are late (reverse play skips nothing)
                 let late = (!preroll && dir > 0).then(|| rate.tick_of(f) - rate.tick_of(key.frame));
-                self.request_job(FrameKey { frame: f, ..key }, rate.tick_of(f), scale, project, i as u32 + 1, true, late);
+                self.request_job(
+                    FrameKey { frame: f, ..key },
+                    rate.tick_of(f),
+                    scale,
+                    project,
+                    i as u32 + 1,
+                    true,
+                    late,
+                    skim,
+                    pace,
+                    due((f - key.frame).abs()),
+                );
             }
         }
         let (target, rev, cur) = (key.target, key.revision, key.frame);
+        if !preroll {
+            self.shared.plans.lock().unwrap_or_else(|e| e.into_inner()).retire_passed(target, cur, dir, 2 * step);
+        }
         let span = (lead + ahead * stride) * step + 26;
-        self.retain_queue(|k| k.target != target || (k.revision == rev && (k.frame - cur) * dir >= 0 && (k.frame - cur).abs() < span));
+        // (skimming: frames of another grid, queued before the step changed, are not shown)
+        self.retain_queue(|k| {
+            k.target != target
+                || (k.revision == rev && (k.frame - cur) * dir >= 0 && (k.frame - cur).abs() < span && (step == 1 || k.frame.rem_euclid(step) == 0))
+        });
     }
 
     /// Whether playback can start at `key`: the next [`PREROLL_FRAMES`] frames (up to `last`)
-    /// are ready.
+    /// are ready ([`REVERSE_PREROLL_FRAMES`] backwards at normal speed).
     pub fn preroll_ready(&self, key: FrameKey, speed: f64, last: i64) -> bool {
-        let step = (speed.abs().max(1.0) as i64) * if speed < 0.0 { -1 } else { 1 };
-        (0..PREROLL_FRAMES).map(|i| key.frame + i * step).filter(|f| *f >= 0 && *f <= last).all(|f| self.is_ready(&FrameKey { frame: f, ..key }))
+        let step = self.playback_step(key.target, speed) * if speed < 0.0 { -1 } else { 1 };
+        let n = if speed < 0.0 && step == -1 { REVERSE_PREROLL_FRAMES } else { PREROLL_FRAMES };
+        (0..n).map(|i| key.frame + i * step).filter(|f| *f >= 0 && *f <= last).all(|f| self.is_ready(&FrameKey { frame: f, ..key }))
+    }
+
+    /// Timeline frames between the frames playback of `target` at `speed` shows
+    /// ([`SkimControl`]).
+    pub fn playback_step(&self, target: Target, speed: f64) -> i64 {
+        self.shared.skim.lock().unwrap_or_else(|e| e.into_inner()).entry(target).or_default().step(speed)
+    }
+
+    /// The frame playback of `target` at `speed` shows while `frame` is under the playhead:
+    /// every frame up to 1×, the frames of the skimming grid above (and backwards above 1×).
+    pub fn playback_frame(&self, target: Target, frame: i64, speed: f64) -> i64 {
+        SkimControl::snap(frame, self.playback_step(target, speed))
     }
 
     /// The current per-frame render cost estimate (s), see [`playback_plan`].
@@ -693,6 +987,11 @@ pub struct PlaybackMeter {
 impl PlaybackMeter {
     pub fn start(&mut self, speed: f64) {
         *self = Self { step: (speed.abs().max(1.0) as i64) * if speed < 0.0 { -1 } else { 1 }, ..Default::default() };
+    }
+
+    /// Playback now shows every `step`-th frame (skimming, [`SkimControl`]); the direction stays.
+    pub fn set_step(&mut self, step: i64) {
+        self.step = step.max(1) * if self.step < 0 { -1 } else { 1 };
     }
 
     /// Record one display refresh: `frame` is due now and `exact` says whether it is on screen.
@@ -832,24 +1131,30 @@ fn run_job(sh: &Shared, job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Ser
     let mut loading = false;
     let preview = filmcraft_media::cancel::with_cancel(&job.cancel, || {
         filmcraft_media::cancel::with_catch_up(job.catch_up, || {
-            filmcraft_media::cancel::with_draft(job.key.draft, || {
-                if let Target::SequencePlan(seq) = job.key.target {
-                    let (plan, pv) = plan_job(job, seq, pool, services, previews);
-                    loading = filmcraft_media::pending::take();
-                    if !job.cancel.load(Ordering::Relaxed) && !loading {
-                        // Convert texels for upload here, not on the UI thread when the frame is shown.
-                        let prepared = filmcraft_gpu::prepare(&plan);
-                        sh.plans.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, GpuPlan { plan, prepared });
-                    }
-                    pv
-                } else {
-                    let (img, pv) = render_job(job, pool, services, previews);
-                    loading = filmcraft_media::pending::take();
-                    if !job.cancel.load(Ordering::Relaxed) && !loading {
-                        sh.done.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, Arc::new(img));
-                    }
-                    pv
-                }
+            filmcraft_media::cancel::with_skim(job.skim, || {
+                filmcraft_media::cancel::with_pace(job.pace, || {
+                    filmcraft_media::cancel::with_deadline(job.deadline, || {
+                        filmcraft_media::cancel::with_draft(job.key.draft, || {
+                            if let Target::SequencePlan(seq) = job.key.target {
+                                let (plan, pv) = plan_job(job, seq, pool, services, previews);
+                                loading = filmcraft_media::pending::take();
+                                if !job.cancel.load(Ordering::Relaxed) && !loading {
+                                    // Convert texels for upload here, not on the UI thread when the frame is shown.
+                                    let prepared = filmcraft_gpu::prepare(&plan);
+                                    sh.plans.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, GpuPlan { plan, prepared });
+                                }
+                                pv
+                            } else {
+                                let (img, pv) = render_job(job, pool, services, previews);
+                                loading = filmcraft_media::pending::take();
+                                if !job.cancel.load(Ordering::Relaxed) && !loading {
+                                    sh.done.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, Arc::new(img));
+                                }
+                                pv
+                            }
+                        })
+                    })
+                })
             })
         })
     });
@@ -978,7 +1283,106 @@ fn render_job(job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>, pr
 
 #[cfg(test)]
 mod tests {
-    use super::{PlaybackMeter, playback_plan};
+    use super::{PlaybackMeter, SkimControl, playback_plan};
+    use web_time::Instant;
+
+    /// Feed `n` refreshes of consecutive grid frames from `from`, each `ready` or not, 20 ms
+    /// apart from `t0`; returns the step in force after.
+    fn feed(c: &mut SkimControl, speed: f64, from: i64, n: i64, ready: bool, ahead: bool, t0: Instant) -> i64 {
+        let mut step = c.step(speed);
+        let mut f = from;
+        for i in 0..n {
+            step = c.refresh(speed, f, ready, ahead, t0 + std::time::Duration::from_millis(20 * i as u64));
+            f += step;
+        }
+        step
+    }
+
+    #[test]
+    fn skimming_starts_at_the_natural_step_and_snaps_to_its_grid() {
+        assert_eq!([0.5, 1.0, -1.0, 2.0, -2.0, 4.0, 8.0].map(SkimControl::base_step), [1, 1, 1, 2, 2, 4, 8]);
+        assert_eq!([SkimControl::snap(7, 1), SkimControl::snap(7, 2), SkimControl::snap(29, 15), SkimControl::snap(-3, 4)], [7, 6, 15, -4]);
+        assert_eq!([1, 2, 3, 4, 15, 30].map(SkimControl::tolerance), [0, 1, 1, 2, 7, 15]);
+        // normal speed and slower never skip, whatever happens
+        let mut c = SkimControl::default();
+        assert_eq!(feed(&mut c, 1.0, 0, 40, false, false, Instant::now()), 1);
+        assert_eq!(feed(&mut c, -1.0, 100, 40, false, false, Instant::now()), 1);
+    }
+
+    #[test]
+    fn skimming_steps_up_when_frames_are_late_and_back_down_when_calm() {
+        let mut c = SkimControl::default();
+        let t0 = Instant::now();
+        assert_eq!(c.step(4.0), 4);
+        // three late grid frames in a row: one rung up
+        let up = feed(&mut c, 4.0, 0, 4, false, false, t0);
+        assert_eq!(up, 5);
+        // still late while the new step settles: far behind (6 of 8 late) once it has settled,
+        // two rungs at once
+        assert_eq!(feed(&mut c, 4.0, 100, 9, false, false, t0 + std::time::Duration::from_millis(100)), 5);
+        let t1 = t0 + super::SKIM_SETTLE + std::time::Duration::from_millis(200);
+        let far = feed(&mut c, 4.0, 200, 1, false, false, t1);
+        assert_eq!(far, 8);
+        // calm with frames ready well ahead: one rung down (not below the natural step)
+        let t2 = t1 + std::time::Duration::from_secs(1);
+        let calm = feed(&mut c, 4.0, 1000, super::SKIM_CALM as i64 + 2, true, true, t2);
+        assert!(calm < far && calm >= 4, "{calm} after {far}");
+        // remembered for the next time the speed is played
+        let mut again = SkimControl { remembered: c.remembered.clone(), ..Default::default() };
+        assert_eq!(again.step(4.0), calm);
+        // a step down that has to be undone makes the next one wait twice as long
+        let t3 = t2 + std::time::Duration::from_secs(5);
+        feed(&mut c, 4.0, 5000, 4, false, false, t3);
+        assert_eq!(c.calm, super::SKIM_CALM * 2);
+    }
+
+    #[test]
+    fn reverse_playback_prefetches_more_than_a_gop() {
+        assert!(super::prefetch_depth(-1.0, 1) >= 35);
+        assert_eq!(super::prefetch_depth(-2.0, 2) * 2, super::REVERSE_PREFETCH);
+        assert_eq!(super::prefetch_depth(1.0, 1), 14);
+        assert_eq!(super::prefetch_depth(4.0, 15), 12);
+        assert!(super::preroll_timeout(-1.0) > super::preroll_timeout(1.0));
+    }
+
+    #[test]
+    fn plans_playback_has_passed_are_evicted_first() {
+        let mut c = super::PlanCache::default();
+        let key = |frame| super::FrameKey { target: super::Target::SequencePlan(filmcraft_project::ItemId(1)), frame, size: 1000, revision: 0, draft: false };
+        let plan = || super::GpuPlan {
+            plan: filmcraft_render::plan::FramePlan::Image(filmcraft_render::Image::new(1, 1)),
+            prepared: filmcraft_gpu::PreparedPlan::default(),
+        };
+        // reverse playback at frame 100: 40 frames prefetched below it, made first
+        for f in (60..100).rev() {
+            c.insert(key(f), plan());
+        }
+        // then the frames shown, playing down from 160 (each used as it is shown)
+        for f in (100..160).rev() {
+            c.insert(key(f), plan());
+            let _ = c.get(&key(f));
+            c.retire_passed(key(0).target, f, -1, 2);
+        }
+        c.insert(key(59), plan());
+        assert!((59..100).all(|f| c.map.contains_key(&key(f))), "the frames still to be shown stay");
+        assert!(c.map.len() <= super::PlanCache::MAX);
+        // of the frames shown, only the few nearest the playhead are kept
+        let passed = (101..160).filter(|f| c.map.contains_key(&key(*f))).count();
+        assert!(passed <= super::KEEP_PASSED + 2, "{passed} passed plans kept");
+    }
+
+    #[test]
+    fn meter_follows_the_skimming_step() {
+        let mut m = PlaybackMeter::default();
+        m.start(-4.0);
+        m.set_step(15);
+        for f in [150, 135, 120, 90] {
+            m.refresh(f, true);
+        }
+        m.finish();
+        // 105 was passed over without a refresh
+        assert_eq!((m.shown, m.dropped), (4, 1));
+    }
 
     /// Threads of this process whose name starts with `prefix` (Linux).
     #[cfg(target_os = "linux")]

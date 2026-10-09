@@ -21,6 +21,7 @@ pub mod panels;
 pub mod perf;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod play_ahead;
+pub mod shuttle_audio;
 pub mod state;
 pub mod theme;
 pub mod widgets;
@@ -764,7 +765,8 @@ impl FilmcraftApp {
 
     fn start_audio(&mut self) {
         let speed = self.playback.speed;
-        if (speed - 1.0).abs() > 1e-9 {
+        // normal speed, and shuttling (JKL) up to 2× either way, tape-style
+        if !shuttle_audio::audible(speed) {
             if let Some(a) = self.audio.as_mut() {
                 a.stop();
             }
@@ -775,7 +777,7 @@ impl FilmcraftApp {
         let Some(a) = self.audio.as_mut() else { return };
         let sr = a.sample_rate();
         let cursor = start_tick.to_units_floor(sr as i64);
-        let mix = playback_mix(&self.session, seq_id, sr);
+        let mix = shuttle_audio::varispeed(playback_mix(&self.session, seq_id, sr), cursor, speed);
         // the old stream stops before the new mixer resets the underrun counters
         a.stop();
         // Desktop: mix ahead on a thread so the device callback never waits on decoding.
@@ -806,7 +808,7 @@ impl FilmcraftApp {
         if let Some(since) = self.playback.preroll {
             let since = if since < 0.0 { now } else { since };
             self.playback.preroll = Some(since);
-            if self.playback.preroll_ready || now - since >= frames::PREROLL_TIMEOUT_S {
+            if self.playback.preroll_ready || now - since >= frames::preroll_timeout(self.playback.speed) {
                 self.end_preroll(now);
             } else {
                 ctx.request_repaint();

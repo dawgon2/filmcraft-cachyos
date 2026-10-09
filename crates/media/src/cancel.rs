@@ -10,6 +10,12 @@
 //! (playback has passed them): a decoder that has to decode forward to the frame may skip
 //! pictures that only produce late frames and that nothing else references.
 //!
+//! [`with_skim`] says playback steps over frames (fast forward or reverse): a nearby picture will
+//! do, and pictures only unrequested frames need can be left out.
+//!
+//! [`with_deadline`] says when the frame being worked on is due (playback): shared hardware decoders
+//! serve the most urgent work first (`filmcraft_codecs::hwgate`).
+//!
 //! [`with_draft`] marks reduced-resolution playback (opt-in): decoders may take spec-safe
 //! shortcuts that only change pictures nothing references (H.264: no deblocking of non-reference
 //! pictures). Never set for exports, renders or a frame shown while paused.
@@ -17,6 +23,7 @@
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use filmcraft_time::Tick;
 
@@ -24,6 +31,57 @@ thread_local! {
     static CURRENT: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
     static CATCH_UP: Cell<Option<Tick>> = const { Cell::new(None) };
     static DRAFT: Cell<bool> = const { Cell::new(false) };
+    static DEADLINE: Cell<u64> = const { Cell::new(u64::MAX) };
+    static SKIM: Cell<Option<Tick>> = const { Cell::new(None) };
+    static PACE: Cell<Option<Duration>> = const { Cell::new(None) };
+}
+
+/// Run `f` with the hardware-decode pace `interval` (restoring the previous one after): a source
+/// decoding many pictures for the frame (reverse playback decodes a GOP at a time) submits
+/// pictures to a hardware decoder no faster than one per `interval`, where it has time to spare.
+/// A video engine running flat out made the GPU's compositing wait 40–100 ms per frame on an
+/// RX 6700 XT (Mesa radeonsi, VCN 3); paced, it did not.
+pub fn with_pace<R>(interval: Option<Duration>, f: impl FnOnce() -> R) -> R {
+    let prev = PACE.with(|c| c.replace(interval));
+    let r = f();
+    PACE.with(|c| c.set(prev));
+    r
+}
+
+/// The hardware-decode pace of the work running on this thread (None: as fast as it goes).
+pub fn pace() -> Option<Duration> {
+    PACE.with(Cell::get)
+}
+
+/// Run `f` with the skimming hint `tolerance` (restoring the previous one after): playback steps
+/// over frames (fast forward, fast reverse), so any frame within `tolerance` of the requested
+/// time will do, and a decoder may leave out every picture that only produces frames nobody
+/// asked for. Measured in media time at normal speed, like [`with_catch_up`].
+pub fn with_skim<R>(tolerance: Option<Tick>, f: impl FnOnce() -> R) -> R {
+    let prev = SKIM.with(|c| c.replace(tolerance));
+    let r = f();
+    SKIM.with(|c| c.set(prev));
+    r
+}
+
+/// The skimming tolerance of the work running on this thread (None: the exact frame).
+pub fn skim() -> Option<Tick> {
+    SKIM.with(Cell::get)
+}
+
+/// Run `f` with the deadline `due` (restoring the previous one after): when the frame it works for
+/// is due, in microseconds of the caller's clock (smaller = more urgent; the same clock for all
+/// work that competes for a decoder). Work without a deadline comes last.
+pub fn with_deadline<R>(due: u64, f: impl FnOnce() -> R) -> R {
+    let prev = DEADLINE.with(|c| c.replace(due));
+    let r = f();
+    DEADLINE.with(|c| c.set(prev));
+    r
+}
+
+/// The deadline of the work running on this thread (`u64::MAX`: none).
+pub fn deadline() -> u64 {
+    DEADLINE.with(Cell::get)
 }
 
 /// Run `f` with the draft-decoding hint `on` (restoring the previous one after). Frames decoded
@@ -106,5 +164,26 @@ mod tests {
             assert_eq!(catch_up(), Some(Tick(5)));
         });
         assert_eq!(catch_up(), None);
+    }
+
+    #[test]
+    fn pace_is_scoped_to_the_closure() {
+        assert_eq!(pace(), None);
+        with_pace(Some(Duration::from_millis(5)), || {
+            assert_eq!(pace(), Some(Duration::from_millis(5)));
+            with_pace(None, || assert_eq!(pace(), None));
+        });
+        assert_eq!(pace(), None);
+    }
+
+    #[test]
+    fn skim_is_scoped_to_the_closure() {
+        assert_eq!(skim(), None);
+        with_skim(Some(Tick(7)), || {
+            assert_eq!(skim(), Some(Tick(7)));
+            with_skim(None, || assert_eq!(skim(), None));
+            assert_eq!(skim(), Some(Tick(7)));
+        });
+        assert_eq!(skim(), None);
     }
 }

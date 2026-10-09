@@ -73,17 +73,23 @@ pub enum GpuFormat {
     P010,
 }
 
+/// A buffer object of a DMA-BUF export: an owned file descriptor on Unix (none can exist elsewhere).
+#[cfg(unix)]
+pub type DmaBufObject = std::os::fd::OwnedFd;
+#[cfg(not(unix))]
+pub type DmaBufObject = std::convert::Infallible;
+
 /// One plane of a DMA-BUF export.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DmaBufPlane {
-    /// The buffer object's file descriptor, valid while the surface lives (importers duplicate it).
-    pub fd: i32,
+    /// Index of the buffer object holding the plane in [`DmaBuf::objects`].
+    pub object: usize,
     pub offset: u32,
     pub pitch: u32,
 }
 
 /// A picture's memory as Linux DMA-BUFs (one single-plane layer per picture plane: luma, chroma).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct DmaBuf {
     /// DRM fourcc of each layer (`R16` / `GR32` for P010, `R8` / `GR88` for NV12).
     pub layer_formats: [u32; 2],
@@ -94,8 +100,9 @@ pub struct DmaBuf {
     /// Coded size in luma samples.
     pub width: u32,
     pub height: u32,
-    /// Total size of the buffer object (bytes).
-    pub size: u64,
+    /// The buffer objects, open for as long as this description (or a clone) lives; importers
+    /// duplicate them. Owned descriptors: a description cannot name an fd it does not own.
+    pub objects: std::sync::Arc<[DmaBufObject]>,
 }
 
 /// A decoded picture held in GPU memory (see [`PixelData::Gpu`]). Implemented by the platform
@@ -229,9 +236,11 @@ impl VideoFrame {
     /// A planar Y'CbCr frame reduced by `n` (2, 4, 8…) in each direction: every sample (luma,
     /// chroma at its own resolution, alpha) is the rounded mean of an `n`×`n` block, chroma format
     /// and bit depth unchanged. Reduced-resolution playback hands the GPU this instead of the full
-    /// picture (a quarter / sixteenth of the upload). None for RGBA frames or `n` < 2.
+    /// picture (a quarter / sixteenth of the upload). None for RGBA frames or `n` < 2, and for
+    /// GPU-resident frames: they would be read back to memory to be filtered, where the GPU
+    /// scales them for nothing while drawing.
     pub fn box_decimated(&self, n: usize) -> Option<VideoFrame> {
-        if n < 2 {
+        if n < 2 || matches!(self.data, PixelData::Gpu(_)) {
             return None;
         }
         if let Some(p) = self.to_planar() {
@@ -668,6 +677,54 @@ fn rotate_chroma<T: Copy + Default + Send + Sync>(planes: &[Arc<Vec<T>>; 3], chr
 
 #[cfg(test)]
 mod tests {
+
+    /// A GPU-resident picture that counts how often it is read back.
+    #[derive(Debug, Default)]
+    struct Surface {
+        downloads: std::sync::atomic::AtomicUsize,
+        alive: Arc<()>,
+    }
+
+    impl GpuSurface for Surface {
+        fn memory_id(&self) -> u64 {
+            1
+        }
+        fn liveness(&self) -> std::sync::Weak<()> {
+            Arc::downgrade(&self.alive)
+        }
+        fn format(&self) -> GpuFormat {
+            GpuFormat::P010
+        }
+        fn coded_size(&self) -> (u32, u32) {
+            (8, 8)
+        }
+        fn crop_origin(&self) -> (u32, u32) {
+            (0, 0)
+        }
+        fn dmabuf(&self) -> Option<DmaBuf> {
+            None
+        }
+        fn download(&self, width: u32, height: u32) -> Result<PixelData, String> {
+            self.downloads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let n = (width * height) as usize;
+            Ok(PixelData::Yuv16Bi { y: Arc::new(vec![0; n]), uv: Arc::new(vec![0; n / 2]), chroma: Chroma::C420, bits: 10 })
+        }
+        fn gpu_bytes(&self) -> usize {
+            96
+        }
+    }
+
+    #[test]
+    fn reduced_resolution_never_reads_gpu_frames_back() {
+        let surface = Arc::new(Surface::default());
+        let f = VideoFrame { width: 8, height: 8, data: PixelData::Gpu(surface.clone()), color: ColorInfo::REC709, par: (1, 1), pts: Tick::ZERO };
+        assert!(f.box_decimated(2).is_none());
+        assert!(f.box_decimated(4).is_none());
+        assert_eq!(surface.downloads.load(std::sync::atomic::Ordering::Relaxed), 0);
+        // (the CPU paths still can, explicitly)
+        assert!(f.to_planar().is_some());
+        assert_eq!(surface.downloads.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
 
     fn p010(w: u32, h: u32, y: Vec<u16>, uv: Vec<u16>, chroma: Chroma) -> VideoFrame {
         VideoFrame {

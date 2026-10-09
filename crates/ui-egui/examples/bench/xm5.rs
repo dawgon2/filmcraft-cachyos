@@ -313,8 +313,20 @@ fn play_row(name: &str, r: &PlayReport, fps: f64, smp: &Sampled, adapter: &str) 
     }
     v["decode_vram_mb"] = json!(filmcraft_codecs::vram_usage().0 as f64 / 1e6);
     v["load"] = json!(r.load);
+    v["steps"] = json!(r.steps);
+    v["gap_ms"] = json!({"p50": playback::pct(&r.gaps, 0.5), "p95": playback::pct(&r.gaps, 0.95), "max": r.gaps.iter().copied().fold(0.0, f64::max)});
+    if r.steps.iter().any(|s| *s > 1) || r.label.contains("jkl") {
+        eprintln!(
+            "xm5 {name}: steps {:?}, new picture every p50 {:.0} / p95 {:.0} / max {:.0} ms ({} pictures)",
+            r.steps,
+            playback::pct(&r.gaps, 0.5),
+            playback::pct(&r.gaps, 0.95),
+            r.gaps.iter().copied().fold(0.0, f64::max),
+            r.gaps.len() + 1
+        );
+    }
     eprintln!(
-        "xm5 {name}: {}/{} shown/dropped, CPU {:.1} ms/frame, GPU {:.0} %, VRAM {:.0} MB, RSS {:.0} MB, VA surfaces {}, cache VRAM {:.0} MB (load {})",
+        "xm5 {name}: {}/{} shown/dropped, CPU {:.1} ms/frame, GPU {:.0} %, VRAM {:.0} MB, RSS {:.0} MB, VA surfaces {}, cache VRAM {:.0} MB, GOP seeks {} decoded {} skipped {} evicted {} (load {})",
         r.shown,
         r.dropped,
         r.process_cpu / frames,
@@ -323,6 +335,10 @@ fn play_row(name: &str, r: &PlayReport, fps: f64, smp: &Sampled, adapter: &str) 
         smp.rss_max_mb,
         v["va_surfaces"],
         filmcraft_codecs::vram_usage().0 as f64 / 1e6,
+        r.gop.seeks,
+        r.gop.decoded,
+        r.gop.skipped,
+        r.gop.evicted,
         r.load
     );
     v
@@ -330,10 +346,24 @@ fn play_row(name: &str, r: &PlayReport, fps: f64, smp: &Sampled, adapter: &str) 
 
 /// Play `secs` of `seq` at `speed` from `start` (Program monitor at Full, GPU path).
 fn play(s: &Session, seq: ItemId, o: &Opts, name: &str, secs: f64, speed: f64, start: Tick, rows: &mut Vec<Value>) {
+    play_after(s, seq, o, name, secs, speed, start, None, rows);
+}
+
+/// [`play`], first playing 3 s at the same speed from `warm_from` (another part of the timeline)
+/// with the same frame server: as the app plays a speed it has played before (it remembers the
+/// skimming step per speed).
+#[allow(clippy::too_many_arguments)]
+fn play_after(s: &Session, seq: ItemId, o: &Opts, name: &str, secs: f64, speed: f64, start: Tick, warm_from: Option<Tick>, rows: &mut Vec<Value>) {
     let fps = s.project.sequence(seq).map(|q| q.settings.frame_rate.as_f64()).unwrap_or(29.97);
     let mut bench = new_bench(s, secs);
     bench.speed = speed;
     let mut display = Display::new(o.gpu);
+    if let Some(from) = warm_from {
+        bench.seconds = 3.0;
+        let _ = bench.play(s, seq, &mut display, 1.0, from, "warm-up");
+        bench.server.stop_prefetch();
+        bench.seconds = secs;
+    }
     let smp = Sampler::start();
     let r = bench.play(s, seq, &mut display, 1.0, start, name);
     let smp = smp.finish();
@@ -349,7 +379,31 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
     if o.wants("decode") {
         rows.extend(decode(o));
     }
-    if o.wants("play-full") || o.wants("play-graded") || o.wants("jkl") {
+    if o.only.as_deref().is_some_and(|x| x.contains("open")) {
+        // cold source open + first frame per clip (what a cut to a clip not used yet costs)
+        let mut s = Session::default();
+        for name in [PLAY, P2398, CLIP_B, LONG] {
+            let Some(id) = import(&mut s, name) else { continue };
+            let t0 = Instant::now();
+            let src = s.media.source_for(&s.project, id, s.services.as_ref());
+            let opened = ms(t0.elapsed());
+            let t1 = Instant::now();
+            let ok =
+                src.as_ref().map(|x| x.video_frame(filmcraft_media::FrameRequest::full(Tick::from_seconds_f64(1.0))).map(|_| ()).map_err(|e| e.to_string()));
+            eprintln!("open {name}: source {opened:.0} ms, first frame {:.0} ms ({ok:?})", ms(t1.elapsed()));
+        }
+    }
+    // (`--only jkl` runs all four JKL cases, `--only "jkl J 1x"` one of them)
+    // (name, speed, from (s), warm-up from (s): the speed played before elsewhere)
+    const JKL: [(&str, f64, f64, Option<f64>); 6] = [
+        ("xm5-jkl L 2x", 2.0, 0.0, None),
+        ("xm5-jkl L 4x", 4.0, 0.0, None),
+        ("xm5-jkl L 4x warm", 4.0, 0.0, Some(45.0)),
+        ("xm5-jkl J 1x", -1.0, 50.0, None),
+        ("xm5-jkl J 2x", -2.0, 50.0, None),
+        ("xm5-jkl J 2x warm", -2.0, 50.0, Some(15.0)),
+    ];
+    if o.wants("play-full") || o.wants("play-half-draft") || o.wants("play-graded") || JKL.iter().any(|(name, ..)| o.wants(name)) {
         let mut s = Session::default();
         if let Some(a) = import(&mut s, PLAY) {
             let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, 60.0)], true);
@@ -357,12 +411,22 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
                 if o.wants("play-full") {
                     play(&s, seq, o, "xm5-play-full", play_s, 1.0, Tick::ZERO, &mut rows);
                 }
-                if o.wants("jkl") {
-                    let secs = if o.quick { 4.0 } else { 10.0 };
-                    play(&s, seq, o, "xm5-jkl L 2x", secs, 2.0, Tick::ZERO, &mut rows);
-                    play(&s, seq, o, "xm5-jkl L 4x", secs, 4.0, Tick::ZERO, &mut rows);
-                    play(&s, seq, o, "xm5-jkl J 1x", secs, -1.0, Tick::from_seconds_f64(50.0), &mut rows);
-                    play(&s, seq, o, "xm5-jkl J 2x", secs, -2.0, Tick::from_seconds_f64(50.0), &mut rows);
+                if o.wants("play-half-draft") {
+                    // Program monitor at 1/2 with Settings ▸ Playback ▸ Draft decoding (the GPU
+                    // scales hardware frames: no more CPU work than at Full)
+                    let fps = s.project.sequence(seq).map(|q| q.settings.frame_rate.as_f64()).unwrap_or(29.97);
+                    let mut bench = new_bench(&s, play_s);
+                    bench.draft = true;
+                    let mut display = Display::new(o.gpu);
+                    let smp = Sampler::start();
+                    let r = bench.play(&s, seq, &mut display, 0.5, Tick::ZERO, "xm5-play-half-draft");
+                    rows.push(play_row("xm5-play-half-draft", &r, fps, &smp.finish(), &display.adapter));
+                }
+                let secs = if o.quick { 4.0 } else { 10.0 };
+                for (name, speed, from, warm) in JKL {
+                    if o.wants(name) {
+                        play_after(&s, seq, o, name, secs, speed, Tick::from_seconds_f64(from), warm.map(Tick::from_seconds_f64), &mut rows);
+                    }
                 }
             }
             if o.wants("play-graded") {

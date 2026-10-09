@@ -176,3 +176,54 @@ pulled → software (13.7 fps); Vulkan import off → read-back path (240/0, qui
 | `xm5-scrub` p95 ≤ 1.5 × one-GOP decode (≈ 30 / 41 fps = 0.73 s → 1.1 s) | **743 ms** ✓ |
 | 2-hour soak: no VRAM / RAM growth | ✓ |
 | hardware path pulled → clean fallback | ✓ (Settings Off, device pulled, mid-stream failure, import off) |
+
+## Phase 3.2: JKL (synthetic, `--only jkl`, 10 s per case)
+
+`bench --section xm5 --only jkl` (10 s per case, not `--quick`), 2026-10-08, kernel
+7.2.4-1-cachyos, load 4–6 (the machine's load average stayed at 3–5 all day with nothing else
+running). Result file `target/bench/xm5-phase3.2-jkl.json`. **Synthetic** (x265 `ultrafast`
+open GOP, CRA + RASL, keyint 30, ~51 % reference pictures). "warm" = the same speed played
+before elsewhere with the same frame server: the app remembers the skimming step per speed.
+"New picture every" = time between successive new pictures on screen (cadence; the max is
+the longest stall). Before = HEAD `08e41d6` (quick pass, 4 s per case).
+
+| case | before (4 s) | **after** shown / dropped | step(s) | new picture every p50 / p95 / max |
+|---|---|---|---|---|
+| L 2× | 50 / 189 | **299 / 1** | 2 (every other frame) | 33 / 34 / 66 ms |
+| L 4× (cold) | 2 / 238 | 112 / 34 | 4 → 10–12 | 93 / 184 / 733 ms |
+| L 4× warm | – | **95 / 10** | 10–12 | 100 / 166 / 268 ms |
+| J 1× | 44 / 76 | **296 / 4** (start-up only) | 1 | 33 / 52 / 100 ms |
+| J 2× (cold) | 38 / 202 | 96 / 32 | 2 → 12 | 67 / 251 / 338 ms |
+| J 2× warm | – | **70 / 10** | 6–8 | 133 / 202 / 300 ms |
+
+"Dropped" above 1× counts frames of the skimming grid that were not ready while due; frames the
+grid steps over on purpose are not counted. Unchanged by the step (A/B against `08e41d6` on the
+same machine, quick): `xm5-play-full` 240 / 0; `xm5-multicut` 309–311 / 49–51 before, 316–324 /
+36–44 after; `xm5-scrub` p95 776–844 ms before, 776 ms after.
+
+## Phase 3.3: reduced resolution without CPU work (synthetic, quick)
+
+`bench --section xm5 --only play- --quick`, 2026-10-08. `xm5-play-half-draft`: Program monitor at
+1/2 with Settings ▸ Playback ▸ Draft decoding on.
+
+| case | before (fix reverted) | after |
+|---|---|---|
+| `xm5-play-half-draft` | 7 / 233, 105.8 ms CPU/frame, RSS 1.2 GB | **240 / 0, 1.9 ms CPU/frame**, RSS 0.2 GB |
+| `xm5-play-full` (reference) | 240 / 0, 2.1 ms | 240 / 0, 2.1 ms |
+
+## Phase 3 acceptance (synthetic, quick pass + real app)
+
+Quick pass `target/bench/xm5-phase3-quick-*.json` (4 s JKL cases), the 10 s JKL run of Phase 3.2,
+and the real app over the control channel (Phase 3.4: 10 minutes at 1×). After the passed-plans
+cap (`7373135`): multicut VRAM 9.1 GB, play-full 4.8 GB.
+
+| check | result |
+|---|---|
+| `xm5-jkl` 1× forward drops nothing | 240 / 0 (bench); app 10 min: 17 978 / 4, all 4 in the first seconds ✓ (start-up noted) |
+| `xm5-jkl` 1× reverse drops nothing | 120 / 1 (4 s), 296 / 4 (10 s), app 64 / 0 and 99 / 0: steady state 0, 1–4 at start-up ✓ (noted) |
+| 2× steady, gracefully skipping | L 2× 299 / 1, a new picture every 33 ms; J 2× warm max gap 0.3–0.5 s ✓ |
+| 4× steady, gracefully skipping, no stalls | warm: step 10–12, max gap 0.27–0.30 s; cold: one ~0.5–0.7 s settling pause ✓ |
+| no audio glitches | shuttle audio ≤ 2× on the audio clock, 0 underruns ✓ |
+| audio underruns = 0 over 10 minutes | **0** (56 247 callbacks) ✓ |
+| reduced resolution adds no CPU work | 1/2 + draft: 2.0 ms CPU/frame (Full 2.0) ✓ |
+| `cargo xtask ci` | green (`22d0e02`) ✓ |

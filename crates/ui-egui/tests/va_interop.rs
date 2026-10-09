@@ -77,3 +77,86 @@ fn imported_frames_draw_exactly_as_read_back_frames() {
     }
     eprintln!("{checked} frames checked");
 }
+
+/// A real picture's export, altered.
+#[derive(Debug)]
+struct Altered {
+    inner: Arc<dyn filmcraft_frame::GpuSurface>,
+    id: u64,
+    alter: fn(&mut filmcraft_frame::DmaBuf),
+}
+
+impl filmcraft_frame::GpuSurface for Altered {
+    fn memory_id(&self) -> u64 {
+        self.id
+    }
+    fn liveness(&self) -> std::sync::Weak<()> {
+        self.inner.liveness()
+    }
+    fn format(&self) -> filmcraft_frame::GpuFormat {
+        self.inner.format()
+    }
+    fn coded_size(&self) -> (u32, u32) {
+        self.inner.coded_size()
+    }
+    fn crop_origin(&self) -> (u32, u32) {
+        self.inner.crop_origin()
+    }
+    fn dmabuf(&self) -> Option<filmcraft_frame::DmaBuf> {
+        let mut d = self.inner.dmabuf()?;
+        (self.alter)(&mut d);
+        Some(d)
+    }
+    fn download(&self, width: u32, height: u32) -> Result<PixelData, String> {
+        self.inner.download(width, height)
+    }
+    fn gpu_bytes(&self) -> usize {
+        self.inner.gpu_bytes()
+    }
+}
+
+/// Unsafe-code review (FORK-PLAN §1a.5): a DMA-BUF description that names a missing buffer object,
+/// has several memory planes in a layer, or does not match the picture's format is refused (the
+/// frame is read back instead) rather than handed to Vulkan. Descriptions own their fds (round 2),
+/// so a closed or foreign fd can no longer be expressed; an fd of -1 panicked before round 1.
+#[test]
+fn hostile_dmabuf_descriptions_are_refused() {
+    let Some((dev, _q)) = device() else {
+        eprintln!("no Vulkan adapter with DMA-BUF import; skipped");
+        return;
+    };
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/fixtures/platform/hevc_main10.mp4");
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!("fixture missing; skipped");
+        return;
+    };
+    let file = filmcraft_isobmff::open(bytes.clone()).expect("mp4");
+    let t = file.track_of_kind(filmcraft_isobmff::TrackKind::Video).expect("video");
+    let track = &file.tracks[t];
+    let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(&track.entries[0]).expect("hvcC").expect("info");
+    let Ok(mut dec) = filmcraft_platform::va_hevc::NativeVaDecoder::new(info) else {
+        eprintln!("no in-process VA-API; skipped");
+        return;
+    };
+    let mut frames = Vec::new();
+    for i in 0..track.samples.len().min(4) {
+        let s = file.read_sample(&bytes, t, i).expect("sample");
+        frames.extend(dec.decode(&s, track.samples[i].pts).expect("decode"));
+    }
+    frames.extend(dec.flush());
+    let Some(PixelData::Gpu(real)) = frames.first().map(|f| f.frame.data.clone()) else { panic!("no GPU frame") };
+    let mut importer = filmcraft_gpu::interop::Importer::new(&dev).expect("importer");
+    let alterations: [fn(&mut filmcraft_frame::DmaBuf); 5] = [
+        |d| d.layers.iter_mut().flatten().for_each(|p| p.object = 99),
+        |d| d.objects = std::sync::Arc::from(Vec::new()),
+        |d| d.layer_formats.swap(0, 1),
+        |d| d.layers[1].clear(),
+        |d| d.layers[0] = vec![d.layers[0][0]; 2],
+    ];
+    for (i, alter) in alterations.into_iter().enumerate() {
+        let bad = Altered { inner: real.clone(), id: u64::MAX - i as u64, alter };
+        assert!(importer.import(&bad).is_none(), "alteration {i} was imported");
+        assert_eq!(importer.failures, i as u64 + 1);
+    }
+    assert!(importer.import(&*real).is_some(), "the unaltered picture imports");
+}

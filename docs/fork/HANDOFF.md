@@ -1,107 +1,147 @@
 # Handoff: FilmCraft fork (6.2K HEVC on CachyOS + RX 6700 XT)
 
-Read `FORK-PLAN.md` first (§1 fork rules, §1a standing instructions, §7 progress log), then this.
-Keep this file current at the end of every session.
+For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**,
+§5 phases, §7 progress log), then this file. Updated 2026-10-08 in session 4 (Phase 3.2 done).
 
-## Where we are
+## Status
 
-- **Phase 1 done** (`bc2771c`, tag `phase-1`, build in `~/Apps/filmcraft-builds/phase-1/`,
-  launcher "FilmCraft (fork)"). **Now: Phase 2** (in-process zero-copy hardware decode),
-  2.1–2.4 done (in-process VA-API, zero-copy display, VRAM budget); now Phase 2 acceptance items.
-- **Branch:** `hevc-vaapi`. Commits: `da32409` plan, `5d5b9a8` F0, `9e0b3f3` handoff files,
-  `bc2771c` F1, then the Phase 8 plan change.
-
-## Done
-
-- Phase 0: system recorded, synthetic fixtures, `xm5` bench section, baseline
-  (`docs/fork-benchmarks.md`), the "59 fps" explanation.
-- Phase 1: `PixelData::Yuv16Bi` (P010/P210) read straight from the ffmpeg pipe; 10-bit planes
-  uploaded as `R16Unorm`/`Rg16Unorm` (`filmcraft_gpu::wanted_features()`, app via
-  `filmcraft_ui_egui::wgpu_configuration()`); GPU 10/12-bit range bug fixed; RAM-scaled decode
-  cache (`gop::auto_limits`, Settings ▸ Memory ▸ Decoded source frames). Quick pass: CPU/frame
-  −59 to −66 %; 6.2K still ~20 fps (pipe ceiling ≈ 22 fps).
-
-## Decisions in force
-
-All of `FORK-PLAN.md` §1 and §1a (owner's). Key current ones: never ask, no sudo, don't touch
-master; synthetic footage, mark results "synthetic"; quick bench passes except Phase 2/4/5/7
-acceptance; after every working step commit + progress log + this file; build at each phase
-boundary; keep going through phases until asked to stop. **Phase 2/5: only the primary hardware
-backend** (VA-API unless Vulkan Video is ≥ 20 % faster and matches; decided by the 2.1 ffmpeg
-comparison), behind an interface ready for the other backend (Phase 8) and NVIDIA later;
-fallback primary → ffmpeg pipe → software.
-
-Agent decisions (logged in §7): commit prefixes `F0:`, `F1:` …; Phase 1 accepted against the
-pipe ceiling (§1a.5, the owner's rule text never arrived; interpretation recorded); mixer perf
-test floor 2.5× on this CPU.
-
-## Environment notes and gotchas
-
-- Rust 1.99 via rustup in `~/.cargo` (not pacman): `export PATH="$HOME/.cargo/bin:$PATH"`.
-- Bash tool shell is **zsh**: unquoted globs that match nothing are errors (`--include='*.rs'`
-  needs quotes); no `bc` (use python3); `set -- $var` does not split.
-- `pgrep -f "<pattern>"` inside `bash -c '…'` matches its own command line: use `pgrep -x cargo`.
-- Foreground tool commands time out at 10 min: run long things with `run_in_background` and wait
-  with `timeout 590 bash -c 'until …; do sleep 10; done'`.
-- GPUs: AMD RX 6700 XT = `/dev/dri/renderD129`, Vulkan GPU0; Intel UHD 750 iGPU =
-  `renderD128`, Vulkan GPU1. Force one for wgpu tests: `MESA_VK_DEVICE_SELECT=1002:73df
-  MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1` (AMD) or `8086:4c8a` (Intel). Run GPU parity
-  tests on both. VA-API device override: `FILMCRAFT_VAAPI_DEVICE`; ffmpeg: `FILMCRAFT_FFMPEG`.
-- Installed: Mesa 26.2.2, libva 2.24.1, vainfo, vulkaninfo, ffmpeg n9.0.1, kernel 7.2.4-cachyos.
-  No `perf`, no `bc`.
-- Disk: `/home` is ~90 % full (≈ 30 GB free); `target/` is ~90 GB. Deleting
-  `target/debug/incremental` is safe. Fixtures take 12 GB in `target/fixtures/xm5/`.
-- `cargo xtask ci` runs tests in release; a full workspace test takes ~30 min. Run CI on an idle
-  machine: `mixer_tests::perf_24_tracks_3_effects_realtime_factor` needs ≥ 4× real time on one core
-  (4.7× idle, 3.0× while x265 or a build runs). Use `cargo test --workspace --release
-  --no-fail-fast` to see every failure.
-- Bench: `target/release/examples/bench --section xm5 [--only CASE] [--quick] --json out.json`
-  (cases: ceilings, decode, play-full, play-graded, jkl, scrub, multicut, export, 422-play).
-  A full run takes ~65 min (the graded 4K export alone ~41 min at baseline). The Phase 0 binary is
-  kept as `target/fork-bench/bench-phase0`; results in `target/bench/xm5-phase0.json`.
-- The auto-mode permission classifier blocks the agent from setting up self-restarting
-  automation (`/loop`, timers running `claude`); the owner starts those (a `/loop` line inside a
-  longer message does not activate it).
-- Builds: `~/Apps/filmcraft-builds/phase-N/`, `latest` symlink, icon
-  `~/Apps/filmcraft-builds/ai.storyteller.filmcraft.png`, launcher
-  `~/.local/share/applications/filmcraft-fork.desktop` (exists; don't recreate). App data for the
-  fork build: `~/.local/share/filmcraft-fork`. Smoke test: run with `--control 9876 --data-dir
-  <scratch>`, JSON lines `{"id":1,"method":"perf.stats","params":{}}`, `ui.screenshot`, `app.quit`.
-- Phase 2 groundwork: wgpu-hal 30 `vulkan::Adapter::open_with_callback` can add device
-  extensions and queue create infos (video decode family 2 on RADV) before wgpu wraps the device;
-  `texture_from_raw` wraps a `vk::Image`; eframe accepts our device via
-  `egui_wgpu::WgpuSetup::Existing`. `crates/hevc` has SPS/PPS/slice-header/RPS parsers to fill
-  VA-API / Vulkan Video parameter structures. `cros-libva` (BSD-3) links libva at build time;
-  loading libva / Vulkan at runtime (`libloading`, `ash`) keeps the app starting without them.
-- Phase 2.1 comparison script: `vkcheck.py` in the session scratchpad (lost between sessions;
-  re-create: 3 timed `-f null` runs per backend + `framemd5` of 60 downloaded P010 frames vs
-  software decode).
-
-## Open problems
-
-- The playback scheduler shows **nothing** (not fewer frames) when decode is slower than real
-  time: every job ~550 ms late is cancelled (Phase 3 item; also hides Phase 1/2 gains in
-  `play-*` numbers until decode is faster than real time).
-- The ffmpeg pipe caps 6.2K P010 at ~22 fps (ffmpeg's own download + write is serial).
-- 4:2:2 HEVC has no decoder at all on Linux (FilmCraft's HEVC decoder is 4:2:0 only; VCN3 has
-  none): Phase 6.1 must add the ffmpeg software path.
-- Export renders on the CPU: 4K graded export 0.7 fps with a 23 GB RSS peak (Phases 4–5).
-- Multicut peaked at 11.3 GB VRAM of 12 at baseline (four ffmpeg VA-API processes).
-- Linux default keymap has shortcut conflicts (Ctrl+9, Ctrl+Shift+M, Ctrl+T); not fixed.
+- **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` (`bc2771c`), `phase-2` (`baa98f0`).
+- **Phase 0, 1, 2: done.** Builds in `~/Apps/filmcraft-builds/phase-1` and `phase-2`; `latest` →
+  `phase-2`; launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
+- **Phase 2 in detail (all done):** in-process VA-API HEVC decode (bit-exact on 39 conformance
+  fixtures), zero-copy display through the Vulkan DMA-BUF import, fallback chain in-process →
+  ffmpeg pipe → software, VRAM budget, `FrameServer` drop fix. Acceptance (synthetic, full
+  suite, `docs/fork-benchmarks.md` "Phase 2"): decode 40.9 fps = 95 % of the 43.2 fps ceiling at
+  1.2 ms CPU/frame ✓; play-full 1798/0 at 1.8 ms CPU/frame ✓; **scrub p50 358 / p95 743 ms**
+  (target ≤ 1.1 s) ✓; **fallback with the hardware pulled** (Settings Off, `FILMCRAFT_VAAPI_DEVICE=/dev/null`
+  → software, mid-stream failure → pipe → software, Vulkan import off → read-back) ✓; **2-hour
+  soak** (214 314 shown / 3 dropped, no RAM/VRAM growth) ✓; **`cargo xtask ci`** green ✓;
+  **Phase 2 build** made ✓. Not done: the **independent review of the unsafe / FFI code**
+  (§1a.5: the instruction arrived after tagging) → **done in session 3** (three rounds, ADR 0002).
+- **Phase 3: started.** 3.1 committed (`cf4b841`): open-GOP seek fix, skipping unshown
+  pictures at cuts, decode priority gate, eviction by request span. **3.2 JKL committed**
+  (session 4, FORK-PLAN §7): skimming grid with an adaptive step, skimming decode, reverse GOP
+  playback, reverse decode pacing. L 2× 299/1, J 1× 296/4 (start-up), L 4× / J 2× steady
+  skipping (warm max gap 268 / 300 ms). Zero drops at cuts and at 2× on originals: Phase 6
+  (owner). Phase 3's remaining acceptance: audio underruns 0 over 10 min, plus the JKL checks
+  in a quick pass.
 
 ## Exact next step
 
-Phase 2 acceptance work (zero-copy decode → display is done and committed; see §7):
-1. `xm5-multicut` drops ~24/360 at cuts: the next clip must be decoded from its keyframe to the
-   cut point before the playhead arrives; look at how `FrameServer::schedule_playback` prefetches
-   across a cut and give the next clip's first frame enough lead (GPU decode is cheap: ~24 ms per
-   picture, up to 29 pictures from the keyframe).
-2. `xm5-scrub` p95 must be ≤ 1.5× the time to decode one GOP (≈ 30 pictures at 41 fps ≈ 0.73 s →
-   p95 ≤ 1.1 s; now 1.54 s).
-3. Fallback with the hardware path pulled (Settings Off; `FILMCRAFT_VAAPI_DEVICE=/dev/null`; libva
-   missing) and a mid-stream failure (`NativeVaDecoder::fail_after`) → ffmpeg pipe → software.
-4. 2-hour playback soak without VRAM/RAM growth (control channel or bench loop).
-5. Full `xm5` suite (Phase 2 acceptance is a full-suite phase), `cargo xtask ci`, then the Phase 2
-   build (tag phase-2, `~/Apps/filmcraft-builds/phase-2`, NOTES.md, latest symlink).
-Useful: bench prints `VA surfaces` and `cache VRAM`; `FILMCRAFT_VRAM_CACHE_MB` overrides the VRAM
-budget; `FILMCRAFT_NO_GPU_IMPORT` disables the Vulkan import (read-back path).
+1. ~~Unsafe / FFI review (§1a.5)~~ **done** in session 3 (rounds 1–3 committed; record in ADR
+   0002 "Review of the unsafe / FFI code" and FORK-PLAN §7). Nothing left from it.
+2. ~~Phase 3.2 JKL~~ **done** (session 4). Possible later polish (not required by §1a.15): J 1×
+   still drops 1–4 frames in the first ~0.5 s (the first GOP and the one before it decode at
+   once); cold 4× climbs the step ladder for ~2 s (a 0.7 s gap); J 2× peaks at 10.4 GB VRAM.
+3. ~~3.3~~ **done** (session 4): `box_decimated` leaves GPU frames alone (draft 1/2: 105.8 →
+   1.9 ms CPU/frame).
+4. ~~3.4 / 3.5~~ **done** (session 4): shuttle audio up to 2× (varispeed), 24-bit LPCM exact,
+   10 min at 1× with 0 underruns, PulseAudio host on PipeWire.
+5. **Next: Phase 3 acceptance** (quick pass: decode, play-full, jkl, scrub, multicut), `cargo
+   xtask ci`, tag `phase-3`, build to `~/Apps/filmcraft-builds/phase-3` (§1a.9).
+
+## Added after the session
+
+- 2026-10-08: owner asked for a **1.6× anamorphic** pixel aspect (8:5) in every pixel-aspect list,
+  where it fits best → FORK-PLAN §1a.13 and Phase 4 item 6 (with reframing / clip interpretation).
+- 2026-10-08 (in `CLAUDE.md`, recorded in session 3): **Phase 4 colour design** — small composable
+  GPU operations, Lumetri as a fixed chain of them (a later node grader reuses them), working space
+  DaVinci Wide Gamut / DaVinci Intermediate, F-Log2 / F-Gamut as input transform → §1a.14.
+  **2× with zero drops on original 6.2K media moves to Phase 6**; Phase 3 accepts a steady,
+  gracefully skipping 2× / 4× → §1a.15.
+
+## Environment and gotchas
+
+- **Disk rule (FORK-PLAN §1a.12):** keep ≥ 20 GB free on `/home`; `df -h /home` at session start
+  and after each build; clean `target/debug/incremental` / `target/debug` / stale build dirs in
+  the repo when needed; never delete `target/fixtures`, `target/fork-bench`, `target/bench`,
+  `~/Apps/filmcraft-builds` (keep `target/release`: the MCP config runs
+  `target/release/filmcraft-cli`); can't stay above 20 GB → reason in `.fork-plan-blocked`, stop.
+  2026-10-08 after cleanup: 182 GB free (`target/debug` deleted; `target/` 31 GB).
+
+- **Rust** 1.99 via rustup in `~/.cargo` (not pacman): `export PATH="$HOME/.cargo/bin:$PATH"`.
+  `bindgen-cli` 0.73.2 is installed there (user-level) for regenerating `va_sys.rs`.
+- **Shell is zsh**: unmatched globs are errors (quote `--include='*.rs'`); `set -- $var` does
+  not word-split (use `bash -c '…'`); no `bc` (use python3). `pgrep -f` / `pkill -f` match
+  their own command line (`pkill -f gates-2.2b` killed the tool's shell): use `pgrep -x cargo`,
+  `pkill -x <name>`; killing cargo leaves orphaned `rustc` processes (`pkill -x rustc`).
+- **Foreground commands time out at 10 min.** Run long work detached
+  (`(cmd > log 2>&1; echo "exit $?" >> log) &; disown`) and wait with
+  `timeout 590 bash -c 'until grep -q "^exit" log; do sleep 15; done'`. Never chain `sleep`s.
+- **GPUs:** AMD RX 6700 XT = `/dev/dri/renderD129`, Vulkan GPU0; Intel UHD 750 = `renderD128`,
+  Vulkan GPU1. Force one for wgpu tests: `MESA_VK_DEVICE_SELECT=1002:73df` (AMD) or `8086:4c8a`
+  (Intel) plus `MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1`. Run GPU parity tests on both.
+- **GPU stall with the video engine flat out (session 4):** decoding pictures back to back on
+  VCN made compositing wait 40–100 ms per frame (`device.poll`); spread decoding did not.
+  Reverse playback paces VA submissions (`cancel::with_pace`). Not caused by DMA-BUF import,
+  surface churn or VA queue depth (all measured). Watch for it wherever a burst of decoding
+  happens while playing (proxies, cache rendering in Phase 6).
+- **Driver quirks found:** Mesa's VA-API wants HEVC scaling lists in raster order of each 4×4 / 8×8
+  matrix (not the coded diagonal order the VA header suggests); RADV/Intel interpolate 1:1
+  sample positions slightly off texel centres (fixed by snapping in `composite.wgsl`); ffmpeg's
+  MOV muxer writes `hvcC numTemporalLayers = 6` for single-layer x265 streams (use the SPS);
+  libva reuses surface ids after destroy (key caches by our own memory id).
+- **Bench:** `--only "jkl J 1x"` runs one JKL case; `L 4x warm` / `J 2x warm` play the speed
+  elsewhere first (remembered step); output has `steps` and cadence (`gap_ms`).
+- **Env vars:** `FILMCRAFT_VAAPI_DEVICE` (render node), `FILMCRAFT_FFMPEG`,
+  `FILMCRAFT_NO_GPU_IMPORT` (app/bench: no Vulkan DMA-BUF import → read-back path),
+  `FILMCRAFT_VRAM_CACHE_MB` (decode-cache VRAM budget), `FILMCRAFT_SOAK_MINUTES` (bench soak),
+  `FILMCRAFT_BENCH_TRACE=1` (bench lists frames that finished after they were due),
+  `FILMCRAFT_XM5_DIR` (where the xm5 clips live; real clips can be linked there by name).
+- **Disk:** see the disk rule above; a debug build of the workspace regrows `target/debug` to ~60 GB. Fixtures: `target/fixtures/xm5/` (12 GB synthetic), `target/fixtures/hevc/`
+  (conformance, `.hevc` + ffmpeg `.yuv`), `target/fixtures/platform/`, `target/fixtures/hevc4k/`.
+- **Bench:** `target/release/examples/bench --section xm5 [--only CASE] [--quick] [--json f]`;
+  cases ceilings, decode, play-full, play-graded, jkl, scrub, multicut, export, 422-play, and only
+  when named: soak, open. Output line includes VA surfaces, cache VRAM and GOP seeks / decoded /
+  skipped / evicted. Full suite ≈ 75 min (graded 4K export alone ≈ 40 min). Saved binaries in
+  `target/fork-bench/bench-phase{0,1,2}`, results in `target/bench/xm5-phase*.json`.
+- **Benchmark pitfalls hit:** run on an idle machine (an x265 encode, a build or orphaned
+  `rustc`s inflate everything; check `uptime` and `ps`); never run benchmarks during the soak
+  (they share the decode engine); `--quick` multicut covers only 3 cuts near GOP starts, the full
+  60 s run covers 20 cuts deeper into the clips (much worse); bench plays used to leak a
+  `FrameServer` each (fixed) — results of a case can depend on the cases before it in one process;
+  the synthetic clips are x265 `ultrafast` open-GOP (CRA + RASL), keyint 30, ~49 % disposable.
+- **CI:** `cargo xtask ci` ≈ 40 min; run idle — `mixer_tests::perf_24_tracks_3_effects_realtime_factor`
+  needs ≥ 2.5× real time on one core (4.7× idle). `cargo test --workspace --release --no-fail-fast`
+  shows every failure.
+- **App smoke test:** `filmcraft --data-dir <scratch> --control <port> --empty`, JSON lines
+  `{"id":1,"method":"engine.execute","params":{"command":"file.import","params":{"paths":[…]}}}`,
+  `file.newSequenceFromClip` `{"items":[id]}`, `ui.playback` `{"action":"play"}`, `perf.stats`,
+  `ui.screenshot` `{"path":…}`, `app.quit`. Playback resolution: `ui.set {"playbackRes":"Full"}`
+  (serde wants variant names: `{"program":{"res":"Full"}}` works, `"full"` is refused). JKL:
+  `engine.execute` `playback.forward` / `playback.reverse` (each call doubles the speed while
+  playing), `playback.stop`; shown / dropped in `ui.inspect` → `playback`. Script used in
+  session 4: a Python JSON-lines client (see FORK-PLAN §7, Phase 3.3).
+- **Silent audio tests:** cpal's PulseAudio client ignores `PULSE_SINK` and sets no
+  `application.process.id`; a long test once played on the owner's speakers. Find the stream by
+  `application.name` (check it first) before moving it to a null sink, or mute it another way.
+- **Permission classifier:** the agent cannot set up self-restarting automation (`/loop`, timers
+  that start `claude`); the owner does that (the runner script).
+
+## Dead ends (with measurements, all synthetic)
+
+- JKL (Phase 3.2): more spare VA surfaces (48 instead of 8) against the reverse GPU stall: no
+  change; limiting VA submissions in flight (1, 2, 3, 64): 12–44 drops of 300, no fix (pacing
+  the rate did it); a skimming tolerance of a quarter step (instead of half): grid frames deep
+  in a GOP cost every reference before them and 4× climbed to step 24–30.
+
+- ffmpeg pipe tuning (Phase 1): a 1 MiB pipe buffer did not help (22.2 vs 21.8 fps); ffmpeg's own
+  download + write is the cap.
+- Vulkan Video as primary: 5 % slower than VA-API in ffmpeg (40.9 vs 43.2 fps), frames identical.
+- Multicut / cuts (Phase 2–3): requesting the first frame after the next cut early (20–90 frames
+  ahead, with or without the priority gate), a deeper prefetch window (20–30 frames), a per-clip
+  floor of 16 frames, waiting for every picture inside the priority gate (−6 % throughput):
+  all made cut drops worse or did nothing. What helped: the open-GOP seek fix (correctness) and
+  skipping non-reference pictures before a clip's in-point (~98 → 25–42 drops of 360).
+- VRAM: Auto budget of half the VRAM ran a 12 GB card out of memory with four 6.2K clips; a
+  quarter is the default. The monitor frame cache charging GPU frames their full size left room
+  for ~9 plans (fewer than the prefetch window); it charges 16 MB per GPU frame.
+
+## Open problems
+
+- 6.2K cuts every few seconds drop frames on original media (decoder-bound) → Phase 6.
+- 4× on this synthetic stream (51 % reference pictures, open GOP) runs at the decoder's limit
+  even at step 12–15: steady skipping at ~8–10 pictures/s, not more.
+- 4:2:2 HEVC does not decode at all (no decoder on Linux) → Phase 6.1.
+- Lumetri and most effects run on the CPU; graded export 0.8 fps, 18 GB RSS → Phase 4–5.
+- Linux default keymap has shortcut conflicts (Ctrl+9, Ctrl+Shift+M, Ctrl+T) — not fixed.

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use filmcraft_engine::Session;
 use filmcraft_project::{ItemId, ParamValue, Project, SequenceSettings, TrackKind, find_effect, resolve_auto_points};
 use filmcraft_time::{FrameRate, Tick, TimeRange};
-use filmcraft_ui_egui::frames::{FrameKey, FrameServer, JobRecord, PREROLL_TIMEOUT_S, PlaybackMeter, Target, process_cpu_time, thread_cpu_time};
+use filmcraft_ui_egui::frames::{FrameKey, FrameServer, JobRecord, PlaybackMeter, Target, process_cpu_time, thread_cpu_time};
 use serde_json::{Value, json};
 
 use crate::fixtures::fixture;
@@ -175,8 +175,12 @@ impl Display {
             {
                 let before = comp.uploaded_bytes;
                 let _ = comp.composite_prepared(&plan.plan, Some(&plan.prepared));
+                let t1 = Instant::now();
                 // Wait for the GPU so the time includes the upload and the draw.
                 let _ = dev.poll(eframe::wgpu::PollType::wait_indefinitely());
+                if std::env::var_os("FILMCRAFT_BENCH_TRACE").is_some() && t0.elapsed() > Duration::from_millis(25) {
+                    eprintln!("slow present frame {}: composite {:.1} ms, GPU wait {:.1} ms", k.frame, ms(t1 - t0), ms(t1.elapsed()));
+                }
                 self.uploaded += comp.uploaded_bytes - before;
                 self.last = Some(k);
                 presented = true;
@@ -233,6 +237,10 @@ pub struct PlayReport {
     pub uploaded_mb: f64,
     pub load: String,
     pub preroll_ms: f64,
+    /// ms between successive new pictures on screen (cadence; the largest is the longest stall).
+    pub gaps: Vec<f64>,
+    /// Skimming steps used (timeline frames per shown frame), in order of use.
+    pub steps: Vec<i64>,
 }
 
 pub fn pct(v: &[f64], p: f64) -> f64 {
@@ -294,7 +302,7 @@ impl Bench {
         let period = Duration::from_secs_f64(1.0 / self.refresh_hz);
         // Preroll as the app does: refresh without moving the playhead until the first frames are
         // ready (or the timeout), then start the clock.
-        let first = rate.frame_at(start);
+        let first = self.server.playback_frame(target, rate.frame_at(start), speed);
         let last_frame = rate.frame_at(q.duration()) - 1;
         let t_pre = Instant::now();
         loop {
@@ -302,7 +310,7 @@ impl Bench {
             self.server.schedule_playback(key, rate, scale, &project, speed, true);
             let exact = display.refresh(&self.server, key);
             meter.refresh(first, exact);
-            if self.server.preroll_ready(key, speed, last_frame) || t_pre.elapsed().as_secs_f64() >= PREROLL_TIMEOUT_S {
+            if self.server.preroll_ready(key, speed, last_frame) || t_pre.elapsed().as_secs_f64() >= filmcraft_ui_egui::frames::preroll_timeout(speed) {
                 break;
             }
             std::thread::sleep(period);
@@ -312,18 +320,38 @@ impl Bench {
         let mut due_at: HashMap<i64, Instant> = HashMap::new();
         let mut next = anchor;
         let mut frame;
+        let mut last_pic: Option<(i64, Instant)> = None;
+        // frames on screen while due (traced: which due frames never were)
+        let mut seen: std::collections::HashSet<i64> = Default::default();
+        let (mut gaps, mut steps) = (Vec::new(), Vec::new());
         loop {
             let now = Instant::now();
             let t = start + Tick::from_seconds_f64((now - anchor).as_secs_f64() * speed);
             if (speed > 0.0 && t >= end) || (speed < 0.0 && t <= end) {
                 break;
             }
-            frame = rate.frame_at(t);
+            // as the Program monitor: faster than real time, the frames of the skimming grid
+            frame = self.server.playback_frame(target, rate.frame_at(t), speed);
             due_at.entry(frame).or_insert(now);
             let key = FrameKey { target, frame, size, revision: s.revision, draft: self.draft };
             self.server.schedule_playback(key, rate, scale, &project, speed, false);
             let exact = display.refresh(&self.server, key);
+            let step = self.server.playback_step(target, speed);
+            if steps.last() != Some(&step) {
+                steps.push(step);
+            }
+            meter.set_step(step);
             meter.refresh(frame, exact);
+            if exact {
+                seen.insert(frame);
+            }
+            if exact && last_pic.is_none_or(|(f, _)| f != frame) {
+                let at = Instant::now();
+                if let Some((_, prev)) = last_pic {
+                    gaps.push(ms(at - prev));
+                }
+                last_pic = Some((frame, at));
+            }
             next += period;
             let now = Instant::now();
             if next > now {
@@ -358,10 +386,22 @@ impl Bench {
             uploaded_mb: (display.uploaded - up0) as f64 / 1e6,
             load: load_avg(),
             preroll_ms,
+            gaps,
+            steps,
             ..Default::default()
         };
         let last = rate.frame_at(end - Tick(1));
         let (lo, hi) = if speed > 0.0 { (first, last) } else { (rate.frame_at(end), first) };
+        if std::env::var_os("FILMCRAFT_BENCH_TRACE").is_some() {
+            for f in lo..=hi {
+                if let Some(due) = due_at.get(&f).filter(|_| !seen.contains(&f)) {
+                    let rec = by_frame.get(&f).map(|r| {
+                        format!("finished {:+.0} ms vs due, cancelled {}", ms(r.finished.max(*due) - *due) - ms(*due - r.finished.min(*due)), r.cancelled)
+                    });
+                    eprintln!("not shown frame {f}: due at {:.0} ms, job {}", ms(*due - anchor), rec.unwrap_or_else(|| "none".into()));
+                }
+            }
+        }
         for f in lo..=hi {
             let Some(due) = due_at.get(&f) else { continue };
             rep.due += 1;

@@ -371,7 +371,7 @@ pub(crate) fn base_layer(
     Some(match &pi.kind {
         ItemKind::Media(_) | ItemKind::Subclip { .. } => {
             let src = sources.source(item.item)?;
-            let frame = src.video_frame(FrameRequest { time: ft, scale: want }).ok()?;
+            let frame = clip_frame(src.as_ref(), item, ft, want).ok()?;
             let n = decimation(frame.width as f32, src_size.0 as f32 * want);
             let img = colorman::decode(project, item.item, &frame, n, &seq.settings.color);
             match interpolation_blend(item, t, src.info().frame_rate()) {
@@ -462,6 +462,24 @@ pub(crate) fn decimation(have_w: f32, target_w: f32) -> usize {
         n *= 2;
     }
     n
+}
+
+/// The source frame a timeline clip shows at media time `ft`. A clip never shows what lies before
+/// its in-point, so a decoder catching up to `ft` may leave out the non-reference pictures before
+/// it (forward clips; with the playback hint of `filmcraft_media::cancel::catch_up`, the later of
+/// the two bounds): entering a long-GOP clip at a cut decodes about half the pictures.
+pub(crate) fn clip_frame(
+    src: &dyn filmcraft_media::MediaSource,
+    item: &TrackItem,
+    ft: Tick,
+    want: f32,
+) -> filmcraft_media::Result<std::sync::Arc<filmcraft_frame::VideoFrame>> {
+    let in_point = (item.speed > 0.0 && !item.reverse && ft >= item.source_in).then(|| ft - item.source_in);
+    let margin = match (filmcraft_media::cancel::catch_up(), in_point) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    };
+    filmcraft_media::cancel::with_catch_up(margin, || src.video_frame(FrameRequest { time: ft, scale: want }))
 }
 
 /// Render a single project item (e.g. for the Source monitor) at media time `t`.

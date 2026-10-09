@@ -15,7 +15,6 @@ use std::sync::Arc;
 
 use filmcraft_frame::VideoFrame;
 use filmcraft_geom::Affine;
-use filmcraft_media::FrameRequest;
 use filmcraft_project::{ItemId, ItemKind, Project, Sequence, TrackItem};
 use filmcraft_time::Tick;
 
@@ -293,7 +292,7 @@ fn push_item(
         let motion = motion_matrix(seq, item, size, mt);
         let lin = ((motion.a * motion.a + motion.b * motion.b).sqrt()).max((motion.c * motion.c + motion.d * motion.d).sqrt());
         let want = (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32;
-        let Ok(frame) = src.video_frame(FrameRequest { time: ft, scale: want }) else { return };
+        let Ok(frame) = crate::clip_frame(src.as_ref(), item, ft, want) else { return };
         let cs = crate::colorman::source_space(project, item.item, &frame);
         // log / HDR / wide-gamut media is converted on the CPU (below), and so are blended
         // in-between frames (Frame Blending / Optical Flow on speed-changed clips)

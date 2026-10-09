@@ -22,6 +22,7 @@ pub mod apv;
 pub mod audio;
 pub mod gop;
 pub mod hw;
+pub mod hwgate;
 pub mod mkv;
 pub mod mp4;
 pub mod mpeg;

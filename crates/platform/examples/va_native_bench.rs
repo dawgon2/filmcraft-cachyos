@@ -13,7 +13,14 @@ fn main() -> Result<(), String> {
     let limit: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(usize::MAX);
     let compare: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(0);
     let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    let to = Instant::now();
     let file = filmcraft_isobmff::open(bytes.clone()).map_err(|e| e.to_string())?;
+    println!(
+        "container opened in {:.1} ms ({} tracks: {:?} samples)",
+        to.elapsed().as_secs_f64() * 1e3,
+        file.tracks.len(),
+        file.tracks.iter().map(|t| t.samples.len()).collect::<Vec<_>>()
+    );
     let t = file.track_of_kind(filmcraft_isobmff::TrackKind::Video).ok_or("no video track")?;
     let track = file.tracks.get(t).ok_or("no video track")?;
     let entry = track.entries.first().ok_or("no sample entry")?.clone();
@@ -21,7 +28,24 @@ fn main() -> Result<(), String> {
         .map(|i| Ok((file.read_sample(&bytes, t, i).map_err(|e| e.to_string())?, track.samples.get(i).map_or(0, |s| s.pts))))
         .collect::<Result<_, String>>()?;
     let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(&entry).ok_or("not an avcC / hvcC stream")?.map_err(|e| e.to_string())?;
-    let mut hw = filmcraft_platform::va_hevc::NativeVaDecoder::new(info)?;
+    let tn = Instant::now();
+    let mut hw = filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone())?;
+    println!("decoder made in {:.1} ms", tn.elapsed().as_secs_f64() * 1e3);
+    for k in 0..3 {
+        let t = Instant::now();
+        let mut d = filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone())?;
+        let mut first = None;
+        for (i, (s, p)) in samples.iter().enumerate().take(8) {
+            let out = d.decode(s, *p).map_err(|e| e.to_string())?;
+            if first.is_none() && !out.is_empty() {
+                first = Some((i, t.elapsed().as_secs_f64() * 1e3));
+            }
+            if i == 0 {
+                println!("  run {k}: first sample fed in {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+        println!("  run {k}: first picture out after sample {:?} at {:.1} ms", first.map(|f| f.0), first.map_or(0.0, |f| f.1));
+    }
     let t0 = Instant::now();
     let mut out = Vec::new();
     for (s, p) in &samples {

@@ -95,30 +95,20 @@ impl Accelerator for VaHevc {
     fn decode(&mut self, pic: &AccelPicture<'_, VaSurface>) -> filmcraft_hevc::Result<()> {
         let ctx = self.context.as_ref().ok_or_else(|| herr("no decoding context".into()))?;
         let mut buffers = Vec::with_capacity(2 + 2 * pic.slices.len());
-        let pp = picture_params(pic);
-        buffers.push(ctx.buffer(sys::VABufferType_VAPictureParameterBufferType, as_bytes(&pp)).map_err(herr)?);
+        let pp = picture_params(pic)?;
+        buffers.push(ctx.param_buffer(&pp).map_err(herr)?);
         if pic.sps.scaling_list_enabled {
             let list = pic.pps.scaling_list.as_ref().or(pic.sps.scaling_list.as_ref()).cloned().unwrap_or_else(ScalingList::default_lists);
             let iq = iq_matrix(&list);
-            buffers.push(ctx.buffer(sys::VABufferType_VAIQMatrixBufferType, as_bytes(&iq)).map_err(herr)?);
+            buffers.push(ctx.param_buffer(&iq).map_err(herr)?);
         }
         let last = pic.slices.len().saturating_sub(1);
         for (i, s) in pic.slices.iter().enumerate() {
             let sp = slice_params(pic, i, i == last)?;
-            buffers.push(ctx.buffer(sys::VABufferType_VASliceParameterBufferType, as_bytes(&sp)).map_err(herr)?);
-            buffers.push(ctx.buffer(sys::VABufferType_VASliceDataBufferType, s.nal).map_err(herr)?);
+            buffers.push(ctx.param_buffer(&sp).map_err(herr)?);
+            buffers.push(ctx.slice_data(s.nal).map_err(herr)?);
         }
         ctx.decode(pic.target, &buffers).map_err(herr)
-    }
-}
-
-/// A plain-data C struct as bytes (to copy into a libva buffer).
-fn as_bytes<T: Copy>(v: &T) -> &[u8] {
-    // SAFETY: `T` is one of the bindgen-generated `#[repr(C)]` VA parameter structs (Copy, no
-    // pointers, fully initialised from `Default` = zeroed); reading its bytes is defined.
-    #[allow(unsafe_code)]
-    unsafe {
-        std::slice::from_raw_parts(v as *const T as *const u8, std::mem::size_of::<T>())
     }
 }
 
@@ -126,22 +116,34 @@ fn bit(v: bool, at: u32) -> u32 {
     (v as u32) << at
 }
 
-/// Tile column widths / row heights in CTBs (6-3, 6-4), explicit or uniform.
-fn tile_sizes(n: u32, explicit: &[u32], total: u32, uniform: bool) -> Vec<u32> {
+/// Tile column widths / row heights in CTBs (6-3, 6-4), explicit or uniform; `max` tiles at most
+/// (the VA arrays), every tile at least one CTB (the driver trusts these: hostile values are refused).
+fn tile_sizes(n: u32, explicit: &[u32], total: u32, uniform: bool, max: usize) -> filmcraft_hevc::Result<Vec<u32>> {
     let n = n.max(1);
+    if n as usize > max || n > total {
+        return Err(herr(format!("{n} tiles in {total} CTBs (at most {max})")));
+    }
     if uniform || explicit.is_empty() {
-        (0..n).map(|i| ((i + 1) * total) / n - (i * total) / n).collect()
+        let (n, total) = (u64::from(n), u64::from(total));
+        Ok((0..n).map(|i| (((i + 1) * total) / n - (i * total) / n) as u32).collect())
     } else {
         let mut v: Vec<u32> = explicit.iter().copied().take(n as usize - 1).collect();
-        let used: u32 = v.iter().sum();
-        v.push(total.saturating_sub(used));
-        v
+        let used: u64 = v.iter().map(|&x| u64::from(x)).sum();
+        match u64::from(total).checked_sub(used) {
+            Some(rest) if rest > 0 && v.len() + 1 == n as usize && v.iter().all(|&x| x > 0) => v.push(rest as u32),
+            _ => return Err(herr(format!("explicit tile sizes {v:?} do not fit {total} CTBs"))),
+        }
+        Ok(v)
     }
 }
 
-fn picture_params(pic: &AccelPicture<'_, VaSurface>) -> sys::VAPictureParameterBufferHEVC {
+fn picture_params(pic: &AccelPicture<'_, VaSurface>) -> filmcraft_hevc::Result<sys::VAPictureParameterBufferHEVC> {
     let (sps, pps): (&Sps, &Pps) = (pic.sps, pic.pps);
     let mut p = sys::VAPictureParameterBufferHEVC::default();
+    // more references than VA's 15 slots would silently decode against the wrong pictures
+    if pic.refs.len() > p.ReferenceFrames.len() {
+        return Err(herr(format!("{} reference pictures (VA-API takes {})", pic.refs.len(), p.ReferenceFrames.len())));
+    }
     p.CurrPic.picture_id = pic.target.id;
     p.CurrPic.pic_order_cnt = pic.poc;
     for f in p.ReferenceFrames.iter_mut() {
@@ -205,8 +207,8 @@ fn picture_params(pic: &AccelPicture<'_, VaSurface>) -> sys::VAPictureParameterB
     if pps.tiles_enabled {
         p.num_tile_columns_minus1 = pps.num_tile_columns.saturating_sub(1) as u8;
         p.num_tile_rows_minus1 = pps.num_tile_rows.saturating_sub(1) as u8;
-        let cols = tile_sizes(pps.num_tile_columns, &pps.column_widths, sps.pic_width_in_ctbs(), pps.uniform_spacing);
-        let rows = tile_sizes(pps.num_tile_rows, &pps.row_heights, sps.pic_height_in_ctbs(), pps.uniform_spacing);
+        let cols = tile_sizes(pps.num_tile_columns, &pps.column_widths, sps.pic_width_in_ctbs(), pps.uniform_spacing, p.column_width_minus1.len() + 1)?;
+        let rows = tile_sizes(pps.num_tile_rows, &pps.row_heights, sps.pic_height_in_ctbs(), pps.uniform_spacing, p.row_height_minus1.len() + 1)?;
         for (d, s) in p.column_width_minus1.iter_mut().zip(&cols) {
             *d = s.saturating_sub(1) as u16;
         }
@@ -239,7 +241,7 @@ fn picture_params(pic: &AccelPicture<'_, VaSurface>) -> sys::VAPictureParameterB
     p.pps_tc_offset_div2 = pps.tc_offset_div2 as i8;
     p.num_extra_slice_header_bits = pps.num_extra_slice_header_bits as u8;
     p.st_rps_bits = pic.slices.first().map_or(0, |s| s.header.st_rps_bits as u32);
-    p
+    Ok(p)
 }
 
 /// Up-right diagonal scan of an n×n block (6.5.3): position i → (x, y).
@@ -299,17 +301,24 @@ fn slice_params(pic: &AccelPicture<'_, VaSurface>, i: usize, last: bool) -> film
     let s = pic.slices.get(i).ok_or_else(|| herr("slice index".into()))?;
     let h = s.header;
     let mut p = sys::VASliceParameterBufferHEVC::default();
-    p.slice_data_size = s.nal.len() as u32;
+    // the driver reads the slice data within these bounds: they must lie in the NAL unit
+    p.slice_data_size = u32::try_from(s.nal.len()).map_err(|_| herr("slice too large".into()))?;
     p.slice_data_offset = 0;
     p.slice_data_flag = sys::VA_SLICE_DATA_FLAG_ALL;
-    p.slice_data_byte_offset = s.data_byte_offset as u32;
+    p.slice_data_byte_offset =
+        u32::try_from(s.data_byte_offset).ok().filter(|&o| o <= p.slice_data_size).ok_or_else(|| herr("slice data offset beyond the slice".into()))?;
     p.slice_segment_address = h.segment_address;
     for list in p.RefPicList.iter_mut() {
         list.fill(0xff);
     }
     for (l, refs) in s.ref_lists.iter().enumerate() {
-        for (d, &r) in p.RefPicList[l].iter_mut().zip(refs) {
-            *d = r.min(14) as u8;
+        let list = p.RefPicList.get_mut(l).ok_or_else(|| herr("reference list index".into()))?;
+        for (d, &r) in list.iter_mut().zip(refs) {
+            // an entry must name a filled ReferenceFrames slot (refs ≤ 15, checked)
+            if r >= pic.refs.len() {
+                return Err(herr(format!("reference list entry {r} of {} references", pic.refs.len())));
+            }
+            *d = r as u8;
         }
     }
     let slice_type = match h.slice_type {
@@ -477,6 +486,11 @@ impl filmcraft_frame::GpuSurface for VaPicture {
 
 /// Read the rectangle (x, y, w, h) of a surface back to memory: P010 → `Yuv16Bi`, NV12 → `Yuv8`.
 fn read_back(surface: &Surface, (cx, cy, cw, ch): (u32, u32, u32, u32), ten_bit: bool) -> Result<PixelData, String> {
+    // before allocating: the rectangle must lie in the surface
+    let (sw, sh) = surface.pool().size;
+    if cw == 0 || ch == 0 || cx.checked_add(cw).is_none_or(|r| r > sw) || cy.checked_add(ch).is_none_or(|b| b > sh) {
+        return Err(format!("rectangle {cw}x{ch} at ({cx}, {cy}) outside the {sw}x{sh} surface"));
+    }
     let (w, h) = (cw as usize, ch as usize);
     let (ccw, cch) = (w.div_ceil(2), h.div_ceil(2));
     Ok(if ten_bit {
@@ -581,4 +595,31 @@ pub fn decode_annexb(data: &[u8]) -> Result<Vec<VideoFrame>, String> {
         reorder: 0,
     };
     outs.iter().map(|o| download(o, &info).map_err(|e| e.to_string())).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tile_sizes;
+
+    #[test]
+    fn tile_sizes_follow_the_spec() {
+        assert_eq!(tile_sizes(3, &[], 10, true, 20).ok(), Some(vec![3, 3, 4]));
+        assert_eq!(tile_sizes(3, &[2, 5], 10, false, 20).ok(), Some(vec![2, 5, 3]));
+        assert_eq!(tile_sizes(0, &[], 7, true, 20).ok(), Some(vec![7]));
+    }
+
+    /// Unsafe-code review round 2: the driver trusts these arrays, so hostile PPS values are
+    /// refused instead of being truncated to VA's slots or wrapped (u32 overflow panicked in
+    /// debug builds before for a huge picture).
+    #[test]
+    fn hostile_tile_sizes_are_refused() {
+        assert!(tile_sizes(21, &[], 100, true, 20).is_err(), "more tiles than VA slots");
+        assert!(tile_sizes(5, &[], 4, true, 20).is_err(), "more tiles than CTBs");
+        assert!(tile_sizes(3, &[6, 5], 10, false, 20).is_err(), "explicit sizes past the picture");
+        assert!(tile_sizes(3, &[5, 5], 10, false, 20).is_err(), "an empty last tile");
+        assert!(tile_sizes(3, &[0, 5], 10, false, 20).is_err(), "an empty explicit tile");
+        assert!(tile_sizes(3, &[4], 10, false, 20).is_err(), "too few explicit sizes");
+        let huge = tile_sizes(20, &[], u32::MAX, true, 20).expect("no overflow");
+        assert_eq!(huge.iter().map(|&x| u64::from(x)).sum::<u64>(), u64::from(u32::MAX));
+    }
 }

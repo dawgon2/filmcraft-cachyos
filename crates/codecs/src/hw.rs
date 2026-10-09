@@ -235,6 +235,14 @@ impl NalStreamInfo {
             .map_err(|e| CodecError::Decode(e.to_string()))?;
         let crop = sps.crop_rect();
         let vui = sps.vui.clone().unwrap_or_default();
+        // The SPS bounds the TemporalId of every picture of the sequence; muxers write
+        // `numTemporalLayers` loosely (ffmpeg's MOV muxer: 6 for a single-layer x265 stream),
+        // which would make no picture count as disposable.
+        let sps_tid = u8::try_from(sps.max_sub_layers_minus1).ok();
+        let highest_tid = match (highest_tid, sps_tid) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         Ok(Self {
             codec: NalCodec::Hevc,
             length_size,

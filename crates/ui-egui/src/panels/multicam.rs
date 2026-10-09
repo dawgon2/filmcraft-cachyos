@@ -312,8 +312,8 @@ pub fn grid(app: &mut FilmcraftApp, ui: &mut egui::Ui, area: Rect) {
         lay.per_page,
     ));
     let mt = Tick(info["sourceTime"].as_i64().unwrap_or(0));
-    let frame = rate.frame_at(mt);
     let target = Target::MulticamGrid(src, view.layout.unwrap_or(0) as u8, lay.page as u16);
+    let frame = if app.playback.playing { app.frames.playback_frame(target, rate.frame_at(mt), app.playback.speed) } else { rate.frame_at(mt) };
     let key = FrameKey { target, frame, size: (scale * 1000.0) as u32, revision: grid_revision(app, src), draft: false };
     let project = app.session.project.clone();
     if app.playback.playing {
