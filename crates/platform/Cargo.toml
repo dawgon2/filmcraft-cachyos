@@ -43,12 +43,17 @@ filmcraft-bitstream = { workspace = true }
 filmcraft-color = { workspace = true }
 filmcraft-export = { workspace = true }
 filmcraft-hevc = { workspace = true }
+# GPU-rendered export frames (fork Phase 5.1): the headless compositor
+filmcraft-gpu = { workspace = true }
+filmcraft-render = { workspace = true }
+wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan"] }
 rayon = { workspace = true }
 filmcraft-frame = { workspace = true }
 filmcraft-time = { workspace = true }
 
 [dev-dependencies]
 rayon = { workspace = true }
+filmcraft-geom = { workspace = true }
 filmcraft-testkit = { workspace = true }
 filmcraft-media = { workspace = true }
 filmcraft-frame = { workspace = true }

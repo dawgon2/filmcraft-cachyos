@@ -2109,9 +2109,12 @@ dependencies = [
  "filmcraft-color",
  "filmcraft-export",
  "filmcraft-frame",
+ "filmcraft-geom",
+ "filmcraft-gpu",
  "filmcraft-hevc",
  "filmcraft-isobmff",
  "filmcraft-media",
+ "filmcraft-render",
  "filmcraft-testkit",
  "filmcraft-time",
  "libloading",
@@ -2121,6 +2124,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-video-toolbox",
  "rayon",
+ "wgpu",
 ]
 
 [[package]]

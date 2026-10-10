@@ -5,7 +5,9 @@
 //! `VK_EXT_image_drm_format_modifier`). [`Importer`] turns a decoded picture's DMA-BUF layers
 //! ([`filmcraft_frame::DmaBuf`]: luma and interleaved chroma) into two wgpu textures over the
 //! same memory, which the compositor samples with its biplanar path, with no copy. Imports are
-//! cached per decoder surface (decoders reuse a pool of surfaces).
+//! cached per decoder surface (decoders reuse a pool of surfaces). [`Importer::import_target`]
+//! imports a video encoder's input surface the same way, as two render targets the export writes
+//! its Y'CbCr into (fork Phase 5.2c: no read-back, no upload).
 //!
 //! This is the only module of `filmcraft-gpu` with `unsafe` (Vulkan through `ash` and wgpu-hal),
 //! under the rules of ADR 0001: a `// SAFETY:` comment on every block, a safe `Option` / `Result`
@@ -77,10 +79,38 @@ pub struct Imported {
     _textures: [wgpu::Texture; 2],
 }
 
+/// What an imported plane is used for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlaneUse {
+    /// Sampled (decoded pictures).
+    Sampled,
+    /// Rendered into (encoder input). UNORM like the sampled planes: drivers list fewer tiling
+    /// modifiers for UINT render targets (ANV has no Y-tiled `R16_UINT`), and a code stored as
+    /// `code / 65535` converts back to exactly that code.
+    Target,
+}
+
+impl PlaneUse {
+    fn vk_usage(self) -> vk::ImageUsageFlags {
+        match self {
+            PlaneUse::Sampled => vk::ImageUsageFlags::SAMPLED,
+            PlaneUse::Target => vk::ImageUsageFlags::COLOR_ATTACHMENT,
+        }
+    }
+    fn feature(self) -> vk::FormatFeatureFlags {
+        match self {
+            PlaneUse::Sampled => vk::FormatFeatureFlags::SAMPLED_IMAGE,
+            PlaneUse::Target => vk::FormatFeatureFlags::COLOR_ATTACHMENT,
+        }
+    }
+}
+
 /// Imports decoded pictures into a device made by [`create_device`].
 pub struct Importer {
     device: wgpu::Device,
     cache: HashMap<u64, Imported>,
+    /// Encoder input surfaces imported as render targets ([`Importer::import_target`]).
+    targets: HashMap<u64, Imported>,
     clock: u64,
     /// Imports that failed (they fall back to reading back).
     pub failures: u64,
@@ -89,49 +119,91 @@ pub struct Importer {
 impl Importer {
     /// None when `device` cannot import DMA-BUFs.
     pub fn new(device: &wgpu::Device) -> Option<Importer> {
-        can_import(device).then(|| Importer { device: device.clone(), cache: HashMap::new(), clock: 0, failures: 0 })
+        can_import(device).then(|| Importer { device: device.clone(), cache: HashMap::new(), targets: HashMap::new(), clock: 0, failures: 0 })
     }
 
     /// The textures of `surface` (imported on first use, then cached by its memory).
     pub fn import(&mut self, surface: &dyn GpuSurface) -> Option<(&wgpu::TextureView, &wgpu::TextureView)> {
-        self.clock += 1;
-        let key = surface.memory_id();
-        if !self.cache.contains_key(&key) {
-            let made = surface
+        let made = |this: &Self| {
+            surface
                 .dmabuf()
                 .ok_or_else(|| "the decoder did not export the picture".to_string())
-                .and_then(|d| self.import_dmabuf(&d, surface.format()))
-                .map(|mut i| {
-                    i.alive = surface.liveness();
-                    i
-                });
-            match made {
-                Ok(i) => {
-                    let clock = self.clock;
-                    self.cache.retain(|_, v| v.last_used + STALE_AFTER > clock && v.alive.strong_count() > 0);
-                    if self.cache.len() >= MAX_IMPORTS
-                        && let Some(old) = self.cache.iter().min_by_key(|(_, v)| v.last_used).map(|(k, _)| *k)
+                .and_then(|d| this.import_dmabuf(&d, surface.format(), PlaneUse::Sampled))
+        };
+        self.cached(false, surface.memory_id(), surface.liveness(), made, "importing a decoded picture into Vulkan failed (reading it back instead)")
+    }
+
+    /// A video encoder's input surface (`d`, memory `id`, dead with `alive`) as two render
+    /// targets: luma (`R16Unorm` / `R8Unorm`) and interleaved chroma (`Rg16Unorm` / `Rg8Unorm`) of the
+    /// surface's full size, which the export writes P010 / NV12 samples into. Cached by `id`.
+    /// None: the driver cannot render into this memory (the caller uploads instead). `writable`:
+    /// the memory was exported for writing (a read-only export is never rendered into).
+    pub fn import_target(
+        &mut self,
+        id: u64,
+        alive: std::sync::Weak<()>,
+        d: &DmaBuf,
+        format: GpuFormat,
+        writable: bool,
+    ) -> Option<(&wgpu::TextureView, &wgpu::TextureView)> {
+        if !writable {
+            log::warn!("an encoder surface exported read-only is not rendered into");
+            return None;
+        }
+        self.cached(
+            true,
+            id,
+            alive,
+            |this| this.import_dmabuf(d, format, PlaneUse::Target),
+            "importing an encoder surface into Vulkan failed (uploading frames instead)",
+        )
+    }
+
+    fn cached(
+        &mut self,
+        target: bool,
+        key: u64,
+        alive: std::sync::Weak<()>,
+        make: impl FnOnce(&Self) -> Result<Imported, String>,
+        what: &str,
+    ) -> Option<(&wgpu::TextureView, &wgpu::TextureView)> {
+        self.clock += 1;
+        let clock = self.clock;
+        // imports of memory that is gone go at once (they pin it: an export's 64 target
+        // surfaces would otherwise stay allocated until the next import)
+        for cache in [&mut self.cache, &mut self.targets] {
+            cache.retain(|_, v| v.alive.strong_count() > 0);
+        }
+        let present = if target { self.targets.contains_key(&key) } else { self.cache.contains_key(&key) };
+        if !present {
+            match make(self) {
+                Ok(mut i) => {
+                    i.alive = alive;
+                    let cache = if target { &mut self.targets } else { &mut self.cache };
+                    cache.retain(|_, v| v.last_used + STALE_AFTER > clock && v.alive.strong_count() > 0);
+                    if cache.len() >= MAX_IMPORTS
+                        && let Some(old) = cache.iter().min_by_key(|(_, v)| v.last_used).map(|(k, _)| *k)
                     {
-                        self.cache.remove(&old);
+                        cache.remove(&old);
                     }
-                    self.cache.insert(key, i);
+                    cache.insert(key, i);
                 }
                 Err(e) => {
                     self.failures += 1;
                     if self.failures <= 3 {
-                        log::warn!("importing a decoded picture into Vulkan failed: {e} (reading it back instead)");
+                        log::warn!("{what}: {e}");
                     }
                     return None;
                 }
             }
         }
-        let clock = self.clock;
-        let i = self.cache.get_mut(&key)?;
+        let cache = if target { &mut self.targets } else { &mut self.cache };
+        let i = cache.get_mut(&key)?;
         i.last_used = clock;
         Some((&i.luma, &i.chroma))
     }
 
-    fn import_dmabuf(&self, d: &DmaBuf, format: GpuFormat) -> Result<Imported, String> {
+    fn import_dmabuf(&self, d: &DmaBuf, format: GpuFormat, usage: PlaneUse) -> Result<Imported, String> {
         let (fy, fc, wy, wc) = match format {
             GpuFormat::P010 => (vk::Format::R16_UNORM, vk::Format::R16G16_UNORM, wgpu::TextureFormat::R16Unorm, wgpu::TextureFormat::Rg16Unorm),
             GpuFormat::Nv12 => (vk::Format::R8_UNORM, vk::Format::R8G8_UNORM, wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm),
@@ -141,8 +213,12 @@ impl Importer {
             return Err(format!("layer formats {:#x} / {:#x} do not match {format:?}", d.layer_formats[0], d.layer_formats[1]));
         }
         let (w, h) = (d.width.max(1), d.height.max(1));
-        let luma = self.import_plane(d, 0, fy, wy, (w, h), "decoded luma")?;
-        let chroma = self.import_plane(d, 1, fc, wc, (w.div_ceil(2), h.div_ceil(2)), "decoded chroma")?;
+        let labels = match usage {
+            PlaneUse::Sampled => ["decoded luma", "decoded chroma"],
+            PlaneUse::Target => ["encoder luma", "encoder chroma"],
+        };
+        let luma = self.import_plane(d, 0, fy, wy, (w, h), usage, labels[0])?;
+        let chroma = self.import_plane(d, 1, fc, wc, (w.div_ceil(2), h.div_ceil(2)), usage, labels[1])?;
         Ok(Imported {
             alive: std::sync::Weak::new(),
             luma: luma.create_view(&Default::default()),
@@ -159,6 +235,7 @@ impl Importer {
         vk_format: vk::Format,
         format: wgpu::TextureFormat,
         (w, h): (u32, u32),
+        usage: PlaneUse,
         label: &'static str,
     ) -> Result<wgpu::Texture, String> {
         let (planes, modifier) = (d.layers.get(layer).ok_or("layer index")?, d.modifier);
@@ -168,6 +245,10 @@ impl Importer {
         let [first] = planes.as_slice() else {
             return Err(format!("{} memory planes in a layer (only single-plane modifiers are imported)", planes.len()));
         };
+        // single-plane modifiers can still be compressed (metadata outside the plane)
+        if compressed_modifier(modifier) {
+            return Err(format!("format modifier {modifier:#x} is compressed (not imported)"));
+        }
         let object = d.objects.get(first.object).ok_or("plane of a missing buffer object")?;
         // SAFETY: the hal device is used only within this call, while `self.device` is alive.
         let hal = unsafe { self.device.as_hal::<Vulkan>() }.ok_or("not a Vulkan device")?;
@@ -178,7 +259,7 @@ impl Importer {
             return Err("Vulkan 1.1 is needed to import".into());
         }
         // creating an image with a modifier the device does not list for the format is invalid usage
-        check_modifier(&instance, hal.raw_physical_device(), vk_format, modifier, planes.len(), (w, h))?;
+        check_modifier(&instance, hal.raw_physical_device(), vk_format, modifier, planes.len(), (w, h), usage)?;
         let fd_api = ash::khr::external_memory_fd::Device::new(&instance, &dev);
         let layouts: Vec<vk::SubresourceLayout> = planes
             .iter()
@@ -194,7 +275,7 @@ impl Importer {
             .array_layers(1)
             .samples(vk::SampleCountFlags::TYPE_1)
             .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
-            .usage(vk::ImageUsageFlags::SAMPLED)
+            .usage(usage.vk_usage())
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .push_next(&mut external)
@@ -268,7 +349,10 @@ impl Importer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUses::RESOURCE,
+            usage: match usage {
+                PlaneUse::Sampled => wgpu::TextureUses::RESOURCE,
+                PlaneUse::Target => wgpu::TextureUses::COLOR_TARGET,
+            },
             memory_flags: wgpu::hal::MemoryFlags::empty(),
             view_formats: Vec::new(),
         };
@@ -283,14 +367,36 @@ impl Importer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: match usage {
+                PlaneUse::Sampled => wgpu::TextureUsages::TEXTURE_BINDING,
+                PlaneUse::Target => wgpu::TextureUsages::RENDER_ATTACHMENT,
+            },
             view_formats: &[],
         };
-        // SAFETY: the hal texture was made on this device for `desc`; its memory already holds the
-        // decoded picture (written by the video decoder and synced before export). UNINITIALIZED
-        // lets wgpu move it from UNDEFINED to the sampled layout, which keeps the contents of a
-        // DMA-BUF image without compression metadata (the decoder's surfaces).
+        // SAFETY: the hal texture was made on this device for `desc`. Sampled: its memory already
+        // holds the decoded picture (written by the video decoder and synced before export).
+        // UNINITIALIZED lets wgpu move it from UNDEFINED to the sampled layout, which keeps the
+        // contents of a DMA-BUF image without compression metadata (the decoder's surfaces).
+        // Target: every texel is rendered before the encoder reads the memory, and the caller
+        // waits for that submission to finish first. That the encoder then sees what was rendered
+        // without a release to the foreign queue family is observed driver behaviour (RADV, ANV:
+        // uncompressed modifiers, `compressed_modifier` refuses the others, keep no state outside
+        // the memory and flush caches at the end of a submission), not a Vulkan guarantee; see
+        // ADR 0002 "Encoding" residual risks.
         Ok(unsafe { self.device.create_texture_from_hal::<Vulkan>(hal_tex, &desc, wgpu::TextureUses::UNINITIALIZED) })
+    }
+}
+
+/// Whether a DRM format modifier means compressed memory (metadata the import cannot keep valid
+/// across the layout transition and the hand-over to the video engine): Intel CCS modifiers
+/// (`I915_FORMAT_MOD_*_CCS*`, all single-plane from Xe2 on), AMD modifiers with DCC, and AMD GFX12
+/// tiling (compression is chosen per allocation there, not shown in the modifier).
+fn compressed_modifier(modifier: u64) -> bool {
+    let (vendor, code) = (modifier >> 56, modifier & ((1 << 56) - 1));
+    match vendor {
+        0x01 => matches!(code, 4..=8 | 10..=17),
+        0x02 => (code >> 13) & 1 == 1 || code & 0xff == 5,
+        _ => false,
     }
 }
 
@@ -313,6 +419,7 @@ fn check_modifier(
     modifier: u64,
     planes: usize,
     (w, h): (u32, u32),
+    usage: PlaneUse,
 ) -> Result<(), String> {
     let count = {
         let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
@@ -337,8 +444,8 @@ fn check_modifier(
     if m.drm_format_modifier_plane_count as usize != planes {
         return Err(format!("modifier {modifier:#x} has {} memory planes, the export {planes}", m.drm_format_modifier_plane_count));
     }
-    if !m.drm_format_modifier_tiling_features.contains(vk::FormatFeatureFlags::SAMPLED_IMAGE) {
-        return Err(format!("modifier {modifier:#x} cannot be sampled as {format:?}"));
+    if !m.drm_format_modifier_tiling_features.contains(usage.feature()) {
+        return Err(format!("modifier {modifier:#x} cannot be used as {format:?} ({usage:?})"));
     }
     let mut drm = vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default().drm_format_modifier(modifier).sharing_mode(vk::SharingMode::EXCLUSIVE);
     let mut external = vk::PhysicalDeviceExternalImageFormatInfo::default().handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
@@ -346,7 +453,7 @@ fn check_modifier(
         .format(format)
         .ty(vk::ImageType::TYPE_2D)
         .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
-        .usage(vk::ImageUsageFlags::SAMPLED)
+        .usage(usage.vk_usage())
         .push_next(&mut external)
         .push_next(&mut drm);
     let mut external_props = vk::ExternalImageFormatProperties::default();
@@ -361,4 +468,23 @@ fn check_modifier(
         return Err("DMA-BUF memory is not importable for this image".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// Review of Phase 5.2c: compressed single-plane modifiers are never imported.
+    #[test]
+    fn compressed_modifiers_are_recognised() {
+        let intel = |c: u64| (0x01u64 << 56) | c;
+        let amd = |c: u64| (0x02u64 << 56) | c;
+        assert!(!super::compressed_modifier(0)); // linear
+        assert!(!super::compressed_modifier(intel(2))); // Y-tiled (the iHD encoder's surfaces)
+        assert!(!super::compressed_modifier(intel(9))); // 4-tiled
+        for c in [4, 6, 7, 8, 10, 13, 16, 17] {
+            assert!(super::compressed_modifier(intel(c)), "intel {c}");
+        }
+        assert!(super::compressed_modifier(amd((1 << 13) | 3))); // GFX10 with DCC
+        assert!(!super::compressed_modifier(amd(3))); // GFX10 without
+        assert!(super::compressed_modifier(amd(5))); // GFX12
+    }
 }

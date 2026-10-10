@@ -141,3 +141,74 @@ memory are destroyed on every failure path; wgpu-hal owns them afterwards (`Dedi
   reference on the DMA-BUF.
 - The bindings are generated from the installed libva headers; a libva with a different ABI for
   the same soname would be a libva bug.
+
+## Encoding (fork Phase 5.2b, 2026-10-09)
+
+HEVC export encodes in process through the same runtime-loaded libva (VA-API primary, §1a.4):
+`va_sys.rs` now also carries `va_enc_hevc.h` and the encode buffer types (regenerated with
+`crates/platform/gen-va-sys.sh`, which reproduces the decode-only file exactly when the encode
+types are left out). FilmCraft writes VPS / SPS / PPS and slice headers itself
+(`filmcraft_hevc::write`, checked by parsing them back) and gives them to the driver as packed
+headers; the driver writes the slice data. All `unsafe` stays in `va.rs`:
+
+- `Context::encode_hevc` fills the surface ids and the coded buffer into the picture and slice
+  parameters itself, after checking that source, reconstruction and reference surfaces belong to
+  the display and hold a whole picture, and that the coded buffer is this context's; picture and
+  slice parameter buffers are not `ParamBuffer`s, so no other path can hand the driver ids.
+- `CodedBuffer` owns its buffer (not borrowed from the context, so an encoder keeps several in
+  flight; libva buffers do not depend on their context once made); `read` walks at most 64
+  segments, bounds each by the buffer's size and refuses overflowed or unaligned segments.
+- `Surface::write` maps a `vaCreateImage` image (checked to be at least the surface's size) and
+  copies it in with `vaPutImage`; the caller fills the mapping through bounds-checked slices.
+- Misc parameters are `repr(C)` pairs of the `type` word and the payload (`Misc<T>`), a sealed
+  `ParamBuffer` like the decode parameters.
+
+`va_enc.rs` (safe code) keeps three pictures in flight; the export falls back to ffmpeg
+`hevc_vaapi` → `libx265` (without B-frames) mid-stream, re-encoding the frames the driver had not
+finished, from an IDR picture.
+
+## Zero-copy encode input (fork Phase 5.2c, 2026-10-10)
+
+The export renders into the encoder's own input surfaces: `Surface::export_writable` exports a
+surface with `VA_EXPORT_SURFACE_READ_WRITE` (cached per surface; a writable export replaces a
+read-only one), and `interop::Importer::import_target` imports its luma and chroma layers as
+UNORM `COLOR_ATTACHMENT` images (the modifier must list `COLOR_ATTACHMENT` for the format; the
+same image-format and external-memory queries as the sampled import). wgpu renders the samples;
+the encoder thread waits for that submission on the CPU (`VaPicture::ready`) before
+`vaBeginPicture`, and every frame dropped unencoded waits too, so neither the encoder surface nor
+the decoder surfaces its plan samples are reused while the GPU still uses them.
+
+**Residual risk (write direction).** The rendered image is never released to
+`VK_QUEUE_FAMILY_FOREIGN_EXT` nor moved to a layout the video engine is promised to read. That
+the encoder sees the writes after the CPU wait is observed behaviour of RADV and ANV for
+uncompressed modifiers (layouts are the memory layout itself; caches are flushed at the end of a
+submission), not a Vulkan guarantee. Compressed modifiers, including single-plane ones (Intel
+CCS, AMD DCC, AMD GFX12), are refused (`compressed_modifier`), for imports in both directions.
+Byte-exact parity tests on AMD (RADV + radeonsi) and Intel (ANV + iHD) guard the behaviour; a
+driver that cannot render into the surfaces makes the export read frames back instead.
+
+## Review of the encode FFI (fork Phase 5 acceptance, 2026-10-10)
+
+An independent review (a separate agent, not the author) of every `unsafe` block and FFI boundary
+added since `phase-4` (`va.rs` encode, `interop.rs` targets, and the callers they rely on):
+nothing critical, no reachable memory-safety bug. Fixed with tests where testable:
+
+- `CodedBuffer::read` takes `&mut self` (the type is `Sync`: two threads could map one buffer).
+- `VaPicture` and `VaHevcEncoder` wait for outstanding GPU / VA work on drop (cancel, failure);
+  a lost GPU submission stays lost (a never-written surface is never encoded).
+- `vaMaxNum*` counts above the array cap are refused instead of clamped (libva writes the
+  driver's real count); more than 64 coded segments is an error, not a truncated picture;
+  segments are read unaligned.
+- `encode_hevc` checks the surfaces' render-target format against the config and forces one
+  reference per list (`num_ref_idx_*_minus1 = 0`); sequence parameters are no longer a
+  `ParamBuffer` but go through `Context::sequence_buffer`, which checks the declared picture size
+  against the context.
+- `fill_semiplanar` refuses a driver chroma offset beyond the image (was a panic).
+- Imports of freed memory are dropped on every call (an export's surfaces stayed pinned in VRAM
+  until the next import); `import_target` refuses read-only exports; `Misc<T>` sizes are checked
+  at compile time.
+- Found while re-testing on Intel: the mid-stream fallback to ffmpeg `hevc_vaapi` did not turn
+  B-frames off (`-bf 0`; Intel's encoder reorders), so the stream's order broke.
+
+Accepted: `va_sys.rs` has no bindgen layout tests (generated from the system headers by
+`gen-va-sys.sh` for this ABI; the structs passed by size are the generated ones).

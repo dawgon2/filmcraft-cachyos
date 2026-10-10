@@ -41,6 +41,7 @@ mod spec_tables;
 mod synth_tests;
 mod tables;
 mod transform;
+pub mod write;
 
 pub use decoder::{DecodeStats, Decoder, hvcc_parameter_sets};
 pub use dpb::OutputMeta;

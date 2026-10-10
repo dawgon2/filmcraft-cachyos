@@ -261,6 +261,9 @@ pub struct ExportSettings {
     /// Which HEVC encoder runs.
     #[serde(default)]
     pub hevc_encoder: HevcEncoder,
+    /// libx265's speed preset (`ultrafast` … `veryslow`; empty or unknown = `medium`).
+    #[serde(default)]
+    pub x265_preset: String,
     /// Constant quality instead of a bitrate: CRF (libx265) / QP (VA-API), 0–51, lower is better.
     /// None = the bitrate settings apply.
     #[serde(default)]
@@ -448,6 +451,7 @@ impl Default for ExportSettings {
             h264_level: None,
             hevc_bit_depth: 8,
             hevc_encoder: HevcEncoder::Auto,
+            x265_preset: String::new(),
             crf: None,
             bitrate_mode: BitrateMode::default(),
             max_bitrate_kbps: None,
@@ -532,8 +536,108 @@ pub struct EncoderFrame<'a> {
     pub height: u32,
     pub rgba: &'a [u8],
     pub hdr: Option<&'a [f32]>,
+    /// The frame already converted on the GPU ([`GpuFrames`]): planar `yuv420p10le` /
+    /// `yuv420p` in the export's signal; `rgba` is then empty. Encoders that take Y'CbCr use it
+    /// as is ([`frame_to_yuv420p`]).
+    pub yuv: Option<&'a [u8]>,
+    /// The frame rendered on the GPU straight into the encoder's input memory (fork Phase 5.2c,
+    /// [`GpuFrames::render_into`]); `rgba` and `yuv` are then empty. Encoders that cannot take it
+    /// read it back ([`GpuPicture::read_yuv420`], done by [`frame_to_yuv420p`]).
+    pub gpu: Option<std::sync::Arc<dyn GpuPicture>>,
     pub index: u64,
 }
+
+/// A frame rendered on the GPU into memory a hardware encoder reads in place (fork Phase 5.2c).
+/// The type behind it belongs to the platform layer, which registers both the renderer and the
+/// encoder.
+pub trait GpuPicture: Send + Sync {
+    fn as_any(&self) -> &dyn std::any::Any;
+    /// The picture as planar `yuv420p10le` / `yuv420p` bytes (waits for the GPU). None: lost.
+    fn read_yuv420(&self) -> Option<Vec<u8>>;
+}
+
+/// Rendering export frames on the GPU (fork Phase 5.1), registered by the platform layer: the
+/// frame's plan composited and converted to planar 4:2:0 on the GPU, so a frame never goes
+/// through the CPU renderer.
+pub trait GpuFrames: Send + Sync {
+    /// `plan` as `yuv420p10le` (`ten_bit`) or `yuv420p`, limited range, matrix (Kr, Kb); with
+    /// `high_quality` scaled layers use the Lanczos filter. None: render this frame on the CPU.
+    fn yuv420(&self, plan: &filmcraft_render::plan::FramePlan, kr: f32, kb: f32, ten_bit: bool, high_quality: bool) -> Option<Vec<u8>>;
+
+    /// As [`yuv420`](Self::yuv420), but rendered into input memory of the encoder that offered
+    /// `target` ([`VideoEncoder::gpu_target`]) without waiting for the GPU or reading back.
+    /// None: not possible for this target (use [`yuv420`](Self::yuv420)).
+    fn render_into(
+        &self,
+        _plan: &filmcraft_render::plan::FramePlan,
+        _kr: f32,
+        _kb: f32,
+        _ten_bit: bool,
+        _high_quality: bool,
+        _target: &(dyn std::any::Any + Send + Sync),
+    ) -> Option<std::sync::Arc<dyn GpuPicture>> {
+        None
+    }
+}
+
+static GPU_FRAMES: std::sync::OnceLock<Box<dyn GpuFrames>> = std::sync::OnceLock::new();
+
+/// Register the GPU frame renderer (once; later calls are ignored).
+pub fn register_gpu_frames(g: Box<dyn GpuFrames>) {
+    let _ = GPU_FRAMES.set(g);
+}
+
+/// The registered GPU frame renderer, unless `FILMCRAFT_EXPORT_CPU` is set.
+pub fn gpu_frames() -> Option<&'static dyn GpuFrames> {
+    if std::env::var_os("FILMCRAFT_EXPORT_CPU").is_some() {
+        return None;
+    }
+    GPU_FRAMES.get().map(|b| b.as_ref())
+}
+
+/// Export timing counters for diagnosis (`FILMCRAFT_EXPORT_TRACE=1`, fork Phase 5): time spent
+/// per stage, summed over all threads, printed per batch to stderr. Off (and free) otherwise.
+pub mod trace {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    pub const PLAN: usize = 0;
+    pub const GPU_LOCK: usize = 1;
+    pub const GPU_RECORD: usize = 2;
+    pub const ENC_GPU_WAIT: usize = 3;
+    pub const ENC_VA: usize = 4;
+    pub const ENC_QUEUE: usize = 5;
+    const NAMES: [&str; 6] = ["plan+decode", "gpu lock wait", "gpu record", "encoder gpu wait", "va encode", "encoder queue full"];
+    static NS: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+
+    pub fn on() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        !cfg!(target_arch = "wasm32") && *ON.get_or_init(|| std::env::var_os("FILMCRAFT_EXPORT_TRACE").is_some())
+    }
+
+    /// A start time when tracing (None otherwise: no clock read).
+    pub fn start() -> Option<std::time::Instant> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if on() {
+            return Some(std::time::Instant::now());
+        }
+        None
+    }
+
+    /// Add the time since `t` (from [`start`]) to `stage`.
+    pub fn add(stage: usize, t: Option<std::time::Instant>) {
+        if let (Some(t), Some(c)) = (t, NS.get(stage)) {
+            c.fetch_add(u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX), Ordering::Relaxed);
+        }
+    }
+
+    /// The counters in ms since the last call (and reset them).
+    pub fn take() -> String {
+        NAMES.iter().zip(&NS).map(|(n, c)| format!("{n} {:.0}", c.swap(0, Ordering::Relaxed) as f64 / 1e6)).collect::<Vec<_>>().join(", ")
+    }
+}
+
+/// libx265's speed presets, fastest first.
+pub const X265_PRESETS: [&str; 9] = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"];
 
 pub trait VideoEncoder: Send {
     /// MP4/MOV sample entry (codec config) — may only be complete after the first frame.
@@ -547,6 +651,11 @@ pub trait VideoEncoder: Send {
     }
     /// First-pass statistics of a two-pass encode (H.264).
     fn pass_stats(&self) -> Option<filmcraft_h264enc::PassStats> {
+        None
+    }
+    /// Where [`GpuFrames::render_into`] may render this encoder's input (fork Phase 5.2c; the
+    /// platform layer knows the type). None: frames come as memory.
+    fn gpu_target(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
         None
     }
 }
@@ -1086,6 +1195,22 @@ pub fn rgb_to_yuv420p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: us
 /// `yuv420p10le` (10-bit), BT.709 limited range for SDR, the signalled matrix for HDR.
 pub fn frame_to_yuv420p(f: &EncoderFrame, signal: ColorSignal, ten_bit: bool, out: &mut Vec<u8>) {
     let (w, h) = (f.width as usize, f.height as usize);
+    // converted on the GPU already
+    let size = (w * h + 2 * w.div_ceil(2) * h.div_ceil(2)) * if ten_bit { 2 } else { 1 };
+    if let Some(yuv) = f.yuv
+        && yuv.len() == size
+    {
+        out.clear();
+        out.extend_from_slice(yuv);
+        return;
+    }
+    if f.yuv.is_none()
+        && let Some(bytes) = f.gpu.as_ref().and_then(|g| g.read_yuv420())
+        && bytes.len() == size
+    {
+        *out = bytes;
+        return;
+    }
     let (kr, kb) = signal.kr_kb();
     match (f.hdr, ten_bit) {
         (Some(rgb), true) => rgb_to_yuv420p10le(

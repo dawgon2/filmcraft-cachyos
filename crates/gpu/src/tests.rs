@@ -489,3 +489,69 @@ fn high_quality_resample_matches_cpu() {
         assert!(p99 <= 1 && max <= 3, "×{s}: p99 {p99} max {max}");
     }
 }
+
+/// Export frames as Y'CbCr from the accumulator (fork Phase 5.1) match the CPU conversion of the
+/// CPU-composited picture (`filmcraft_export::rgb_to_yuv420p10le`'s maths), 10- and 8-bit, odd
+/// sizes included: within 2 codes (the accumulator is half float).
+#[test]
+fn yuv420_from_the_accumulator_matches_cpu() {
+    use filmcraft_render::plan::{FramePlan, PlanLayer, execute_cpu};
+    let Some((dev, q)) = super::blend_tests::device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    for (w, h) in [(320usize, 180usize), (161, 91)] {
+        let plan = FramePlan::Layers {
+            width: w,
+            height: h,
+            layers: vec![
+                PlanLayer::new(super::blend_tests::yuv_frame(640, 360), filmcraft_geom::Affine::scale(0.5, 0.5), 1.0, filmcraft_render::blend::Blend::Normal),
+                PlanLayer::new(
+                    super::blend_tests::ramp_layer(120, 60, 3),
+                    filmcraft_geom::Affine::translate(30.0, 40.0),
+                    0.8,
+                    filmcraft_render::blend::Blend::Normal,
+                ),
+            ],
+            output: None,
+        };
+        let cpu = execute_cpu(&plan);
+        c.composite(&plan);
+        for (ten, (kr, kb)) in [(true, (0.2126f32, 0.0722f32)), (false, (0.2126, 0.0722)), (true, (0.2627, 0.0593))] {
+            let gpu = c.read_yuv420(kr, kb, ten).expect("yuv read-back");
+            // CPU reference: over black, clamped sRGB encode, then the export's 4:2:0 maths
+            let enc = |v: f32| filmcraft_color::linear_to_srgb(v.clamp(0.0, 1.0));
+            let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+            let (kg, sb, sr) = (1.0 - kr - kb, 2.0 * (1.0 - kb), 2.0 * (1.0 - kr));
+            let (ys, yo, cs, co, lo, hi) = if ten { (876.0, 64.0, 896.0, 512.0, 4.0, 1019.0) } else { (219.0, 16.0, 224.0, 128.0, 1.0, 254.0) };
+            let mut want = vec![0u32; w * h + 2 * cw * ch];
+            let mut acc = vec![[0f32; 3]; cw * ch];
+            for y in 0..h {
+                for x in 0..w {
+                    let p = cpu.get(x, y);
+                    let (r, g, b) = (enc(p[0]), enc(p[1]), enc(p[2]));
+                    let yy = kr * r + kg * g + kb * b;
+                    want[y * w + x] = (yo + ys * yy).round().clamp(lo, hi) as u32;
+                    let a = &mut acc[(y / 2) * cw + x / 2];
+                    a[0] += (b - yy) / sb;
+                    a[1] += (r - yy) / sr;
+                    a[2] += 1.0;
+                }
+            }
+            for (i, a) in acc.iter().enumerate() {
+                want[w * h + i] = (co + cs * a[0] / a[2]).round().clamp(lo, hi) as u32;
+                want[w * h + cw * ch + i] = (co + cs * a[1] / a[2]).round().clamp(lo, hi) as u32;
+            }
+            let got: Vec<u32> = if ten {
+                gpu.as_chunks::<2>().0.iter().map(|b| u32::from(u16::from_le_bytes(*b))).collect()
+            } else {
+                gpu.iter().map(|b| u32::from(*b)).collect()
+            };
+            assert_eq!(got.len(), want.len(), "{w}×{h}");
+            let worst = got.iter().zip(&want).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+            eprintln!("{w}×{h} ten {ten} kr {kr}: max {worst} codes");
+            assert!(worst <= if ten { 3 } else { 1 }, "{w}×{h} ten {ten}: {worst}");
+        }
+    }
+}

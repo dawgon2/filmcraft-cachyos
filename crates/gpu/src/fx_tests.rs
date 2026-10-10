@@ -492,3 +492,38 @@ fn layers_with_effects_fall_back_to_the_cpu_without_a_stage() {
         assert!(p99 <= 6 && mean < 1.5, "stage {stage}: p99 {p99}, mean {mean}");
     }
 }
+
+/// A working image smaller than the frame (fork Phase 5.3: converted media graded at the size
+/// drawn): the GPU resamples the frame like the CPU reference before the effects run.
+#[test]
+fn working_image_smaller_than_the_frame_matches_cpu() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (160u32, 96u32);
+    // smooth content: the GPU supersamples where the CPU filters bilinearly, which differ only
+    // on detail finer than the working image
+    let px: Vec<f32> = (0..w * h)
+        .flat_map(|i| {
+            let (x, y) = ((i % w) as f32 / w as f32, (i / w) as f32 / h as f32);
+            [0.1 + 0.8 * x, 0.2 + 0.6 * y, 0.5 * (x + y), 1.0]
+        })
+        .collect();
+    let frame = VideoFrame::rgba_f32(w, h, px);
+    for size in [(99u32, 59u32), (80, 48), (157, 95)] {
+        let ops: Vec<FxOp> = [effect("brightness_contrast", &[("brightness", fl(20.0))])]
+            .iter()
+            .filter_map(|e| FxOp::eval(e, &cx(Tick::ZERO, size.0 as f32 / w as f32), size.0 as usize, size.1 as usize))
+            .collect();
+        let fx = LayerFx { size, decimation: 1, ops };
+        let cpu = filmcraft_render::plan::effect_image(&frame, &fx);
+        assert_eq!((cpu.w, cpu.h), (size.0 as usize, size.1 as usize));
+        let (gw, gh, gpu) = c.effect_image(&frame, &fx).expect("effect image");
+        assert_eq!((gw, gh), size);
+        let mean = cpu.px.iter().zip(&gpu).map(|(a, b)| (a - b).abs()).sum::<f32>() / gpu.len() as f32;
+        eprintln!("{size:?}: mean abs diff {mean:.2e}");
+        assert!(mean < 2e-3, "{size:?}: mean abs diff {mean}");
+    }
+}

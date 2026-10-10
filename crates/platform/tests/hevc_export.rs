@@ -1,4 +1,5 @@
-//! H.265 / HEVC export through the system ffmpeg (Linux): libx265 (B-frames) and VA-API. The
+//! H.265 / HEVC export (Linux): VA-API in process, and through the system ffmpeg libx265
+//! (B-frames) and `hevc_vaapi`. The
 //! packets must decode with our own HEVC decoder from the encoder's sample entry, every frame in
 //! order (pts from the composition offsets), with the requested bit depth; damaged settings must
 //! give errors, never crash. Skips without ffmpeg or the encoder.
@@ -6,6 +7,8 @@
 
 use filmcraft_export::{BitrateMode, ColorSignal, EncodedPacket, EncoderFrame, ExportSettings, Format, HevcEncoder, VideoEncoder};
 use filmcraft_frame::PixelData;
+use filmcraft_hevc::params::Sps;
+use filmcraft_isobmff::{CodecConfig, ColorInfo};
 use filmcraft_platform::hevc_export::{Backend, HevcEncoder as Encoder};
 use filmcraft_time::FrameRate;
 
@@ -39,7 +42,17 @@ fn settings(encoder: HevcEncoder, bits: u8, crf: Option<u8>) -> ExportSettings {
 /// Encode `n` frames; `None` when this encoder is not available here.
 fn encode(encoder: HevcEncoder, bits: u8, crf: Option<u8>, n: u64) -> Option<(Encoder, Vec<EncodedPacket>)> {
     filmcraft_testkit::require_ffmpeg!(None);
-    let mut enc = match Encoder::new(W, H, FrameRate::new(24, 1), &settings(encoder, bits, crf)) {
+    encode_with(&settings(encoder, bits, crf), None, n)
+}
+
+/// Encode `n` frames with `s`, on the first backend of `order` that starts.
+fn encode_with(s: &ExportSettings, order: Option<&[Backend]>, n: u64) -> Option<(Encoder, Vec<EncodedPacket>)> {
+    let started = match order {
+        Some(o) => Encoder::with(W, H, FrameRate::new(24, 1), s, o),
+        None => Encoder::new(W, H, FrameRate::new(24, 1), s),
+    };
+    let encoder = s.hevc_encoder;
+    let mut enc = match started {
         Ok(e) => e,
         Err(e) => {
             eprintln!("SKIPPED: {encoder:?} HEVC encoder unavailable: {e}");
@@ -49,7 +62,7 @@ fn encode(encoder: HevcEncoder, bits: u8, crf: Option<u8>, n: u64) -> Option<(En
     let mut packets = Vec::new();
     for i in 0..n {
         let rgba = frame(i);
-        packets.extend(enc.encode(&EncoderFrame { width: W, height: H, rgba: &rgba, hdr: None, index: i }).unwrap());
+        packets.extend(enc.encode(&EncoderFrame { width: W, height: H, rgba: &rgba, hdr: None, yuv: None, gpu: None, index: i }).unwrap());
     }
     packets.extend(enc.flush().unwrap());
     Some((enc, packets))
@@ -114,10 +127,45 @@ fn x265_constant_quality() {
 fn vaapi_round_trips_in_order() {
     for (bits, crf) in [(8u8, None), (10, None), (8, Some(28))] {
         let Some((enc, packets)) = encode(HevcEncoder::Vaapi, bits, crf, 60) else { return };
-        assert_eq!(enc.backend(), Backend::Vaapi);
+        assert!(matches!(enc.backend(), Backend::VaNative | Backend::Vaapi), "{:?}", enc.backend());
         let keys = packets.iter().filter(|p| p.key).count();
         assert!(keys >= 2, "a keyframe every 24 frames ({keys})");
         check(&format!("VA-API {bits}-bit {crf:?}"), &decode(&enc, &packets), 60, bits as u32);
+    }
+}
+
+/// ffmpeg's `hevc_vaapi` (the in-process encoder's fallback), forced.
+#[test]
+fn ffmpeg_vaapi_round_trips_in_order() {
+    filmcraft_testkit::require_ffmpeg!();
+    let Some((enc, packets)) = encode_with(&settings(HevcEncoder::Vaapi, 10, None), Some(&[Backend::Vaapi]), 30) else { return };
+    assert_eq!(enc.backend(), Backend::Vaapi);
+    check("hevc_vaapi 10-bit", &decode(&enc, &packets), 30, 10);
+}
+
+/// The in-process encoder (fork Phase 5.2b): every rate control, keyframes where asked, no
+/// reordering, and the colour description in the stream and the sample entry.
+#[test]
+fn in_process_vaapi_round_trips_in_order() {
+    for (bits, crf, mode) in [(10u8, None, BitrateMode::Vbr1Pass), (8, None, BitrateMode::Cbr), (10, Some(24), BitrateMode::Vbr1Pass)] {
+        let mut s = settings(HevcEncoder::Vaapi, bits, crf);
+        s.bitrate_mode = mode;
+        s.signal = ColorSignal::HLG;
+        let Some((enc, packets)) = encode_with(&s, Some(&[Backend::VaNative]), 50) else { return };
+        assert_eq!(enc.backend(), Backend::VaNative);
+        let keys: Vec<usize> = packets.iter().enumerate().filter(|(_, p)| p.key).map(|(i, _)| i).collect();
+        assert_eq!(keys, vec![0, 24, 48], "an IDR every 24 frames");
+        assert!(packets.iter().all(|p| p.composition_offset == 0) && enc.media_start().is_none(), "no reordering");
+        let entry = enc.sample_entry();
+        let colr = entry.video.as_ref().and_then(|v| v.color.clone());
+        assert!(matches!(colr, Some(ColorInfo::Nclx { primaries: 9, transfer: 18, matrix: 9, full_range: false })), "colr box: {colr:?}");
+        let CodecConfig::Hevc(cfg) = &entry.codec else { panic!("an hvcC sample entry") };
+        let sps = cfg.arrays.iter().find(|a| a.nal_type == 33).and_then(|a| a.nalus.first()).expect("SPS in hvcC");
+        let sps = Sps::parse(&filmcraft_bitstream::unescape_rbsp(&sps[2..])).expect("SPS parses");
+        let vui = sps.vui.expect("VUI");
+        assert_eq!((vui.colour_primaries, vui.transfer_characteristics, vui.matrix_coefficients, vui.full_range), (9, 18, 9, false), "VUI colour");
+        assert_eq!(sps.bit_depth_luma, bits as u32);
+        check(&format!("in-process {bits}-bit {crf:?} {mode:?}"), &decode(&enc, &packets), 50, bits as u32);
     }
 }
 
@@ -148,7 +196,7 @@ fn hostile_settings_are_errors() {
     // a frame of the wrong size is an error, not a crash
     if let Ok(mut enc) = Encoder::new(W, H, FrameRate::new(24, 1), &s) {
         let small = vec![0u8; 16];
-        assert!(enc.encode(&EncoderFrame { width: 2, height: 2, rgba: &small, hdr: None, index: 0 }).is_err());
+        assert!(enc.encode(&EncoderFrame { width: 2, height: 2, rgba: &small, hdr: None, yuv: None, gpu: None, index: 0 }).is_err());
     }
 }
 

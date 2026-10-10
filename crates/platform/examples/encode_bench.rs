@@ -43,7 +43,7 @@ fn main() -> Result<(), String> {
     let mut packets = 0usize;
     for i in 0..frames {
         let rgba = pics.get(i as usize % pics.len()).ok_or("no picture")?;
-        for p in enc.encode(&EncoderFrame { width: w, height: h, rgba, hdr: None, index: i }).map_err(|e| e.to_string())? {
+        for p in enc.encode(&EncoderFrame { width: w, height: h, rgba, hdr: None, yuv: None, gpu: None, index: i }).map_err(|e| e.to_string())? {
             bytes += p.data.len();
             packets += 1;
         }

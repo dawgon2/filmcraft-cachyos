@@ -501,7 +501,7 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
             }
         }
     }
-    if o.wants("export") {
+    if ["xm5-export-4k", "xm5-export-4k graded", "xm5-export-6k"].iter().any(|n| o.wants(n)) {
         rows.extend(export(o));
     }
     // only when asked for by name: hours long
@@ -680,7 +680,7 @@ fn export(o: &Opts) -> Vec<Value> {
     let cases: [(&str, u32, u32, bool); 3] =
         [("xm5-export-4k", 3840, 2160, false), ("xm5-export-4k graded", 3840, 2160, true), ("xm5-export-6k", 6240, 4160, false)];
     for (name, w, h, graded) in cases {
-        if !o.wants(name) && !o.wants("export") {
+        if !o.wants(name) {
             continue;
         }
         let mut s = Session::default();
@@ -693,6 +693,7 @@ fn export(o: &Opts) -> Vec<Value> {
         for _ in 0..o.repeat {
             let out = dir.join("out.mp4");
             let smp = Sampler::start();
+            let g0 = filmcraft_codecs::gop_stats();
             let (t0, c0) = (Instant::now(), filmcraft_ui_egui::frames::process_cpu_time().unwrap_or_default());
             let r = s.execute(
                 "file.exportMedia",
@@ -710,11 +711,16 @@ fn export(o: &Opts) -> Vec<Value> {
                 break;
             }
             let fps = frames as f64 / dt;
-            eprintln!("{name}: {frames} frames in {dt:.1} s = {fps:.1} fps");
+            let g = filmcraft_codecs::gop_stats() - g0;
+            eprintln!("{name}: {frames} frames in {dt:.1} s = {fps:.1} fps (GOP seeks {}, decoded {}, evicted {})", g.seeks, g.decoded, g.evicted);
+            // FILMCRAFT_BENCH_KEEP=<dir>: keep the output (`<case>.mp4`) for comparisons
+            if let Some(keep) = std::env::var_os("FILMCRAFT_BENCH_KEEP") {
+                let _ = std::fs::copy(&out, std::path::Path::new(&keep).join(format!("{}.mp4", name.replace(' ', "-"))));
+            }
             rows.push(json!({
                 "case": name, "frames": frames, "seconds": dt, "fps": fps, "realtime": fps / FPS_29_97.as_f64(),
                 "cpu_ms_per_frame": cpu / frames.max(1) as f64, "mbytes": std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0) as f64 / 1e6,
-                "sampled": smp.json(), "load": load_avg(),
+                "sampled": smp.json(), "load": load_avg(), "gop_seeks": g.seeks, "gop_decoded": g.decoded, "gop_evicted": g.evicted,
             }));
         }
     }

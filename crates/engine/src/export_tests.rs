@@ -471,3 +471,14 @@ fn default_export_dir_never_needs_a_real_filesystem() {
     let s = Session { path: Some("/projects/show/edit.fcproj".into()), ..Default::default() };
     assert_eq!(crate::export_tools::default_export_dir(&s), std::path::PathBuf::from("/projects/show"));
 }
+
+/// `bitDepth` is taken as a number or as text ("10" used to be ignored: 8-bit "Main 10" exports).
+#[test]
+fn hevc_bit_depth_accepts_text() {
+    let mut s = crate::Session::default();
+    s.execute("file.openDemoProject", json!({})).unwrap();
+    for v in [json!(10), json!("10")] {
+        let (_, st) = crate::export_tools::settings_from_params(&s, &json!({"format": "hevc", "bitDepth": v}), "file.exportMedia").unwrap();
+        assert_eq!(st.hevc_bit_depth, 10, "{v}");
+    }
+}

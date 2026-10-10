@@ -26,11 +26,15 @@
 #[cfg(target_os = "linux")]
 pub mod ffmpeg;
 #[cfg(target_os = "linux")]
+mod gpu_export;
+#[cfg(target_os = "linux")]
 pub mod hevc_export;
 pub mod hybrid;
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 pub mod va;
+#[cfg(target_os = "linux")]
+pub mod va_enc;
 #[cfg(target_os = "linux")]
 pub mod va_hevc;
 #[cfg(target_os = "linux")]
@@ -64,8 +68,10 @@ pub fn register() -> Availability {
     }
     #[cfg(target_os = "linux")]
     {
-        // H.265 / HEVC export (VA-API or libx265), independent of hardware decoding
+        // H.265 / HEVC export (VA-API or libx265), independent of hardware decoding, with its
+        // frames rendered on the GPU
         hevc_export::register();
+        gpu_export::register();
         // in-process VA-API (HEVC) first, the ffmpeg pipe (H.264 / HEVC) behind it
         let native = va::Display::get();
         let pipe = ffmpeg::ffmpeg().is_some() && ffmpeg::vaapi_device().is_some();

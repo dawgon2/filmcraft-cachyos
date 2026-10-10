@@ -267,3 +267,46 @@ Notes: L 2× in the full suite runs after the draft-playback case and inherits s
 channel): graded 6.2K with the Color workspace's scopes open 241 / 0 per 8 s, scopes updated
 every frame (Phase 4.4).
 
+## Phase 5.1: export frames on the GPU (synthetic, 2026-10-09)
+
+`bench --section xm5 --only export` (60 s timelines, HEVC through ffmpeg `hevc_vaapi`, now really
+Main 10: `bitDepth: "10"` was ignored before, so earlier export rows are 8-bit). Load ≈ 5.
+
+| case | Phase 4 (CPU render, 8-bit) | Phase 5.1 (GPU render, 10-bit) |
+|---|---|---|
+| export 4K | 4.9 fps | 16.5 fps |
+| export 4K graded | 0.6 fps | 13.0 fps |
+| export 6.2K | 4.0 fps | 8.2 fps |
+
+
+## Phase 5 acceptance (synthetic, full suite, 2026-10-10)
+
+`target/release/examples/bench --section xm5 --json target/bench/xm5-phase5.json` (binary saved
+as `target/fork-bench/bench-phase5`), machine idle (load 1.5 at the start, 1.9 at the end).
+Export: 60 s of the 6.2K synthetic clip, HEVC Main 10, VBR 100 Mbps, in-process VA-API encode
+with the zero-copy input (5.2c).
+
+| case | Phase 5 | Phase 4 | accept |
+|---|---|---|---|
+| ceilings: decode on GPU / + download / encode 4K / encode 6.2K | 43.2 / 34.1 / 29.8 / 19.5 fps | same | — |
+| **export 4K** | **24.6 fps** (82 % of the 29.8 fps encode ceiling), 4.1 ms CPU/frame | 4.9 fps | ≥ 80 % ✓ |
+| **export 4K graded** (F-Log2 + Lumetri) | **27.5 fps** (0.92× real time), 5.2 ms CPU/frame | 0.6 fps | faster than real time ✗ (see below) |
+| **export 6.2K** | **18.7 fps**, fully in hardware (96 % of its 19.5 fps encode ceiling) | 4.0 fps | in hardware ✓ |
+| decode (app) | 40.8 fps, 1.2 ms CPU/frame | 41.6 | — |
+| play-full / half-draft / graded / dwg | 1798 / 0 each (1.6 / 1.6 / 2.4 / 2.4 ms) | same | — |
+| play-flog2 | 1797 / 1 | 1796 / 2 | — |
+| JKL L 2×, L 4× warm, J 1×, J 2× warm | 299 / 1, 107 / 8, 297 / 4, 74 / 12 | 188 / 20, 75 / 9, 298 / 3, 144 / 15 | — |
+| scrub p50 / p95 | 494 / 794 ms | 493 / 794 | — |
+| multicut (Phase 6) | 1442 / 338 (re-runs 302, 310; with the old GOP cache 315, 333) | 1543 / 237 | not a Phase 5 item |
+| 4:2:2 play (CPU decoder) | 569 / 0 | 569 / 0 | — |
+
+Other Phase 5 checks: every HEVC preset passes ffprobe (Main 10, yuv420p10le, BT.709 tags, tv
+range) and plays in mpv (`crates/ui-egui/tests/hevc_presets.rs`) ✓; export colour matches the
+Program monitor (mean colour within 0.7 / 255) ✓; zero-copy frames byte-identical to the
+read-back path on AMD and Intel ✓.
+
+**Graded faster than real time: not met (27.5 fps vs 29.97).** The GPU is not the limit; the one
+VCN of the RX 6700 XT is: the 6.2K decode (24.4 ms/frame alone) and the 4K encode (~8–10 ms) share
+it, so ≈ 31 fps is the ceiling; with the decoder flat out the encoder slows from ~10 to ~54 ms per
+frame. Encoding on the Intel UHD 750 instead was slower (18.5 fps, 4K). 6.2K export is at its
+encode ceiling. A later dedicated 6.2K optimisation phase may revisit this (FORK-PLAN §1a.16).

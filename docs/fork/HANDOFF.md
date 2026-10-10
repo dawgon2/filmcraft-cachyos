@@ -1,14 +1,14 @@
 # Handoff: FilmCraft fork (6.2K HEVC on CachyOS + RX 6700 XT)
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**,
-§5 phases, §7 progress log), then this file. Updated 2026-10-09 in session 5 (Phase 4.1–4.6 done; next Phase 4 acceptance).
+§5 phases, §7 progress log), then this file. Updated 2026-10-10 in session 7 (Phase 5.2c zero-copy done; next 5.2d encode on the Intel media engine).
 
 ## Status
 
 - **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` (`bc2771c`), `phase-2` (`baa98f0`),
-  `phase-3` (`0909c2c`).
-- **Phase 0, 1, 2, 3: done.** Builds in `~/Apps/filmcraft-builds/phase-1`, `phase-2`, `phase-3`;
-  `latest` → `phase-3`; launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
+  `phase-3` (`0909c2c`), `phase-4` (`476371c`).
+- **Phase 0, 1, 2, 3, 4: done.** Builds in `~/Apps/filmcraft-builds/phase-1` … `phase-4`;
+  `latest` → `phase-4`; launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
 - **Phase 2 in detail (all done):** in-process VA-API HEVC decode (bit-exact on 39 conformance
   fixtures), zero-copy display through the Vulkan DMA-BUF import, fallback chain in-process →
   ffmpeg pipe → software, VRAM budget, `FrameServer` drop fix. Acceptance (synthetic, full
@@ -54,12 +54,86 @@ For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing 
    Lanczos-3 for Maximum Render Quality (export, paused Program monitor), sequence presets
    (`sequence.presets`). **4.6**
    1.6× anamorphic (desqueeze in `motion_matrix_par`, `PIXEL_ASPECTS`). Fujifilm LUT check done
-   (tone exact; colours differ by design, FORK-PLAN §7). **Next: Phase 4 acceptance**: full
-   `xm5` suite, `cargo xtask ci`, tag `phase-4`, build; 4.4 scopes; 4.5 reframing; 4.6 anamorphic; full suite.
+   (tone exact; colours differ by design, FORK-PLAN §7). Phase 4 accepted (play-graded
+   1798/0 at 2.4 ms CPU/frame), tagged `phase-4`, built. **Phase 5.1 done:** export frames
+   composited and converted to 4:2:0 on a headless GPU (`platform::gpu_export`,
+   `GpuCompositor::read_yuv420`): 4K 16.5 fps, graded 13.0, 6.2K 8.2 (10-bit; before: 4.9 / 0.6 /
+   4.0 at 8-bit; `bitDepth: "10"` used to be ignored). **5.2a** writer queue sized to overlap
+   render and encode: 4K 19.0 fps, graded 13.6, 6.2K 9.3 (`af5b731`). **5.2b done** (session 6): in-process VA-API
+   HEVC encode (`va_enc.rs`, `filmcraft_hevc::write`, `Backend::VaNative` first), GPU pack pass for
+   the read-back (28 → 11 ms per 4K frame); 4K 23.7 fps, graded 15.4, 6.2K 12.3 (FORK-PLAN §7).
+   **Batch overlap done** (`Exporter::step` renders the next batch on a scoped thread while the
+   current one encodes; native only): **4K 24.8 fps ✓ (≥ 24)**, graded 15.8, 6.2K 14.7.
+   **5.3a done:** converted media graded at the size drawn (graded 4K 15.8 → 21.5 fps,
+   `FILMCRAFT_FULL_SIZE_GRADE=1` = old behaviour). **Next:** export decodes at ~29 fps where the
+   decode bench does 41 (threads wait on decoded frames): find why (1080p export as a probe:
+   GPU/VCN contention vs the decode path), target graded ≥ 30 fps. Probe done: 1080p ~34 fps,
+   4K ~25 with the same decode → output-side cost. **5.4 done** (presets + ffprobe/mpv test).
+   **5.2c zero-copy done** (session 7, `6600295`): render targets over the encoder's surfaces,
+   no wait on the render side (frames in flight; the encoder thread waits per surface), parity
+   AMD + Intel; GOP-cache black-frame race fixed. 60 s: 4K 23.3, graded 22.9, 6.2K 18.2.
+   **The limit is now the one VCN** (decode 6.2K + encode share it; ≈ 31 fps ceiling, AMD encode
+   10.5 → ~54 ms/frame with the decoder flat out; FORK-PLAN §7 session 7).
+   **5.2d measured (session 7, FORK-PLAN §7):** Intel encode while AMD decodes is slower (4K
+   18.5 fps); 6.2K ceiling on one VCN ≈ 18–20 fps; graded 4K ≈ 31. `FILMCRAFT_VAAPI_ENCODE_DEVICE`
+   exists for experiments. Owner (session 7): continue the current plan; a possible later phase
+   for heavy 6.2K optimisation after Phase 8 (FORK-PLAN §1a.16). **Phase 5 acceptance in progress (session 7):** colour vs Program monitor ✓,
+   independent unsafe review ✓ + fixes (`f2f2af9`). **Exact next step:** full xm5 suite (idle,
+   `target/bench/xm5-phase5.json`), then `cargo xtask ci`, tag `phase-5`, build (§1a.9). Earlier plan text kept for reference: encode on the Intel UHD 750 (`/dev/dri/renderD128`, iHD, 4K Main10
+   27 ms/frame incl. upload) while AMD decodes and composites: a separate encode VA display
+   (`Display::get` is the decode one; add an encode display chosen by `FILMCRAFT_VAAPI_ENCODE_DEVICE`
+   or Auto = another render node with HEVC EncSlice when the decode node's engine is shared).
+   Measure first with the read-back path (zero-copy can't cross devices: Intel surfaces are
+   Y-tiled), then consider rendering into a linear DMA-BUF in system memory that the Intel VA
+   imports. Target graded 4K ≥ 30 fps. Then Phase 5 acceptance (full xm5 suite idle, colour vs
+   Program monitor, independent review of the new unsafe in va.rs / interop.rs → ADR 0002,
+   `cargo xtask ci`, tag `phase-5`, build).
    Bench cases added: `play-flog2`, `play-dwg`, `play-half-draft` (`grade()` now also
    interprets as F-Log2). Known flaky test (pre-existing): engine
    `settings_tests::hardware_decoding_setting_drives_the_decoder_switch` (global switch shared
    by parallel tests); passes alone.
+
+## Phase 5.2b plan (in-process VA-API HEVC encode), written at the end of session 5
+
+Where export time goes now (60 s, 10-bit): ungraded 4K 19 fps = decode 6.2K + composite + 25 MB
+read-back + pipe to ffmpeg, which uploads again and encodes (`hevc_vaapi`, ceiling 29.9 fps);
+graded is GPU-bound by the full-size 6.2K grade (~29 ms/frame). Acceptance needs ungraded 4K
+≥ 24 fps (80 % of the ceiling) and graded faster than real time (≥ 30 fps).
+
+1. **Bindings:** `va_sys.rs` lacks every encode struct (`VAEncSequenceParameterBufferHEVC`,
+   `VAEncPictureParameterBufferHEVC`, `VAEncSliceParameterBufferHEVC`, `VAEncPackedHeader*`,
+   `VACodedBufferSegment`, `VAEncMiscParameter*` for rate control). Regenerate with bindgen 0.73.2
+   adding `va/va_enc_hevc.h`; keep dynamic loading. **Done:** `crates/platform/gen-va-sys.sh`.
+2. **Headers:** write VPS / SPS / PPS / slice headers ourselves as packed headers
+   (`filmcraft_bitstream::BitWriter`; `crates/hevc/src/synth_tests.rs` already writes HEVC
+   parameter sets for tests, `crates/h264enc` is the model for structure). I/P only (no B) first,
+   CTB 64 or what Mesa reports, one slice per picture, Main / Main 10, VUI with the colour tags.
+3. **Encode wrapper** in `crates/platform` (`va_enc.rs`, unsafe confined there with `// SAFETY:`):
+   config (VAProfileHEVCMain10, EncSlice, check `VAConfigAttribRTFormat`, rate-control and
+   packed-header attributes), recon / reference surfaces, coded buffer, per frame the seq / pic /
+   slice / misc (rate control: CQP / VBR / CBR) buffers, `vaBeginPicture` … `vaEndPicture`,
+   `vaSyncSurface`, map the coded buffer segments → Annex B. Implement `VideoEncoder` and put it
+   first in `hevc_export`'s backend order (VA in process → ffmpeg `hevc_vaapi` → `libx265`), with
+   the probe-and-fall-back logic already there. **Independent unsafe review** of the new FFI before
+   tagging Phase 5 (§1a.5 spirit; ADR 0002 gets a section).
+4. **Input:** first upload the GPU path's 4:2:0 planes (`GpuCompositor::read_yuv420`, already
+   done) into the VA surface (`vaDeriveImage` / map / copy P010), removing the ffmpeg pipe and its
+   second upload; then zero-copy: export the encode surface as DMA-BUF and write P010 into it from
+   the compositor (import the two planes as storage images in `crates/gpu/src/interop.rs`), so no
+   frame leaves VRAM.
+5. **Graded speed:** convert log media at the export size instead of the 6.2K source size when
+   downscaling (the plan converts converted layers at full size, `plan.rs` `n = 1`), or run the
+   FX stage on `Rgba16Float` working textures; measure both against parity first.
+6. Then the rest of Phase 5: presets (YouTube 4K HEVC, 6.2K Master, Archive x265, ProRes 422 HQ,
+   Vertical 2160×3840) with ffprobe checks of the colour tags, mpv playback, colour vs monitor;
+   full `xm5` suite; tag; build.
+
+Test / bench notes from 5.1: `bench --section xm5 --only export` (60 s cases, ~8 min);
+`FILMCRAFT_EXPORT_CPU=1` forces the CPU render path; a 3 s graded comparison via
+`filmcraft-cli run` scripts (`file.import` → `clip.interpretFootage {items:[1]}` →
+`file.newSequence {fromItem:1}` → `sequence.settings {width,height}` → `edit.selectAll` →
+`clip.fitToFrame` → `effects.apply` → `file.exportMedia {range:"custom",…,wait:true}`), then
+`ffmpeg … -lavfi psnr` (the CPU path once wrote a black frame; GPU did not).
 
 ## Added after the session
 
@@ -82,6 +156,8 @@ For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing 
 
 - **Rust** 1.99 via rustup in `~/.cargo` (not pacman): `export PATH="$HOME/.cargo/bin:$PATH"`.
   `bindgen-cli` 0.73.2 is installed there (user-level) for regenerating `va_sys.rs`.
+- **Bench `--only`:** the export section is gated by `wants("export")` (substring of the case
+  name in the filter, not the other way round): use `--only export` (all three cases).
 - **Shell is zsh**: unmatched globs are errors (quote `--include='*.rs'`); `set -- $var` does
   not word-split (use `bash -c '…'`); no `bc` (use python3). `pgrep -f` / `pkill -f` match
   their own command line (`pkill -f gates-2.2b` killed the tool's shell): use `pgrep -x cargo`,
@@ -108,7 +184,11 @@ For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing 
   `FILMCRAFT_NO_GPU_IMPORT` (app/bench: no Vulkan DMA-BUF import → read-back path),
   `FILMCRAFT_VRAM_CACHE_MB` (decode-cache VRAM budget), `FILMCRAFT_SOAK_MINUTES` (bench soak),
   `FILMCRAFT_BENCH_TRACE=1` (bench lists frames that finished after they were due),
-  `FILMCRAFT_XM5_DIR` (where the xm5 clips live; real clips can be linked there by name).
+  `FILMCRAFT_BENCH_KEEP=<dir>` (bench keeps each export's output), `FILMCRAFT_NO_VA_ENCODE`
+  (export through ffmpeg), `FILMCRAFT_FULL_SIZE_GRADE` (grade converted media at full size),
+  `FILMCRAFT_XM5_DIR` (where the xm5 clips live; real clips can be linked there by name),
+  `FILMCRAFT_NO_ZERO_COPY` (export reads frames back instead of rendering into encoder surfaces),
+  `FILMCRAFT_EXPORT_TRACE` (per-batch export stage times on stderr).
 - **Disk:** see the disk rule above; a debug build of the workspace regrows `target/debug` to ~60 GB. Fixtures: `target/fixtures/xm5/` (12 GB synthetic), `target/fixtures/hevc/`
   (conformance, `.hevc` + ffmpeg `.yuv`), `target/fixtures/platform/`, `target/fixtures/hevc4k/`.
 - **Bench:** `target/release/examples/bench --section xm5 [--only CASE] [--quick] [--json f]`;
@@ -164,5 +244,7 @@ For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing 
 - 4× on this synthetic stream (51 % reference pictures, open GOP) runs at the decoder's limit
   even at step 12–15: steady skipping at ~8–10 pictures/s, not more.
 - 4:2:2 HEVC does not decode at all (no decoder on Linux) → Phase 6.1.
-- Lumetri and most effects run on the CPU; graded export 0.8 fps, 18 GB RSS → Phase 4–5.
+- Exports render on the CPU (graded 4K 0.6 fps) → Phase 5. Playback grading is on the GPU.
+- First play after loading drops frames for ~0.5–1 s (cold start) → Phase 7.
+- Fujifilm's F-Log2 LUT changes gamut on the log signal; built-in is linear light (FORK-PLAN §7).
 - Linux default keymap has shortcut conflicts (Ctrl+9, Ctrl+Shift+M, Ctrl+T) — not fixed.

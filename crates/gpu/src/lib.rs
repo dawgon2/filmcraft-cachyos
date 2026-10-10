@@ -46,6 +46,7 @@ pub mod interop;
 pub mod lut;
 pub mod mask;
 pub mod scopes;
+mod yuv;
 pub use lut::GpuLut;
 pub use mask::GpuMask;
 
@@ -94,6 +95,8 @@ pub struct GpuCompositor {
     high_quality: bool,
     /// Scope samples of the output (compute devices only).
     scope_sampler: Option<scopes::ScopeSampler>,
+    /// Export frames as Y'CbCr from the accumulator (compute devices only).
+    yuv: Option<yuv::YuvPass>,
     /// The output transform of colour-managed sequences (with the effect stage).
     out_pass: Option<colorops::OutputPass>,
     /// Where the output pass writes (then copied back into the accumulator).
@@ -373,6 +376,7 @@ impl GpuCompositor {
         let fx = fx::FxStage::supported(device).then(|| fx::FxStage::new(device, &shader, &layer_bgl));
         let out_pass = fx.is_some().then(|| colorops::OutputPass::new(device));
         let scope_sampler = fx.is_some().then(|| scopes::ScopeSampler::new(device));
+        let yuv = fx.is_some().then(|| yuv::YuvPass::new(device));
         Self {
             device: device.clone(),
             queue: queue.clone(),
@@ -391,6 +395,7 @@ impl GpuCompositor {
             fx,
             high_quality: false,
             scope_sampler,
+            yuv,
             out_pass,
             post: None,
             uploaded_bytes: 0,
@@ -688,6 +693,23 @@ impl GpuCompositor {
 
     /// A layer's uniforms with the resample quality: Lanczos-3 when minifying with Maximum Render
     /// Quality (`p3.w`; `p2.w` is the footprint).
+    /// How a layer's frame is drawn onto its effect working image: box-decimated by the plan's
+    /// `decimation` (as the CPU decodes it), resampled further when the working image is smaller
+    /// still (fork Phase 5.3: converted media graded at the size drawn), with Maximum Render
+    /// Quality's filter like any scaled layer.
+    fn fx_source_uniforms(&self, src: &SrcInfo, frame: &VideoFrame, fx: &filmcraft_render::plan::LayerFx) -> [f32; 28] {
+        let n = fx.decimation.max(1) as f64;
+        let (dw, dh) = ((frame.width as f64 / n).floor().max(1.0), (frame.height as f64 / n).floor().max(1.0));
+        let (fw, fh) = (fx.size.0.max(1) as f64, fx.size.1.max(1) as f64);
+        let out = (fx.size.0.max(1), fx.size.1.max(1));
+        if fw < dw || fh < dh {
+            let m = filmcraft_geom::Affine::scale(fw / frame.width.max(1) as f64, fh / frame.height.max(1) as f64);
+            self.with_quality(Self::uniforms(src, &m, 1.0, Blend::Normal, out))
+        } else {
+            Self::uniforms(src, &filmcraft_geom::Affine::scale(1.0 / n, 1.0 / n), 1.0, Blend::Normal, out)
+        }
+    }
+
     fn with_quality(&self, mut un: [f32; 28]) -> [f32; 28] {
         if self.high_quality && un[23] > filmcraft_render::image::HQ_MIN_FOOTPRINT {
             un[27] = 1.0;
@@ -857,8 +879,7 @@ impl GpuCompositor {
             let job = match &l.fx {
                 Some(lfx) => {
                     // the source drawn onto the working image (box-decimated by n, as the CPU decodes)
-                    let n = lfx.decimation.max(1) as f64;
-                    let su = Self::uniforms(&src, &filmcraft_geom::Affine::scale(1.0 / n, 1.0 / n), 1.0, Blend::Normal, (lfx.size.0.max(1), lfx.size.1.max(1)));
+                    let su = self.fx_source_uniforms(&src, &l.frame, lfx);
                     let sbuf = self.uniform_buffer(&su);
                     let sbg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("fx-source"),
@@ -1037,9 +1058,8 @@ impl GpuCompositor {
         let key = self.upload(frame, None);
         let src = self.src_info(frame, key)?;
         let views = self.uploads.get(&key)?.views.clone();
-        let n = fx.decimation.max(1) as f64;
         let (w, h) = (fx.size.0.max(1), fx.size.1.max(1));
-        let su = Self::uniforms(&src, &filmcraft_geom::Affine::scale(1.0 / n, 1.0 / n), 1.0, Blend::Normal, (w, h));
+        let su = self.fx_source_uniforms(&src, frame, fx);
         let sbuf = self.uniform_buffer(&su);
         let sbg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fx-source"),
@@ -1095,6 +1115,91 @@ impl GpuCompositor {
     pub fn request_scope_samples(&self, max_w: u32, max_h: u32) -> Option<scopes::ScopeReadback> {
         let (_, view, size) = self.output.as_ref()?;
         self.scope_sampler.as_ref()?.request(&self.device, &self.queue, view, *size, (max_w, max_h))
+    }
+
+    /// The last composited picture as planar Y'CbCr 4:2:0 (`yuv420p10le` when `ten_bit`, else
+    /// `yuv420p`), limited range, matrix (Kr, Kb), computed on the GPU from the float
+    /// accumulator (fork Phase 5.1: export without a CPU render). Blocks until read back. None
+    /// without a picture, on devices without compute shaders, or for buffers the device can't hold.
+    pub fn read_yuv420(&self, kr: f32, kb: f32, ten_bit: bool) -> Option<Vec<u8>> {
+        let (_, view, size) = self.accum.as_ref()?;
+        self.yuv.as_ref()?.run(&self.device, &self.queue, view, *size, kr, kb, ten_bit)
+    }
+
+    /// The last composited picture converted as for [`read_yuv420`](Self::read_yuv420) and
+    /// written straight into a video encoder's input surface (fork Phase 5.2c, zero-copy export):
+    /// `dmabuf` is the surface's memory (luma and interleaved chroma layers, P010 when `ten_bit`,
+    /// else NV12, at least the picture's size; `writable`: exported for writing), `id` / `alive`
+    /// its identity for the import cache.
+    /// Does not wait: the encoder must wait for the returned submission before reading the
+    /// surface. None: no picture, no import support, or the driver cannot render into this
+    /// memory (upload the read-back instead).
+    #[cfg(target_os = "linux")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_yuv420_into(
+        &mut self,
+        id: u64,
+        alive: std::sync::Weak<()>,
+        dmabuf: &filmcraft_frame::DmaBuf,
+        writable: bool,
+        kr: f32,
+        kb: f32,
+        ten_bit: bool,
+    ) -> Option<wgpu::SubmissionIndex> {
+        let (_, view, size) = self.accum.as_ref()?;
+        let format = if ten_bit { filmcraft_frame::GpuFormat::P010 } else { filmcraft_frame::GpuFormat::Nv12 };
+        // a device that cannot render these formats reports it here (to the caller, who reads
+        // back instead), not as an uncaptured error that would end GPU rendering altogether
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let (luma, chroma) = self.importer.as_mut()?.import_target(id, alive, dmabuf, format, writable)?;
+        let targets = yuv::YuvTargets { luma, chroma, size: (dmabuf.width, dmabuf.height) };
+        let sub = self.yuv.as_ref()?.run_into(&self.device, &self.queue, view, *size, kr, kb, ten_bit, &targets);
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            log::warn!("writing an export frame into the encoder's surface: {e}");
+            return None;
+        }
+        sub
+    }
+
+    /// Block until `submission` has finished on the GPU (false: the device was lost).
+    pub fn wait_for(device: &wgpu::Device, submission: wgpu::SubmissionIndex) -> bool {
+        device.poll(wgpu::PollType::Wait { submission_index: Some(submission), timeout: None }).is_ok()
+    }
+
+    /// The device the compositor renders with.
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    /// A device for rendering without a window (exports): the high-performance adapter, the
+    /// compositor's features, textures up to 8192 px, with DMA-BUF import of hardware-decoded
+    /// frames on Linux (unless `FILMCRAFT_NO_GPU_IMPORT` is set).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+        let instance = wgpu::Instance::default();
+        let opts = wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() };
+        let adapter = pollster::block_on(instance.request_adapter(&opts)).ok()?;
+        let desc = wgpu::DeviceDescriptor {
+            label: Some("filmcraft export device"),
+            // adapter-specific format features: `R16Unorm` / `Rg16Unorm` render targets (P010
+            // written straight into the encoder's surfaces, fork Phase 5.2c)
+            required_features: adapter.features() & (wanted_features() | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+            // (a 6.2K frame's 4:2:0 planes are ~156 MB as one u32 per sample)
+            required_limits: wgpu::Limits {
+                max_texture_dimension_2d: 8192,
+                max_storage_buffer_binding_size: adapter.limits().max_storage_buffer_binding_size,
+                max_buffer_size: adapter.limits().max_buffer_size,
+                ..wgpu::Limits::default()
+            },
+            ..Default::default()
+        };
+        #[cfg(target_os = "linux")]
+        if std::env::var_os("FILMCRAFT_NO_GPU_IMPORT").is_none()
+            && let Some(Ok(d)) = interop::create_device(&adapter, &desc)
+        {
+            return Some(d);
+        }
+        pollster::block_on(adapter.request_device(&desc)).ok()
     }
 
     /// Read the output back as RGBA8 (tests / screenshots / thumbnails).

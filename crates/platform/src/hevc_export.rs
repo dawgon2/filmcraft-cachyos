@@ -1,6 +1,11 @@
-//! H.265 / HEVC export through the system ffmpeg (Linux): VA-API hardware encoding
-//! (`hevc_vaapi`), else libx265.
+//! H.265 / HEVC export (Linux): VA-API hardware encoding in process ([`crate::va_enc`], fork
+//! Phase 5.2b), else through the system ffmpeg: VA-API (`hevc_vaapi`), else libx265.
 //!
+//! In process, FilmCraft writes the parameter sets and slice headers and the driver the slice
+//! data; nothing is piped. When it fails mid-stream, the frames it had not finished go to ffmpeg
+//! (`hevc_vaapi`, else libx265 without B-frames), which carries on from an IDR picture.
+//!
+//! Through ffmpeg:
 //! Rendered frames go to ffmpeg's stdin as raw `yuv420p` / `yuv420p10le` (converted by
 //! [`filmcraft_export::frame_to_yuv420p`], the same matrix and range as the H.264 export) and the
 //! encoded stream comes back on stdout as Annex B. FilmCraft splits it into access units, writes
@@ -27,9 +32,18 @@ use filmcraft_isobmff::{HevcConfig, HevcNalArray, SampleEntry};
 use filmcraft_time::FrameRate;
 
 use crate::ffmpeg::{StderrTail, annexb_nals, ffmpeg, vaapi_device, vaapi_supports};
+use crate::va_enc::{EncodeParams, RateControl, VaHevcEncoder};
 
-/// Raw frames queued for ffmpeg's stdin (a 4K 10-bit frame is 25 MB).
-const WRITE_QUEUE: usize = 3;
+/// Raw frames queued for ffmpeg's stdin: enough for the export job's next batch to render while
+/// ffmpeg encodes this one (fork Phase 5.2), within [`WRITE_QUEUE_BYTES`] (a 4K 10-bit frame is
+/// 25 MB, 6.2K 78 MB), at least 3.
+const WRITE_QUEUE_MAX: usize = 16;
+const WRITE_QUEUE_BYTES: usize = 512 << 20;
+
+fn write_queue(w: u32, h: u32, ten_bit: bool) -> usize {
+    let frame = (w as usize * h as usize * 3 / 2).saturating_mul(if ten_bit { 2 } else { 1 }).max(1);
+    (WRITE_QUEUE_BYTES / frame).clamp(3, WRITE_QUEUE_MAX)
+}
 /// Largest frame size taken.
 const MAX_DIM: u32 = 8192;
 
@@ -45,10 +59,16 @@ fn encoders() -> (bool, bool) {
     })
 }
 
-/// Whether HEVC export can run here (ffmpeg with `hevc_vaapi` + a VA-API device, or `libx265`).
+/// Whether the in-process VA-API encoder can be used (`FILMCRAFT_NO_VA_ENCODE` turns it off).
+fn native(ten_bit: bool) -> bool {
+    std::env::var_os("FILMCRAFT_NO_VA_ENCODE").is_none() && VaHevcEncoder::supported(ten_bit)
+}
+
+/// Whether HEVC export can run here (the driver's VA-API encoder, ffmpeg with `hevc_vaapi` + a
+/// VA-API device, or `libx265`).
 pub fn available() -> bool {
     let (vaapi, x265) = encoders();
-    x265 || (vaapi && vaapi_device().is_some())
+    native(false) || native(true) || x265 || (vaapi && vaapi_device().is_some())
 }
 
 /// Register the encoder and mark [`Format::Hevc`] exportable (once; when [`available`]).
@@ -56,7 +76,7 @@ pub fn register() -> bool {
     static R: OnceLock<bool> = OnceLock::new();
     *R.get_or_init(|| {
         if !available() {
-            log::info!("HEVC export unavailable: ffmpeg has neither hevc_vaapi (with a VA-API device) nor libx265");
+            log::info!("HEVC export unavailable: no VA-API encoder, and ffmpeg has neither hevc_vaapi (with a VA-API device) nor libx265");
             return false;
         }
         filmcraft_export::register_encoder(factory);
@@ -70,16 +90,21 @@ pub fn factory(format: Format, w: u32, h: u32, rate: FrameRate, s: &ExportSettin
     (format == Format::Hevc).then(|| HevcEncoder::new(w, h, rate, s).map(|e| Box::new(e) as Box<dyn VideoEncoder>))
 }
 
-/// The two ffmpeg encoders.
+/// The encoders, in order of preference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
+    /// The driver's encoder through libva, in process.
+    VaNative,
+    /// ffmpeg's `hevc_vaapi`.
     Vaapi,
+    /// ffmpeg's `libx265`.
     X265,
 }
 
 impl Backend {
     pub fn name(self) -> &'static str {
         match self {
+            Backend::VaNative => "VA-API (in process)",
             Backend::Vaapi => "hevc_vaapi",
             Backend::X265 => "libx265",
         }
@@ -99,9 +124,47 @@ struct Params {
     target_kbps: u32,
     max_kbps: u32,
     signal: ColorSignal,
+    /// No B-frames (libx265 continuing a stream started without them).
+    no_b: bool,
+    /// libx265's speed preset.
+    x265_preset: &'static str,
 }
 
 impl Params {
+    fn va(&self) -> EncodeParams {
+        let rc = match self.crf {
+            Some(q) => RateControl::Cqp(q.clamp(1, 51)),
+            None if self.cbr => RateControl::Cbr { kbps: self.target_kbps.max(100) },
+            None => RateControl::Vbr { kbps: self.target_kbps.max(100), max_kbps: self.max_kbps.max(self.target_kbps).max(100) },
+        };
+        EncodeParams {
+            width: self.w,
+            height: self.h,
+            rate_num: self.rate.num as u32,
+            rate_den: self.rate.den as u32,
+            ten_bit: self.ten_bit,
+            keyint: self.keyint.max(1),
+            rc,
+            colour: (self.signal.primaries, self.signal.transfer, self.signal.matrix),
+        }
+    }
+
+    /// One black frame in the input format.
+    fn black(&self) -> Vec<u8> {
+        if self.ten_bit {
+            let (y, c) = (self.w as usize * self.h as usize, 2 * (self.w as usize).div_ceil(2) * (self.h as usize).div_ceil(2));
+            let mut v = Vec::with_capacity(self.frame_bytes());
+            v.extend(std::iter::repeat_n(64u16.to_le_bytes(), y).flatten());
+            v.extend(std::iter::repeat_n(512u16.to_le_bytes(), c).flatten());
+            v
+        } else {
+            let y = self.w as usize * self.h as usize;
+            let mut v = vec![16u8; y];
+            v.resize(self.frame_bytes(), 128);
+            v
+        }
+    }
+
     fn frame_bytes(&self) -> usize {
         let (w, h) = (self.w as usize, self.h as usize);
         (w * h + 2 * w.div_ceil(2) * h.div_ceil(2)) * if self.ten_bit { 2 } else { 1 }
@@ -127,9 +190,15 @@ impl Params {
         let (tk, mk) = (format!("{}k", self.target_kbps.max(100)), format!("{}k", self.max_kbps.max(self.target_kbps).max(100)));
         let bufsize = format!("{}k", self.max_kbps.max(self.target_kbps).max(100).saturating_mul(2));
         match backend {
-            Backend::Vaapi => {
+            // (never asked for VaNative: it runs in process)
+            Backend::Vaapi | Backend::VaNative => {
                 let vf = format!("{tag},format={hw},hwupload");
                 push(&["-vf", &vf, "-c:v", "hevc_vaapi", "-profile:v", profile, "-g", &keyint, "-idr_interval", "0"]);
+                // continuing a stream without reordering (after the in-process encoder failed):
+                // no B-frames (AMD's encoder makes none anyway, Intel's does)
+                if self.no_b {
+                    push(&["-bf", "0"]);
+                }
                 match self.crf {
                     Some(q) => {
                         let q = q.clamp(1, 51).to_string();
@@ -140,8 +209,9 @@ impl Params {
                 }
             }
             Backend::X265 => {
-                let x265 = format!("log-level=error:keyint={keyint}:min-keyint={keyint}:open-gop=0:repeat-headers=1");
-                push(&["-vf", &tag, "-c:v", "libx265", "-preset", "medium", "-profile:v", profile, "-pix_fmt", pix, "-x265-params", &x265]);
+                let bframes = if self.no_b { ":bframes=0" } else { "" };
+                let x265 = format!("log-level=error:keyint={keyint}:min-keyint={keyint}:open-gop=0:repeat-headers=1{bframes}");
+                push(&["-vf", &tag, "-c:v", "libx265", "-preset", self.x265_preset, "-profile:v", profile, "-pix_fmt", pix, "-x265-params", &x265]);
                 match self.crf {
                     Some(q) => {
                         let q = q.min(51).to_string();
@@ -200,7 +270,7 @@ fn thread(name: &str, f: impl FnOnce() + Send + 'static) -> std::result::Result<
 }
 
 impl Proc {
-    fn start(args: &[String]) -> std::result::Result<Proc, String> {
+    fn start(args: &[String], queue: usize) -> std::result::Result<Proc, String> {
         let ff = ffmpeg().ok_or("ffmpeg is not installed")?;
         let mut child = Command::new(ff)
             .args(args)
@@ -215,7 +285,7 @@ impl Proc {
             return Err("ffmpeg pipes missing".into());
         };
         let stderr = StderrTail::collect(err);
-        let (tx, wrx) = std::sync::mpsc::sync_channel::<Vec<u8>>(WRITE_QUEUE);
+        let (tx, wrx) = std::sync::mpsc::sync_channel::<Vec<u8>>(queue.max(1));
         let (otx, rx) = std::sync::mpsc::channel();
         let started = thread("hevc-write", move || {
             for frame in wrx {
@@ -490,34 +560,169 @@ impl Parser {
 
 /// Encode one black frame with `args` and return the parser that saw its parameter sets.
 fn probe(args: &[String], p: &Params) -> std::result::Result<Parser, String> {
-    let mut proc = Proc::start(args)?;
-    let black = if p.ten_bit {
-        let (y, c) = (p.w as usize * p.h as usize, 2 * (p.w as usize).div_ceil(2) * (p.h as usize).div_ceil(2));
-        let mut v = Vec::with_capacity(p.frame_bytes());
-        v.extend(std::iter::repeat_n(64u16.to_le_bytes(), y).flatten());
-        v.extend(std::iter::repeat_n(512u16.to_le_bytes(), c).flatten());
-        v
-    } else {
-        let y = p.w as usize * p.h as usize;
-        let mut v = vec![16u8; y];
-        v.resize(p.frame_bytes(), 128);
-        v
-    };
-    proc.send(black)?;
+    let mut proc = Proc::start(args, 3)?;
+    proc.send(p.black())?;
     let out = proc.finish()?;
+    parse_probe(&out)
+}
+
+/// Encode one black frame in process and return the parser that saw its parameter sets.
+fn probe_native(p: &Params) -> std::result::Result<Parser, String> {
+    let mut enc = VaHevcEncoder::new(p.va())?;
+    let mut out: Vec<u8> = enc.encode(&p.black())?.concat();
+    out.extend(enc.flush()?.concat());
+    parse_probe(&out)
+}
+
+fn parse_probe(out: &[u8]) -> std::result::Result<Parser, String> {
     let mut parser = Parser::new();
-    let aus = parser.feed(&out)?.into_iter().chain(parser.finish()?).count();
+    let aus = parser.feed(out)?.into_iter().chain(parser.finish()?).count();
     if aus != 1 {
         return Err(format!("probe encode gave {aus} pictures"));
     }
     Ok(parser)
 }
 
+/// Where the frames go.
+enum Engine {
+    Ffmpeg(Proc),
+    Va(VaWorker),
+}
+
+/// The in-process encoder on its own thread, behind a queue like ffmpeg's stdin, so the export
+/// job renders the next batch while it encodes this one.
+/// A frame for the in-process encoder.
+#[derive(Clone)]
+enum Input {
+    /// Planar 4:2:0 bytes, uploaded by the encoder.
+    Bytes(Arc<Vec<u8>>),
+    /// Rendered on the GPU into one of the encoder's input surfaces (fork Phase 5.2c).
+    Gpu(Arc<dyn filmcraft_export::GpuPicture>),
+}
+
+impl Input {
+    /// The frame as planar 4:2:0 bytes (a GPU frame is read back).
+    fn into_bytes(self) -> std::result::Result<Vec<u8>, String> {
+        match self {
+            Input::Bytes(b) => Ok(Arc::try_unwrap(b).unwrap_or_else(|b| b.as_ref().clone())),
+            Input::Gpu(p) => p.read_yuv420().ok_or_else(|| "a frame rendered on the GPU could not be read back".to_string()),
+        }
+    }
+}
+
+/// Encode one input: a frame in an encoder surface is encoded in place once the GPU has written it.
+fn encode_input(enc: &mut VaHevcEncoder, f: &Input) -> std::result::Result<Vec<Vec<u8>>, String> {
+    match f {
+        Input::Bytes(b) => enc.encode(b),
+        Input::Gpu(p) => match p.as_any().downcast_ref::<crate::gpu_export::VaPicture>() {
+            Some(v) => {
+                let t = filmcraft_export::trace::start();
+                v.ready()?;
+                filmcraft_export::trace::add(filmcraft_export::trace::ENC_GPU_WAIT, t);
+                let t = filmcraft_export::trace::start();
+                let r = enc.encode_surface(v.surface.clone());
+                filmcraft_export::trace::add(filmcraft_export::trace::ENC_VA, t);
+                r
+            }
+            None => enc.encode(&f.clone().into_bytes()?),
+        },
+    }
+}
+
+struct VaWorker {
+    tx: Option<SyncSender<Input>>,
+    /// Where frames may be rendered for the encoder (its input surfaces).
+    target: Arc<crate::va_enc::EncodeTarget>,
+    /// One access unit per frame, in order; `Err` when the encoder failed (it stops then).
+    rx: Receiver<std::result::Result<Vec<u8>, String>>,
+    /// Frames sent whose access unit has not come back (oldest first): ffmpeg encodes them again
+    /// if the encoder fails.
+    pending: std::collections::VecDeque<Input>,
+    /// Frame buffers back from the encoder, for the next frames (no fresh allocation per frame).
+    free: Vec<Vec<u8>>,
+}
+
+impl VaWorker {
+    fn start(mut enc: VaHevcEncoder, queue: usize) -> std::result::Result<VaWorker, String> {
+        let (tx, frames) = std::sync::mpsc::sync_channel::<Input>(queue.max(1));
+        let target = Arc::new(enc.target());
+        let (out, rx) = std::sync::mpsc::channel();
+        #[cfg(test)]
+        let fail_after = tests::FAIL_AFTER.swap(0, std::sync::atomic::Ordering::SeqCst);
+        thread("hevc-va", move || {
+            let send = |r: std::result::Result<Vec<Vec<u8>>, String>| match r {
+                Ok(aus) => aus.into_iter().all(|au| out.send(Ok(au)).is_ok()),
+                Err(e) => {
+                    let _ = out.send(Err(e));
+                    false
+                }
+            };
+            #[cfg(test)]
+            let mut n = 0;
+            for f in frames {
+                #[cfg(test)]
+                {
+                    n += 1;
+                    if n == fail_after {
+                        send(Err("simulated failure".into()));
+                        return;
+                    }
+                }
+                if !send(encode_input(&mut enc, &f)) {
+                    return;
+                }
+            }
+            // input closed: the end of the stream
+            send(enc.flush());
+        })?;
+        Ok(VaWorker { tx: Some(tx), target, rx, pending: Default::default(), free: Vec::new() })
+    }
+
+    fn send(&mut self, frame: Input) -> std::result::Result<(), String> {
+        self.pending.push_back(frame.clone());
+        let tx = self.tx.as_ref().ok_or("encoder input closed")?;
+        let t = filmcraft_export::trace::start();
+        let r = tx.send(frame).map_err(|_| "the encoder thread stopped".to_string());
+        filmcraft_export::trace::add(filmcraft_export::trace::ENC_QUEUE, t);
+        r
+    }
+
+    /// Access units ready (`end`: close the input and wait for all of them), and the encoder's
+    /// error if it failed.
+    fn take(&mut self, end: bool) -> (Vec<u8>, Option<String>) {
+        if end {
+            self.tx = None;
+        }
+        let mut bytes = Vec::new();
+        loop {
+            let r = if end { self.rx.recv().map_err(|_| TryRecvError::Disconnected) } else { self.rx.try_recv() };
+            match r {
+                Ok(Ok(au)) => {
+                    // the encoder thread has dropped its reference once the picture is out
+                    if let Some(Input::Bytes(f)) = self.pending.pop_front()
+                        && let Ok(f) = Arc::try_unwrap(f)
+                        && self.free.len() < 2
+                    {
+                        self.free.push(f);
+                    }
+                    bytes.extend(au);
+                }
+                Ok(Err(e)) => return (bytes, Some(e)),
+                Err(TryRecvError::Empty) => return (bytes, None),
+                Err(TryRecvError::Disconnected) => {
+                    let lost = (!self.pending.is_empty()).then(|| "the encoder thread stopped".to_string());
+                    return (bytes, lost);
+                }
+            }
+        }
+    }
+}
+
 /// The HEVC export encoder.
 pub struct HevcEncoder {
     params: Params,
     backend: Backend,
-    proc: Proc,
+    engine: Engine,
     parser: Parser,
     config: HevcConfig,
     reorder: i64,
@@ -527,13 +732,35 @@ pub struct HevcEncoder {
 
 impl HevcEncoder {
     pub fn new(w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> Result<Self> {
+        let params = Self::params(w, h, rate, s)?;
+        let (has_vaapi, has_x265) = encoders();
+        let profile = if params.ten_bit { "VAProfileHEVCMain10" } else { "VAProfileHEVCMain" };
+        let vaapi_ok = has_vaapi && vaapi_device().is_some() && vaapi_supports(profile, "VAEntrypointEncSlice");
+        let native_ok = native(params.ten_bit);
+        let va = [native_ok.then_some(Backend::VaNative), vaapi_ok.then_some(Backend::Vaapi)];
+        let order: Vec<Backend> = match s.hevc_encoder {
+            Choice::Auto => va.into_iter().chain([has_x265.then_some(Backend::X265)]).flatten().collect(),
+            Choice::Vaapi if native_ok || vaapi_ok => va.into_iter().flatten().collect(),
+            Choice::Vaapi => {
+                return Err(ExportError::Unsupported(
+                    "VA-API HEVC encoding is not available (the driver's HEVC encoder, or ffmpeg hevc_vaapi with a VA-API device, is needed)".into(),
+                ));
+            }
+            Choice::X265 if has_x265 => vec![Backend::X265],
+            Choice::X265 => return Err(ExportError::Unsupported("this ffmpeg has no libx265".into())),
+        };
+        Self::with_backends(params, &order)
+    }
+
+    /// Checked parameters of an export.
+    fn params(w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> Result<Params> {
         if w == 0 || h == 0 || w > MAX_DIM || h > MAX_DIM || !w.is_multiple_of(2) || !h.is_multiple_of(2) {
             return Err(ExportError::Unsupported(format!("HEVC export of {w}x{h} (even sizes up to {MAX_DIM})")));
         }
         if rate.num <= 0 || rate.den <= 0 || rate.num > u32::MAX as i64 || rate.den > u32::MAX as i64 {
             return Err(ExportError::Unsupported(format!("frame rate {}/{}", rate.num, rate.den)));
         }
-        let params = Params {
+        Ok(Params {
             w,
             h,
             rate,
@@ -544,36 +771,43 @@ impl HevcEncoder {
             target_kbps: s.bitrate_kbps,
             max_kbps: s.max_bitrate_kbps.unwrap_or(s.bitrate_kbps),
             signal: s.signal,
-        };
-        let (has_vaapi, has_x265) = encoders();
-        let profile = if params.ten_bit { "VAProfileHEVCMain10" } else { "VAProfileHEVCMain" };
-        let vaapi_ok = has_vaapi && vaapi_device().is_some() && vaapi_supports(profile, "VAEntrypointEncSlice");
-        let order: Vec<Backend> = match s.hevc_encoder {
-            Choice::Auto => [vaapi_ok.then_some(Backend::Vaapi), has_x265.then_some(Backend::X265)].into_iter().flatten().collect(),
-            Choice::Vaapi if vaapi_ok => vec![Backend::Vaapi],
-            Choice::Vaapi => {
-                return Err(ExportError::Unsupported(
-                    "VA-API HEVC encoding is not available (ffmpeg hevc_vaapi, a VA-API device and the driver's HEVC encoder are needed)".into(),
-                ));
-            }
-            Choice::X265 if has_x265 => vec![Backend::X265],
-            Choice::X265 => return Err(ExportError::Unsupported("this ffmpeg has no libx265".into())),
-        };
+            no_b: false,
+            x265_preset: filmcraft_export::X265_PRESETS.iter().find(|p| **p == s.x265_preset).copied().unwrap_or("medium"),
+        })
+    }
+
+    /// The first of `order` that starts (tests force a backend with it).
+    pub fn with(w: u32, h: u32, rate: FrameRate, s: &ExportSettings, order: &[Backend]) -> Result<Self> {
+        Self::with_backends(Self::params(w, h, rate, s)?, order)
+    }
+
+    fn with_backends(params: Params, order: &[Backend]) -> Result<Self> {
+        let (w, h) = (params.w, params.h);
         let mut why = Vec::new();
-        for backend in order {
-            let args = params.args(backend, vaapi_device());
-            let started = probe(&args, &params).and_then(|probe| {
-                let config = probe.config()?;
-                let proc = Proc::start(&args)?;
-                Ok((probe, config, proc))
-            });
+        for &backend in order {
+            let started = match backend {
+                Backend::VaNative => probe_native(&params).and_then(|probe| {
+                    let config = probe.config()?;
+                    let enc = VaHevcEncoder::new(params.va())?;
+                    let worker = VaWorker::start(enc, write_queue(params.w, params.h, params.ten_bit))?;
+                    Ok((probe, config, Engine::Va(worker)))
+                }),
+                _ => {
+                    let args = params.args(backend, vaapi_device());
+                    probe(&args, &params).and_then(|probe| {
+                        let config = probe.config()?;
+                        let proc = Proc::start(&args, write_queue(params.w, params.h, params.ten_bit))?;
+                        Ok((probe, config, Engine::Ffmpeg(proc)))
+                    })
+                }
+            };
             match started {
-                Ok((probe, config, proc)) => {
+                Ok((probe, config, engine)) => {
                     log::info!("HEVC export: {} {}x{} {}-bit", backend.name(), w, h, if params.ten_bit { 10 } else { 8 });
                     let mut parser = Parser::new();
                     parser.configured = config.arrays.iter().flat_map(|a| a.nalus.iter().cloned()).collect();
                     let reorder = probe.reorder();
-                    return Ok(HevcEncoder { params, backend, proc, parser, config, reorder, fed: 0, yuv: Vec::new() });
+                    return Ok(HevcEncoder { params, backend, engine, parser, config, reorder, fed: 0, yuv: Vec::new() });
                 }
                 Err(e) => {
                     log::warn!("HEVC export: {} unusable: {e}", backend.name());
@@ -587,9 +821,43 @@ impl HevcEncoder {
         Err(ExportError::Unsupported(format!("HEVC encoder not available ({})", why.join("; "))))
     }
 
-    /// The ffmpeg encoder in use.
+    /// The encoder in use.
     pub fn backend(&self) -> Backend {
         self.backend
+    }
+
+    /// The in-process encoder failed (`why`): its unfinished frames, and every frame after them,
+    /// go to ffmpeg (`hevc_vaapi`, else libx265 without B-frames), which starts with an IDR
+    /// picture. The output order stays the decode order, as the stream so far has no reordering.
+    fn fall_back(&mut self, why: String) -> Result<()> {
+        let Engine::Va(worker) = &mut self.engine else { return Err(ExportError::Encode(why)) };
+        let pending: Vec<Vec<u8>> = std::mem::take(&mut worker.pending)
+            .into_iter()
+            .map(Input::into_bytes)
+            .collect::<std::result::Result<_, _>>()
+            .map_err(|e| ExportError::Encode(format!("{why}; {e}")))?;
+        let (has_vaapi, has_x265) = encoders();
+        let profile = if self.params.ten_bit { "VAProfileHEVCMain10" } else { "VAProfileHEVCMain" };
+        let vaapi_ok = has_vaapi && vaapi_device().is_some() && vaapi_supports(profile, "VAEntrypointEncSlice");
+        let mut params = self.params.clone();
+        params.no_b = true;
+        let mut errors = vec![format!("{}: {why}", Backend::VaNative.name())];
+        for backend in [vaapi_ok.then_some(Backend::Vaapi), has_x265.then_some(Backend::X265)].into_iter().flatten() {
+            match Proc::start(&params.args(backend, vaapi_device()), write_queue(params.w, params.h, params.ten_bit)) {
+                Ok(mut proc) => {
+                    log::warn!("HEVC export: {why}; continuing with {} ({} frames again)", backend.name(), pending.len());
+                    for f in pending {
+                        proc.send(f).map_err(ExportError::Encode)?;
+                    }
+                    self.engine = Engine::Ffmpeg(proc);
+                    self.backend = backend;
+                    self.params = params;
+                    return Ok(());
+                }
+                Err(e) => errors.push(format!("{}: {e}", backend.name())),
+            }
+        }
+        Err(ExportError::Encode(format!("HEVC encoder failed ({})", errors.join("; "))))
     }
 
     /// Packets with composition offsets: decode index `d` gets dts `d - reorder` (frames), its
@@ -634,18 +902,53 @@ impl VideoEncoder for HevcEncoder {
         if (f.width, f.height) != (self.params.w, self.params.h) {
             return Err(ExportError::Encode(format!("frame is {}x{}, the encoder {}x{}", f.width, f.height, self.params.w, self.params.h)));
         }
-        let mut yuv = std::mem::take(&mut self.yuv);
+        // rendered into the encoder's own input surface: encoded in place (fork Phase 5.2c)
+        if let (Engine::Va(worker), Some(gpu), None) = (&mut self.engine, &f.gpu, f.yuv) {
+            self.fed += 1;
+            let sent = worker.send(Input::Gpu(gpu.clone()));
+            let (bytes, failed) = worker.take(false);
+            if let Some(e) = failed.or(sent.err()) {
+                self.fall_back(e)?;
+            }
+            return self.drain(&bytes, false);
+        }
+        let mut yuv = match &mut self.engine {
+            Engine::Va(worker) => worker.free.pop().unwrap_or_default(),
+            Engine::Ffmpeg(_) => std::mem::take(&mut self.yuv),
+        };
         filmcraft_export::frame_to_yuv420p(f, self.params.signal, self.params.ten_bit, &mut yuv);
-        let frame = yuv.clone();
-        self.yuv = yuv;
-        self.proc.send(frame).map_err(ExportError::Encode)?;
         self.fed += 1;
-        let bytes = self.proc.take().map_err(ExportError::Encode)?;
+        let bytes = match &mut self.engine {
+            Engine::Ffmpeg(proc) => {
+                let frame = yuv.clone();
+                self.yuv = yuv;
+                proc.send(frame).map_err(ExportError::Encode)?;
+                proc.take().map_err(ExportError::Encode)?
+            }
+            Engine::Va(worker) => {
+                let sent = worker.send(Input::Bytes(Arc::new(yuv)));
+                let (bytes, failed) = worker.take(false);
+                if let Some(e) = failed.or(sent.err()) {
+                    self.fall_back(e)?;
+                }
+                bytes
+            }
+        };
         self.drain(&bytes, false)
     }
 
     fn flush(&mut self) -> Result<Vec<EncodedPacket>> {
-        let bytes = self.proc.finish().map_err(ExportError::Encode)?;
+        let mut bytes = Vec::new();
+        if let Engine::Va(worker) = &mut self.engine {
+            let (b, failed) = worker.take(true);
+            bytes = b;
+            if let Some(e) = failed {
+                self.fall_back(e)?;
+            }
+        }
+        if let Engine::Ffmpeg(proc) = &mut self.engine {
+            bytes.extend(proc.finish().map_err(ExportError::Encode)?);
+        }
         let out = self.drain(&bytes, true)?;
         if self.parser.decoded != self.fed {
             return Err(ExportError::Encode(format!("HEVC encoder returned {} of {} pictures", self.parser.decoded, self.fed)));
@@ -655,5 +958,62 @@ impl VideoEncoder for HevcEncoder {
 
     fn media_start(&self) -> Option<i64> {
         (self.reorder > 0).then(|| self.reorder.saturating_mul(self.params.rate.den))
+    }
+
+    fn gpu_target(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
+        match &self.engine {
+            Engine::Va(worker) => Some(worker.target.clone()),
+            Engine::Ffmpeg(_) => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use filmcraft_frame::PixelData;
+
+    /// The next in-process encoder started fails on this frame (1-based; 0: never).
+    pub(super) static FAIL_AFTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    /// The in-process encoder failing mid-stream (simulated at frame 11, with pictures still in
+    /// flight): ffmpeg encodes the unfinished frames again and carries on; every frame comes out
+    /// once, in order. Skipped without the in-process encoder or ffmpeg's encoders.
+    #[test]
+    fn a_failing_in_process_encoder_falls_back_to_ffmpeg() {
+        let (w, h, n) = (320u32, 192u32, 30u64);
+        let s = ExportSettings { format: Format::Hevc, hevc_bit_depth: 8, bitrate_kbps: 4000, keyframe_distance: Some(12), ..Default::default() };
+        FAIL_AFTER.store(11, std::sync::atomic::Ordering::SeqCst);
+        let Ok(mut enc) = HevcEncoder::with(w, h, FrameRate::new(24, 1), &s, &[Backend::VaNative]) else {
+            eprintln!("no in-process encoder; skipped");
+            return;
+        };
+        let (has_vaapi, has_x265) = encoders();
+        if !has_vaapi && !has_x265 {
+            eprintln!("no ffmpeg HEVC encoder; skipped");
+            return;
+        }
+        let level = |i: u64| (16 + (i * 9) % 220) as u8;
+        let mut packets = Vec::new();
+        for i in 0..n {
+            let rgba: Vec<u8> = (0..w * h).flat_map(|_| [level(i), level(i), level(i), 255]).collect();
+            packets.extend(enc.encode(&EncoderFrame { width: w, height: h, rgba: &rgba, hdr: None, yuv: None, gpu: None, index: i }).expect("encode"));
+        }
+        packets.extend(enc.flush().expect("flush"));
+        assert_ne!(enc.backend(), Backend::VaNative, "fell back");
+        assert_eq!(packets.len() as u64, n);
+        let mut d = filmcraft_codecs::software_video_decoder(&enc.sample_entry()).expect("decoder");
+        let mut frames = Vec::new();
+        for (k, p) in packets.iter().enumerate() {
+            frames.extend(d.decode(&p.data, k as i64 * 1000 + p.composition_offset as i64).expect("decode"));
+        }
+        frames.extend(d.flush());
+        assert_eq!(frames.len() as u64, n);
+        for (i, f) in frames.iter().enumerate() {
+            let PixelData::Yuv8 { planes, .. } = &f.frame.data else { panic!("8-bit planar") };
+            let mean = planes[0].iter().map(|&v| v as f64).sum::<f64>() / planes[0].len() as f64;
+            let want = 16.0 + 219.0 * level(i as u64) as f64 / 255.0;
+            assert!((mean - want).abs() < 3.0, "frame {i}: luma {mean:.1}, want {want:.1}");
+        }
     }
 }

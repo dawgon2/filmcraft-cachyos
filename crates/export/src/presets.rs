@@ -5,7 +5,7 @@
 use filmcraft_time::FrameRate;
 use serde::{Deserialize, Serialize};
 
-use crate::settings::{AudioCodec, AudioSettings, BitrateMode, MxfVideoCodec, Scaling};
+use crate::settings::{AudioCodec, AudioSettings, BitrateMode, Multiplexer, MxfVideoCodec, Scaling};
 use crate::{ExportSettings, Format};
 
 /// A named set of export settings (`path` and `range` are left empty).
@@ -49,6 +49,10 @@ fn h264(size: Option<(u32, u32)>, kbps: u32, max_kbps: u32) -> ExportSettings {
 /// H.265 / HEVC in MP4 (AAC audio), encoded by the system ffmpeg: VA-API, else libx265.
 fn hevc(size: Option<(u32, u32)>, kbps: u32, max_kbps: u32, bit_depth: u8) -> ExportSettings {
     ExportSettings { format: Format::Hevc, hevc_bit_depth: bit_depth, ..h264(size, kbps, max_kbps) }
+}
+
+fn pcm24() -> AudioSettings {
+    AudioSettings { codec: AudioCodec::Pcm, sample_rate: Some(48_000), channels: 2, bitrate_kbps: 0, bits: 24 }
 }
 
 fn adaptive(bpp: f32) -> ExportSettings {
@@ -148,6 +152,38 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
             hv,
             "HEVC Main at the sequence's frame size and rate, constant quality 22 (CRF with x265, QP with VA-API), AAC 320 kbps",
             ExportSettings { crf: Some(22), ..hevc(None, 20_000, 30_000, 8) },
+        ),
+        // fork Phase 5.4: delivery and mastering presets for 6.2K HEVC footage
+        p(
+            "YouTube 4K HEVC",
+            hv,
+            "HEVC Main 10 3840×2160 for video sharing sites, Rec. 709, VBR 80 Mbps target, 100 Mbps max, AAC 320 kbps; GPU (VA-API) when available",
+            hevc(Some((3840, 2160)), 80_000, 100_000, 10),
+        ),
+        p(
+            "6.2K Master HEVC",
+            hv,
+            "HEVC Main 10 6240×4160 master in QuickTime, VBR 200 Mbps target, 240 Mbps max, 24-bit 48 kHz PCM",
+            ExportSettings { multiplexer: Multiplexer::Mov, audio: pcm24(), ..hevc(Some((6240, 4160)), 200_000, 240_000, 10) },
+        ),
+        p(
+            "Archive HEVC (x265, quality)",
+            hv,
+            "HEVC Main 10 at the sequence's frame size and rate with x265's slow preset, constant quality 18, QuickTime with 24-bit 48 kHz PCM; for when time doesn't matter",
+            ExportSettings {
+                multiplexer: Multiplexer::Mov,
+                audio: pcm24(),
+                crf: Some(18),
+                hevc_encoder: crate::HevcEncoder::X265,
+                x265_preset: "slow".into(),
+                ..hevc(None, 60_000, 80_000, 10)
+            },
+        ),
+        p(
+            "Vertical 2160×3840 HEVC",
+            hv,
+            "HEVC Main 10 9:16 portrait 2160×3840, scaled to fill, VBR 60 Mbps target, 75 Mbps max, AAC 320 kbps",
+            ExportSettings { scaling: Scaling::ScaleToFill, ..hevc(Some((2160, 3840)), 60_000, 75_000, 10) },
         ),
         p("Apple ProRes 422 HQ", bc, "QuickTime, ProRes 422 HQ, 24-bit 48 kHz PCM", mov(Format::ProRes, "hq")),
         p("Apple ProRes 422", bc, "QuickTime, ProRes 422, 24-bit 48 kHz PCM", mov(Format::ProRes, "standard")),

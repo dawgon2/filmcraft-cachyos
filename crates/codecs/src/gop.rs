@@ -253,7 +253,12 @@ impl Store {
 
     /// The nearest usable frame at or before `pts` (robust to decoder pts quirks).
     fn at_or_before(&self, pts: i64, draft_ok: bool) -> Option<Arc<VideoFrame>> {
-        self.cached(pts, draft_ok).or_else(|| self.frames.range(..=pts).rev().find(|(p, _)| draft_ok || !self.drafts.contains(p)).map(|(_, f)| f)).cloned()
+        self.at_or_before_keyed(pts, draft_ok).map(|(_, f)| f)
+    }
+
+    /// [`Self::at_or_before`] with the frame's pts.
+    fn at_or_before_keyed(&self, pts: i64, draft_ok: bool) -> Option<(i64, Arc<VideoFrame>)> {
+        self.frames.range(..=pts).rev().find(|(p, _)| draft_ok || !self.drafts.contains(p)).map(|(p, f)| (*p, f.clone()))
     }
 }
 
@@ -641,8 +646,9 @@ impl GopCache {
         if self.rotation != 0 { f.rotated(self.rotation) } else { f }
     }
 
-    fn store(&self, pts: i64, f: VideoFrame, draft: bool) {
-        let f = self.finish(f);
+    /// Cache a decoded frame; returns it (the cache may evict it again right away, see below).
+    fn store(&self, pts: i64, f: VideoFrame, draft: bool) -> Arc<VideoFrame> {
+        let f = Arc::new(self.finish(f));
         let mut st = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
         if draft {
             st.drafts.insert(pts);
@@ -663,7 +669,7 @@ impl GopCache {
         let (before, vram_before) = (st.bytes, st.vram);
         st.bytes += f.byte_size();
         st.vram += f.gpu_bytes();
-        if let Some(old) = st.frames.insert(pts, Arc::new(f)) {
+        if let Some(old) = st.frames.insert(pts, f.clone()) {
             st.bytes -= old.byte_size();
             st.vram -= old.gpu_bytes();
             filmcraft_frame::pool::recycle(old);
@@ -710,14 +716,22 @@ impl GopCache {
         }
         drop(st);
         pool.trim_frames(&self.shared);
+        f
     }
 
-    /// Store decoder output (in presentation order) and advance `out_max`.
-    fn store_output(&self, st: &mut State, out: Vec<crate::video::DecodedFrame>) {
+    /// Store decoder output (in presentation order) and advance `out_max`. `keep` collects the
+    /// latest frame at or before `want` (pts, whether drafts serve): the request that decoded it
+    /// returns it even if the cache evicts it at once (another worker's requests may have moved
+    /// the span the cache keeps past it).
+    fn store_output(&self, st: &mut State, out: Vec<crate::video::DecodedFrame>, want: (i64, bool), keep: &mut Option<(i64, Arc<VideoFrame>)>) {
         count_frames(&out);
         for d in out {
             st.out_max = st.out_max.max(d.pts);
-            self.store(d.pts, d.frame, d.draft);
+            let (pts, draft) = (d.pts, d.draft);
+            let f = self.store(pts, d.frame, draft);
+            if pts <= want.0 && (want.1 || !draft) && keep.as_ref().is_none_or(|(p, _)| *p <= pts) {
+                *keep = Some((pts, f));
+            }
         }
     }
 
@@ -927,6 +941,7 @@ impl GopCache {
             return Err(CodecError::Decode("no video decoder".into()));
         };
         decoder.set_draft(draft);
+        let mut kept: Option<(i64, Arc<VideoFrame>)> = None;
         while st.next < limit {
             if filmcraft_media::cancel::cancelled() {
                 // The decoder state stays consistent (`next`, `out_max`): a later request continues.
@@ -958,7 +973,7 @@ impl GopCache {
             }
             st.next += 1;
             DECODED.fetch_add(1, Ordering::Relaxed);
-            self.store_output(&mut st, out);
+            self.store_output(&mut st, out, (want_pts, draft), &mut kept);
             if (self.cached(want_pts, draft).is_some() && k >= run_to) || (flush_at_target && k == i) {
                 break;
             }
@@ -972,13 +987,19 @@ impl GopCache {
         if self.cached(want_pts, draft).is_none() {
             let hw = st.hw_decoder;
             let out = st.decoder.as_mut().map(|d| if hw { crate::hwgate::run(|| timed(|| d.flush())) } else { timed(|| d.flush()) }).unwrap_or_default();
-            self.store_output(&mut st, out);
+            self.store_output(&mut st, out, (want_pts, draft), &mut kept);
             st.next = usize::MAX;
         }
         // nearest decoded frame at or before the wanted pts (robust to decoder pts quirks)
         let mut store = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
         store.note_served(want_pts);
-        store.at_or_before(want_pts, draft).ok_or_else(|| CodecError::Decode("frame not produced".into()))
+        // the cache's frame, or the one this call decoded when it is nearer (the cache may have
+        // evicted it already)
+        match (store.at_or_before_keyed(want_pts, draft), kept) {
+            (Some((cp, c)), Some((kp, k))) => Ok(if kp > cp { k } else { c }),
+            (Some((_, c)), None) | (None, Some((_, c))) => Ok(c),
+            (None, None) => Err(CodecError::Decode("frame not produced".into())),
+        }
     }
 
     /// The last sample (decode order) of the frames shown from sync sample `key` to the next one:
@@ -1121,6 +1142,8 @@ mod tests {
         hw: bool,
         resets: Arc<AtomicUsize>,
         decodes: Arc<AtomicUsize>,
+        /// Called with each sample index read (tests acting as other workers mid-request).
+        on_read: Option<Arc<dyn Fn(usize) + Send + Sync>>,
     }
 
     /// Outputs each picture `delay` samples late, like a frame-threaded decoder.
@@ -1192,6 +1215,9 @@ mod tests {
             (i < self.n).then_some(i)
         }
         fn read(&self, i: usize) -> crate::Result<Vec<u8>> {
+            if let Some(f) = &self.on_read {
+                f(i);
+            }
             Ok(vec![i as u8])
         }
         fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>> {
@@ -1208,7 +1234,34 @@ mod tests {
     }
 
     fn samples(n: usize, gop: usize, delay: usize, intra: bool) -> Samples {
-        Samples { n, gop, delay, intra, hw: false, resets: Default::default(), decodes: Default::default() }
+        Samples { n, gop, delay, intra, hw: false, resets: Default::default(), decodes: Default::default(), on_read: None }
+    }
+
+    /// Fork Phase 5.2c: parallel export workers asked for later frames while one worker decoded
+    /// an earlier one; the cache's span of recent requests moved past it, the cache evicted the
+    /// frame as it was stored and the request failed ("frame not produced": a black frame in the
+    /// export). The request that decoded a frame returns it whatever the cache keeps.
+    #[test]
+    fn a_frame_evicted_as_it_is_stored_still_serves_its_request() {
+        let mut s = samples(300, 300, 0, false);
+        let mut c = GopCache::new(None);
+        c.budget = 0;
+        // one GOP decoded to its end: the cache keeps its floor of frames (the last ones)
+        assert_eq!(index_of(&c.frame(&s, 299_000).expect("frame")), 299);
+        let shared = c.shared.clone();
+        s.on_read = Some(Arc::new(move |k| {
+            if k == 100 {
+                // meanwhile, other workers asked for frames far ahead
+                let mut st = shared.store.lock().unwrap_or_else(|e| e.into_inner());
+                for p in 0..RECENT_REQUESTS as i64 {
+                    st.recent.push_back(250_000 + p * 1000);
+                    if st.recent.len() > RECENT_REQUESTS {
+                        st.recent.pop_front();
+                    }
+                }
+            }
+        }));
+        assert_eq!(index_of(&c.frame(&s, 100_000).expect("frame 100 is served")), 100);
     }
 
     fn index_of(f: &VideoFrame) -> usize {

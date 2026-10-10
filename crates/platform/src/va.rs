@@ -100,6 +100,24 @@ impl Display {
         .clone()
     }
 
+    /// The display HEVC export encodes on: `FILMCRAFT_VAAPI_ENCODE_DEVICE` when set (another
+    /// GPU's video engine, so decoding and encoding don't share one, fork Phase 5.2d), else the
+    /// decoding display ([`Display::get`]). Opened once.
+    pub fn for_encode() -> Result<Arc<Display>, String> {
+        static E: OnceLock<Option<Result<Arc<Display>, String>>> = OnceLock::new();
+        let chosen = E.get_or_init(|| {
+            let node = std::env::var("FILMCRAFT_VAAPI_ENCODE_DEVICE").ok().filter(|v| !v.is_empty())?;
+            Some(lib().and_then(|lib| Display::open(lib, &node)).map(|d| {
+                log::info!("VA-API encode: {} on {}", d.vendor, d.node);
+                Arc::new(d)
+            }))
+        });
+        match chosen {
+            Some(r) => r.clone(),
+            None => Display::get(),
+        }
+    }
+
     fn open(lib: &'static sys::Va, node: &str) -> Result<Display, String> {
         let file = std::fs::OpenOptions::new().read(true).write(true).open(node).map_err(|e| e.to_string())?;
         // SAFETY: the fd is a valid open DRM node, kept open by `file` for the display's lifetime.
@@ -128,14 +146,14 @@ impl Display {
     fn query_profiles(&self) -> Result<Vec<(sys::VAProfile, Vec<sys::VAEntrypoint>)>, String> {
         let l = self.lib;
         // SAFETY: initialised display.
-        let max = unsafe { l.vaMaxNumProfiles(self.dpy) }.clamp(0, 256) as usize;
+        let max = cap(unsafe { l.vaMaxNumProfiles(self.dpy) }, 256, "profiles")?;
         let mut profiles = vec![0 as sys::VAProfile; max];
         let mut n = 0;
         // SAFETY: the array holds vaMaxNumProfiles entries, as libva requires.
         check(l, unsafe { l.vaQueryConfigProfiles(self.dpy, profiles.as_mut_ptr(), &mut n) }, "vaQueryConfigProfiles")?;
         profiles.truncate((n.max(0) as usize).min(max));
         // SAFETY: initialised display.
-        let max_ep = unsafe { l.vaMaxNumEntrypoints(self.dpy) }.clamp(0, 64) as usize;
+        let max_ep = cap(unsafe { l.vaMaxNumEntrypoints(self.dpy) }, 64, "entry points")?;
         let mut out = Vec::new();
         for p in profiles {
             let mut eps = vec![0 as sys::VAEntrypoint; max_ep];
@@ -157,12 +175,29 @@ impl Display {
     fn check(&self, st: sys::VAStatus, what: &str) -> Result<(), String> {
         check(self.lib, st, what)
     }
+
+    /// The driver's values of the configuration attributes `types` for `profile` / `entrypoint`
+    /// (`None`: not supported).
+    pub fn config_attribs(
+        &self,
+        profile: sys::VAProfile,
+        entrypoint: sys::VAEntrypoint,
+        types: &[sys::VAConfigAttribType],
+    ) -> Result<Vec<Option<u32>>, String> {
+        let mut attribs: Vec<sys::VAConfigAttrib> = types.iter().map(|&t| sys::VAConfigAttrib { type_: t, value: 0 }).collect();
+        let n = i32::try_from(attribs.len()).map_err(|_| "too many attributes")?;
+        // SAFETY: `attribs` holds `n` entries, which libva fills in place.
+        self.check(unsafe { self.lib.vaGetConfigAttributes(self.dpy, profile, entrypoint, attribs.as_mut_ptr(), n) }, "vaGetConfigAttributes")?;
+        Ok(attribs.iter().map(|a| (a.value != sys::VA_ATTRIB_NOT_SUPPORTED).then_some(a.value)).collect())
+    }
 }
 
 /// A decoder configuration (profile + entrypoint + render-target format).
 pub struct Config {
     display: Arc<Display>,
     pub id: sys::VAConfigID,
+    /// The render-target format (`VA_RT_FORMAT_*`) asked for; 0 when not given.
+    pub rt_format: u32,
 }
 
 impl Drop for Config {
@@ -178,7 +213,24 @@ impl Config {
         let mut id = 0;
         // SAFETY: one valid attribute and a valid out-pointer.
         display.check(unsafe { display.lib.vaCreateConfig(display.dpy, profile, entrypoint, &mut attrib, 1, &mut id) }, "vaCreateConfig")?;
-        Ok(Config { display: display.clone(), id })
+        Ok(Config { display: display.clone(), id, rt_format })
+    }
+
+    /// A configuration with the attributes `(type, value)` (encoders: render-target format, rate
+    /// control, packed headers).
+    pub fn with_attribs(
+        display: &Arc<Display>,
+        profile: sys::VAProfile,
+        entrypoint: sys::VAEntrypoint,
+        attribs: &[(sys::VAConfigAttribType, u32)],
+    ) -> Result<Config, String> {
+        let mut list: Vec<sys::VAConfigAttrib> = attribs.iter().map(|&(t, v)| sys::VAConfigAttrib { type_: t, value: v }).collect();
+        let n = i32::try_from(list.len()).map_err(|_| "too many attributes")?;
+        let mut id = 0;
+        // SAFETY: `list` holds `n` valid attributes; valid out-pointer.
+        display.check(unsafe { display.lib.vaCreateConfig(display.dpy, profile, entrypoint, list.as_mut_ptr(), n, &mut id) }, "vaCreateConfig")?;
+        let rt_format = attribs.iter().find(|(t, _)| *t == sys::VAConfigAttribType_VAConfigAttribRTFormat).map_or(0, |&(_, v)| v);
+        Ok(Config { display: display.clone(), id, rt_format })
     }
 }
 
@@ -224,6 +276,46 @@ param_buffer! {
     sys::VAPictureParameterBufferHEVC => sys::VABufferType_VAPictureParameterBufferType,
     sys::VAIQMatrixBufferHEVC => sys::VABufferType_VAIQMatrixBufferType,
     sys::VASliceParameterBufferHEVC => sys::VABufferType_VASliceParameterBufferType,
+    sys::VAEncPackedHeaderParameterBuffer => sys::VABufferType_VAEncPackedHeaderParameterBufferType,
+    MiscRateControl => sys::VABufferType_VAEncMiscParameterBufferType,
+    MiscHrd => sys::VABufferType_VAEncMiscParameterBufferType,
+    MiscFrameRate => sys::VABufferType_VAEncMiscParameterBufferType,
+}
+
+/// `VAEncMiscParameterBuffer` followed by its payload, as libva lays it out (a `type` word, then
+/// the payload struct; both 4-byte aligned, so `repr(C)` adds no padding between them).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Misc<T: Copy> {
+    kind: sys::VAEncMiscParameterType,
+    pub payload: T,
+}
+
+// libva reads a `type` word directly followed by the payload: no padding in between
+const _: () = {
+    assert!(std::mem::size_of::<Misc<sys::VAEncMiscParameterRateControl>>() == 4 + std::mem::size_of::<sys::VAEncMiscParameterRateControl>());
+    assert!(std::mem::size_of::<Misc<sys::VAEncMiscParameterHRD>>() == 4 + std::mem::size_of::<sys::VAEncMiscParameterHRD>());
+    assert!(std::mem::size_of::<Misc<sys::VAEncMiscParameterFrameRate>>() == 4 + std::mem::size_of::<sys::VAEncMiscParameterFrameRate>());
+};
+
+pub type MiscRateControl = Misc<sys::VAEncMiscParameterRateControl>;
+pub type MiscHrd = Misc<sys::VAEncMiscParameterHRD>;
+pub type MiscFrameRate = Misc<sys::VAEncMiscParameterFrameRate>;
+
+impl MiscRateControl {
+    pub fn new(payload: sys::VAEncMiscParameterRateControl) -> Self {
+        Misc { kind: sys::VAEncMiscParameterType_VAEncMiscParameterTypeRateControl, payload }
+    }
+}
+impl MiscHrd {
+    pub fn new(payload: sys::VAEncMiscParameterHRD) -> Self {
+        Misc { kind: sys::VAEncMiscParameterType_VAEncMiscParameterTypeHRD, payload }
+    }
+}
+impl MiscFrameRate {
+    pub fn new(payload: sys::VAEncMiscParameterFrameRate) -> Self {
+        Misc { kind: sys::VAEncMiscParameterType_VAEncMiscParameterTypeFrameRate, payload }
+    }
 }
 
 impl Context {
@@ -242,6 +334,23 @@ impl Context {
         // SAFETY: `v` is a live `T`, readable for `size_of::<T>()` bytes; libva copies them with
         // memcpy (padding included, which C may copy) and does not keep the pointer.
         unsafe { self.create_buffer(T::KIND, (v as *const T).cast(), std::mem::size_of::<T>()) }
+    }
+
+    /// An HEVC encoder's sequence parameters, checked: the picture size they declare fits this
+    /// context (and so every surface [`Context::encode_hevc`] accepts).
+    pub fn sequence_buffer(&self, seq: &sys::VAEncSequenceParameterBufferHEVC) -> Result<Buffer<'_>, String> {
+        let (w, h) = (u32::from(seq.pic_width_in_luma_samples), u32::from(seq.pic_height_in_luma_samples));
+        if w == 0 || h == 0 || w > self.size.0 || h > self.size.1 {
+            return Err(format!("a {w}x{h} sequence for a {}x{} context", self.size.0, self.size.1));
+        }
+        // SAFETY: `seq` is a live VAEncSequenceParameterBufferHEVC, copied by libva.
+        unsafe {
+            self.create_buffer(
+                sys::VABufferType_VAEncSequenceParameterBufferType,
+                (seq as *const sys::VAEncSequenceParameterBufferHEVC).cast(),
+                std::mem::size_of_val(seq),
+            )
+        }
     }
 
     /// A slice-data buffer holding a copy of `data` (the slice NAL unit). The slice parameters
@@ -284,6 +393,176 @@ impl Context {
         // SAFETY: ends the picture begun above (also after a render error, so the context stays usable).
         let e = d.check(unsafe { d.lib.vaEndPicture(d.dpy, self.id) }, "vaEndPicture");
         r.and(e)
+    }
+
+    /// A packed header for an encoder: the parameter buffer saying what it is (`kind`, a
+    /// `VAEncPackedHeaderType`) and the data buffer holding `data` (Annex B NAL units, escaped).
+    pub fn packed_header(&self, kind: u32, data: &[u8]) -> Result<[Buffer<'_>; 2], String> {
+        let bits = u32::try_from(data.len()).ok().and_then(|n| n.checked_mul(8)).ok_or("packed header too large")?;
+        let param = sys::VAEncPackedHeaderParameterBuffer { type_: kind, bit_length: bits, has_emulation_bytes: 1, ..Default::default() };
+        let p = self.param_buffer(&param)?;
+        // SAFETY: `data` is readable for `data.len()` bytes; libva copies them (the bit length
+        // above covers exactly these bytes).
+        let d = unsafe { self.create_buffer(sys::VABufferType_VAEncPackedHeaderDataBufferType, data.as_ptr().cast(), data.len()) }?;
+        Ok([p, d])
+    }
+
+    /// A buffer the encoder writes a picture's bitstream into (`bytes` large).
+    pub fn coded_buffer(&self, bytes: usize) -> Result<CodedBuffer, String> {
+        let d = &self.display;
+        let size = u32::try_from(bytes).map_err(|_| "coded buffer too large")?;
+        let mut id = 0;
+        let kind = sys::VABufferType_VAEncCodedBufferType;
+        // SAFETY: no initial data (null): libva allocates `size` bytes the encoder writes.
+        let st = unsafe { d.lib.vaCreateBuffer(d.dpy, self.id, kind, size, 1, std::ptr::null_mut(), &mut id) };
+        d.check(st, "vaCreateBuffer (coded)")?;
+        Ok(CodedBuffer { display: d.clone(), context: self.id, id, size: bytes })
+    }
+
+    /// Encode `source` as one HEVC picture into `coded`, reconstructing it into `recon`, predicted
+    /// from `reference` (P) or intra (`None`). The surfaces and the coded buffer are filled into
+    /// `pic` / `slice` here, so the driver only ever sees surfaces of this display large enough
+    /// for the picture and this context's coded buffer. Buffers go to the driver in libva's
+    /// order: `before` (sequence, misc, packed headers), the picture, the slice.
+    pub fn encode_hevc(
+        &self,
+        source: &Surface,
+        recon: &Surface,
+        reference: Option<(&Surface, i32)>,
+        coded: &CodedBuffer,
+        mut pic: sys::VAEncPictureParameterBufferHEVC,
+        mut slice: sys::VAEncSliceParameterBufferHEVC,
+        before: &[Buffer<'_>],
+    ) -> Result<(), String> {
+        let d = &self.display;
+        if coded.context != self.id || !Arc::ptr_eq(&coded.display, d) {
+            return Err("a coded buffer of another context".into());
+        }
+        if before.iter().any(|b| !std::ptr::eq(b.context, self)) {
+            return Err("a buffer of another context".into());
+        }
+        for s in [Some(source), Some(recon), reference.map(|r| r.0)].into_iter().flatten() {
+            let (w, h) = s.pool.size;
+            if !Arc::ptr_eq(&s.pool.display, d) || w < self.size.0 || h < self.size.1 {
+                return Err(format!("a {w}x{h} surface for a {}x{} encoder", self.size.0, self.size.1));
+            }
+            if self._config.rt_format != 0 && s.pool.rt_format != self._config.rt_format {
+                return Err(format!("a surface of format {:#x} for a {:#x} encoder", s.pool.rt_format, self._config.rt_format));
+            }
+        }
+        let invalid = sys::VAPictureHEVC { picture_id: sys::VA_INVALID_SURFACE, flags: sys::VA_PICTURE_HEVC_INVALID, ..Default::default() };
+        pic.decoded_curr_pic = sys::VAPictureHEVC { picture_id: recon.id, pic_order_cnt: pic.decoded_curr_pic.pic_order_cnt, flags: 0, ..Default::default() };
+        pic.reference_frames = [invalid; 15];
+        slice.ref_pic_list0 = [invalid; 15];
+        slice.ref_pic_list1 = [invalid; 15];
+        // one reference at most (list entry 0, filled below): the driver reads no further entries
+        pic.num_ref_idx_l0_default_active_minus1 = 0;
+        pic.num_ref_idx_l1_default_active_minus1 = 0;
+        slice.num_ref_idx_l0_active_minus1 = 0;
+        slice.num_ref_idx_l1_active_minus1 = 0;
+        if let Some((r, poc)) = reference {
+            let p = sys::VAPictureHEVC { picture_id: r.id, pic_order_cnt: poc, flags: 0, ..Default::default() };
+            pic.reference_frames[0] = p;
+            slice.ref_pic_list0[0] = p;
+        }
+        pic.coded_buf = coded.id;
+        // not `ParamBuffer`s: only made here, with the ids checked above
+        // SAFETY: `pic` is a live VAEncPictureParameterBufferHEVC, copied by libva.
+        let pb = unsafe {
+            self.create_buffer(
+                sys::VABufferType_VAEncPictureParameterBufferType,
+                (&pic as *const sys::VAEncPictureParameterBufferHEVC).cast(),
+                std::mem::size_of_val(&pic),
+            )
+        }?;
+        // SAFETY: `slice` is a live VAEncSliceParameterBufferHEVC, copied by libva.
+        let sb = unsafe {
+            self.create_buffer(
+                sys::VABufferType_VAEncSliceParameterBufferType,
+                (&slice as *const sys::VAEncSliceParameterBufferHEVC).cast(),
+                std::mem::size_of_val(&slice),
+            )
+        }?;
+        let mut ids: Vec<sys::VABufferID> = before.iter().map(|b| b.id).collect();
+        ids.push(pb.id);
+        ids.push(sb.id);
+        let n = i32::try_from(ids.len()).map_err(|_| "too many buffers")?;
+        // SAFETY: a valid context and source surface of this display.
+        d.check(unsafe { d.lib.vaBeginPicture(d.dpy, self.id, source.id) }, "vaBeginPicture")?;
+        // SAFETY: `ids` holds `n` buffers created on this context; libva reads them during the call.
+        let r = d.check(unsafe { d.lib.vaRenderPicture(d.dpy, self.id, ids.as_mut_ptr(), n) }, "vaRenderPicture");
+        // SAFETY: ends the picture begun above (also after a render error).
+        let e = d.check(unsafe { d.lib.vaEndPicture(d.dpy, self.id) }, "vaEndPicture");
+        r.and(e)
+    }
+}
+
+/// The encoder's output buffer of a context (not borrowed from it, so an encoder can keep several
+/// in flight); destroyed on drop. libva buffers do not depend on their context once made.
+pub struct CodedBuffer {
+    display: Arc<Display>,
+    context: sys::VAContextID,
+    id: sys::VABufferID,
+    size: usize,
+}
+
+impl Drop for CodedBuffer {
+    fn drop(&mut self) {
+        // SAFETY: `id` was created on this display and is destroyed once (encoders never destroy
+        // coded buffers themselves).
+        unsafe { self.display.lib.vaDestroyBuffer(self.display.dpy, self.id) };
+    }
+}
+
+/// Segments of one coded buffer followed at most (a picture is one or a few).
+const MAX_SEGMENTS: usize = 64;
+
+impl CodedBuffer {
+    /// The bitstream the encoder wrote (waits for the picture first: call after syncing its
+    /// source surface). Error when it overflowed the buffer. `&mut`: one mapping at a time (the
+    /// driver keeps one per buffer).
+    pub fn read(&mut self) -> Result<Vec<u8>, String> {
+        let d = &self.display;
+        let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: a coded buffer of this display, mapped into a valid out-pointer.
+        d.check(unsafe { d.lib.vaMapBuffer(d.dpy, self.id, &mut ptr) }, "vaMapBuffer (coded)")?;
+        let mut out = Vec::new();
+        let mut result = Ok(());
+        let mut seg = ptr as *const sys::VACodedBufferSegment;
+        for _ in 0..MAX_SEGMENTS {
+            if seg.is_null() {
+                break;
+            }
+            // SAFETY: a mapped coded buffer is a linked list of VACodedBufferSegment structs owned
+            // by the driver, valid until vaUnmapBuffer; `seg` is the head or a `next` link (read
+            // unaligned: the pointer comes from the driver).
+            let s = unsafe { std::ptr::read_unaligned(seg) };
+            if s.status & sys::VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK != 0 {
+                result = Err(format!("the picture overflowed the {} byte coded buffer", self.size));
+                break;
+            }
+            let n = s.size as usize;
+            if n > self.size || out.len().saturating_add(n) > self.size {
+                result = Err("coded segment larger than its buffer".to_string());
+                break;
+            }
+            if n > 0 {
+                if s.buf.is_null() || s.bit_offset != 0 {
+                    result = Err("coded segment without data or not byte aligned".to_string());
+                    break;
+                }
+                // SAFETY: the segment's `buf` holds `size` bytes while mapped (bounded by the
+                // buffer's size above).
+                out.extend_from_slice(unsafe { std::slice::from_raw_parts(s.buf as *const u8, n) });
+            }
+            seg = s.next as *const sys::VACodedBufferSegment;
+        }
+        if result.is_ok() && !seg.is_null() {
+            result = Err(format!("more than {MAX_SEGMENTS} coded segments"));
+        }
+        // SAFETY: unmaps the mapping made above; nothing read from it is used after this.
+        unsafe { d.lib.vaUnmapBuffer(d.dpy, self.id) };
+        result.map(|()| out)
     }
 }
 
@@ -338,6 +617,14 @@ impl SurfaceMem {
 /// A surface's memory exported as DMA-BUF (the description owns the fds).
 pub struct Export {
     pub dmabuf: filmcraft_frame::DmaBuf,
+    /// Exported for writing too (encoder input written by the GPU, fork Phase 5.2c).
+    pub writable: bool,
+}
+
+/// A driver's `vaMaxNum*` count as an array length: libva writes up to that many entries, so a
+/// count above `max` is refused rather than truncated (a smaller array would overflow).
+fn cap(n: i32, max: usize, what: &str) -> Result<usize, String> {
+    usize::try_from(n.max(0)).ok().filter(|&n| n <= max).ok_or_else(|| format!("the driver reports {n} {what} (at most {max} handled)"))
 }
 
 /// Whether the rectangle (x, y, w, h) is non-empty and lies inside a surface of `size`.
@@ -461,14 +748,28 @@ impl Surface {
         &self.mem
     }
 
-    /// The surface's memory as DMA-BUF layers (luma, chroma), exported once per surface.
+    /// The surface's memory as DMA-BUF layers (luma, chroma) for reading, exported once per
+    /// surface.
     pub fn export(&self) -> Result<Arc<Export>, String> {
-        if let Some(e) = self.mem.export.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+        self.export_with(false)
+    }
+
+    /// The surface's memory as DMA-BUF layers for reading and writing (an encoder's input that
+    /// the GPU renders into), exported once per surface.
+    pub fn export_writable(&self) -> Result<Arc<Export>, String> {
+        self.export_with(true)
+    }
+
+    fn export_with(&self, writable: bool) -> Result<Arc<Export>, String> {
+        if let Some(e) = self.mem.export.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
+            && (e.writable || !writable)
+        {
             return Ok(e.clone());
         }
         let d = &self.pool.display;
         let mut desc = sys::VADRMPRIMESurfaceDescriptor::default();
-        let (mem, flags) = (sys::VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2, sys::VA_EXPORT_SURFACE_READ_ONLY | sys::VA_EXPORT_SURFACE_SEPARATE_LAYERS);
+        let access = if writable { sys::VA_EXPORT_SURFACE_READ_WRITE } else { sys::VA_EXPORT_SURFACE_READ_ONLY };
+        let (mem, flags) = (sys::VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2, access | sys::VA_EXPORT_SURFACE_SEPARATE_LAYERS);
         let out = &mut desc as *mut sys::VADRMPRIMESurfaceDescriptor as *mut std::ffi::c_void;
         // SAFETY: a valid surface; `out` points to the VADRMPRIMESurfaceDescriptor that
         // VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2 fills.
@@ -514,7 +815,7 @@ impl Surface {
             // the description owns the fds, so they stay open while any copy lives
             objects: fds.into(),
         };
-        let e = Arc::new(Export { dmabuf });
+        let e = Arc::new(Export { dmabuf, writable });
         *self.mem.export.lock().unwrap_or_else(PoisonError::into_inner) = Some(e.clone());
         Ok(e)
     }
@@ -524,6 +825,60 @@ impl Surface {
         let d = &self.pool.display;
         // SAFETY: a valid surface of this display.
         d.check(unsafe { d.lib.vaSyncSurface(d.dpy, self.id) }, "vaSyncSurface")
+    }
+
+    /// Fill the whole surface from memory: `f(image bytes, plane offsets, plane pitches)` writes
+    /// the planes of an image of the pool's format and size (`P010` / `NV12`: luma, then
+    /// interleaved chroma), which is then copied into the surface. The surface must not be in use
+    /// by the GPU.
+    pub fn write(&self, f: impl FnOnce(&mut [u8], [usize; 2], [usize; 2]) -> Result<(), String>) -> Result<(), String> {
+        let d = &self.pool.display;
+        let l = d.lib;
+        let (w, h) = self.pool.size;
+        let mut format = self.image_format()?;
+        let int = |v: u32| i32::try_from(v).map_err(|_| format!("{v} does not fit libva's int"));
+        let (wi, hi) = (int(w)?, int(h)?);
+        let mut image: sys::VAImage = Default::default();
+        // SAFETY: a valid format struct and out-pointer.
+        d.check(unsafe { l.vaCreateImage(d.dpy, &mut format, wi, hi, &mut image) }, "vaCreateImage")?;
+        let result = (|| {
+            if image.num_planes < 2 || (image.width as u32) < w || (image.height as u32) < h {
+                return Err("the driver made an image smaller than the surface".to_string());
+            }
+            let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+            // SAFETY: the image's buffer, mapped for writing into a valid out-pointer.
+            d.check(unsafe { l.vaMapBuffer(d.dpy, image.buf, &mut ptr) }, "vaMapBuffer")?;
+            if ptr.is_null() {
+                return Err("vaMapBuffer returned no memory".to_string());
+            }
+            // SAFETY: the mapping covers `data_size` writable bytes until vaUnmapBuffer below, and
+            // nothing else refers to it meanwhile.
+            let bytes = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, image.data_size as usize) };
+            let filled = f(bytes, [image.offsets[0] as usize, image.offsets[1] as usize], [image.pitches[0] as usize, image.pitches[1] as usize]);
+            // SAFETY: unmaps the mapping made above; `bytes` is not used after this.
+            unsafe { l.vaUnmapBuffer(d.dpy, image.buf) };
+            filled?;
+            // SAFETY: the image (as large as the surface, checked above) is copied into this
+            // surface, which is of this display.
+            d.check(unsafe { l.vaPutImage(d.dpy, self.id, image.image_id, 0, 0, w, h, 0, 0, w, h) }, "vaPutImage")
+        })();
+        // SAFETY: destroys the image created above, once.
+        unsafe { l.vaDestroyImage(d.dpy, image.image_id) };
+        result
+    }
+
+    /// The driver's image format for the pool's fourcc.
+    fn image_format(&self) -> Result<sys::VAImageFormat, String> {
+        let d = &self.pool.display;
+        let l = d.lib;
+        // SAFETY: initialised display.
+        let max = cap(unsafe { l.vaMaxNumImageFormats(d.dpy) }, 256, "image formats")?;
+        let mut formats: Vec<sys::VAImageFormat> = vec![Default::default(); max];
+        let mut n = 0;
+        // SAFETY: the array holds vaMaxNumImageFormats entries.
+        d.check(unsafe { l.vaQueryImageFormats(d.dpy, formats.as_mut_ptr(), &mut n) }, "vaQueryImageFormats")?;
+        formats.truncate((n.max(0) as usize).min(max));
+        formats.into_iter().find(|f| f.fourcc == self.pool.fourcc).ok_or_else(|| "the driver has no image format for the surface".to_string())
     }
 
     /// Copy the rectangle (x, y, w, h) of this surface to memory, as the image format `fourcc`
@@ -538,15 +893,7 @@ impl Surface {
         let d = &self.pool.display;
         let l = d.lib;
         let fourcc = self.pool.fourcc;
-        // the driver's description of the format
-        // SAFETY: initialised display.
-        let max = unsafe { l.vaMaxNumImageFormats(d.dpy) }.clamp(0, 256) as usize;
-        let mut formats: Vec<sys::VAImageFormat> = vec![Default::default(); max];
-        let mut n = 0;
-        // SAFETY: the array holds vaMaxNumImageFormats entries.
-        d.check(unsafe { l.vaQueryImageFormats(d.dpy, formats.as_mut_ptr(), &mut n) }, "vaQueryImageFormats")?;
-        formats.truncate((n.max(0) as usize).min(max));
-        let mut format = *formats.iter().find(|f| f.fourcc == fourcc).ok_or("the driver has no image format for the surface")?;
+        let mut format = self.image_format()?;
         let int = |v: u32| i32::try_from(v).map_err(|_| format!("{v} does not fit libva's int"));
         let (xi, yi, wi, hi) = (int(x)?, int(y)?, int(w)?, int(h)?);
         let mut image: sys::VAImage = Default::default();

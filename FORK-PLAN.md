@@ -121,6 +121,12 @@ the agent's own recorded interpretations, not the owner's words.
     met with proxies or the render cache). Phase 3 was still open, so **Phase 3 accepts a steady,
     gracefully skipping 2× and 4×** (no stalls, even cadence) instead of zero drops at 2×.
 
+16. **6.2K optimisation phase (owner, 2026-10-10).** The owner may add a whole phase, after the
+    current plan (Phases 5–8) is complete, dedicated to heavily optimising 6.2K footage (e.g.
+    6.2K export ≥ 24 fps: today ≈ 18–20 fps, the single-VCN ceiling; candidates: splitting the
+    encode between the AMD and Intel media engines, FORK-PLAN §7 session 7). Not scheduled yet:
+    continue the current plan; don't start it without the owner.
+
 ## 2. The machine and the footage (don't re-research these)
 
 **System:** CachyOS (Arch-based, rolling, recent kernel and Mesa), AMD Radeon RX 6700 XT
@@ -954,4 +960,161 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   (recorded above; built-in stays linear-light) — accepted with that note. `cargo xtask ci`
   green at `1ba85b6`. JKL L 2× in the full suite 188 / 20 vs alone 298 / 2 (ordering effect,
   not a regression). Exports are still rendered on the CPU (graded 4K 0.6 fps): Phase 5.
+- **Phase 4 committed and tagged (`phase-4` = `476371c`). Build ready:**
+  `~/Apps/filmcraft-builds/phase-4/` (`filmcraft`, `filmcraft-cli`, `NOTES.md`), `latest` →
+  phase-4, launcher valid (`desktop-file-validate`); the binaries are the release build smoke
+  tested in 4.4 (graded 6.2K + scopes over the control channel). `/home` 162 GB free. **Next:
+  Phase 5** (hardware export: RGB → P010 on the GPU, VA-API HEVC encode with our own parameter
+  sets / slice headers, fallback chain, presets).
+- **2026-10-09, session 5: Phase 5.1 export frames rendered on the GPU (done, synthetic).**
+  Exports rendered every frame with the CPU renderer (reading 6.2K hardware frames back, grading
+  in software) and converted RGBA8 → Y'CbCr on the CPU. Now HEVC exports plan each frame like the
+  monitors and composite it on a headless GPU compositor (`filmcraft_platform::gpu_export`, its own
+  device with DMA-BUF import; created on the first frame; device error / panic → CPU from then
+  on), and `GpuCompositor::read_yuv420` converts the float accumulator to planar 4:2:0 on the GPU
+  (`gpu/src/yuv.rs`: the export's limited-range maths, 8- or 10-bit, matrix from the export's
+  signal); only the planes are read back (`filmcraft_export::GpuFrames` hook, `EncoderFrame::yuv`,
+  `Pipeline::frame_yuv`; CPU when HDR, burn-ins, overlays, limiter or a resize/placement are
+  involved, or `FILMCRAFT_EXPORT_CPU=1`). Parity: GPU 4:2:0 vs the CPU conversion of the
+  CPU-composited picture ≤ 1 code (AMD + Intel, odd sizes). A GPU export and a CPU export of the
+  same graded 4K F-Log2 timeline (3 s): PSNR 36–40 dB per frame (two lossy encodes of synthetic
+  noise), mean luma within 0.3 code. **Found:** (1) `bitDepth: "10"` (text, as the bench and
+  scripts pass it) was silently ignored, so **every "Main 10" export benchmark since Phase 0 was
+  8-bit**; now text or number (test `hevc_bit_depth_accepts_text`). (2) The CPU export path wrote
+  one black frame (frame 63 of 90) in that comparison; the GPU path did not (pre-existing; noted
+  for Phase 7 robustness). (3) The headless device asks for the adapter's buffer limits (a 6.2K
+  frame's planes are ~156 MB). **Results (60 s, 10-bit for real):** export 4K **16.5 fps**
+  (Phase 4: 4.9 fps, 8-bit), graded 4K **13.0 fps** (0.6), 6.2K **8.2 fps** (4.0)
+  (`target/bench/xm5-5.1-export-10bit.json`). Gates + workspace tests ✓. **Next: 5.2** overlap
+  rendering and encoding (the job renders a batch, then encodes it), then in-process VA-API
+  encode from GPU frames.
+- **2026-10-09, session 5: Phase 5.2a render / encode overlap (done, synthetic).** The export job
+  renders a batch (12 frames here) and then hands it to the encoder, whose ffmpeg writer queue
+  held 3 frames, so the GPU waited for ffmpeg to take 9. The queue now holds up to 16 frames
+  within 512 MB (`hevc_export::write_queue`: 16 at 4K 10-bit, 6 at 6.2K). 60 s, 10-bit
+  (`target/bench/xm5-5.2-export.json`, load ≈ 5): **4K 19.0 fps** (16.5), graded 13.6 (13.0),
+  6.2K 9.3 (8.2). Analysis: graded export is GPU-bound by the full-size 6.2K grade (the F-Log2
+  input transform + Lumetri run on the 6.2K working image, ~29 ms of GPU per frame at 86 % busy
+  in playback); ungraded 4K by decode + composite + read-back + ffmpeg's upload/encode in series.
+  **Next: 5.2b** in-process VA-API HEVC encode from the GPU picture (no read-back, no pipe), then
+  presets / ffprobe checks.
 
+- **2026-10-09, session 6: Phase 5.2b in-process VA-API HEVC encode (done, synthetic).**
+  `va_sys.rs` regenerated with `va_enc_hevc.h` and the encode types by a committed script
+  (`crates/platform/gen-va-sys.sh`; the HANDOFF's "command in this file" did not exist: the
+  original allowlist was reconstructed and reproduces the old file byte for byte without the
+  encode types). `filmcraft_hevc::write`: VPS / SPS / PPS / slice headers (I/P, one ref, one
+  slice, VUI colour + timing, level / tier from Table A.8), tested by parsing them back with our
+  own parser. `va.rs`: `Config::with_attribs`, `Display::config_attribs`, packed headers, misc
+  parameters (`Misc<T>`), `CodedBuffer` (owned, bounded segment walk, overflow → error),
+  `Context::encode_hevc` (fills surface / coded-buffer ids itself after checks), `Surface::write`
+  (vaCreateImage + vaPutImage). `va_enc.rs` (safe): `VaHevcEncoder`, CQP / CBR / VBR, IDR every
+  keyint, 3 pictures in flight, driver block sizes / features honoured; decodes in FilmCraft's
+  software decoder at > 40 dB (QP 20). `hevc_export`: backend order **VA-API in process → ffmpeg
+  `hevc_vaapi` → `libx265`** (`Backend::VaNative`, `FILMCRAFT_NO_VA_ENCODE` turns it off); the
+  encoder runs on its own thread behind a queue; mid-stream failure → the unfinished frames go
+  to ffmpeg (libx265 without B-frames) from an IDR (test injects a failure at frame 11; every
+  frame once, in order). Encoder alone at 4K 10-bit: 11.8 ms/frame incl. upload (~85 fps).
+  **Found:** export time was not the encoder: `read_yuv420` (GPU → CPU) took 28 ms per 4K frame
+  under the compositor lock (two fresh 50 MB buffers per frame, one u32 per sample, single-thread
+  CPU repack). Now a GPU pack pass writes `yuv420p10le` / `yuv420p` bytes and the buffers are
+  reused: 11 ms (4K), parity tests unchanged on AMD + Intel. **Results (60 s, 10-bit, synthetic;
+  two runs, the second with swap activity):** export 4K **23.7 / 19.9 fps** (5.2a: 19.0), graded
+  15.4 / 14.6 (13.6), 6.2K 12.3 / 13.2 (9.3) (`target/bench/xm5-5.2b-export.json` = first run of
+  the encoder alone: 20.3 / 13.5 / 9.5). Per-frame trace of the 4K case: batch render 35 ms
+  (decode-bound ≈ 24 ms + the batch's tail), encode stage 6 ms. Gates ✓ (fmt, clippy, tests of
+  hevc / platform / gpu / export, layers, wasm). **Next:** render the next batch while the
+  current one encodes (`Exporter::step`), then 5.2c zero-copy input, 5.3 graded speed.
+- **2026-10-09, session 6: Phase 5.2b-2 batch overlap (done, synthetic).** `Exporter::step` renders
+  the next batch on a scoped thread while the current one is encoded and muxed (`pipe` is an
+  `Arc<Pipeline>`, `ahead` holds the rendered batch; a batch whose range changed is rendered
+  again; not on the web, where a pending source re-renders a batch before it is encoded). 60 s,
+  10-bit (`target/bench/xm5-5.2b-overlap.json`, load ≈ 6): **4K 24.8 fps** (≥ 24 = 80 % of the
+  29.9 fps ceiling ✓), graded 15.8, **6.2K 14.7** (9.3 at 5.2a). Gates ✓ (fmt, clippy, export +
+  engine tests, layers, wasm). **Next:** 5.3 graded export ≥ 30 fps (the grade runs on the 6.2K
+  source size: ~36 ms of GPU per frame), 5.2c zero-copy input.
+- **2026-10-09, session 6: Phase 5.3a converted media graded at the size drawn (done,
+  synthetic).** A log / wide-gamut clip (input transform on the GPU) drawn below 95 % of its
+  size is now graded on a working image of the size drawn instead of the full 6.2K
+  (`plan.rs`; `LayerFx.size` smaller than the decimated frame = resample; GPU
+  `fx_source_uniforms` with Maximum Render Quality's filter, CPU `effect_image` bilinear; parity
+  test `working_image_smaller_than_the_frame_matches_cpu`, mean diff 4e-5, AMD + Intel). Like
+  Resolve's timeline-resolution processing, the signal is resampled before the input transform;
+  this overrides session 5's "converted frames at full size" (agent decision: averaging log
+  signal differs from averaging light only at sharp edges between very different levels).
+  `FILMCRAFT_FULL_SIZE_GRADE=1` keeps the full size. Applies to playback too (cheaper grading
+  in the monitors). Check: 5 s graded 4K export, scaled vs full-size grade: 36.7 dB luma PSNR,
+  mean luma within 1 code (of 1023), visually the same (the difference is the synthetic noise
+  sharpened at another scale). Ungraded exports are bit-identical run to run. **Results (60 s,
+  `target/bench/xm5-5.3-export.json`):** graded 4K **21.5 fps** (15.8), 4K 25.2, 6.2K 14.9.
+  Experiments: VA encode quality levels (1, 2, 4, 8) change nothing; decoding with the encoder
+  looping flat out at ~100 fps 4K drops 41.1 → 35.5 fps (decode and encode share the one VCN;
+  not the limit at 30 fps). Bench: `FILMCRAFT_BENCH_KEEP=<dir>` keeps each export's output.
+  **Next:** find why export decodes at ~29 fps when the decode bench does 41 (export trace:
+  threads wait on decoded frames).
+- **2026-10-09, session 6: Phase 5.4 presets and ffprobe checks (done).** New presets (H.265 /
+  HEVC group): **YouTube 4K HEVC** (3840×2160 Main 10, VBR 80 / 100 Mbps, AAC), **6.2K Master
+  HEVC** (6240×4160 Main 10, VBR 200 / 240 Mbps, QuickTime, 24-bit PCM), **Archive HEVC (x265,
+  quality)** (libx265 slow, CRF 18, Main 10, QuickTime + PCM), **Vertical 2160×3840 HEVC**
+  (scale to fill, VBR 60 / 75 Mbps); ProRes 422 HQ already existed. `ExportSettings.x265_preset`
+  (`x265Preset` param, checked against `X265_PRESETS`; ffmpeg was always `medium`). Test
+  `crates/ui-egui/tests/hevc_presets.rs` exports each with the platform encoder registered:
+  ffprobe confirms container, HEVC Main 10, yuv420p10le, size, 24000/1001, primaries / transfer
+  / matrix bt709 and range tv, audio codec; mpv decodes every file without errors. ✓
+  Owner asked (session 6) why graded 4K is slower than Resolve when the GPU is not the
+  bottleneck: answered from the measurements: GPU ~11–15 ms of 33 ms, decoder 41 fps (35 with
+  the encoder running), so the loss is our pipeline (read-back, CPU copy, re-upload, one frame
+  at a time behind a blocking GPU wait); fix = 5.2c zero-copy + frames in flight. **Next: 5.2c.**
+- **2026-10-10, session 7: Phase 5.2c zero-copy export (done, synthetic).** The compositor writes
+  P010 / NV12 straight into the in-process encoder's input surfaces (`Surface::export_writable`,
+  `interop::Importer::import_target` as UNORM render targets — ANV lists no Y-tiled modifier for
+  `R16_UINT` targets; `yuv.rs` `run_into` renders the samples of the existing 4:2:0 pass;
+  `VaHevcEncoder::encode_surface`). No read-back, CPU copy or `vaPutImage`; render threads no
+  longer wait for the GPU (the `VaPicture` carries its submission and its plan; the encoder thread
+  waits). Fallback: read-back path (driver can't render into the surfaces, checked once under an
+  error scope; non-VA encoder; mid-stream failure reads pending GPU frames back for ffmpeg);
+  `FILMCRAFT_NO_ZERO_COPY=1` forces it. **Parity:** surfaces byte-identical to the read-back path
+  and identical bitstreams, AMD and Intel (`gpu_export` test); real 5 s exports decode
+  identically run to run and to the read-back path. **Bug found by that check (pre-existing):**
+  the GOP cache could evict a frame as it stored it (parallel workers had moved its request span
+  past it) → "frame not produced" → a black frame in the export (seen ~1 run in 3); fixed, with a
+  regression test. **Results (60 s, before the cache fix, load ≈ 6, firefox open;
+  `target/bench/xm5-5.2c-export.json`):** 4K 23.3 fps, graded 22.9 (21.5), 6.2K 18.2 (14.9).
+  **Finding (`FILMCRAFT_EXPORT_TRACE=1`):** rendering is no longer the limit; the VA encoder is:
+  ~35 ms per 4K frame in the export vs 10.5–12.7 ms alone (changing noise frames). With the
+  decoder flat out the AMD encoder takes ~54 ms/frame: Navi22 has **one VCN**, shared by the
+  6.2K decode (24.4 ms/frame alone) and the encode (~8–10 ms) → ≈ 31 fps is the single-engine
+  ceiling, ≥ 30 graded can't be met reliably on it. The Intel UHD 750's own media engine encodes
+  4K 10-bit at 27 ms/frame incl. upload (~37 fps) in parallel. **Next:** 5.2d encode on the
+  second GPU's media engine when the decoding GPU's engine is shared (agent decision).
+- **2026-10-10, session 7: 5.2d measurements (synthetic).** `FILMCRAFT_VAAPI_ENCODE_DEVICE` moves
+  only the HEVC encoder to another render node (`Display::for_encode`). Encode on the Intel UHD
+  750 while AMD decodes (read-back path, zero-copy can't cross devices): **4K 18.5 fps, graded
+  19.5, 6.2K 9.9** (quick) — worse than AMD alone. Encoder pictures in flight 3 vs 10: no
+  difference (60 s graded 4K: 24.0 / 24.1, 26.1 / 26.7). Export decodes each frame once (149
+  frames: 151 decoded, 1 seek; bench prints GOP counters now; `--only` selects one export case).
+  Encoder alone at 6240×4160 10-bit: AMD 30.7 ms/frame, Intel 72.9 ms. With the 6.2K decode at
+  24.4 ms on the same VCN, **6.2K export's ceiling on this card is ≈ 18–20 fps** (measured 18.2–
+  18.9); graded 4K's is ≈ 31 fps (measured 24–28.4). Owner asked (session 7) about 6.2K ≥ 24 fps:
+  answered from these numbers (only a split of the encode between AMD and Intel could reach it,
+  on paper ~24–27 fps, uncertain).
+- **2026-10-10, session 7: Phase 5 acceptance, part 1.** **Colour vs Program monitor ✓**
+  (synthetic F-Log2 clip, 4K sequence, Lumetri temperature / exposure / contrast / saturation /
+  vignette; `file.exportFrame` at frames 0 and 60 vs the 10-bit HEVC export decoded by ffmpeg
+  (BT.709 limited → RGB): mean colour within 0.1–0.7 / 255 per channel, mean |diff| 2.0 / 3.3,
+  differences only in the clip's per-pixel noise, thin lines and saturated bar edges (compression
+  and 4:2:0); ffprobe: HEVC Main 10, yuv420p10le, bt709 ×3, tv). **Independent unsafe review
+  ✓** (separate agent, ADR 0002 "Review of the encode FFI"): nothing critical; 3 medium + 5 low
+  findings fixed (CodedBuffer `&mut` read, waits on drop, sticky GPU loss, count caps instead of
+  clamps, segment overflow error, surface format / reference count / sequence size checks,
+  hostile offset no longer panics, dead imports dropped, compressed modifiers refused,
+  read-only exports never rendered into) with tests; found on Intel: the ffmpeg `hevc_vaapi`
+  fallback kept B-frames (`-bf 0` now). Tests ✓ on AMD and Intel.
+- **2026-10-10, session 7: Phase 5 accepted (synthetic, full suite; `docs/fork-benchmarks.md`
+  "Phase 5 acceptance").** Export 4K **24.6 fps** (82 % of the 29.8 fps ceiling ✓), graded 4K
+  **27.5 fps** (faster than real time ✗: the single VCN shared by the 6.2K decode and the encode,
+  ≈ 31 fps ceiling; owner informed, possible 6.2K phase later §1a.16), 6.2K **18.7 fps** fully in
+  hardware ✓ (96 % of its encode ceiling); presets ffprobe + mpv ✓; colour vs Program monitor ✓;
+  unsafe review ✓; playback unchanged (play-full / graded 1798 / 0). Multicut 338 / 302 / 310
+  drops vs 237 at Phase 4 (same with the old GOP cache code: not this phase's change; Phase 6).
+  `cargo xtask ci` ✓. Tagged `phase-5`.

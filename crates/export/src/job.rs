@@ -28,6 +28,9 @@ use rayon::prelude::*;
 use crate::audio_out::AudioOut;
 use crate::mxf_out::{MxfMux, MxfSetup};
 use crate::pipeline::Pipeline;
+
+/// A rendered frame: straight RGBA8 (SDR), encoded R'G'B' floats (HDR), or Y'CbCr from the GPU.
+type Frame = (Vec<u8>, Vec<f32>, Option<Vec<u8>>, Option<Arc<dyn crate::GpuPicture>>);
 use crate::settings::{AudioCodec, BitrateMode, Multiplexer};
 use crate::{
     AudioEncoder, ColorSignal, EncodedPacket, EncoderFrame, ExportError, ExportSettings, Format, H264Pass, Out, Progress, Report, Result, VideoEncoder,
@@ -52,7 +55,9 @@ pub enum Step {
 
 /// An export of an encoded-video format, advanced one batch at a time.
 pub struct Exporter {
-    pipe: Pipeline,
+    pipe: Arc<Pipeline>,
+    /// The next batch, rendered while the previous one was encoded: (first frame, end, frames).
+    ahead: Option<(i64, i64, Vec<Frame>)>,
     settings: ExportSettings,
     f0: i64,
     f1: i64,
@@ -142,7 +147,8 @@ impl Exporter {
         };
         let measured = !settings.effects.loudness.enabled || audio.is_none();
         Ok(Self {
-            pipe,
+            pipe: Arc::new(pipe),
+            ahead: None,
             f0,
             f1,
             next: f0,
@@ -298,47 +304,52 @@ impl Exporter {
         }
         if self.next < self.f1 {
             let (f, end) = (self.next, (self.next + self.batch).min(self.f1));
-            let pipe = &self.pipe;
-            let frames: Vec<(Vec<u8>, Vec<f32>)> = (f..end).into_par_iter().map(|fi| pipe.frame(fi, sources)).collect();
-            if self.first_pass {
-                if filmcraft_media::pending::take() {
-                    return Ok(Step::Pending);
+            // HEVC takes Y'CbCr: frames rendered and converted on the GPU when possible (the GPU
+            // work is serialised; planning and decoding still run in parallel)
+            let yuv = self.settings.format == crate::Format::Hevc && crate::gpu_frames().is_some();
+            let (kr, kb) = self.settings.signal.kr_kb();
+            let ten = self.settings.hevc_bit_depth == 10;
+            // zero-copy: frames rendered into the encoder's input memory (fork Phase 5.2c)
+            let target = if yuv { self.venc.gpu_target() } else { None };
+            let frames = match self.ahead.take() {
+                Some((a, b, frames)) if (a, b) == (f, end) => frames,
+                _ => render_batch(&self.pipe, sources, f, end, yuv, (kr, kb), ten, target.as_deref()),
+            };
+            // the next batch renders while this one is encoded (fork Phase 5.2b). Not on the web:
+            // there a batch whose media is still loading is rendered again before it is encoded.
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let next = (end < self.f1).then(|| (end, (end + self.batch).min(self.f1)));
+                let pipe = self.pipe.clone();
+                let t0 = crate::trace::start();
+                let (result, ahead, times) = std::thread::scope(|sc| {
+                    let target = target.as_deref();
+                    let job = next.map(|(a, b)| {
+                        sc.spawn(move || {
+                            let t = t0.map(|t| t.elapsed());
+                            (a, b, render_batch(&pipe, sources, a, b, yuv, (kr, kb), ten, target), t0.map(|t| t.elapsed()).zip(t))
+                        })
+                    });
+                    let result = self.encode_batch(frames, f, end, sources, progress);
+                    let encoded = t0.map(|t| t.elapsed());
+                    let joined = job.and_then(|j| j.join().ok());
+                    let render = joined.as_ref().and_then(|j| j.3).map(|(done, _)| done);
+                    (result, joined.map(|(a, b, frames, _)| (a, b, frames)), encoded.map(|e| (e, render)))
+                });
+                if let (Some((enc, render)), Some(t0)) = (times, t0) {
+                    eprintln!(
+                        "export trace: frames {f}..{end}: step {:.0} ms, encode {:.0}, next render {:.0}; {}",
+                        t0.elapsed().as_secs_f64() * 1e3,
+                        enc.as_secs_f64() * 1e3,
+                        render.map_or(0.0, |r| r.as_secs_f64() * 1e3),
+                        crate::trace::take()
+                    );
                 }
-                self.encode(&frames, f)?;
-                progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);
-                self.next = end;
-                return Ok(Step::Progress);
+                self.ahead = ahead;
+                return result;
             }
-            // the audio of every interleave group that ends in this batch (before encoding, so a
-            // pending source can still make the batch run again)
-            let cuts: Vec<i64> = (f + 1..=end).filter(|&g| (g - self.f0) % INTERLEAVE == 0).collect();
-            let mut mixed = Vec::with_capacity(cuts.len());
-            if let Some(sr) = self.audio.as_ref().map(|a| a.sr) {
-                for &g in &cuts {
-                    let until = self.sample_at_frame(g, sr);
-                    mixed.push(self.audio.as_mut().and_then(|a| a.pull(until, sources)));
-                }
-            }
-            if filmcraft_media::pending::take() {
-                return Ok(Step::Pending);
-            }
-            let mut mixed = mixed.into_iter();
-            for (k, frame) in frames.iter().enumerate() {
-                let fi = f + k as i64;
-                let packets = self.encode(std::slice::from_ref(frame), fi)?;
-                self.queued.extend(packets);
-                if cuts.contains(&(fi + 1)) {
-                    if self.mux.is_none() && self.mxf.is_none() {
-                        self.open_mux()?;
-                    }
-                    let packets = std::mem::take(&mut self.queued);
-                    self.write_video(packets)?;
-                    self.write_audio(mixed.next().flatten())?;
-                }
-            }
-            progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);
-            self.next = end;
-            return Ok(Step::Progress);
+            #[cfg(target_arch = "wasm32")]
+            return self.encode_batch(frames, f, end, sources, progress);
         }
         if self.first_pass {
             // end of the analysis pass: encode for real with its statistics
@@ -397,18 +408,88 @@ impl Exporter {
         }))
     }
 
-    fn encode(&mut self, frames: &[(Vec<u8>, Vec<f32>)], f: i64) -> Result<Vec<EncodedPacket>> {
+    /// Encode and mux one rendered batch (frames `f..end`).
+    fn encode_batch(&mut self, frames: Vec<Frame>, f: i64, end: i64, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {
+        if self.first_pass {
+            if filmcraft_media::pending::take() {
+                return Ok(Step::Pending);
+            }
+            self.encode(&frames, f)?;
+            progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);
+            self.next = end;
+            return Ok(Step::Progress);
+        }
+        // the audio of every interleave group that ends in this batch (before encoding, so a
+        // pending source can still make the batch run again)
+        let cuts: Vec<i64> = (f + 1..=end).filter(|&g| (g - self.f0) % INTERLEAVE == 0).collect();
+        let mut mixed = Vec::with_capacity(cuts.len());
+        if let Some(sr) = self.audio.as_ref().map(|a| a.sr) {
+            for &g in &cuts {
+                let until = self.sample_at_frame(g, sr);
+                mixed.push(self.audio.as_mut().and_then(|a| a.pull(until, sources)));
+            }
+        }
+        if filmcraft_media::pending::take() {
+            return Ok(Step::Pending);
+        }
+        let mut mixed = mixed.into_iter();
+        for (k, frame) in frames.iter().enumerate() {
+            let fi = f + k as i64;
+            let packets = self.encode(std::slice::from_ref(frame), fi)?;
+            self.queued.extend(packets);
+            if cuts.contains(&(fi + 1)) {
+                if self.mux.is_none() && self.mxf.is_none() {
+                    self.open_mux()?;
+                }
+                let packets = std::mem::take(&mut self.queued);
+                self.write_video(packets)?;
+                self.write_audio(mixed.next().flatten())?;
+            }
+        }
+        progress.done.fetch_add((end - f) as u64, Ordering::Relaxed);
+        self.next = end;
+        Ok(Step::Progress)
+    }
+
+    fn encode(&mut self, frames: &[Frame], f: i64) -> Result<Vec<EncodedPacket>> {
         let mut packets = Vec::new();
-        for (k, (rgba, hdr)) in frames.iter().enumerate() {
+        for (k, (rgba, hdr, yuv, gpu)) in frames.iter().enumerate() {
             let fr = EncoderFrame {
                 width: self.pipe.w,
                 height: self.pipe.h,
                 rgba,
                 hdr: self.pipe.hdr_out.then_some(hdr.as_slice()),
+                yuv: yuv.as_deref(),
+                gpu: gpu.clone(),
                 index: (f - self.f0) as u64 + k as u64,
             };
             packets.extend(self.venc.encode(&fr)?);
         }
         Ok(packets)
     }
+}
+
+/// Render frames `f..end` (in parallel; HEVC as GPU-converted Y'CbCr when `yuv`).
+#[allow(clippy::too_many_arguments)]
+fn render_batch(
+    pipe: &Pipeline,
+    sources: &dyn SourceProvider,
+    f: i64,
+    end: i64,
+    yuv: bool,
+    (kr, kb): (f32, f32),
+    ten: bool,
+    target: Option<&(dyn std::any::Any + Send + Sync)>,
+) -> Vec<Frame> {
+    (f..end)
+        .into_par_iter()
+        .map(|fi| match yuv.then(|| pipe.frame_yuv(fi, sources, kr, kb, ten, target)).flatten() {
+            Some(crate::pipeline::GpuOut::Bytes(y)) => (Vec::new(), Vec::new(), Some(y), None),
+            Some(crate::pipeline::GpuOut::Picture(p)) => (Vec::new(), Vec::new(), None, Some(p)),
+            None => {
+                let (rgba, hdr) = pipe.frame(fi, sources);
+                (rgba, hdr, None, None)
+            }
+        })
+        .collect()
 }

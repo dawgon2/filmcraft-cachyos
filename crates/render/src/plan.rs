@@ -36,8 +36,9 @@ pub struct PlanLayer {
 }
 
 /// The GPU effect stage of a layer: the frame is decoded into a working image of `size` (the
-/// frame box-decimated by `decimation`, as the CPU decodes it), `ops` run on it in order, and the
-/// result is placed with the layer's matrix, opacity and blend mode.
+/// frame box-decimated by `decimation`, as the CPU decodes it, and resampled to `size` when that
+/// is smaller still), `ops` run on it in order, and the result is placed with the layer's matrix,
+/// opacity and blend mode.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayerFx {
     pub size: (u32, u32),
@@ -354,7 +355,17 @@ fn push_item(
             // (a converted frame is decoded at full size: averaging its signal before the
             // input transform would not be averaging light)
             let n = if input.is_some() { 1 } else { crate::decimation(frame.width as f32, size.0 as f32 * want) };
-            let (lw, lh) = ((frame.width as usize / n).max(1), (frame.height as usize / n).max(1));
+            let (mut lw, mut lh) = ((frame.width as usize / n).max(1), (frame.height as usize / n).max(1));
+            // ...but a converted frame drawn smaller is graded at the size drawn (fork Phase 5.3:
+            // a 6.2K clip in a 4K export or a monitor), like Resolve's timeline-resolution
+            // processing: the signal is resampled before the input transform, which differs from
+            // resampling light only at edges between very different levels.
+            // `FILMCRAFT_FULL_SIZE_GRADE` keeps the full size.
+            let s = (size.0 as f32 * want / frame.width.max(1) as f32).min(1.0);
+            if input.is_some() && s < 0.95 && std::env::var_os("FILMCRAFT_FULL_SIZE_GRADE").is_none() {
+                lw = ((frame.width as f32 * s).round() as usize).max(1);
+                lh = ((frame.height as f32 * s).round() as usize).max(1);
+            }
             let px_scale = lw as f32 / size.0.max(1) as f32;
             let tc = "";
             let cx = crate::effects::FxCtx {
@@ -429,6 +440,10 @@ fn near_identity(m: &Affine) -> bool {
 pub fn effect_image(frame: &VideoFrame, fx: &LayerFx) -> crate::Image {
     let (w, h, px) = frame.to_linear_f32_decimated(fx.decimation.max(1) as usize);
     let mut img = crate::Image { w, h, px };
+    let (fw, fh) = (fx.size.0 as usize, fx.size.1 as usize);
+    if (fw, fh) != (w, h) && fw > 0 && fh > 0 && fw <= w && fh <= h {
+        img = img.transformed(fw, fh, &Affine::scale(fw as f64 / w as f64, fh as f64 / h as f64));
+    }
     for op in &fx.ops {
         op.apply(&mut img);
     }

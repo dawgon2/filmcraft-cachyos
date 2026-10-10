@@ -133,6 +133,41 @@ impl Pipeline {
         (rgba, Vec::new())
     }
 
+    /// Output frame `f` rendered and converted on the GPU ([`crate::GpuFrames`]) as planar 4:2:0
+    /// (`yuv420p10le` when `ten_bit`), when this export allows it: SDR, the sequence rendered at
+    /// exactly the output size, no burn-ins, overlays or limiter (those are CPU steps). None:
+    /// use [`frame`](Self::frame). With `target` (the encoder's, [`crate::VideoEncoder::gpu_target`])
+    /// the frame is rendered into the encoder's input memory when possible (fork Phase 5.2c).
+    pub fn frame_yuv(
+        &self,
+        f: i64,
+        sources: &dyn SourceProvider,
+        kr: f32,
+        kb: f32,
+        ten_bit: bool,
+        target: Option<&(dyn std::any::Any + Send + Sync)>,
+    ) -> Option<GpuOut> {
+        let gpu = crate::gpu_frames()?;
+        let fx = &self.effects;
+        if self.hdr_out || self.overlay.is_some() || fx.name_overlay.enabled || fx.timecode_overlay.enabled || fx.video_limiter.enabled {
+            return None;
+        }
+        if self.geom.content.is_some_and(|c| c != (self.w as usize, self.h as usize)) || self.geom.offset != (0, 0) {
+            return None;
+        }
+        let t = crate::trace::start();
+        let plan = filmcraft_render::plan::plan_frame(&self.project, self.seq, self.rate.tick_of(f), self.opts, sources);
+        crate::trace::add(crate::trace::PLAN, t);
+        let filmcraft_render::plan::FramePlan::Layers { width, height, .. } = &plan else { return None };
+        if (*width, *height) != (self.w as usize, self.h as usize) {
+            return None;
+        }
+        if let Some(p) = target.and_then(|t| gpu.render_into(&plan, kr, kb, ten_bit, self.opts.high_quality, t)) {
+            return Some(GpuOut::Picture(p));
+        }
+        gpu.yuv420(&plan, kr, kb, ten_bit, self.opts.high_quality).map(GpuOut::Bytes)
+    }
+
     /// Fit the rendered picture into the output frame.
     fn place(&self, img: Image) -> Image {
         let (w, h) = (self.w as usize, self.h as usize);
@@ -347,4 +382,12 @@ fn limit_px(c: &mut [f32; 3], lo: f32, hi: f32) {
         c.iter_mut().for_each(|v| *v += d);
     }
     c.iter_mut().for_each(|v| *v = v.clamp(0.0, hi.max(lo)));
+}
+
+/// A frame rendered on the GPU ([`Pipeline::frame_yuv`]).
+pub enum GpuOut {
+    /// Planar 4:2:0 bytes read back.
+    Bytes(Vec<u8>),
+    /// In the encoder's input memory (fork Phase 5.2c).
+    Picture(std::sync::Arc<dyn crate::GpuPicture>),
 }
