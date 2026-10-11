@@ -22,13 +22,16 @@ pub mod apv;
 pub mod audio;
 pub mod gop;
 pub mod hw;
+mod hw_frame;
 pub mod hwgate;
 pub mod mkv;
 pub mod mp4;
 pub mod mpeg;
 pub mod mxf;
 pub mod ogg;
+mod stream_color;
 pub mod video;
+mod webm_alpha;
 
 use std::sync::{Arc, RwLock};
 
@@ -178,6 +181,10 @@ pub fn open_bytes(name: &str, bytes: Arc<[u8]>) -> std::result::Result<filmcraft
 }
 
 #[cfg(test)]
+mod audio_timing_tests;
+#[cfg(test)]
 mod rounded_pts_tests;
+#[cfg(test)]
+mod stream_color_tests;
 #[cfg(test)]
 mod tests;

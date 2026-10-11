@@ -179,3 +179,86 @@ fn new_keys_work_in_the_app() {
     d.key("Cmd+Shift+0");
     assert_eq!(d.app().ui.program.zoom, None);
 }
+
+/// Off macOS the menus show `Ctrl+…`, so that is what agents send: a `Ctrl` chord through
+/// `ui.key` (and `ctrl` in `ui.click` modifiers) must act like the physical key, which egui-winit
+/// reports as `ctrl` + `command`. Bindings are written `Cmd+…`, so this failed to match (#245).
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn ctrl_chords_fire_shortcuts_off_macos() {
+    let mut d = Driver::new();
+    let seq = d.exec("sequence.inspect", json!({}));
+    let second = &seq["video"][0]["items"].as_array().unwrap()[1];
+    let (clip, start) = (second["clip"].as_u64().unwrap(), second["start"].as_i64().unwrap());
+    let start_of = |d: &mut Driver| {
+        d.exec("sequence.inspect", json!({}))["video"][0]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["clip"].as_u64() == Some(clip))
+            .map(|i| i["start"].as_i64().unwrap())
+            .unwrap()
+    };
+    d.exec("playhead.set", json!({"time": start + 1_000_000_000}));
+    d.focus("Timeline");
+    d.key("D");
+    assert!(d.app().session.state.selection.iter().any(|c| c.0 == clip));
+    // Ctrl+Right nudges one frame right, like Cmd+Right; Ctrl+Z undoes it
+    let rate = d.app().session.sequence_rate();
+    d.key("Ctrl+Right");
+    assert_eq!(start_of(&mut d), start + rate.tick_of(1).0, "Ctrl+Right nudges");
+    d.key("Ctrl+Z");
+    assert_eq!(start_of(&mut d), start, "Ctrl+Z undoes");
+    // the same chord spelt with the modifier flag
+    d.ok("ui.key", json!({"key": "Right", "ctrl": true}));
+    d.frames(3);
+    assert_eq!(start_of(&mut d), start + rate.tick_of(1).0, "`ctrl: true` nudges");
+    d.ok("ui.key", json!({"key": "Z", "ctrl": true}));
+    d.frames(3);
+    assert_eq!(start_of(&mut d), start, "`ctrl: true` undoes");
+    // and the bare key still does not
+    d.key("Z");
+    assert_eq!(start_of(&mut d), start);
+}
+
+#[test]
+fn delete_key_clears_the_selected_timeline_clip() {
+    // #243: on Windows and Linux keyboards Delete is the forward-delete key; with the Timeline
+    // focused it ran Project ▸ Clear (nothing selected there), so the clip stayed.
+    let mut d = Driver::new();
+    let items = |d: &mut Driver| d.exec("sequence.inspect", json!({}))["video"][0]["items"].as_array().unwrap().clone();
+    let second = items(&mut d)[1].clone();
+    let (clip, start) = (second["clip"].as_u64().unwrap(), second["start"].as_i64().unwrap());
+    d.exec("playhead.set", json!({"time": start + 1_000_000_000}));
+    d.focus("Timeline");
+    d.key("D");
+    assert!(d.app().session.state.selection.iter().any(|c| c.0 == clip), "D selects the clip under the playhead");
+    d.key("Delete");
+    assert!(!items(&mut d).iter().any(|i| i["clip"].as_u64() == Some(clip)), "Delete removed the selected clip");
+    d.key("Cmd+Z");
+    assert!(items(&mut d).iter().any(|i| i["clip"].as_u64() == Some(clip)), "and undo brings it back");
+}
+
+#[test]
+fn shift_delete_ripple_deletes_with_the_timeline_focused() {
+    // #680: the Timeline's own `Delete` (Clear) was tried before the app-wide `Shift+Delete`
+    // (Ripple Delete), and egui ignores the extra Shift, so Shift+Delete left a gap.
+    let mut d = Driver::new();
+    // the demo's other tracks have clips in the way of a sync-locked ripple
+    for t in ["V2", "V3", "A2", "A3"] {
+        d.exec("timeline.setTrack", json!({"track": t, "syncLock": false}));
+    }
+    let items = |d: &mut Driver| d.exec("sequence.inspect", json!({}))["video"][0]["items"].as_array().unwrap().clone();
+    let v1 = items(&mut d);
+    let (clip, start) = (v1[1]["clip"].as_u64().unwrap(), v1[1]["start"].as_i64().unwrap());
+    let next = v1[2]["clip"].as_u64().unwrap();
+    d.exec("playhead.set", json!({"time": start + 1_000_000_000}));
+    d.focus("Timeline");
+    d.key("D");
+    assert!(d.app().session.state.selection.iter().any(|c| c.0 == clip), "D selects the clip under the playhead");
+    d.key("Shift+Delete");
+    let after = items(&mut d);
+    assert!(!after.iter().any(|i| i["clip"].as_u64() == Some(clip)), "Shift+Delete removed the selected clip");
+    let moved = after.iter().find(|i| i["clip"].as_u64() == Some(next)).map(|i| i["start"].as_i64().unwrap());
+    assert_eq!(moved, Some(start), "and closed the gap");
+}

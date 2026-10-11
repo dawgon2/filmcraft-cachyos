@@ -36,9 +36,10 @@ use rayon::prelude::*;
 use filmcraft_color::{Matrix, Range, Transfer};
 use filmcraft_frame::{PixelData, VideoFrame};
 use filmcraft_render::Blend;
-use filmcraft_render::plan::{FramePlan, PlanLayer};
+use filmcraft_render::plan::{FramePlan, PlanLayer, PlanStep};
 
 pub mod colorops;
+pub mod export_renderer;
 pub mod fx;
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
@@ -46,7 +47,9 @@ pub mod interop;
 pub mod lut;
 pub mod mask;
 pub mod scopes;
+mod transition;
 mod yuv;
+pub use export_renderer::ExportRenderer;
 pub use lut::GpuLut;
 pub use mask::GpuMask;
 
@@ -85,6 +88,7 @@ pub struct GpuCompositor {
     /// Copy of the accumulator under a blend-mode layer (allocated on first use).
     backdrop: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
     output: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
+    accum_readback_buf: Option<(wgpu::Buffer, u64)>,
     uploads: HashMap<(usize, u32, u32), Uploaded>,
     clock: u64,
     dummy: wgpu::TextureView,
@@ -101,6 +105,10 @@ pub struct GpuCompositor {
     out_pass: Option<colorops::OutputPass>,
     /// Where the output pass writes (then copied back into the accumulator).
     post: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
+    transition: transition::PushStage,
+    transition_inputs: [Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>; 2],
+    pub gpu_transitions: u64,
+    pub cpu_transitions: u64,
     /// Total bytes uploaded (stats).
     pub uploaded_bytes: u64,
     /// The device has `TEXTURE_FORMAT_16BIT_NORM`: 9–16-bit planes upload as they are
@@ -169,6 +177,46 @@ pub fn f32_to_f16(v: f32) -> u16 {
     h as u16
 }
 
+/// IEEE half → f32 (the inverse of [`f32_to_f16`]), for reading `Rgba16Float` textures back.
+pub fn f16_to_f32(h: u16) -> f32 {
+    let sign = ((h & 0x8000) as u32) << 16;
+    let exp = ((h >> 10) & 0x1f) as u32;
+    let mant = (h & 0x03ff) as u32;
+    let bits = match exp {
+        0 => {
+            if mant == 0 {
+                sign
+            } else {
+                // Half subnormal: value = mant × 2⁻²⁴ = (1 + frac) × 2^(b−24) with b the mantissa's
+                // highest set bit — renormalise into an f32.
+                let b = 31 - mant.leading_zeros();
+                let frac = (mant ^ (1 << b)) << (23 - b);
+                sign | ((103 + b) << 23) | frac
+            }
+        }
+        0x1f => sign | 0x7f80_0000 | (mant << 13),
+        _ => sign | ((exp + 112) << 23) | (mant << 13),
+    };
+    f32::from_bits(bits)
+}
+
+/// [`f16_to_f32`] with a branch-light path for normal numbers and zeros (the bulk of read-back
+/// data); subnormals, infinities and NaNs take the general path. Same result for every input.
+#[inline(always)]
+pub fn f16_to_f32_fast(h: u16) -> f32 {
+    let u = u32::from(h);
+    let sign = (u & 0x8000) << 16;
+    let abs = u & 0x7fff;
+    if (0x0400..0x7c00).contains(&abs) {
+        // rebias the exponent (127 - 15 = 112) and widen the mantissa
+        f32::from_bits(sign | ((abs + (112 << 10)) << 13))
+    } else if abs == 0 {
+        f32::from_bits(sign)
+    } else {
+        f16_to_f32(h)
+    }
+}
+
 /// Half-float texel data for one frame (one byte vector per plane), converted off the UI thread.
 /// 8-bit frames need no conversion and have none.
 #[derive(Clone, Debug, Default)]
@@ -188,11 +236,12 @@ impl Prepared {
 pub struct PreparedPlan {
     layers: Vec<Option<Prepared>>,
     image: Option<Prepared>,
+    children: Vec<PreparedPlan>,
 }
 
 impl PreparedPlan {
     pub fn bytes(&self) -> usize {
-        self.layers.iter().flatten().chain(&self.image).map(Prepared::bytes).sum()
+        self.layers.iter().flatten().chain(&self.image).map(Prepared::bytes).sum::<usize>() + self.children.iter().map(Self::bytes).sum::<usize>()
     }
 }
 
@@ -253,9 +302,35 @@ fn prepare_frame_for(f: &VideoFrame, unorm16: bool) -> Option<Prepared> {
 /// Convert every layer of a plan for upload. Thread-safe and GPU-free: run it on a worker.
 pub fn prepare(plan: &FramePlan) -> PreparedPlan {
     match plan {
-        FramePlan::Layers { layers, .. } => PreparedPlan { layers: layers.iter().map(|l| prepare_frame(&l.frame)).collect(), image: None },
-        FramePlan::Image(img) => PreparedPlan { layers: Vec::new(), image: Some(Prepared { planes: vec![f32_to_f16_bytes(&img.px)] }) },
+        FramePlan::Layers { layers, .. } => prepare_layers(layers),
+        FramePlan::Image(img) => PreparedPlan { image: Some(Prepared { planes: vec![f32_to_f16_bytes(&img.px)] }), ..Default::default() },
+        FramePlan::Composite { steps, .. } => PreparedPlan {
+            children: steps
+                .iter()
+                .flat_map(|s| match s {
+                    PlanStep::Layers(layers) => vec![prepare_layers(layers)],
+                    PlanStep::Transition { inputs, .. } => inputs.iter().map(|ls| prepare_layers(ls)).collect(),
+                    // (nothing to upload; `composite_steps` takes no child for it either)
+                    PlanStep::Output(_) => Vec::new(),
+                })
+                .collect(),
+            ..Default::default()
+        },
     }
+}
+
+/// Whether a plan carries an output transform (a colour-managed sequence, fork ADR 0003), which
+/// needs the compute stage.
+fn plan_has_output(plan: &FramePlan) -> bool {
+    match plan {
+        FramePlan::Layers { output, .. } => output.is_some(),
+        FramePlan::Composite { steps, .. } => steps.iter().any(|s| matches!(s, PlanStep::Output(_))),
+        FramePlan::Image(_) => false,
+    }
+}
+
+fn prepare_layers(layers: &[PlanLayer]) -> PreparedPlan {
+    PreparedPlan { layers: layers.iter().map(|l| prepare_frame(&l.frame)).collect(), ..Default::default() }
 }
 
 impl GpuCompositor {
@@ -389,6 +464,7 @@ impl GpuCompositor {
             accum: None,
             backdrop: None,
             output: None,
+            accum_readback_buf: None,
             uploads: HashMap::new(),
             clock: 0,
             dummy,
@@ -398,6 +474,10 @@ impl GpuCompositor {
             yuv,
             out_pass,
             post: None,
+            transition: transition::PushStage::new(device),
+            transition_inputs: [None, None],
+            gpu_transitions: 0,
+            cpu_transitions: 0,
             uploaded_bytes: 0,
             unorm16,
             #[cfg(target_os = "linux")]
@@ -691,8 +771,6 @@ impl GpuCompositor {
         self.high_quality = on;
     }
 
-    /// A layer's uniforms with the resample quality: Lanczos-3 when minifying with Maximum Render
-    /// Quality (`p3.w`; `p2.w` is the footprint).
     /// How a layer's frame is drawn onto its effect working image: box-decimated by the plan's
     /// `decimation` (as the CPU decodes it), resampled further when the working image is smaller
     /// still (fork Phase 5.3: converted media graded at the size drawn), with Maximum Render
@@ -710,6 +788,8 @@ impl GpuCompositor {
         }
     }
 
+    /// A layer's uniforms with the resample quality: Lanczos-3 when minifying with Maximum Render
+    /// Quality (`p3.w`; `p2.w` is the footprint).
     fn with_quality(&self, mut un: [f32; 28]) -> [f32; 28] {
         if self.high_quality && un[23] > filmcraft_render::image::HQ_MIN_FOOTPRINT {
             un[27] = 1.0;
@@ -792,14 +872,20 @@ impl GpuCompositor {
     pub fn composite_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> (wgpu::TextureView, (u32, u32)) {
         // a colour-managed sequence's output transform needs the compute stage: without it, the
         // whole frame is made on the CPU
-        if let FramePlan::Layers { output: Some(_), .. } = plan
-            && self.out_pass.is_none()
-        {
+        if self.out_pass.is_none() && plan_has_output(plan) {
             return self.composite_prepared(&FramePlan::Image(filmcraft_render::plan::execute_cpu(plan)), None);
         }
+        self.render_plan(plan, prep, true, true)
+    }
+
+    /// Draw `plan` into the accumulator (cleared first when `clear`, else over what is there) and,
+    /// when `resolve`, resolve it over black into the output texture (returned; otherwise the
+    /// accumulator's view). A [`FramePlan::Layers`] with an output transform ([`OutputStage`])
+    /// runs it at its place (fork ADR 0003).
+    fn render_plan(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, clear: bool, resolve: bool) -> (wgpu::TextureView, (u32, u32)) {
         let output = match plan {
             FramePlan::Layers { output, .. } => output.clone(),
-            FramePlan::Image(_) => None,
+            FramePlan::Image(_) | FramePlan::Composite { .. } => None,
         };
         let owned;
         let (w, h, layers): (u32, u32, &[PlanLayer]) = match plan {
@@ -818,6 +904,7 @@ impl GpuCompositor {
                 owned = [PlanLayer { frame: Arc::new(frame), matrix: filmcraft_geom::Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None }];
                 (img.w as u32, img.h as u32, &owned[..])
             }
+            FramePlan::Composite { width, height, steps } => return self.composite_steps(*width, *height, steps, prep),
         };
         let (w, h) = (w.max(1), h.max(1));
         let accum_view = Self::target(&self.device, &mut self.accum, w, h, ACCUM_FORMAT, wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST);
@@ -955,7 +1042,7 @@ impl GpuCompositor {
         let accum_tex = self.accum.as_ref().map(|a| a.0.clone());
         let backdrop_tex = self.backdrop.as_ref().map(|b| b.0.clone());
         let post_tex = self.post.as_ref().map(|p| p.0.clone());
-        let mut cleared = false;
+        let mut cleared = !clear;
         let mut converted = output.is_none();
         let mut i = 0;
         while i < bind_groups.len() || !cleared {
@@ -1007,7 +1094,7 @@ impl GpuCompositor {
         if let (false, Some(o)) = (converted, output.as_ref()) {
             self.record_output(&mut enc, &accum_view, post_view.as_ref(), (accum_tex.as_ref(), post_tex.as_ref()), (w, h), &o.ops);
         }
-        {
+        if resolve {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("resolve"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1026,7 +1113,63 @@ impl GpuCompositor {
             pass.draw(0..3, 0..1);
         }
         self.queue.submit([enc.finish()]);
-        (out_view, (w, h))
+        (if resolve { out_view } else { accum_view }, (w, h))
+    }
+
+    fn composite_steps(&mut self, width: usize, height: usize, steps: &[PlanStep], prep: Option<&PreparedPlan>) -> (wgpu::TextureView, (u32, u32)) {
+        if steps.iter().any(|s| matches!(s, PlanStep::Transition { effect, .. } if effect.effect != "push")) {
+            self.cpu_transitions += 1;
+            let plan = FramePlan::Composite { width, height, steps: steps.to_vec() };
+            return self.composite_prepared(&FramePlan::Image(filmcraft_render::plan::execute_cpu(&plan)), None);
+        }
+        let empty = FramePlan::Layers { width, height, layers: Vec::new(), output: None };
+        let (canvas, dims) = self.render_plan(&empty, None, true, false);
+        let mut children = prep.map(|p| p.children.iter());
+        for step in steps {
+            match step {
+                PlanStep::Layers(layers) => {
+                    let p = children.as_mut().and_then(Iterator::next);
+                    self.render_plan(&FramePlan::Layers { width, height, layers: layers.clone(), output: None }, p, false, false);
+                }
+                PlanStep::Transition { inputs, effect, progress, .. } => {
+                    let mut views = [self.dummy.clone(), self.dummy.clone()];
+                    for (index, layers) in inputs.iter().enumerate() {
+                        let p = children.as_mut().and_then(Iterator::next);
+                        // Isolate each clip; queued draws keep the parent accumulator and blend order.
+                        std::mem::swap(&mut self.accum, &mut self.transition_inputs[index]);
+                        let (view, _) = self.render_plan(&FramePlan::Layers { width, height, layers: layers.clone(), output: None }, p, true, false);
+                        std::mem::swap(&mut self.accum, &mut self.transition_inputs[index]);
+                        views[index] = view;
+                    }
+                    self.transition.draw(&self.device, &self.queue, &canvas, [&views[0], &views[1]], dims, effect, *progress);
+                    self.gpu_transitions += 1;
+                }
+                // the output transform of a colour-managed sequence on the canvas so far (fork
+                // ADR 0003): an empty layer run whose output stage comes first
+                PlanStep::Output(ops) => {
+                    let stage = filmcraft_render::plan::OutputStage { ops: ops.clone(), at: 0 };
+                    self.render_plan(&FramePlan::Layers { width, height, layers: Vec::new(), output: Some(stage) }, None, false, false);
+                }
+            }
+        }
+        self.render_plan(&empty, None, false, true)
+    }
+
+    /// Export rendering: `plan` composited into the linear float accumulator and read back as
+    /// premultiplied RGBA f32 (the sRGB resolve is skipped). None for a plan the export path does
+    /// not run on the GPU (transitions: the caller renders those on the CPU) or a failed read-back.
+    pub fn render_export_prepared(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>) -> Option<(u32, u32, Vec<f32>)> {
+        // (an output transform without the compute stage would be skipped silently: CPU instead)
+        if matches!(plan, FramePlan::Composite { .. }) || (self.out_pass.is_none() && plan_has_output(plan)) {
+            return None;
+        }
+        let t = std::time::Instant::now();
+        self.render_plan(plan, prep, true, false);
+        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("filmcraft-composite-export") });
+        let size = self.copy_accumulator(&mut enc)?;
+        self.queue.submit([enc.finish()]);
+        export_renderer::timing::add_submit(t.elapsed());
+        self.map_accumulator(size)
     }
 
     /// The output transform on the accumulator: into `post`, then copied back.
@@ -1202,6 +1345,77 @@ impl GpuCompositor {
         pollster::block_on(adapter.request_device(&desc)).ok()
     }
 
+    /// Read the **linear float accumulator** back as premultiplied RGBA f32 (export rendering):
+    /// the display texture this crate's [`read_output`](Self::read_output) resolves is sRGB 8-bit
+    /// and would clip the working-space data HDR exports need. The accumulator must have been
+    /// composited first ([`composite`](Self::composite) / [`composite_prepared`](Self::composite_prepared)).
+    pub fn read_accumulator(&mut self) -> Option<(u32, u32, Vec<f32>)> {
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        let size = self.copy_accumulator(&mut enc)?;
+        self.queue.submit([enc.finish()]);
+        self.map_accumulator(size)
+    }
+
+    /// Record a copy of the accumulator into the staging buffer (grown when too small, reused
+    /// otherwise); returns its width, height and row pitch in bytes.
+    fn copy_accumulator(&mut self, enc: &mut wgpu::CommandEncoder) -> Option<(u32, u32, u32)> {
+        let (_, _, (w, h)) = self.accum.as_ref()?;
+        let (w, h) = (*w, *h);
+        let row = w.checked_mul(8)?.div_ceil(256).checked_mul(256)?;
+        let needed = u64::from(row) * u64::from(h);
+        if self.accum_readback_buf.as_ref().is_none_or(|(_, size)| *size < needed) {
+            let b = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("accum-readback"),
+                size: needed,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            self.accum_readback_buf = Some((b, needed));
+        }
+        let (tex, _, _) = self.accum.as_ref()?;
+        let (buf, _) = self.accum_readback_buf.as_ref()?;
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo { buffer: buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        Some((w, h, row))
+    }
+
+    /// Wait for the staging buffer filled by [`copy_accumulator`](Self::copy_accumulator) and
+    /// convert its half floats to f32.
+    fn map_accumulator(&self, (w, h, row): (u32, u32, u32)) -> Option<(u32, u32, Vec<f32>)> {
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let t = std::time::Instant::now();
+        let (buf, _) = self.accum_readback_buf.as_ref()?;
+        let slice = buf.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        rx.recv().ok()?.ok()?;
+        export_renderer::timing::add_map_wait(t.elapsed());
+        let t = std::time::Instant::now();
+        let (width, row) = (w as usize, row as usize);
+        let mut out = filmcraft_frame::pool::take_f32_overwritten(width.checked_mul(h as usize)?.checked_mul(4)?);
+        let data = slice.get_mapped_range().ok()?;
+        // every row must be there: the pooled output holds stale values until written
+        let converted = out.chunks_exact_mut(width * 4).enumerate().all(|(y, dst)| {
+            let Some(src) = data.get(y * row..y * row + width * 8) else { return false };
+            for (d, s) in dst.iter_mut().zip(src.as_chunks::<2>().0) {
+                *d = f16_to_f32_fast(u16::from_le_bytes(*s));
+            }
+            true
+        });
+        drop(data);
+        buf.unmap();
+        export_renderer::timing::add_convert(t.elapsed());
+        converted.then_some((w, h, out))
+    }
+
     /// Read the output back as RGBA8 (tests / screenshots / thumbnails).
     pub fn read_output(&self) -> Option<(u32, u32, Vec<u8>)> {
         let (tex, _, (w, h)) = self.output.as_ref()?;
@@ -1237,8 +1451,7 @@ impl GpuCompositor {
     }
 }
 
-/// What a layer's shader samples: the texture kind (0 RGBA8 sRGB, 1 linear premultiplied RGBA
-/// float, 2 YUV planes), code scale, chroma plane size, picture size and colour description.
+/// Shader source: kind (0 RGBA8 sRGB, 1 linear premultiplied RGBA, 2 YUV), sampling scales, dimensions, color.
 struct SrcInfo {
     kind: u32,
     /// 2^bits of a Y'CbCr source (256 for 8-bit; code units for the range offsets).

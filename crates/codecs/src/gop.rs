@@ -12,7 +12,7 @@ use std::time::Duration;
 use web_time::Instant;
 
 use filmcraft_color::ColorInfo;
-use filmcraft_frame::VideoFrame;
+use filmcraft_frame::{Region, VideoFrame};
 
 use crate::CodecError;
 use crate::video::VideoDecoder;
@@ -122,6 +122,18 @@ pub trait VideoSamples {
     fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>>;
 }
 
+/// The sync sample to start decoding at for sample `i`: its sync sample, or an earlier one when
+/// `i` is a leading picture of an open GOP (stored after its random-access picture, shown before
+/// it, like the RASL pictures after every HEVC CRA of iPhone video). Those are predicted from the
+/// GOP before, so a decoder starting at their random-access picture leaves them out.
+fn decode_start(s: &dyn VideoSamples, i: usize) -> usize {
+    let mut key = s.sync_before(i);
+    while key > 0 && s.pts(i) < s.pts(key) {
+        key = s.sync_before(key - 1).min(key - 1);
+    }
+    key
+}
+
 struct State {
     decoder: Option<Box<dyn VideoDecoder>>,
     /// The decoder only produces intra pictures: frames decode independently and in parallel.
@@ -138,6 +150,10 @@ struct State {
     /// Whether samples are non-reference pictures ([`VideoDecoder::is_disposable`]), by sample
     /// index, as far as looked up (bounded).
     disposable: HashMap<usize, bool>,
+    /// Only background requests (thumbnails, [`filmcraft_media::cancel::with_background`]) have
+    /// used the decoder since it was made: it is given up as soon as another background request
+    /// is done, whatever the caches' recency.
+    background: bool,
 }
 
 /// A cache's decoded frames, under a lock of their own: a request for a cached frame never waits
@@ -339,9 +355,26 @@ const MAX_LIVE_DECODERS: usize = 4;
 /// Hardware decoders kept live (see `Pool::hw_decoders`).
 const MAX_LIVE_HW_DECODERS: usize = 8;
 
-/// A cache asked for a frame this recently is in use (a layer of the frame being composited,
-/// the next clip being prefetched): it keeps its decoder whatever the count.
+/// A cache asked for a frame this recently may be needed again soon (the next clip being
+/// prefetched, a clip the user scrubs back to): it keeps its decoder up to [`HARD_DECODERS`], and
+/// beyond [`MAX_LIVE_DECODERS`] only until it has been idle this long. Its frames are only kept
+/// within [`FRAME_BUDGET`] once it has been idle for [`RECENT`]: going back to a clip left (or
+/// paused) more than that long ago may cost a re-decode from its keyframe when other clips have
+/// filled the budget meanwhile. Frames go least recently used cache first, earliest frames first.
 const IDLE: Duration = Duration::from_secs(3);
+
+/// A cache asked for a frame this recently is in use (a layer of the frame being composited): it
+/// keeps its decoder and frames whatever the count. Caches idle for less than [`IDLE`] but longer
+/// than this are a burst of navigation (thumbnails of every clip, the playhead jumping from clip
+/// to clip) that the playhead has already left: they give up decoders beyond [`HARD_DECODERS`]
+/// and frames beyond [`FRAME_BUDGET`]. Without this, everything touched within [`IDLE`] counted
+/// as in use, so a burst held every clip's decoder (42 live hardware sessions, 6.5 GB of VRAM)
+/// and hundreds of MB of frames per clip.
+const RECENT: Duration = Duration::from_millis(500);
+
+/// Most decoders caches idle for [`RECENT`] to [`IDLE`] keep together (a composite of a few
+/// layers plus the clips just left behind).
+const HARD_DECODERS: usize = 8;
 
 /// Decoded frames all caches may hold together before idle ones give theirs up, until
 /// [`configure`] sets the process's own (Settings ▸ Memory ▸ Decoded frame cache, or
@@ -415,6 +448,10 @@ struct Pool {
     /// context and a GOP of decoding).
     hw_decoders: AtomicUsize,
     idle: Duration,
+    /// Caches idle at least this long are no longer in use (see [`RECENT`]).
+    recent: Duration,
+    /// Decoders the caches idle for [`Self::recent`] but not [`Self::idle`] may keep.
+    hard_decoders: usize,
     /// Bytes of the frames the caches hold.
     bytes: AtomicUsize,
     budget: AtomicUsize,
@@ -458,6 +495,8 @@ impl Pool {
             max_decoders: AtomicUsize::new(max_decoders),
             hw_decoders: AtomicUsize::new(0),
             idle,
+            recent: idle,
+            hard_decoders: max_decoders,
             bytes: AtomicUsize::new(0),
             budget: AtomicUsize::new(budget),
             vram: AtomicUsize::new(0),
@@ -471,12 +510,19 @@ impl Pool {
         }
     }
 
+    /// Caches idle for `recent` (< the idle time) are still trimmed, down to `hard_decoders`.
+    fn tiered(mut self, recent: Duration, hard_decoders: usize) -> Self {
+        self.recent = recent.min(self.idle);
+        self.hard_decoders = hard_decoders.max(self.max_decoders.load(Ordering::Relaxed));
+        self
+    }
+
     /// The pool of every cache in the process.
     fn global() -> Arc<Pool> {
         static POOL: std::sync::OnceLock<Arc<Pool>> = std::sync::OnceLock::new();
         POOL.get_or_init(|| {
             let (budget, decoders) = auto_limits(installed_ram());
-            Arc::new(Pool::new(decoders, IDLE, budget))
+            Arc::new(Pool::new(decoders, IDLE, budget).tiered(RECENT, HARD_DECODERS))
         })
         .clone()
     }
@@ -487,9 +533,9 @@ impl Pool {
         g.push(Arc::downgrade(c));
     }
 
-    /// The idle caches other than `me` that `keep` selects, least recently used first. Other
+    /// The caches other than `me` idle for at least `idle` that `keep` selects, least recently used first. Other
     /// caches are only ever try-locked, so two caches trimming each other cannot deadlock.
-    fn idle_others(&self, me: &Shared, keep: impl Fn(&State, &Store) -> bool) -> Vec<Arc<Shared>> {
+    fn idle_others(&self, me: &Shared, idle: Duration, keep: impl Fn(&State, &Store) -> bool) -> Vec<Arc<Shared>> {
         let all: Vec<Arc<Shared>> = self.caches.lock().unwrap_or_else(PoisonError::into_inner).iter().filter_map(Weak::upgrade).collect();
         let mut idle: Vec<(Instant, Arc<Shared>)> = all
             .into_iter()
@@ -497,7 +543,7 @@ impl Pool {
             .filter_map(|c| {
                 let st = try_state(&c)?;
                 let store = c.store.lock().unwrap_or_else(PoisonError::into_inner);
-                let used = (keep(&st, &store) && store.last_used.elapsed() >= self.idle).then_some(store.last_used)?;
+                let used = (keep(&st, &store) && store.last_used.elapsed() >= idle).then_some(store.last_used)?;
                 drop((store, st));
                 Some((used, c))
             })
@@ -513,17 +559,42 @@ impl Pool {
     fn trim_decoders(&self, me: &Shared) -> Vec<Box<dyn VideoDecoder>> {
         let mut released = Vec::new();
         let max = self.max_decoders.load(Ordering::Relaxed);
-        let sw_over = || self.decoders.load(Ordering::Relaxed) > max;
-        let hw_over = || self.hw_decoders.load(Ordering::Relaxed) > MAX_LIVE_HW_DECODERS;
-        if !sw_over() && !hw_over() {
-            return released;
-        }
-        for c in self.idle_others(me, |st, _| st.decoder.is_some()) {
+        // first the caches idle for long, down to the caps; then those a burst has left behind.
+        // Hardware decoders have a cap of their own (`hw_decoders`), the same in both tiers.
+        for (idle, cap) in [(self.idle, max), (self.recent, self.hard_decoders.max(max))] {
+            let sw_over = || self.decoders.load(Ordering::Relaxed) > cap;
+            let hw_over = || self.hw_decoders.load(Ordering::Relaxed) > MAX_LIVE_HW_DECODERS;
             if !sw_over() && !hw_over() {
-                break;
+                continue;
             }
-            if let Some(mut st) = try_state(&c)
-                && ((st.hw_decoder && hw_over()) || (!st.hw_decoder && sw_over()))
+            for c in self.idle_others(me, idle, |st, _| st.decoder.is_some()) {
+                if !sw_over() && !hw_over() {
+                    break;
+                }
+                if let Some(mut st) = try_state(&c)
+                    && ((st.hw_decoder && hw_over()) || (!st.hw_decoder && sw_over()))
+                {
+                    released.extend(st.release_decoder(self));
+                }
+            }
+        }
+        released
+    }
+
+    /// Take the decoders of the caches other than `me` that only background requests have used
+    /// (see [`State::background`]) and that are not decoding now. A burst of thumbnails (an import
+    /// of many clips) touches every clip within moments, so the recency rules treat them all as
+    /// in use; each software 4K decoder holds ~0.5 GB. The cache `me` just served keeps its
+    /// decoder (hovering a clip asks for more of its frames). Drop the result with no cache lock
+    /// held.
+    #[must_use = "drop the released decoders with no cache lock held"]
+    fn release_background(&self, me: &Shared) -> Vec<Box<dyn VideoDecoder>> {
+        let all: Vec<Arc<Shared>> = self.caches.lock().unwrap_or_else(PoisonError::into_inner).iter().filter_map(Weak::upgrade).collect();
+        let mut released = Vec::new();
+        for c in all.iter().filter(|c| !std::ptr::eq(Arc::as_ptr(c), me)) {
+            if let Some(mut st) = try_state(c)
+                && st.background
+                && st.decoder.is_some()
             {
                 released.extend(st.release_decoder(self));
             }
@@ -531,8 +602,8 @@ impl Pool {
         released
     }
 
-    /// Evict the frames of idle caches, least recently used first, down to the budget. Caches in
-    /// use keep theirs (each within its own budget): a frame evicted before it is shown costs a
+    /// Evict the frames of caches idle for [`RECENT`], least recently used first, down to the
+    /// budget. Caches in use keep theirs (each within its own budget): a frame evicted before it is shown costs a
     /// re-decode from the keyframe.
     fn trim_frames(&self, me: &Shared) {
         let (budget, vram_budget) = (self.budget.load(Ordering::Relaxed), self.vram_budget.load(Ordering::Relaxed));
@@ -540,7 +611,7 @@ impl Pool {
         if !over() {
             return;
         }
-        for c in self.idle_others(me, |_, store| !store.frames.is_empty()) {
+        for c in self.idle_others(me, self.recent, |_, store| !store.frames.is_empty()) {
             if !over() {
                 break;
             }
@@ -570,6 +641,8 @@ pub struct GopCache {
     explicit_color: Option<ColorInfo>,
     /// Clockwise quarter turns from the container's display matrix, applied to every frame.
     rotation: u8,
+    /// The container's clean aperture, cut from every frame before the rotation.
+    crop: Option<Region>,
     budget: usize,
 }
 
@@ -605,7 +678,7 @@ const CONTINUE_THROUGH: usize = 48;
 impl GopCache {
     pub fn new(explicit_color: Option<ColorInfo>) -> Self {
         // unit tests count decoder restarts: each of their caches gets a pool of its own
-        let pool = if cfg!(test) { Arc::new(Pool::new(MAX_LIVE_DECODERS, IDLE, FRAME_BUDGET)) } else { Pool::global() };
+        let pool = if cfg!(test) { Arc::new(Pool::new(MAX_LIVE_DECODERS, IDLE, FRAME_BUDGET).tiered(RECENT, HARD_DECODERS)) } else { Pool::global() };
         Self::in_pool(explicit_color, pool)
     }
 
@@ -620,12 +693,13 @@ impl GopCache {
                 out_max: i64::MIN,
                 hw_decoder: false,
                 disposable: HashMap::new(),
+                background: false,
             }),
             store: Mutex::new(Store::new()),
             pool: pool.clone(),
         });
         pool.register(&shared);
-        Self { shared, explicit_color, rotation: 0, budget: 384 << 20 }
+        Self { shared, explicit_color, rotation: 0, crop: None, budget: 384 << 20 }
     }
 
     /// Turn every decoded frame clockwise by `quarter_turns` × 90° (the container's display
@@ -635,13 +709,23 @@ impl GopCache {
         self
     }
 
+    /// Cut every decoded frame to `region` (the container's clean aperture, in stored picture
+    /// coordinates) before the rotation, as cropping and the display matrix compose.
+    pub fn with_crop(mut self, region: Option<Region>) -> Self {
+        self.crop = region;
+        self
+    }
+
     /// Colour signalled by the container wins over the bitstream's (YUV frames only); the
-    /// container's display rotation is applied.
+    /// container's clean aperture and then its display rotation are applied.
     fn finish(&self, mut f: VideoFrame) -> VideoFrame {
         if let Some(c) = self.explicit_color
             && !matches!(f.data, filmcraft_frame::PixelData::Rgba8(_) | filmcraft_frame::PixelData::RgbaF32(_))
         {
             f.color = c;
+        }
+        if let Some(r) = self.crop {
+            f = f.cropped(r);
         }
         if self.rotation != 0 { f.rotated(self.rotation) } else { f }
     }
@@ -650,6 +734,7 @@ impl GopCache {
     fn store(&self, pts: i64, f: VideoFrame, draft: bool) -> Arc<VideoFrame> {
         let f = Arc::new(self.finish(f));
         let mut st = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
+        st.last_used = Instant::now();
         if draft {
             st.drafts.insert(pts);
             DRAFT.fetch_add(1, Ordering::Relaxed);
@@ -764,6 +849,16 @@ impl GopCache {
     /// is decoded anyway); every other non-reference picture on the way is left out; and a
     /// target in a later GOP is reached by a seek rather than by decoding on through the GOP.
     pub fn frame_skim(&self, s: &dyn VideoSamples, target: i64, late_before: Option<i64>, tolerance: Option<i64>) -> crate::Result<Arc<VideoFrame>> {
+        let r = self.frame_skim_locked(s, target, late_before, tolerance);
+        if filmcraft_media::cancel::background() {
+            // Outside the cache's lock (see `release_background`). A thumbnail leaves the decoders
+            // of earlier thumbnails no reason to stay: each costs hundreds of MB at 4K.
+            drop(self.shared.pool.release_background(&self.shared));
+        }
+        r
+    }
+
+    fn frame_skim_locked(&self, s: &dyn VideoSamples, target: i64, late_before: Option<i64>, tolerance: Option<i64>) -> crate::Result<Arc<VideoFrame>> {
         let n = s.count();
         let mut i = s.sample_at(target.max(0)).or_else(|| (n > 0).then(|| n - 1)).ok_or_else(|| CodecError::Decode("empty track".into()))?;
         let mut want_pts = s.pts(i);
@@ -783,17 +878,37 @@ impl GopCache {
             store.note_request(want_pts);
             if let Some(f) = store.hit(want_pts, skim, draft) {
                 HITS.fetch_add(1, Ordering::Relaxed);
+                drop(store);
+                // a monitor asking for a frame of a thumbnail's clip makes its decoder one in use
+                // (unless it is decoding right now: the request that follows marks it)
+                if !filmcraft_media::cancel::background()
+                    && let Some(mut st) = try_state(&self.shared)
+                {
+                    st.background = false;
+                }
                 return Ok(f);
             }
         }
         let mut st = self.shared.state.lock().unwrap_or_else(|e| e.into_inner());
         let _decoding = DecodingGuard::enter(me);
+        let background = filmcraft_media::cancel::background();
         // decoded meanwhile by the request this one waited for
         if let Some(f) = self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).hit(want_pts, skim, draft) {
             HITS.fetch_add(1, Ordering::Relaxed);
+            // a monitor asking for a frame of a thumbnail's clip makes its decoder one in use
+            st.background &= background;
             return Ok(f);
         }
         MISSES.fetch_add(1, Ordering::Relaxed);
+        if !background {
+            st.background = false;
+        } else if st.decoder.is_none() {
+            st.background = true;
+        }
+        if !background && st.decoder.as_ref().is_some_and(|d| d.thread_limited()) {
+            // made for a thumbnail (few threads): a monitor gets a full one
+            released.extend(st.release_decoder(&self.shared.pool));
+        }
         if st.decoder.is_none() {
             let d = s.make_decoder()?;
             st.intra = d.intra_only();
@@ -864,18 +979,14 @@ impl GopCache {
                 }
             }
         }
-        let mut key = s.sync_before(i);
-        // A leading picture (shown before the sync sample it follows in decode order: the RASL
-        // pictures of an open-GOP CRA) may reference the previous GOP, and a decoder starting at
-        // that CRA drops it: start from the sync sample before.
-        while key > 0 && want_pts < s.pts(key) {
-            key = s.sync_before(key - 1);
-        }
+        let mut key = decode_start(s, i);
         // Continue the running decoder when it has passed the wanted sample's sync sample and
         // either has not reached the sample yet or has been fed it without outputting it yet
         // (a frame-threaded decoder holds many pictures in flight). Otherwise the frame was
-        // evicted or lies in another GOP: restart at the sync sample.
-        let running = st.next != usize::MAX && st.next <= n;
+        // evicted or lies in another GOP: restart at the sync sample. A run that started after
+        // `key` (at the random-access picture of a wanted leading picture) left the picture out.
+        let live = st.next != usize::MAX && st.next <= n;
+        let running = live && st.start <= key;
         // Decoding on through a short stretch into the next GOP is cheaper than a restart, and
         // playback wants those frames anyway.
         // (Skimming steps over most of the GOP: a seek is cheaper.)
@@ -884,10 +995,10 @@ impl GopCache {
         // Skimming forward, frames are asked for by several workers at once and the decoder may
         // have passed this one (for a later frame, leaving out pictures nobody else wanted):
         // rather than seek back a GOP, show the nearest frame decoded within a grid step
-        // (four tolerances).
+        // (four tolerances). (Any live run counts here, also one that started after `key`.)
         let forward = !self.shared.store.lock().unwrap_or_else(|e| e.into_inner()).reverse;
         if let Some(tol) = skim
-            && running
+            && live
             && !continuing
             && forward
             && i < st.next
@@ -1054,11 +1165,7 @@ impl GopCache {
         want_pts: i64,
         n: usize,
     ) -> crate::Result<Vec<crate::video::DecodedFrame>> {
-        let mut key = s.sync_before(i);
-        // leading pictures of an open GOP need the GOP before (see `frame_late`)
-        while key > 0 && want_pts < s.pts(key) {
-            key = s.sync_before(key - 1);
-        }
+        let mut key = decode_start(s, i);
         // Continue the running decoder when the wanted sample is ahead within this GOP run.
         let continuing = *next != usize::MAX && *next > key && *next <= i + 16 && *next <= n;
         if !continuing {
@@ -1154,6 +1261,8 @@ mod tests {
         held: VecDeque<(i64, bool)>,
         draft: bool,
         hw: bool,
+        /// made for background work (few threads, like the H.264 decoder's)
+        limited: bool,
         resets: Arc<AtomicUsize>,
         decodes: Arc<AtomicUsize>,
     }
@@ -1187,6 +1296,9 @@ mod tests {
         }
         fn name(&self) -> &str {
             "test"
+        }
+        fn thread_limited(&self) -> bool {
+            self.limited
         }
         fn intra_only(&self) -> bool {
             self.intra
@@ -1227,6 +1339,7 @@ mod tests {
                 held: VecDeque::new(),
                 draft: false,
                 hw: self.hw,
+                limited: filmcraft_media::cancel::background(),
                 resets: self.resets.clone(),
                 decodes: self.decodes.clone(),
             }))
@@ -1602,6 +1715,99 @@ mod tests {
         assert!(s.iter().all(|s| s.resets.load(Ordering::Relaxed) == 1), "no decoder restarted");
     }
 
+    /// A burst of navigation (every clip of a timeline asked once within moments, as when
+    /// thumbnails are made or the playhead jumps clip to clip) must not keep every clip's decoder
+    /// and frames: only the caches of the frame being composited are in use.
+    #[test]
+    fn a_burst_of_single_requests_does_not_keep_every_decoder_and_frame() {
+        // the real decoder caps and idle time; RECENT scaled down from 500 ms to the test's pace
+        // (3 ms per clip). With the old rule (recent = idle) all 24 decoders stay live.
+        let pool = Arc::new(Pool::new(MAX_LIVE_DECODERS, IDLE, FRAME_BUDGET).tiered(Duration::from_millis(2), HARD_DECODERS));
+        let n = 24;
+        let s: Vec<Samples> = (0..n).map(|_| samples(300, 250, 3, false)).collect();
+        let c: Vec<GopCache> = (0..n).map(|_| GopCache::in_pool(None, pool.clone())).collect();
+        for k in 0..n {
+            assert_eq!(index_of(&c[k].frame(&s[k], 10_000).expect("frame")), 10);
+            std::thread::sleep(Duration::from_millis(3));
+        }
+        assert!(
+            pool.decoders.load(Ordering::Relaxed) <= HARD_DECODERS + 1,
+            "{} live decoders after a burst over {n} clips",
+            pool.decoders.load(Ordering::Relaxed)
+        );
+        // the clip asked last, and a clip in use together with it, keep theirs and carry on
+        let resets = s[n - 1].resets.load(Ordering::Relaxed);
+        assert_eq!(index_of(&c[n - 1].frame(&s[n - 1], 11_000).expect("frame")), 11);
+        assert_eq!(s[n - 1].resets.load(Ordering::Relaxed), resets);
+    }
+
+    /// The thumbnails an import queues: every clip asked once, quickly (the real caps and recency,
+    /// no sleeping: all of them are "recent"). Each 4K software decoder costs ~0.5 GB, and 42
+    /// clips used to hold 6+ GB at once.
+    #[test]
+    fn background_requests_leave_no_decoders_behind() {
+        use filmcraft_media::cancel::with_background;
+        let pool = Arc::new(Pool::new(MAX_LIVE_DECODERS, IDLE, FRAME_BUDGET).tiered(RECENT, HARD_DECODERS));
+        let n = 24;
+        let s: Vec<Samples> = (0..n).map(|_| samples(300, 250, 3, false)).collect();
+        let c: Vec<GopCache> = (0..n).map(|_| GopCache::in_pool(None, pool.clone())).collect();
+        // a clip in use by a monitor
+        assert_eq!(index_of(&c[0].frame(&s[0], 10_000).expect("frame")), 10);
+        for k in 1..n {
+            assert_eq!(index_of(&with_background(true, || c[k].frame(&s[k], 10_000)).expect("frame")), 10);
+            assert!(pool.decoders.load(Ordering::Relaxed) <= 2, "{} live decoders after thumbnail {k}", pool.decoders.load(Ordering::Relaxed));
+        }
+        // the monitor's clip and the last thumbnail keep theirs and carry on without a seek
+        assert_eq!(pool.decoders.load(Ordering::Relaxed), 2);
+        assert_eq!(index_of(&c[0].frame(&s[0], 11_000).expect("frame")), 11);
+        assert_eq!(s[0].resets.load(Ordering::Relaxed), 1);
+        assert_eq!(index_of(&with_background(true, || c[n - 1].frame(&s[n - 1], 12_000)).expect("frame")), 12);
+        assert_eq!(s[n - 1].resets.load(Ordering::Relaxed), 1);
+        // a monitor asking for a frame of a thumbnail's clip makes its decoder one in use
+        assert_eq!(index_of(&c[n - 1].frame(&s[n - 1], 13_000).expect("frame")), 13);
+        for k in 1..4 {
+            with_background(true, || c[k].frame(&s[k], 20_000)).expect("frame");
+        }
+        assert_eq!(index_of(&c[n - 1].frame(&s[n - 1], 14_000).expect("frame")), 14);
+        assert!(c[n - 1].shared.state.lock().unwrap().decoder.is_some(), "the thumbnails left its decoder");
+        // a cache that lost its decoder still decodes (from the sync sample)
+        assert_eq!(index_of(&with_background(true, || c[1].frame(&s[1], 30_000)).expect("frame")), 30);
+    }
+
+    #[test]
+    fn a_monitor_replaces_a_decoder_made_for_a_thumbnail() {
+        use filmcraft_media::cancel::with_background;
+        let pool = Arc::new(Pool::new(MAX_LIVE_DECODERS, IDLE, FRAME_BUDGET).tiered(RECENT, HARD_DECODERS));
+        let (s, c) = (samples(300, 250, 3, false), GopCache::in_pool(None, pool.clone()));
+        assert_eq!(index_of(&with_background(true, || c.frame(&s, 10_000)).expect("frame")), 10);
+        // another thumbnail of the same clip carries on with the thumbnail decoder
+        assert_eq!(index_of(&with_background(true, || c.frame(&s, 12_000)).expect("frame")), 12);
+        assert_eq!(s.resets.load(Ordering::Relaxed), 1);
+        // a frame a monitor waits for (not cached: far ahead) is decoded by a full-thread decoder
+        assert_eq!(index_of(&c.frame(&s, 100_000).expect("frame")), 100);
+        assert!(!c.shared.state.lock().unwrap().decoder.as_ref().is_some_and(|d| d.thread_limited()));
+        assert_eq!(pool.decoders.load(Ordering::Relaxed), 1);
+        // and keeps it for the next frames
+        let resets = s.resets.load(Ordering::Relaxed);
+        assert_eq!(index_of(&c.frame(&s, 101_000).expect("frame")), 101);
+        assert_eq!(s.resets.load(Ordering::Relaxed), resets);
+    }
+
+    #[test]
+    fn a_burst_of_single_requests_does_not_keep_every_clips_frames() {
+        // 1×1 RGBA pictures (4 bytes): a shared budget of ten of them
+        let pool = Arc::new(Pool::new(usize::MAX, Duration::from_secs(3600), 40).tiered(Duration::from_millis(2), usize::MAX));
+        let n = 12;
+        let s: Vec<Samples> = (0..n).map(|_| samples(300, 250, 0, false)).collect();
+        let c: Vec<GopCache> = (0..n).map(|_| GopCache::in_pool(None, pool.clone())).collect();
+        for k in 0..n {
+            assert_eq!(index_of(&c[k].frame(&s[k], 10_000).expect("frame")), 10);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let held = pool.bytes.load(Ordering::Relaxed);
+        assert!(held <= 40 + 11 * 4, "{held} bytes held after a burst over {n} clips");
+    }
+
     #[test]
     fn intra_caches_give_up_their_spare_decoders_too() {
         let pool = Arc::new(Pool::new(1, Duration::ZERO, FRAME_BUDGET));
@@ -1737,5 +1943,95 @@ mod tests {
             assert!(matches!(&f.data, filmcraft_frame::PixelData::Rgba8(d) if d.iter().all(|&b| b == i as u8)), "frame {i} has its own pixels");
         }
         assert!(reused() - before >= more as u64 - 2, "{} of {more} planes recycled", reused() - before);
+    }
+
+    /// An open-GOP stream like iPhone HEVC: 8 pictures a GOP; after the first, each GOP stores
+    /// its random-access picture (display 8·g) first, then two leading pictures shown before it
+    /// (8·g − 2, 8·g − 1, predicted from the GOP before), then the rest. pts = 1000 · display.
+    struct LeadingGop {
+        /// (display index, sync) in decode order
+        order: Vec<(i64, bool)>,
+        resets: Arc<AtomicUsize>,
+    }
+
+    impl LeadingGop {
+        fn new(gops: i64) -> Self {
+            let mut order: Vec<(i64, bool)> = (0..6).map(|d| (d, d == 0)).collect();
+            for g in 1..gops {
+                order.extend([(8 * g, true), (8 * g - 2, false), (8 * g - 1, false)]);
+                order.extend((8 * g + 1..8 * g + 6).map(|d| (d, false)));
+            }
+            Self { order, resets: Default::default() }
+        }
+    }
+
+    /// Leaves out the leading pictures of the random-access picture a run starts at (RASL
+    /// pictures, as the HEVC decoders do), outputs the others at once.
+    struct LeadingGopDec {
+        run_start: Option<i64>,
+        resets: Arc<AtomicUsize>,
+    }
+
+    impl VideoDecoder for LeadingGopDec {
+        fn decode(&mut self, _sample: &[u8], pts: i64) -> crate::Result<Vec<DecodedFrame>> {
+            let start = *self.run_start.get_or_insert(pts);
+            Ok(if pts < start { Vec::new() } else { vec![picture((pts, false))] })
+        }
+        fn flush(&mut self) -> Vec<DecodedFrame> {
+            Vec::new()
+        }
+        fn reset(&mut self) {
+            self.resets.fetch_add(1, Ordering::Relaxed);
+            self.run_start = None;
+        }
+        fn name(&self) -> &str {
+            "open gop"
+        }
+    }
+
+    impl VideoSamples for LeadingGop {
+        fn count(&self) -> usize {
+            self.order.len()
+        }
+        fn pts(&self, i: usize) -> i64 {
+            self.order[i].0 * 1000
+        }
+        fn sync_before(&self, i: usize) -> usize {
+            (0..=i).rev().find(|&k| self.order[k].1).unwrap_or(0)
+        }
+        fn sample_at(&self, t: i64) -> Option<usize> {
+            self.order.iter().position(|&(d, _)| d == t / 1000)
+        }
+        fn read(&self, i: usize) -> crate::Result<Vec<u8>> {
+            Ok(vec![i as u8])
+        }
+        fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>> {
+            Ok(Box::new(LeadingGopDec { run_start: None, resets: self.resets.clone() }))
+        }
+    }
+
+    /// A leading picture of an open GOP, asked for first (a clip trimmed to start on it, the
+    /// playhead parked on it), came out black: decoding started at the random-access picture
+    /// after it, which leaves it out.
+    #[test]
+    fn leading_pictures_of_an_open_gop_decode_from_the_gop_before() {
+        let s = LeadingGop::new(6);
+        for d in [6usize, 7, 14, 15, 39] {
+            let c = GopCache::new(None);
+            assert_eq!(index_of(&c.frame(&s, d as i64 * 1000).expect("frame")), d);
+        }
+        // the random-access picture first, then its leading pictures: the run that started at
+        // it left them out, so they restart a GOP earlier
+        let c = GopCache::new(None);
+        assert_eq!(index_of(&c.frame(&s, 16_000).expect("frame")), 16);
+        assert_eq!(index_of(&c.frame(&s, 15_000).expect("frame")), 15);
+        assert_eq!(index_of(&c.frame(&s, 14_000).expect("frame")), 14);
+        // playing through: one seek, every picture in turn
+        let s = LeadingGop::new(6);
+        let c = GopCache::new(None);
+        for d in 0..46usize {
+            assert_eq!(index_of(&c.frame(&s, d as i64 * 1000).expect("frame")), d);
+        }
+        assert_eq!(s.resets.load(Ordering::Relaxed), 1);
     }
 }

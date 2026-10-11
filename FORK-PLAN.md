@@ -78,6 +78,18 @@ the agent's own recorded interpretations, not the owner's words.
    [`YOUTUBE-PLAN.md`](YOUTUBE-PLAN.md); 6E: [`EXPORT-PLAN.md`](EXPORT-PLAN.md). Tags `yt-1`,
    `phase-6e`, `yt-3`, `yt-2`, `h264-1/2/3`; builds per §1a.9. Everything is complete only when
    H3 is done.
+   **Current order (owner, 2026-10-11, replaces both lines above; the only valid order):** G0 ✓ →
+   G1 ✓ → **U0** (first upstream merge, [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md), tag
+   `upstream-sync-1`) → **G2** (GRADE-PLAN items 1–10) → **G2b** (G2.11 local AI explanations + G2.12 Grading
+   Coach, moved right after G2 by the owner 2026-10-11; tag `grade-2b`) → **6** (incl. 6.1, 4:2:2 on the built-in HEVC decoder) → Y1 → **6E**
+   (owner, 2026-10-11: all of Phase 6, 6.1 and 6E moved after G2; tags `grade-2`, `phase-6`) → Y3 → **C1 → C2**
+   ([`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md), tags `comp-1`, `comp-2`; moved before Phase 7 by
+   the owner 2026-10-11 so Phase 7's soak and real-edit check cover them) → 7 (+ Y4) → **D**
+   ([`DECODER-PLAN.md`](DECODER-PLAN.md): the 4:2:2 HEVC decoder made faster than ffmpeg on this
+   PC; tag `decoder-1`) → **U0.2** (one VA-API stack: upstream's decoder + the fork's zero-copy path,
+    [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md) U0 stage 2; moved here from U0 by the owner 2026-10-11; tag
+    `upstream-sync-2`) → 8 → Y2 → H1 → H2 → H3. The plan
+   is complete when H3 is done; then stop (§1a.22 lists what never starts without the owner).
 7. **Benchmark passes.** Quick passes (the key 6.2K playback and decode scenarios, `--quick`, one
    run each, labelled "quick pass") for phases whose main result is known (Phases 1, 3, 6, 8 and
    in-between steps); **the full `xm5` suite at Phase 2, 4, 5 and 7 acceptance**, and whenever a
@@ -146,8 +158,57 @@ the agent's own recorded interpretations, not the owner's words.
 18. **YouTube gaps (owner, 2026-10-11): [`YOUTUBE-PLAN.md`](YOUTUBE-PLAN.md).** Y1 hardware
     H.264 decode, 8-bit 4:2:0 progressive, **max 8 agent hours**; the rest of complete H.264
     support is [`H264-PLAN.md`](H264-PLAN.md) after Phase 8; Y2 variable frame rate; Y3
-    compositing / extensibility; Y4 the real-edit check in Phase 7. **Y3.6 (node compositor and
-    OpenFX) is deferred and needs the owner.**
+    compositing / extensibility; Y4 the real-edit check in Phase 7. Y3.6 now points to
+    [`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md) (C1 simplified compositor and C2 the grader's
+    parallel / layer nodes, both scheduled) and [`PLUGIN-PLAN.md`](PLUGIN-PLAN.md) (deferred).
+19. **Upstream sync (owner, 2026-10-11): [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md).** Remotes:
+    `origin` = dawgon2/filmcraft-fork (this fork), `upstream` = storytold/filmcraft (**fetch
+    only**), `cachyos` = dawgon2/filmcraft-cachyos (contribution branches). Fork base = upstream
+    `8fcad73` (tree identical to `master`). U0 merges into `hevc-vaapi` **automatically when every
+    gate is green**, then writes the summary to `docs/fork/UPSTREAM-SYNC.md` and §7; design
+    calls go to `docs/fork/OWNER-QUESTIONS.md` with a provisional, reversible choice (never
+    stop). Later weekly syncs (between phases only) work the same way: merge automatically when
+    every gate is green, summary afterwards (owner, 2026-10-11: the workflow never stops, §1a.20). **Never push to `upstream` or `cachyos`, never open
+    PRs, never add a contributors / `people.toml` entry** (the owner is credited as @dawgon2 only).
+    No history rewriting of `hevc-vaapi` or `master`, no force-push. U0's ADR is 0005; later ADRs
+    take the next free number.
+20. **Never stop the workflow (owner, 2026-10-11).** Nothing short of the plan being complete stops
+    the work. Design choices, ambiguities and owner-only steps (sudo, real footage) go to
+    `docs/fork/OWNER-QUESTIONS.md` (question, options, the provisional reversible choice made,
+    how to undo it); the run makes that choice, logs it, and carries on (or skips an owner-only
+    step and continues with the next). Every run reads that file first and applies the owner's
+    answers. Never create `.fork-plan-blocked` (an old one becomes a question). Low disk: log it
+    and do non-building work until space is back. The owner answers questions in his chat with
+    the planning session, which writes the answers into the file.
+21. **The fork guide (owner, 2026-10-11): [`docs/guide/`](docs/guide/README.md).** The fork's user
+    guide and the Grading Coach's only knowledge source. Every step that adds or changes a
+    user-visible feature updates its page: plain language, why before how, numbered steps, real
+    labels plus command ids and automation ids, and a provenance tag per section ([Resolve-style] /
+    [FilmCraft] / [Fork] / [Standard]). Backfill G0 / G1's pages. A phase isn't accepted while
+    pages for features it shipped are still "to write".
+22. **Never without the owner:** [`PLUGIN-PLAN.md`](PLUGIN-PLAN.md) (all of it), COMPOSITOR-PLAN
+    C3 and later, OpenFX, and anything else a plan marks "needs the owner". GRADE-PLAN G2 includes
+    the node explainer (G2.10), optional local AI explanations (G2.11) and the Grading Coach
+    (G2.12), all approved.
+23. **Runs and the cloud (owner, 2026-10-11).** The app's scheduled task runs every 5 minutes (one
+    phase per run, lock `.fork-run.lock`, 40-minute staleness); every run first calls
+    `~/Apps/filmcraft-builds/fork-heartbeat.sh` (pushes origin/pc-heartbeat). Push `hevc-vaapi`
+    to `origin` after every commit. An hourly cloud routine works on branch `cloud-work` only
+    while the PC is down (origin/pc-heartbeat older than 45 minutes; its own lock
+    origin/cloud-heartbeat); when the PC is back, runs first review (Fable), merge and GPU-test
+    `cloud-work` (its notes: `docs/fork/CLOUD-LOG.md`) and keep `docs/fork/CLOUD-QUEUE.md` filled
+    with 3–6 CPU-safe jobs. Subagents: Sonnet scouts / test authors / leaf builders (up to three
+    while ≥ 50 GB free), Fable reviewer on every diff and Fable for hard diagnosis / design (Opus
+    if Fable is unavailable).
+24. **Phase ffmpeg out of the product (owner, 2026-10-11).** It isn't allowed upstream (only as a
+    test oracle) and the owner doesn't need it. This replaces §1's "FFmpeg may be used as an
+    external process" for the product: **no new ffmpeg dependencies from now on**; Phase 6.1
+    decodes 4:2:2 HEVC with FilmCraft's own decoder (`crates/hevc`, Main 4:2:2 10, multithreaded)
+    instead of ffmpeg; **Phase 7.7** removes the remaining product uses (the `vaapi_pipe` decode
+    fallback, the ffmpeg `hevc_vaapi` / `libx265` encode fallbacks, any ffmpeg probing at
+    runtime). Fallback chains become hardware (VA-API) → FilmCraft's built-in decoders / encoders.
+    ffmpeg / ffprobe stay **only** as test oracles, fixture generators and benchmark ceilings,
+    exactly as upstream allows. H264-PLAN H3 then only has to confirm it for H.264.
 
 ## 2. The machine and the footage (don't re-research these)
 
@@ -381,8 +442,13 @@ and plays in mpv; output colour matches the Program monitor.
 
 The 6700 XT cannot hardware-decode 4:2:2 HEVC (Resolve on this GPU can't either), so handle it
 the way Resolve users do:
-1. Software decode of 4:2:2 HEVC through ffmpeg, multithreaded, delivered as a 4:2:2 biplanar
-   frame (Phase 1). Show a clear "4:2:2: software decode, proxies recommended" badge on the clip.
+1. **(Owner, 2026-10-11: Phase 6 as a whole, 6.1 included, now runs after G2; §1a.6.)** Software decode of 4:2:2 HEVC with **FilmCraft's own decoder** (owner, §1a.24: not ffmpeg):
+   add Main 4:2:2 10 to `crates/hevc` (4:2:2 chroma: intra mode mapping, transform tree split,
+   chroma QP mapping, deblocking, SAO, MC; bit-exact against ffmpeg used only as a test oracle on
+   x265 4:2:2 fixtures) and **multithreaded** decode (frame threads with reference-row waits, plus
+   WPP / tile parallelism where the stream allows), delivered as a 4:2:2 frame. Show a clear
+   "4:2:2: software decode, proxies recommended" badge on the clip. Record decode fps at 6.2K
+   (synthetic); proxies (6.2) make editing smooth regardless.
 2. **Auto proxies on import** for 4:2:2 clips (and optionally all 6.2K clips): decode once, write
    1/2-size proxies with the hardware HEVC encoder (4:2:0 10-bit), or ProRes 422 Proxy. Proxy
    creation (`crates/engine/src/proxies.rs`) and ingest must use the fast decode paths. Export
@@ -390,8 +456,7 @@ the way Resolve users do:
 3. **Render cache like Resolve's Smart Cache:** render graded segments in the background while
    idle (`crates/engine/src/previews.rs`), encoded with the hardware encoder, and play them
    instead of re-grading.
-4. Optional, long-term: add Main 4:2:2 10 to FilmCraft's own HEVC decoder (`crates/hevc`),
-   multithreaded, if ffmpeg's software decode is too slow for comfortable proxy creation.
+4. (Merged into 6.1 by §1a.24: the built-in decoder is now the 4:2:2 path.)
 
 5. **Cuts on original media (owner, 2026-10-08):** extend `xm5-multicut` with realistic cut
    spacing (cuts every 2, 3, 4 and 5 seconds, clips entered mid-GOP, the 4 synthetic clips and
@@ -417,9 +482,37 @@ need ~85–95 % of VCN's decode capacity, so this is met by playing proxies / th
    no crash, leak or audio drift.
 5. Update `README.md` and `docs/` for the fork: requirements (`mesa`, `libva-mesa-driver`,
    `vulkan-radeon`, `ffmpeg`), what's hardware-accelerated, and the benchmark results.
+6. **Send to Resolve (owner, 2026-10-11), license-clean, no `.drp`:** Resolve's own project file
+   is proprietary and undocumented, so don't read or write it (and never analyse Resolve's
+   binaries). Instead, one command `file.sendToResolve` (File ▸ Export ▸ Send to DaVinci
+   Resolve…) writes a folder Resolve opens with its public import features:
+   - the **timeline as OpenTimelineIO** (`.otio`, the existing `crates/interchange` exporter), with
+     FCPXML as the fallback choice; media paths absolute, relink notes for moved media;
+   - **grades per clip**: an **ASC CDL** (`.cc` per clip plus a `.ccc` collection; slope / offset /
+     power / saturation fitted from the node chain's primaries) **and** a **3D LUT** (`.cube`, 33³
+     or 65³) baking the clip's whole serial node chain (primaries, curves, LUT nodes, grain off) in
+     the DaVinci Wide Gamut / Intermediate working space, with a note of the input and output
+     colour spaces so Resolve's colour management matches;
+   - a plain-language **report** (`README.txt`) listing what carried over exactly, what was
+     approximated (CDL fit error per clip) and what can't travel in these formats (qualifiers,
+     windows, tracking, parallel / layer nodes, noise reduction, grain, effects) with the clip
+     names and timecodes to redo in Resolve.
+   Tests: LUT bake parity against the CPU grade (max error within a set threshold on a test
+   pattern); CDL fit round-trip on known slope / offset / power / sat; OTIO export re-imported
+   by FilmCraft matches the timeline; hostile inputs never crash. Owner-run check (optional):
+   import the folder into Resolve (`/opt/resolve`) and compare a few frames by eye. A guide page
+   (`docs/guide/`, tagged [Fork] + [Standard]) explains the workflow.
+7. **ffmpeg out of the product (§1a.24):** remove the `vaapi_pipe` decode fallback, the ffmpeg
+   encode fallbacks and any runtime ffmpeg probing / settings; decode chain = VA-API (zero-copy)
+   → built-in software decoders (with upstream's `hybrid.rs` mid-stream failover); encode chain =
+   VA-API → FilmCraft's own encoders (e.g. its H.264 encoder, ProRes) with a clear message when a
+   format has no software encoder. ffmpeg stays only in tests, fixture generation and benchmark
+   ceilings. Update `docs/`, the guide's hardware page and Settings.
 
 **Accept:** the soak test passes; all §4 scenarios are documented in `docs/fork-benchmarks.md`
-with Phase 0 vs final numbers.
+with Phase 0 vs final numbers; Send to Resolve produces OTIO + CDL + LUT + report for the Y4
+real-edit project, with the LUT parity and CDL round-trip tests green; with ffmpeg removed from
+PATH, every product feature still works (fixture-generating tests may skip).
 
 ### Phase 8: backup hardware backends (added by the owner, 2026-10-08)
 
@@ -1222,3 +1315,27 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   3.8 ms CPU/frame (≥ 95 % of Phase 5's shown frames ✓), play-full 240/0 at 2.0 ms
   (`target/bench/xm5-grade1-quick-*.json`). Oracle / parity tests: grade + grain AMD ≤ 1.8e-6,
   Intel ≤ 2.1e-6. `cargo xtask ci` ✓. Tagged `grade-1`.
+- **2026-10-11, session 10: G1 build ready.** `~/Apps/filmcraft-builds/grade-1/` (filmcraft,
+  filmcraft-cli, NOTES.md, acceptance screenshots), `latest` → `grade-1`, launcher valid; bench
+  saved as `target/fork-bench/bench-grade1`. Next: **U0** (first upstream merge, owner's order
+  relayed after this run started; UPSTREAM-PLAN.md, FORK-PLAN §1a.6 / §1a.19), then Phase 6.
+- **2026-10-11, session 11 (scheduled-task run, took the lock 04:53): U0 in progress.** Owner's
+  interactive session committed plan changes during the run (guide, §1a.20–24, DECODER-PLAN, order).
+  U0 strategy in ADR 0005 (local graft on `master` → base `8fcad73`, merge of upstream `4e2d0bc2`
+  on local `sync/upstream-2026-10-11` in `.claude/worktrees/sync-upstream`); 55 conflicted files
+  resolved by four Fable resolvers (`972a90ba`), then compile / clippy / fmt clean and format,
+  codecs, engine tests green (Opus builder, `869f7c55` … `597112d6`); the builder died with the
+  previous app session and a new one finishes the CRF compatibility fix (Q2) and the remaining
+  crates' tests. Owner questions Q1–Q4 written and answered. Owner (live): VA-API stack
+  consolidation moved out of U0 to **U0.2** right before Phase 8; **6.1** moved after G2. G0 / G1
+  guide pages written (Sonnet) and Fable-reviewed (merge `22f90bf4`). Cloud queue: docs-only jobs
+  while U0 is in flight. **Usage mode (§2c) at 06:21: STEADY** (weekly U = 18 %, line L ≈ 18.9 %;
+  5-hour 53 %); Fable 24 % > its line + 3 → Opus in Fable's roles. §2d applied from 06:20: running
+  builds reniced to 19 / idle I/O, builders told to use `nice -n 19 ionice -c 3`, 6 jobs / 6 test
+  threads, ≤ 2 cargo invocations (load was ~110 from the orphaned ui-egui test run).
+- **2026-10-11, session 11, 09:36: U0 sync branch green, stopped at the 5-hour limit (95 %).** Tests,
+  fmt / clippy / layers / assets / wasm, Fable review (fixes `8ea67999`), GPU parity AMD + Intel and
+  the xm5 quick pass (synthetic; no regression vs grade-1, numbers in HANDOFF) all pass on
+  `sync/upstream-2026-10-11`; `cargo xtask ci` running detached (`target/u0-ci.log`). Owner (live):
+  order now U0 → G2 (1–10) → G2b (G2.11 + G2.12) → 6 (incl. 6.1) → Y1 → 6E → Y3 → … Usage at
+  09:36: weekly 24 % (line ≈ 23.8 %), Fable 32 %.

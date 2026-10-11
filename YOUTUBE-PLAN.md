@@ -7,8 +7,7 @@ there are **no third-party plugins or Fusion-style compositing**. Every FORK-PLA
 (never crash, `Tick` time, everything is a command, layering, `unsafe` only in `crates/platform`
 and `crates/gpu/src/interop.rs`, `cargo xtask ci` per phase, a build per phase per §1a.9).
 
-**Order (owner, 2026-10-11):** G0 → G1 → 6 → **Y1** → **6E** ([`EXPORT-PLAN.md`](EXPORT-PLAN.md)) → G2 → **Y3**
-→ 7 (with the **real-edit check, Y4**) → 8 → **Y2** → C1 ([`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md)) → H264-PLAN (H1–H3). Y2 moved after Phase 8
+**Order: FORK-PLAN §1a.6** (G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3). Y2 moved after Phase 8
 (owner): the owner's current clips are constant frame rate; VFR matters for phone footage.
 The owner's clips checked 2026-10-11: OBS records HEVC 1080p30 (already on the fast path); the
 Canon camera records **4K23.976 H.264 High**; all three were constant frame rate. Y1 moved after
@@ -86,7 +85,7 @@ bigger and partly conflict with the fork's rules, so they're scoped separately (
 5. **Look and template packs:** import / export of effect presets, LUT folders and graphic
    templates (`crates/engine/src/graphic_templates.rs`) as one shareable pack file.
 6. **Moved to their own plans:** the node compositor is
-   [`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md) (a simplified C1 after Y2; C2+ deferred), and a
+   [`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md) (C1 simplified compositor and C2 branch nodes right after Y3; C3+ deferred), and a
    safe Rust / WASM plugin system with an optional OpenFX bridge is
    [`PLUGIN-PLAN.md`](PLUGIN-PLAN.md) (deferred, needs the owner).
 
@@ -101,7 +100,7 @@ Using the owner's own non-X-M5 clips read-only (`~/Videos/OBS Recordings`, `~/Vi
 never committed; results marked "real footage, not X-M5"), driven through the control channel /
 MCP: import, cut a 10-minute video with J/L-cuts and B-roll, grade with the node grader,
 transcribe and burn in / export captions (SRT), loudness to −14 LUFS with music ducking, a tracked
-blur, a 9:16 Short cut from it, export both with the YouTube presets. Record every bug, slowdown
+blur, a 9:16 Short cut from it, export both with the YouTube presets. Also run **Send to Resolve** (FORK-PLAN Phase 7.6) on it. Record every bug, slowdown
 and missing feature in the progress log and fix the crash- or data-loss ones before tagging
 Phase 7.
 

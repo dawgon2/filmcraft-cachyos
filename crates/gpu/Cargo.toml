@@ -24,11 +24,14 @@ undocumented_unsafe_blocks = "deny"
 filmcraft-color = { workspace = true }
 filmcraft-frame = { workspace = true }
 filmcraft-geom = { workspace = true }
+filmcraft-project = { workspace = true }
 filmcraft-render = { workspace = true }
+filmcraft-time = { workspace = true }
 wgpu = { version = "30", default-features = false, features = ["wgsl"] }
 # u16 planes as upload bytes without a copy (safe casts)
 bytemuck = "1"
 log = { workspace = true }
+pollster = "0.4"
 rayon = { workspace = true }
 
 # Blocking adapter / device requests for the headless export device.
@@ -42,8 +45,9 @@ wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan"]
 
 [dev-dependencies]
 pollster = "0.4"
+filmcraft-export = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }
 wgpu = { version = "30", features = ["wgsl", "metal", "vulkan", "dx12", "gles"] }
 filmcraft-media = { workspace = true }
-filmcraft-project = { workspace = true }
 filmcraft-time = { workspace = true }
 filmcraft-scopes = { workspace = true }

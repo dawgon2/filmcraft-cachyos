@@ -145,6 +145,11 @@ impl AudioOut {
         Some(buf)
     }
 
+    /// Output samples still to come (per channel).
+    pub fn remaining(&self) -> u64 {
+        u64::try_from(self.end.saturating_sub(self.out)).unwrap_or(0)
+    }
+
     /// Everything still to come (to the end of the range).
     pub fn rest(&mut self, sources: &dyn SourceProvider) -> Option<Vec<Vec<f32>>> {
         self.pull(self.end, sources)
@@ -157,8 +162,17 @@ pub(crate) fn interleave(planar: &[Vec<f32>]) -> Vec<f32> {
     let mut out = Vec::with_capacity(n * planar.len());
     for i in 0..n {
         for c in planar {
-            out.push(c[i]);
+            out.push(c.get(i).copied().unwrap_or(0.0));
         }
     }
     out
+}
+
+#[cfg(test)]
+mod bounds_tests {
+    #[test]
+    fn ragged_audio_planes_keep_channel_positions_without_panicking() {
+        assert_eq!(super::interleave(&[vec![1.0, 2.0], vec![3.0]]), vec![1.0, 3.0, 2.0, 0.0]);
+        assert!(super::interleave(&[]).is_empty());
+    }
 }

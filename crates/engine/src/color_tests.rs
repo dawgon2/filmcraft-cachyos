@@ -264,9 +264,14 @@ fn interpret_footage_sets_the_pixel_aspect() {
     let item = s.project.items.iter().find(|(_, i)| matches!(i.kind, filmcraft_project::ItemKind::Media(_))).map(|(id, _)| *id).unwrap();
     let par = |s: &Session| if let Some(filmcraft_project::ItemKind::Media(m)) = s.project.item(item).map(|i| &i.kind) { m.interpret.par } else { None };
     let r = s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "anamorphic-1.6"})).unwrap();
-    assert_eq!((par(&s), r["pixelAspect"].as_str()), (Some((8, 5)), Some("8:5")));
-    s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "auto"})).unwrap();
+    // the effective ratio as upstream's `[num, den]`, the Conform setting as the fork's `N:D`
+    assert_eq!(par(&s), Some((8, 5)));
+    assert_eq!((&r["pixelAspect"], r["pixelAspectOverride"].as_str()), (&json!([8, 5]), Some("8:5")), "{r}");
+    let r = s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "auto"})).unwrap();
     assert_eq!(par(&s), None);
+    assert_eq!(r["pixelAspectOverride"], "auto", "{r}");
+    s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": [8, 5]})).unwrap();
+    assert_eq!(par(&s), Some((8, 5)), "upstream's [num, den] form");
     s.execute("clip.interpretFootage", json!({"items": [item.0], "pixelAspect": "16:10"})).unwrap();
     assert_eq!(par(&s), Some((16, 10)));
     for bad in ["0:1", "1:0", "wide", "99999:1"] {

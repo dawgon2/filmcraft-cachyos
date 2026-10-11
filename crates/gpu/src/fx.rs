@@ -40,6 +40,7 @@ const OP_ASC_CDL: u32 = 15;
 const OP_CHANNEL_MIX: u32 = 16;
 const OP_COLOR_REPLACE: u32 = 17;
 const OP_ALPHA_ADJUST: u32 = 18;
+const OP_VIGNETTE: u32 = 19;
 const OP_BOX: u32 = 20;
 const OP_DIRECTIONAL: u32 = 22;
 const OP_UNSHARP: u32 = 23;
@@ -50,6 +51,8 @@ const OP_VFLIP: u32 = 27;
 const OP_MIRROR: u32 = 28;
 const OP_OFFSET: u32 = 29;
 const OP_MEDIAN_MASK: u32 = 30;
+const OP_VIDEO_LIMITER: u32 = 31;
+// (Lumetri is not one op: it is a colour chain, `FxOp::ColorChain`, fork ADR 0003)
 /// Step codes of colour-chain passes: plain, key (writes the mask), masked (reads it).
 const CHAIN_KEY: u32 = 1;
 const CHAIN_MASKED: u32 = 2;
@@ -112,7 +115,7 @@ struct Step {
     run: bool,
     code: u32,
     i1: [u32; 4],
-    p: [f32; 16],
+    p: [f32; 24],
     /// Unsharp combine: reads the blurred image and the original.
     combine: bool,
     /// A pass before a combine (Unsharp Mask's blur, HSL Secondary's key and refine): the image
@@ -127,7 +130,7 @@ struct Step {
 }
 
 fn step(code: u32, i1: [u32; 4], p: &[f32]) -> Step {
-    let mut q = [0.0; 16];
+    let mut q = [0.0; 24];
     for (d, s) in q.iter_mut().zip(p) {
         *d = *s;
     }
@@ -270,6 +273,14 @@ fn steps(op: &FxOp) -> Vec<Step> {
             Some(_) => {}
             None => log::warn!("colour chain of {} ops too large for the GPU program; skipped", ops.len()),
         },
+        FxOp::Vignette { amount, midpoint, roundness, feather, target } => {
+            if amount.abs() >= 1e-5 {
+                out.push(step(OP_VIGNETTE, [0; 4], &[*amount, *midpoint, *roundness, *feather, target[0], target[1], target[2]]));
+            }
+        }
+        FxOp::VideoLimiter { max, comp, axis, warn, warning_color } => {
+            out.push(step(OP_VIDEO_LIMITER, [*axis, *warn as u32, 0, 0], &[*max, *comp, warning_color[0], warning_color[1], warning_color[2]]));
+        }
     }
     out
 }
@@ -370,7 +381,7 @@ impl FxStage {
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: composite,
-                entry_point: Some("fs"),
+                entry_point: Some("fs_fx_source"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState { format: FX_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
             }),
@@ -475,7 +486,7 @@ impl FxStage {
                 (_, _, true, Some(v)) => views.get(v)?,
                 _ => dummy,
             };
-            let mut bytes = Vec::with_capacity(96);
+            let mut bytes = Vec::with_capacity(128);
             for v in [s.code, w, h, 0].iter().chain(&s.i1) {
                 bytes.extend_from_slice(&v.to_le_bytes());
             }

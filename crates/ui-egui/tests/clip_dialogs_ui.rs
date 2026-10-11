@@ -88,6 +88,25 @@ impl Driver {
     fn item_named(&mut self, name: &str) -> u64 {
         self.app().session.project.items.values().find(|i| i.name == name).unwrap().id.0
     }
+
+    /// The window is asked to close (Quit, Cmd+Q, its close button) for one frame.
+    fn request_close(&mut self) {
+        self.harness.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        self.frames(1);
+    }
+
+    /// The app sent `cmd` to the window in the last frame.
+    fn sent(&self, cmd: &egui::ViewportCommand) -> bool {
+        self.harness.output().viewport_output.get(&egui::ViewportId::ROOT).is_some_and(|v| v.commands.contains(cmd))
+    }
+
+    /// Make an unsaved change.
+    fn edit(&mut self) {
+        let c = self.v1(0);
+        self.exec("timeline.select", json!({"clips": [c.id.0]}));
+        self.menu("edit.label.yellow");
+        assert!(self.app().session.is_dirty());
+    }
 }
 
 #[test]
@@ -238,4 +257,87 @@ fn subclip_in_the_source_monitor_and_project_menu() {
     } else {
         panic!("subclip row not shown: {:?}", d.ok("ui.elements", json!({"prefix": "project.item."})));
     }
+}
+
+/// #201: the clip's right-click Speed/Duration… opens the dialog instead of applying 50%; OK
+/// applies the speed typed there, Cancel leaves the clip alone.
+#[test]
+fn speed_duration_from_the_clip_menu_opens_the_dialog() {
+    let mut d = Driver::new();
+    let c = d.v1(0);
+    d.exec("timeline.select", json!({"clips": [c.id.0]}));
+    d.ok("ui.click", json!({"id": format!("timeline.clip.{}", c.id.0), "button": "right"}));
+    d.frames(3);
+    d.click("timeline.clipMenu.clip.speedDuration");
+    assert_eq!(d.v1(0).speed, 1.0, "nothing applied yet");
+    let dlg = d.app().ui.clip_dialog.clone().expect("the dialog opened");
+    assert_eq!(dlg.command, "clip.speedDuration");
+    assert_eq!(dlg.params["speed"], json!(100.0), "starts at the clip's speed");
+    assert!(d.has("speedDuration.reverse") && d.has("speedDuration.interpolation.frameBlending"));
+    d.click("speedDuration.cancel");
+    assert!(d.app().ui.clip_dialog.is_none());
+    assert_eq!(d.v1(0).speed, 1.0, "Cancel leaves it");
+
+    d.menu("clip.speedDuration");
+    if let Some(dlg) = d.app().ui.clip_dialog.as_mut() {
+        dlg.params["speed"] = json!(200.0);
+    }
+    d.click("speedDuration.interpolation.frameBlending");
+    d.click("speedDuration.ok");
+    let got = d.v1(0);
+    assert_eq!(got.speed, 2.0);
+    assert_eq!(got.time_interpolation, filmcraft_project::TimeInterpolation::FrameBlending);
+}
+
+#[test]
+fn quitting_with_unsaved_changes_asks_to_save() {
+    let mut d = Driver::new();
+    d.edit();
+    // the close is cancelled and the prompt asks instead
+    d.request_close();
+    assert!(d.sent(&egui::ViewportCommand::CancelClose), "the window must stay open");
+    d.frames(2);
+    assert!(d.has("quit.save") && d.has("quit.dontSave") && d.has("quit.cancel"));
+    // Cancel keeps the app and the changes
+    d.click("quit.cancel");
+    assert!(d.app().ui.clip_dialog.is_none());
+    assert!(d.app().session.is_dirty() && !d.app().quit_confirmed);
+    d.request_close();
+    assert!(d.sent(&egui::ViewportCommand::CancelClose), "asks again");
+    d.frames(2);
+    // Don't Save discards the changes (and their recovery snapshot) and closes the window
+    d.click("quit.dontSave");
+    assert!(d.app().quit_confirmed && !d.app().session.is_dirty());
+    assert!(d.app().ui.clip_dialog.is_none());
+    d.request_close();
+    assert!(!d.sent(&egui::ViewportCommand::CancelClose), "the confirmed quit goes through");
+}
+
+#[test]
+fn quit_save_on_a_new_project_uses_the_save_dialog_and_scripted_quit_does_not_ask() {
+    let path = std::env::temp_dir().join(format!("fc-quit-save-{}.fcproj", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let mut d = Driver::new();
+    d.app().session.path = None;
+    d.edit();
+    let picked = path.to_string_lossy().into_owned();
+    let mut answers = vec![None, Some(picked)];
+    d.app().hooks.pick_save = Some(Box::new(move |_| if answers.is_empty() { None } else { answers.remove(0) }));
+    d.request_close();
+    d.frames(2);
+    // the Save dialog is cancelled: back to the prompt, nothing quits
+    d.click("quit.save");
+    assert!(d.app().ui.clip_dialog.is_some() && !d.app().quit_confirmed);
+    // saved: the project is written and the window closes
+    d.click("quit.save");
+    assert!(d.app().quit_confirmed && !d.app().session.is_dirty());
+    assert!(path.exists(), "saved to the chosen file");
+    let _ = std::fs::remove_file(&path);
+    d.request_close();
+    assert!(!d.sent(&egui::ViewportCommand::CancelClose));
+    // the control channel's app.quit quits without the prompt
+    let mut d = Driver::new();
+    d.edit();
+    d.ok("app.quit", json!({}));
+    assert!(d.app().quit_confirmed);
 }

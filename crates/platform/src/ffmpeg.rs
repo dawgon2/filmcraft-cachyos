@@ -1,5 +1,5 @@
 //! The system `ffmpeg` as an external helper process (Linux): VA-API hardware decoding
-//! ([`crate::vaapi`]) and HEVC encoding ([`crate::hevc_export`]).
+//! ([`crate::vaapi_pipe`]) and HEVC encoding ([`crate::hevc_export`]).
 //!
 //! ffmpeg is never linked: it runs as a child process fed through pipes. Everything here is
 //! optional: when ffmpeg is missing, has no VA-API support, or the GPU cannot open a VA-API

@@ -143,7 +143,7 @@ screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page sc
     untouched"). A "what changed" overlay shows where and how strongly the node acted. A one-line
     summary in the node strip, the full text in an Explain panel; cached per node state.
     ≈ 6–12 h.
-11. **Local AI explanations (owner, 2026-10-11):** an **optional, offline, quantized small
+11. **(Moved to Phase G2b, right after G2: owner, 2026-10-11.)** **Local AI explanations (owner, 2026-10-11):** an **optional, offline, quantized small
     language model** rewrites 10's facts in layman's terms ("this node warms up the skin a little
     and calms down the reds, without touching the sky").
     - Pure Rust inference on the CPU with **candle**, which `crates/speech` already uses for
@@ -163,7 +163,7 @@ screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page sc
     - Crate placement: a new L-level crate beside `crates/speech` (no UI deps, layering), behind a
       cargo feature that's off in wasm builds.
     ≈ 10–20 h.
-12. **Grading Coach: step-by-step guidance for beginners (owner, 2026-10-11):** so a beginner
+12. **(Moved to Phase G2b, right after G2: owner, 2026-10-11.)** **Grading Coach: step-by-step guidance for beginners (owner, 2026-10-11):** so a beginner
     isn't lost in the node system. Three parts, all offline:
     - **Guided lessons (no AI needed):** a lesson engine that walks through a task one step at a
       time on the user's own clip (or a bundled sample frame from openly licensed footage, with
@@ -180,8 +180,10 @@ screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page sc
       with a qualifier*; *Brighten a face with a tracked window*; *Clean up noise in log shadows*.
     - **Ask the coach (uses G2.11's local model if installed):** a question box ("how do I make
       the sky bluer without changing skin?", "why did my skin go grey?"). It retrieves the
-      relevant sections of FilmCraft's own colour guide (`docs/color-guide/`, written for this
-      project, clean-room: never copied from Resolve's or anyone's manual) with a small pure-Rust
+      relevant sections of **the fork guide** (`docs/guide/`, see its README: written for this
+      fork, every section tagged [Resolve-style] / [FilmCraft] / [Fork] / [Standard] so the coach
+      can say "this works like Resolve's …" or "this is a FilmCraft / fork feature"; clean-room:
+      never copied from Resolve's or anyone's manual) with a small pure-Rust
       keyword / BM25 index, adds the current grade's facts (G2.10), and answers with numbered
       steps naming the real buttons. **Every control or command it names is checked against the
       live command list and automation ids**; anything unknown is removed, and if the answer
@@ -202,18 +204,27 @@ in a flat patch drops ≥ 40 % without blurring an edge-sharpness patch by more 
 threshold); play-graded with NR on is measured and recorded (synthetic); export matches the
 viewer; `grade.compareShots` reports a near-perfect score for a clip against itself and flags a
 deliberately offset copy (+⅓ stop, warm cast) with the right words; Shot Match brings that copy
-back within a set tolerance; the node explainer's facts match known test grades exactly, and with
-the AI model installed its text passes the fact check on the 30-case set (and falls back cleanly
-with the model removed); every lesson can be completed end to end through the control channel
-(each step's highlight hits a real widget and its completion condition fires), and the coach's
-answers on a fixed set of 30 beginner questions pass the control-name check.
+back within a set tolerance; the node explainer's facts match known test grades exactly (template
+text). G2 covers items 1–10; tag `grade-2`.
+
+### Phase G2b: local AI explanations and the Grading Coach (G2.11, G2.12; right after G2)
+
+Moved out of G2 by the owner (2026-10-11) so G2's grading tools land first; runs right after G2,
+before FORK-PLAN Phase 6. The work is items 11 and 12 above, unchanged (G2.12's ask-the-coach
+uses G2.11's model when installed and the guide index otherwise).
+
+**Accept:** with the AI model installed the explainer's text passes the fact check on the
+30-case set (and falls back cleanly to G2.10's template text with the model removed); every
+lesson can be completed end to end through the control channel (each step's highlight hits a
+real widget and its completion condition fires), and the coach's answers on a fixed set of 30
+beginner questions pass the control-name check. Tag `grade-2b`, build per FORK-PLAN §1a.9.
 
 ### Phase G3 and later: deferred (§6)
 
 ## 4. Order against FORK-PLAN (owner's decision)
 
 Remaining FORK-PLAN phases: 6 (4:2:2, proxies, render cache), 7 (polish, soak), 8 (backup
-backends). **Order (approved by the owner 2026-10-11): G0 → G1 → 6 → G2 → 7 → 8.**
+backends). **Current order: FORK-PLAN §1a.6** (G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3). The reasoning below was for the first version.
 - G0 / G1 first: they're what you'll use, and graded 6.2K already plays at 1798/0.
 - Phase 6 before G2: temporal NR and heavy multi-node grades are exactly what the render cache is
   for, and 4:2:2 clips need proxies before grading them is pleasant.

@@ -1,8 +1,12 @@
 //! Decoded picture buffer: POC derivation (8.3.1), reference picture set (8.3.2), missing
 //! reference generation (8.3.3), reference picture lists (8.3.4) and output / bumping (C.5.2).
+//!
+//! The buffer only does bookkeeping on picture headers; what a picture is (`F`: the software
+//! decoder's [`crate::picture::FrameRef`], a hardware decoder's surface) is up to the decoder, so
+//! hardware decoders driven by the same headers (VA-API) share this logic and output order.
 
 use crate::error::{Result, ensure};
-use crate::picture::{FrameRef, RefPic};
+use crate::picture::FrameRef;
 use crate::slice::SliceHeader;
 use std::sync::Arc;
 
@@ -45,11 +49,20 @@ pub struct Output<F = FrameRef> {
     pub meta: Arc<OutputMeta>,
 }
 
+/// A reference picture of the current picture (`crate::picture::RefPic` for the software
+/// decoder's frames).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ref<F = FrameRef> {
+    pub frame: F,
+    pub poc: i32,
+    pub long_term: bool,
+}
+
 /// Reference picture set of the current picture (8.3.2) as DPB indices / generated frames.
 pub struct RefPicSet<F = FrameRef> {
-    pub st_curr_before: Vec<RefPic<F>>,
-    pub st_curr_after: Vec<RefPic<F>>,
-    pub lt_curr: Vec<RefPic<F>>,
+    pub st_curr_before: Vec<Ref<F>>,
+    pub st_curr_after: Vec<Ref<F>>,
+    pub lt_curr: Vec<Ref<F>>,
 }
 
 impl<F> Default for RefPicSet<F> {
@@ -59,7 +72,7 @@ impl<F> Default for RefPicSet<F> {
 }
 
 /// The DPB of decoded pictures `F` (the software decoder's frames, or a hardware decoder's
-/// surfaces; see `crate::accel`).
+/// surfaces; see `crate::accel` and `filmcraft_platform::vaapi`).
 pub struct Dpb<F = FrameRef> {
     pub entries: Vec<Entry<F>>,
     pub max_dec_pic_buffering: usize,
@@ -208,13 +221,13 @@ impl<F: Clone> Dpb<F> {
                 self.entries[i].marking = Marking::Long;
             }
         }
-        let mut make = |found: Option<usize>, p: i32, lt: bool, entries: &mut Vec<Entry<F>>| -> Result<RefPic<F>> {
+        let mut make = |found: Option<usize>, p: i32, lt: bool, entries: &mut Vec<Entry<F>>| -> Result<Ref<F>> {
             match found.and_then(|i| entries.get(i)) {
-                Some(e) => Ok(RefPic { frame: e.frame.clone(), poc: e.poc, long_term: lt }),
+                Some(e) => Ok(Ref { frame: e.frame.clone(), poc: e.poc, long_term: lt }),
                 None => {
                     // 8.3.3: generate an unavailable reference picture
                     let frame = make_missing(p)?;
-                    Ok(RefPic { frame, poc: p, long_term: lt })
+                    Ok(Ref { frame, poc: p, long_term: lt })
                 }
             }
         };
@@ -240,8 +253,8 @@ impl<F: Clone> Dpb<F> {
 }
 
 /// Build RefPicList0/1 (8.3.4).
-pub fn build_ref_lists<F: Clone>(sh: &SliceHeader, rps: &RefPicSet<F>) -> Result<[Vec<RefPic<F>>; 2]> {
-    let mut lists: [Vec<RefPic<F>>; 2] = [Vec::new(), Vec::new()];
+pub fn build_ref_lists<F: Clone>(sh: &SliceHeader, rps: &RefPicSet<F>) -> Result<[Vec<Ref<F>>; 2]> {
+    let mut lists: [Vec<Ref<F>>; 2] = [Vec::new(), Vec::new()];
     if sh.is_intra() {
         return Ok(lists);
     }

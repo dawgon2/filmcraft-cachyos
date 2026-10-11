@@ -9,6 +9,20 @@ use serde_json::{Value, json};
 
 use crate::Session;
 
+#[test]
+fn hostile_export_ranges_are_rejected_without_panicking() {
+    let mut session = demo();
+    for params in [
+        json!({"range":"custom", "startTime":i64::MIN, "endTime":i64::MAX}),
+        json!({"range":"custom", "startTime":-1, "endTime":100}),
+        json!({"range":"custom", "startTime":100, "endTime":100}),
+    ] {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| session.execute("export.resolve", params)));
+        assert!(result.is_ok(), "a hostile export range must not panic");
+        assert!(result.unwrap().is_err());
+    }
+}
+
 /// A scratch directory under the workspace `target/`, removed when dropped.
 struct Scratch(PathBuf);
 
@@ -34,6 +48,48 @@ fn demo() -> Session {
     let mut s = Session::default();
     s.execute("file.openDemoProject", json!({})).unwrap();
     s
+}
+
+#[test]
+fn export_integer_parameters_cannot_wrap_or_overflow() {
+    let mut s = demo();
+    for name in ["bitrateKbps", "maxBitrateKbps", "keyframeDistance"] {
+        for value in [json!(-1), json!(1.5), json!(u64::from(u32::MAX) + 1)] {
+            let mut params = json!({});
+            params[name] = value;
+            assert!(s.execute("export.resolve", params).is_err(), "{name}");
+        }
+    }
+    assert!(s.execute("export.resolve", json!({"bitrateKbps":u32::MAX})).is_ok());
+    assert!(s.execute("export.resolve", json!({"bitrateKbps":8000.0, "keyframeDistance":48.0})).is_ok(), "integer-valued floats are integers");
+}
+
+#[test]
+fn wav_resolve_honours_explicit_sample_rates() {
+    let mut s = demo();
+    for rate in [4000, 192_000, 192_001, 200_000, 352_800, 384_000] {
+        let result = s.execute("export.resolve", json!({"format":"wav", "settings":{"audio":{"sample_rate":rate}}})).unwrap();
+        assert_eq!(result["settings"]["audio"]["sample_rate"], rate);
+        assert_eq!(result["output"]["sampleRate"], rate);
+    }
+    let result = s.execute("export.resolve", json!({"format":"wav", "settings":{"audio":{"sample_rate":null}}})).unwrap();
+    assert_eq!(result["output"]["sampleRate"], 48_000);
+    for rate in [0, 384_001] {
+        assert!(s.execute("export.resolve", json!({"format":"wav", "settings":{"audio":{"sample_rate":rate}}})).is_err());
+    }
+}
+
+#[test]
+fn nested_camel_case_settings_are_honoured() {
+    let mut s = demo();
+    let camel = json!({"audio":{"sampleRate":96000}, "effects":{"loudness":{"enabled":true, "targetLufs":-16}}});
+    let snake = json!({"audio":{"sample_rate":96000}, "effects":{"loudness":{"enabled":true, "target_lufs":-16}}});
+    let camel = s.execute("export.resolve", json!({"format":"wav", "settings":camel})).unwrap();
+    let snake = s.execute("export.resolve", json!({"format":"wav", "settings":snake})).unwrap();
+    assert_eq!(camel["output"]["sampleRate"], 96000);
+    assert_eq!(camel["settings"]["audio"]["sample_rate"], 96000);
+    assert_eq!(camel["settings"]["effects"]["loudness"]["target_lufs"], -16.0);
+    assert_eq!(camel["settings"], snake["settings"]);
 }
 
 fn probe(path: &str) -> Option<Value> {
@@ -89,7 +145,7 @@ fn every_builtin_preset_exports_and_ffprobe_confirms() {
             Some(a) => (a[0].as_u64().unwrap(), a[1].as_u64().unwrap()),
             None => (1920, 1080),
         };
-        if matches!(fmt.as_str(), "png" | "tiff" | "bmp") {
+        if matches!(fmt.as_str(), "png" | "tiff" | "bmp" | "jpg" | "tga" | "dpx" | "exr") {
             let files = files_in(&sub);
             let ext = Path::new(&out).extension().unwrap().to_string_lossy().to_string();
             assert_eq!(frames, 7, "frames 23..=29 at 23.976 fps");
@@ -100,6 +156,10 @@ fn every_builtin_preset_exports_and_ffprobe_confirms() {
                 let codec = match fmt.as_str() {
                     "png" => "png",
                     "tiff" => "tiff",
+                    "jpg" => "mjpeg",
+                    "tga" => "targa",
+                    "dpx" => "dpx",
+                    "exr" => "exr",
                     _ => "bmp",
                 };
                 assert_eq!(v["codec_name"], codec, "{name}");
@@ -124,6 +184,16 @@ fn every_builtin_preset_exports_and_ffprobe_confirms() {
                 assert_eq!(a["sample_rate"], "48000", "{name}");
                 assert_eq!(a["channels"], 2, "{name}");
                 assert!((num(&j["format"]["duration"]) - 0.25).abs() < 0.01, "{name}: {}", j["format"]["duration"]);
+                continue;
+            }
+            "aac" => {
+                // AAC Audio: an MPEG-4 audio file, sound only
+                assert!(out.ends_with(".m4a"), "{name}: {out}");
+                assert!(fmt_name.contains("m4a"), "{name}: {fmt_name}");
+                assert_eq!(j["streams"].as_array().unwrap().len(), 1, "{name}");
+                let a = stream(&j, "audio").unwrap();
+                assert_eq!((a["codec_name"].as_str(), a["sample_rate"].as_str(), a["channels"].as_u64()), (Some("aac"), Some("48000"), Some(2)), "{name}");
+                assert!((num(&j["format"]["duration"]) - 0.25).abs() < 0.03, "{name}: {}", j["format"]["duration"]);
                 continue;
             }
             "gif" => {
@@ -169,9 +239,16 @@ fn every_builtin_preset_exports_and_ffprobe_confirms() {
                     "proxy" => ("Proxy", 45.0),
                     "lt" => ("LT", 102.0),
                     "standard" => ("Standard", 147.0),
+                    "4444" => ("4444", 330.0),
+                    "4444xq" => ("XQ", 500.0),
                     _ => ("HQ", 220.0),
                 };
                 assert_eq!(v["profile"], profile, "{name}");
+                if matches!(profile, "4444" | "XQ") {
+                    let pix = v["pix_fmt"].as_str().unwrap_or_default();
+                    let alpha = settings["alpha"].as_bool().unwrap_or(false);
+                    assert!(pix.contains("444") && pix.starts_with("yuva") == alpha, "{name}: {pix}");
+                }
                 assert!(vbr <= mbps * px * 1.5, "{name}: {vbr:.1} Mb/s vs nominal {:.1}", mbps * px);
                 assert_eq!(a["codec_name"], "pcm_s24le", "{name}");
             }
@@ -224,6 +301,25 @@ fn every_builtin_preset_exports_and_ffprobe_confirms() {
 /// targets width × height × fps × bpp, the 1080p delivery presets their fixed targets; ffprobe's
 /// measured video bitrate stays within the VBR maximum and close to the target.
 #[test]
+fn aac_audio_keeps_a_dot_aac_path_as_adts_and_adds_m4a_otherwise() {
+    let mut s = demo();
+    let dir = Scratch::new("aac-audio");
+    let range = json!({"range": "custom", "startSeconds": 1.0, "endSeconds": 1.25, "wait": true, "format": "aac"});
+    let run = |s: &mut Session, path: String| {
+        let mut p = range.clone();
+        p["path"] = json!(path);
+        s.execute("file.exportMedia", p).unwrap()["path"].as_str().unwrap().to_string()
+    };
+    let adts = run(&mut s, dir.path("Mix.aac"));
+    assert!(adts.ends_with("Mix.aac"), "{adts}");
+    let b = std::fs::read(&adts).unwrap();
+    assert_eq!((b[0], b[1]), (0xFF, 0xF1), "an ADTS header");
+    let m4a = run(&mut s, dir.path("Mix"));
+    assert!(m4a.ends_with("Mix.m4a"), "{m4a}");
+    assert_eq!(&std::fs::read(&m4a).unwrap()[4..8], b"ftyp");
+}
+
+#[test]
 fn h264_presets_hit_their_bitrates() {
     let mut s = demo();
     let dir = Scratch::new("bitrate");
@@ -270,7 +366,7 @@ fn user_presets_persist_with_favourites_import_and_export() {
     let favs = s.execute("export.presets.list", json!({"favorites": true})).unwrap()["presets"].as_array().unwrap().len();
     assert_eq!(favs, 2);
     let hits = s.execute("export.presets.list", json!({"query": "prores"})).unwrap()["presets"].as_array().unwrap().len();
-    assert_eq!(hits, 5, "four QuickTime ProRes presets and MXF OP1a ProRes 422 HQ");
+    assert_eq!(hits, 8, "seven QuickTime ProRes presets and MXF OP1a ProRes 422 HQ");
     // persisted: a fresh session with the same data directory sees both
     let mut s2 = demo();
     s2.export_presets.set_dir(&dir.0);
@@ -340,6 +436,22 @@ fn queue_orders_cancels_and_retries() {
 }
 
 #[test]
+fn queue_move_by_extreme_offsets_clamps_instead_of_overflowing() {
+    let mut s = demo();
+    let ids: Vec<u64> = (0..3)
+        .map(|_| {
+            let r = s.execute("export.queue.add", json!({"preset": "Waveform Audio 48 kHz 16-bit", "path": "queued-output/"})).unwrap();
+            r["added"][0].as_u64().unwrap()
+        })
+        .collect();
+    let order = |s: &mut Session| -> Vec<u64> { queue(s).iter().map(|i| i["id"].as_u64().unwrap()).collect() };
+    s.execute("export.queue.move", json!({"id": ids[1], "by": i64::MAX})).unwrap();
+    assert_eq!(order(&mut s), [ids[0], ids[2], ids[1]]);
+    s.execute("export.queue.move", json!({"id": ids[1], "by": i64::MIN})).unwrap();
+    assert_eq!(order(&mut s), [ids[1], ids[0], ids[2]]);
+}
+
+#[test]
 fn queue_cancels_a_running_export_and_retries_a_failed_one() {
     let mut s = demo();
     let dir = Scratch::new("queue-cancel");
@@ -372,6 +484,81 @@ fn queue_cancels_a_running_export_and_retries_a_failed_one() {
 }
 
 #[test]
+fn jobs_and_queue_items_report_the_time_they_have_left() {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use crate::export_tools::QueueStatus;
+    let mut s = demo();
+    let dir = Scratch::new("eta");
+    let job = crate::Job { id: 77, label: "Exporting".into(), progress: Default::default(), result: Default::default() };
+    job.progress.total.store(1000, Ordering::Relaxed);
+    assert!(job.to_json()["etaSeconds"].is_null(), "no speed measured yet");
+    // 50 units a second for 5 s, read from the near future (the JSON reads the real clock, which is then behind them)
+    let t0 = web_time::Instant::now() + Duration::from_secs(60);
+    for i in 0..=50u64 {
+        job.progress.done.store(i * 5, Ordering::Relaxed);
+        job.progress.eta_at(t0 + Duration::from_millis(i * 100));
+    }
+    let eta = job.to_json()["etaSeconds"].as_f64().expect("a number once the job has a speed");
+    assert!((eta - 15.0).abs() < 0.5, "750 units left at 50 a second: {eta}");
+    s.jobs.push(job);
+
+    // a queue item encoding that job shows it; one that waits shows nothing
+    for name in ["a.wav", "b.wav"] {
+        s.execute(
+            "export.queue.add",
+            json!({"preset": "Waveform Audio 48 kHz 16-bit", "path": dir.path(name), "range": "custom", "startSeconds": 0, "endSeconds": 0.25}),
+        )
+        .unwrap();
+    }
+    s.export_queue.items[0].status = QueueStatus::Encoding;
+    s.export_queue.items[0].job = Some(77);
+    let items = queue(&mut s);
+    assert!((items[0]["etaSeconds"].as_f64().expect("encoding") - 15.0).abs() < 0.5, "{}", items[0]);
+    assert_eq!(items[0]["status"], "encoding");
+    assert!(items[1]["etaSeconds"].is_null(), "{}", items[1]);
+    // and `jobs.list` carries it too
+    let jobs = s.execute("jobs.list", json!({})).unwrap();
+    let listed = jobs["jobs"].as_array().or(jobs.as_array()).expect("a list of jobs").iter().find(|j| j["id"] == 77).cloned().expect("the job is listed");
+    assert!(listed["etaSeconds"].as_f64().is_some(), "{listed}");
+}
+
+#[test]
+fn hardware_encoding_is_off_unless_asked_for() {
+    use filmcraft_export::HardwareEncoding::{Auto, Off};
+    let s = demo();
+    let setting = |p: Value| crate::export_tools::settings_from_params(&s, &p, "file.exportMedia").map(|(_, st)| st.hardware_encoding);
+    assert_eq!(setting(json!({"path": "x.mp4"})).unwrap(), Off);
+    assert_eq!(setting(json!({"path": "x.mp4", "hardwareEncoding": "auto"})).unwrap(), Auto);
+    assert_eq!(setting(json!({"path": "x.mp4", "hardwareEncoding": "off"})).unwrap(), Off);
+    // a boolean is understood too: true is auto
+    assert_eq!(setting(json!({"path": "x.mp4", "hardwareEncoding": true})).unwrap(), Auto);
+    assert_eq!(setting(json!({"path": "x.mp4", "hardwareEncoding": false})).unwrap(), Off);
+    // anything else names the choices
+    let e = setting(json!({"path": "x.mp4", "hardwareEncoding": "gpu"})).unwrap_err().to_string();
+    assert!(e.contains("off | auto"), "{e}");
+    // and it travels in the settings object, with the default filling in when it is missing
+    assert_eq!(setting(json!({"path": "x.mp4", "settings": {"hardwareEncoding": "auto"}})).unwrap(), Auto);
+    let old: filmcraft_export::ExportSettings = serde_json::from_value(json!({"format": "h264"})).unwrap();
+    assert_eq!(old.hardware_encoding, Off);
+}
+
+#[test]
+fn crf_param_picks_constant_quality() {
+    use filmcraft_export::BitrateMode::{Cbr, Crf, Vbr1Pass};
+    let s = demo();
+    let setting = |p: Value| crate::export_tools::settings_from_params(&s, &p, "file.exportMedia").map(|(_, st)| (st.bitrate_mode, st.crf));
+    assert_eq!(setting(json!({"path": "x.mp4"})).unwrap(), (Vbr1Pass, 23.0));
+    // a factor alone means CRF mode; the mode can also be named, or another one kept explicitly
+    assert_eq!(setting(json!({"path": "x.mp4", "crf": 18})).unwrap(), (Crf, 18.0));
+    assert_eq!(setting(json!({"path": "x.mp4", "bitrateMode": "crf"})).unwrap(), (Crf, 23.0));
+    assert_eq!(setting(json!({"path": "x.mp4", "bitrateMode": "cbr", "crf": 18})).unwrap(), (Cbr, 18.0));
+    let e = setting(json!({"path": "x.mp4", "bitrateMode": "abr"})).unwrap_err().to_string();
+    assert!(e.contains("crf"), "{e}");
+}
+
+#[test]
 fn queue_exports_several_sequences_and_ranges() {
     let mut s = demo();
     let dir = Scratch::new("queue-many");
@@ -401,6 +588,23 @@ fn queue_exports_several_sequences_and_ranges() {
     assert!(names.contains(&"parts.wav".to_string()) && names.contains(&"parts_2.wav".to_string()), "{names:?}");
     let len = |f: &str| std::fs::metadata(dir.0.join(f)).unwrap().len();
     assert_eq!(len("parts_2.wav"), 44 + 12_000 * 4, "0.25 s of 16-bit stereo");
+}
+
+#[test]
+fn queue_folder_paths_expand_home_and_take_either_separator() {
+    let mut s = demo();
+    let first = s.state.active_sequence.unwrap();
+    let second = s.execute("file.newSequence", json!({"name": "Second Cut", "width": 640, "height": 360, "fps": 25})).unwrap()["sequence"].as_u64().unwrap();
+    let preset = "Waveform Audio 48 kHz 16-bit";
+    // a folder that does not exist yet, named by a trailing `\`: each sequence keeps its own name
+    s.execute("export.queue.add", json!({"preset": preset, "path": "not-yet-made\\", "sequences": [first.0, second]})).unwrap();
+    let paths: Vec<String> = queue(&mut s).iter().map(|i| i["path"].as_str().unwrap().to_string()).collect();
+    assert!(paths.iter().any(|p| p.ends_with("Second Cut.wav")), "{paths:?}");
+    if let Some(home) = crate::media_browser::std_home_dir() {
+        s.execute("export.queue.add", json!({"preset": preset, "path": "~/Exports/", "sequence": first.0})).unwrap();
+        let last = queue(&mut s).last().unwrap()["path"].as_str().unwrap().to_string();
+        assert!(last.starts_with(&home), "{last}");
+    }
 }
 
 #[test]

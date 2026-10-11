@@ -1,7 +1,7 @@
 # COMPOSITOR-PLAN.md: a Fusion-style node compositor, simple first
 
-Written 2026-10-11 (session 8, with the owner). **Phase C1** (a deliberately small compositor) is
-scheduled **after Y2** (owner, moved 2026-10-11): … → 7 (+ Y4) → 8 → Y2 → **C1 → C2** → H264-PLAN.
+Written 2026-10-11 (session 8, with the owner). **Phase C1** (a deliberately small compositor) and **C2** are
+scheduled **right after Y3, before Phase 7** (owner, moved 2026-10-11, so Phase 7's soak and real-edit check cover them): FORK-PLAN §1a.6: G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3.
 **C2 (the grader's parallel / layer nodes) is scheduled (owner, 2026-10-11); C3 and later are deferred: don't start them without the owner.** All FORK-PLAN rules apply
 (never crash, `Tick` time, everything is a command, every widget has an automation id, layering).
 
@@ -14,7 +14,7 @@ and defers parallel / layer nodes, §6).
 
 1. **Model:** a **Comp clip** (a new timeline item kind, `#[serde(default)]` so old projects load)
    holding a node graph: a DAG with node ids, typed input / output ports and connections; cycles
-   rejected; node count, graph depth and texture memory capped (hostile project files). ADR 0005.
+   rejected; node count, graph depth and texture memory capped (hostile project files). An ADR with the next free number (U0 took 0005).
 2. **Nodes (only these):** Media In (a project clip or a timeline layer), Media Out, **Merge**
    (A over B with the existing blend modes and opacity), **Transform** (position / scale / rotation /
    anchor, existing motion maths), **Key** (Y3's GPU keys), **Mask** (existing mask shapes and the

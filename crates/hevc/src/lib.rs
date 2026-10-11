@@ -24,7 +24,7 @@
 pub mod accel;
 mod cabac;
 mod decoder;
-mod dpb;
+pub mod dpb;
 mod error;
 mod filter;
 mod inter;

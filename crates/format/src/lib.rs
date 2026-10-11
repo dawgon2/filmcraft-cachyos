@@ -33,10 +33,26 @@
 //! - **v12** (M10.7): graphics templates, rolls / crawls, responsive design (pins, intro / outro),
 //!   per-character text styles (`TrackItem::graphic`, `EffectInstance::layer`) and source graphics
 //!   (`Project::source_graphics`). No-op step; older builds would drop these fields when saving.
-//! - **v13** (fork G0): colour grades (`TrackItem::grade`, serial correction nodes; fork ADR 0004).
-//!   No-op step; older builds would drop the grades when saving.
-//! - **v14** (fork G1.5): the colour stills gallery (`Project::stills`). No-op step; older builds
-//!   would drop the stills when saving.
+//! - **v13**: all container audio streams, and per-timeline-clip stream selection. Old single-stream
+//!   `audio` objects read as stream zero; older builds must refuse new multi-stream projects.
+//! - **v14** (M7.9): narrations (`Project::narrations`, Text to Speech). No-op step; older builds
+//!   would drop them when saving.
+//! - **v15**: project notes (`Project::notes`, Window ▸ Project Notes). No-op step; older builds
+//!   would drop them when saving.
+//! - **v16** (fork G0 / G1.5): colour grades (`TrackItem::grade`, serial correction nodes; fork
+//!   ADR 0004) and the colour stills gallery (`Project::stills`). No-op step; older builds would
+//!   drop both when saving.
+//!
+//! **Fork lineage.** Before the first upstream sync (U0) the fork numbered the grades v13 and the
+//! stills v14, both no-op steps on an upstream v12 document, while upstream used v13 for
+//! multi-stream audio, v14 for narrations and v15 for notes. A fork-written v13 / v14 file is
+//! therefore an upstream v12 document plus `grade` / `stills` fields: [`decode`] recognises one
+//! ([`fork_shape`]: the pre-v13 single `audio` object on a media item, a `stills` list or a
+//! `grade` on a clip) and runs the chain from v12, which keeps those fields (they load by name).
+//! Every file this fork writes carries `"lineage": "fork/hevc-vaapi"` ([`FORK_LINEAGE`]) in the
+//! envelope so later collisions are decided by the marker: a file at this build's own schema
+//! without it was written by another lineage and is refused rather than misread. Upstream builds
+//! ignore the field (the envelope tolerates unknown keys both ways).
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
@@ -57,11 +73,23 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 
 /// `MIGRATIONS[i]` upgrades schema `i + 1` to `i + 2`. Append one function per schema bump; never
 /// edit a shipped one.
-pub const MIGRATIONS: &[Migration] =
-    &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14];
+pub const MIGRATIONS: &[Migration] = &[
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15,
+    v15_to_v16,
+];
 
 /// The schema version this build writes (and the newest it reads).
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32 + 1;
+
+/// The `lineage` tag written in every envelope by this fork (see the module docs).
+pub const FORK_LINEAGE: &str = "fork/hevc-vaapi";
+
+/// Schema numbers the fork used before U0 with its own meaning (grades, stills): a file at one of
+/// them without the lineage marker is read as upstream v12 when [`fork_shape`] says it is ours.
+const FORK_LEGACY_SCHEMAS: std::ops::RangeInclusive<u32> = 13..=14;
+
+/// The upstream schema a pre-U0 fork file really has.
+const FORK_LEGACY_BASE: u32 = 12;
 
 /// Oldest schema this build can still upgrade.
 pub const OLDEST_SCHEMA: u32 = 1;
@@ -80,6 +108,10 @@ pub enum FormatError {
     Migration { from: u32, msg: String },
     #[error("project file is damaged: {0}")]
     Corrupt(String),
+    #[error(
+        "this project (schema v{found}) was saved by another FilmCraft lineage, not this fork; its v{found} fields differ from this build's. Open it with the FilmCraft that wrote it."
+    )]
+    OtherLineage { found: u32 },
 }
 
 /// A project read from disk.
@@ -112,6 +144,8 @@ struct EnvelopeOut<'a> {
     format: &'static str,
     schema_version: u32,
     generator: String,
+    /// [`FORK_LINEAGE`]: which FilmCraft lineage's schema numbering the file follows.
+    lineage: &'static str,
     project: &'a Project,
     #[serde(skip_serializing_if = "Option::is_none")]
     view: Option<&'a ProjectView>,
@@ -142,6 +176,9 @@ struct Probe {
     format: Option<String>,
     #[serde(default)]
     schema_version: Option<u32>,
+    /// [`FORK_LINEAGE`] on files this fork wrote after U0; absent on upstream's and on older fork files.
+    #[serde(default)]
+    lineage: Option<String>,
     /// Bare (pre-envelope) project: its `version` field.
     #[serde(default)]
     version: Option<u32>,
@@ -161,7 +198,7 @@ pub fn encode(project: &Project, pretty: bool) -> Vec<u8> {
 /// outside the schema's promises: builds that do not know it ignore it, and it is dropped rather
 /// than migrated when it cannot be read.
 pub fn encode_with_view(project: &Project, view: Option<&ProjectView>, pretty: bool) -> Vec<u8> {
-    let env = EnvelopeOut { format: FORMAT_ID, schema_version: SCHEMA_VERSION, generator: generator(), project, view };
+    let env = EnvelopeOut { format: FORMAT_ID, schema_version: SCHEMA_VERSION, generator: generator(), lineage: FORK_LINEAGE, project, view };
     let r = if pretty { serde_json::to_vec_pretty(&env) } else { serde_json::to_vec(&env) };
     // Serializing plain data (string keys, finite numbers or null) cannot fail.
     r.unwrap_or_default()
@@ -200,15 +237,80 @@ pub fn decode(bytes: &[u8]) -> Result<Loaded, FormatError> {
         .map_err(|e| if e.is_syntax() || e.is_eof() { FormatError::Corrupt(e.to_string()) } else { FormatError::NotAProject(e.to_string()) })?;
     let found = probe_version(&probe)?;
     check_supported(found)?;
+    let ours = probe.lineage.as_deref() == Some(FORK_LINEAGE);
     if found == SCHEMA_VERSION {
+        if !ours {
+            // the fork's newest number without its marker: another lineage's file of the same number
+            return Err(FormatError::OtherLineage { found });
+        }
         // Fast path: deserialize straight into the model.
         let env: EnvelopeIn = serde_json::from_slice(bytes).map_err(|e| FormatError::Corrupt(e.to_string()))?;
-        return Ok(env.loaded(found));
+        return validate_loaded(env.loaded(found));
     }
     let doc: Value = serde_json::from_slice(bytes).map_err(|e| FormatError::Corrupt(e.to_string()))?;
-    let doc = migrate_with(MIGRATIONS, doc, found)?;
+    // a pre-U0 fork file (grades / stills numbered 13 / 14) is an upstream v12 document plus fields
+    let from = if !ours && FORK_LEGACY_SCHEMAS.contains(&found) && fork_shape(&doc) { FORK_LEGACY_BASE } else { found };
+    let doc = migrate_with(MIGRATIONS, doc, from)?;
     let env: EnvelopeIn = serde_json::from_value(doc).map_err(|e| FormatError::Corrupt(format!("after upgrading from schema v{found}: {e}")))?;
-    Ok(env.loaded(found))
+    validate_loaded(env.loaded(found))
+}
+
+/// Whether an unmarked v13 / v14 document was written by this fork before U0 (see the module
+/// docs): a media item still holding the pre-v13 single `audio` object (upstream's v13 writes
+/// `audio_streams`), a `stills` list, or a `grade` on a timeline clip. A document with none of
+/// these has the same shape in both lineages, so either reading is right.
+pub fn fork_shape(doc: &Value) -> bool {
+    let Some(project) = doc.get("project").and_then(Value::as_object) else { return false };
+    if project.contains_key("stills") {
+        return true;
+    }
+    let Some(items) = project.get("items").and_then(Value::as_object) else { return false };
+    items.values().any(|item| {
+        let kind = item.get("kind");
+        if kind.and_then(|k| k.get("Media")).and_then(|m| m.get("info")).and_then(Value::as_object).is_some_and(|info| info.contains_key("audio")) {
+            return true;
+        }
+        let Some(seq) = kind.and_then(|k| k.get("Sequence")) else { return false };
+        ["video_tracks", "audio_tracks"].into_iter().any(|tracks| {
+            seq.get(tracks).and_then(Value::as_array).is_some_and(|tracks| {
+                tracks.iter().any(|t| t.get("items").and_then(Value::as_array).is_some_and(|clips| clips.iter().any(|c| c.get("grade").is_some())))
+            })
+        })
+    })
+}
+
+/// Refuse only values that would overflow or exhaust memory later (`Sequence::check_bounds`);
+/// structural rules such as overlaps are left to the editor, so projects that open today still open.
+fn validate_loaded(mut loaded: Loaded) -> Result<Loaded, FormatError> {
+    // Out-of-range audio stream data is repaired, not refused: failing the load would lose the
+    // whole project over one bad index. A media item keeps its first `MAX_AUDIO_STREAMS` streams; a
+    // clip pointing past that plays stream 0.
+    let max = filmcraft_media::MAX_AUDIO_STREAMS;
+    for item in loaded.project.items.values_mut() {
+        let name = item.name.clone();
+        match &mut item.kind {
+            filmcraft_project::ItemKind::Media(m) if m.info.audio_streams.len() > max => {
+                log::warn!("media `{name}`: {} audio streams, keeping the first {max}", m.info.audio_streams.len());
+                m.info.audio_streams.truncate(max);
+            }
+            filmcraft_project::ItemKind::Sequence(sequence) => {
+                let sequence = std::sync::Arc::make_mut(sequence);
+                for clip in sequence.audio_tracks.iter_mut().flat_map(|t| t.items.iter_mut()) {
+                    if clip.audio_stream >= max {
+                        log::warn!("sequence `{name}`: clip `{}` uses audio stream {}, reset to 0", clip.name, clip.audio_stream);
+                        clip.audio_stream = 0;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for item in loaded.project.sequences() {
+        if let filmcraft_project::ItemKind::Sequence(sequence) = &item.kind {
+            sequence.check_bounds().map_err(|e| FormatError::Corrupt(format!("sequence `{}`: {e}", item.name)))?;
+        }
+    }
+    Ok(loaded)
 }
 
 fn check_supported(found: u32) -> Result<(), FormatError> {
@@ -309,13 +411,24 @@ fn v11_to_v12(doc: Value) -> Result<Value, String> {
     Ok(doc)
 }
 
-/// v12 → v13: colour grades on track items. Existing data needs no change.
+/// v12 → v13: container audio streams and per-clip stream selection. `MediaInfo` reads the old
+/// `audio` field as stream zero; `TrackItem::audio_stream` defaults to zero.
 fn v12_to_v13(doc: Value) -> Result<Value, String> {
     Ok(doc)
 }
 
-/// v13 -> v14: the stills gallery. Existing data needs no change.
+/// v13 → v14: narrations (Text to Speech). Existing data needs no change.
 fn v13_to_v14(doc: Value) -> Result<Value, String> {
+    Ok(doc)
+}
+
+/// v14 → v15: project notes. Existing data needs no change.
+fn v14_to_v15(doc: Value) -> Result<Value, String> {
+    Ok(doc)
+}
+
+/// v15 → v16 (fork): colour grades on clips and the stills gallery. Existing data needs no change.
+fn v15_to_v16(doc: Value) -> Result<Value, String> {
     Ok(doc)
 }
 
@@ -325,7 +438,194 @@ mod tests {
 
     #[test]
     fn schema_version_matches_table() {
-        assert_eq!(SCHEMA_VERSION, 14);
+        assert_eq!(SCHEMA_VERSION, 16);
+    }
+
+    /// A project with a media item (one audio stream), a graded clip and a still, as the fork
+    /// writes it today.
+    fn graded_project() -> (Project, filmcraft_project::ItemId) {
+        use filmcraft_media::{DemoScene, Generator, MediaSource, generators::GeneratorSource};
+        use filmcraft_project::{ItemKind, Label, MediaClip, MediaRef, SequenceSettings, Still, TrackKind, grade::Grade};
+        use filmcraft_time::{Tick, TimeRange};
+        let mut p = Project::new("Fork Lineage");
+        let src = GeneratorSource::demo(DemoScene::OceanSunset);
+        let clip = MediaClip {
+            media: MediaRef::Generator(Generator::Demo(DemoScene::OceanSunset)),
+            info: src.info().clone(),
+            interpret: Default::default(),
+            mark_in: None,
+            mark_out: None,
+            markers: vec![],
+            offline: false,
+            proxy: None,
+            identity: None,
+        };
+        let media = p.add_item("Ocean_Sunset.mp4", Label::Iris, ItemKind::Media(clip), None);
+        let seq = p.new_sequence("Sequence 01", SequenceSettings::default(), 1, 1, None);
+        let rate = p.sequence(seq).unwrap().settings.frame_rate;
+        let range = TimeRange::new(Tick::ZERO, rate.tick_of(24));
+        let mut ti = p.make_track_item(media, TrackKind::Video, Tick::ZERO, range, rate).unwrap();
+        // resolve the "centre" (NaN) points as an edit does, so the project compares equal to itself
+        for e in &mut ti.effects {
+            filmcraft_project::resolve_auto_points(e, (1920, 1080), (1920, 1080));
+        }
+        ti.grade = Some(Grade::with_node());
+        p.sequence_mut(seq).unwrap().video_tracks[0].items.push(ti);
+        p.stills.push(Still {
+            id: 1,
+            label: "Hero".into(),
+            clip: None,
+            clip_name: "A001".into(),
+            sequence: Some(seq),
+            time: Tick(5),
+            grade: Some(Grade::with_node()),
+            width: 64,
+            height: 36,
+            nonce: 1,
+        });
+        (p, seq)
+    }
+
+    /// `encode(p)` rewritten as a pre-U0 fork file: schema `v`, no lineage marker, and every media
+    /// item's `audio_streams` list back to the single `audio` object upstream v12 wrote.
+    fn as_fork_legacy(p: &Project, v: u32) -> Vec<u8> {
+        let mut doc: Value = serde_json::from_slice(&encode(p, false)).unwrap();
+        doc.as_object_mut().unwrap().remove("lineage");
+        doc["schema_version"] = Value::from(v);
+        for item in doc["project"]["items"].as_object_mut().unwrap().values_mut() {
+            if let Some(info) = item.pointer_mut("/kind/Media/info").and_then(Value::as_object_mut) {
+                let first = info.remove("audio_streams").and_then(|s| s.as_array().and_then(|a| a.first().cloned())).unwrap_or(Value::Null);
+                info.insert("audio".into(), first);
+            }
+        }
+        serde_json::to_vec(&doc).unwrap()
+    }
+
+    fn media_streams(p: &Project) -> usize {
+        p.items.values().find_map(|i| i.as_media()).map_or(0, |m| m.info.audio_streams.len())
+    }
+
+    /// Fork files from before U0 (grades at v13, stills at v14, upstream v12 audio) open: the
+    /// audio is upgraded to a stream list, the grade and the still survive, and the file is
+    /// written back at the current schema with the lineage marker.
+    #[test]
+    fn pre_u0_fork_v13_and_v14_files_load_with_grades_stills_and_upgraded_audio() {
+        let (p, seq) = graded_project();
+        assert_eq!(media_streams(&p), 1);
+        for v in [13, 14] {
+            let bytes = as_fork_legacy(&p, v);
+            let doc: Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(fork_shape(&doc), "v{v}: the single `audio` object marks a fork file");
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            assert!(text.contains("\"audio\":{") && !text.contains("audio_streams") && !text.contains("lineage"));
+            let l = decode(&bytes).unwrap_or_else(|e| panic!("fork v{v} file refused: {e}"));
+            assert_eq!((l.schema_version, l.migrated()), (v, true));
+            assert_eq!(media_streams(&l.project), 1, "the old `audio` object is stream zero");
+            assert_eq!(l.project, p, "grade and still intact, nothing else changed");
+            let clip = &l.project.sequence(seq).unwrap().video_tracks[0].items[0];
+            assert_eq!(clip.grade.as_ref().map(|g| g.nodes.len()), Some(1));
+            assert_eq!(l.project.stills.len(), 1);
+            let again: Value = serde_json::from_slice(&encode(&l.project, false)).unwrap();
+            assert_eq!((again["schema_version"].as_u64(), again["lineage"].as_str()), (Some(u64::from(SCHEMA_VERSION)), Some(FORK_LINEAGE)));
+        }
+        // a fork v14 file without media still says so through its stills / grade
+        let mut p2 = Project::new("Stills only");
+        p2.stills = p.stills.clone();
+        let doc: Value = serde_json::from_slice(&as_fork_legacy(&p2, 14)).unwrap();
+        assert!(fork_shape(&doc));
+        let mut doc: Value = serde_json::from_slice(&as_fork_legacy(&Project::new("Empty"), 13)).unwrap();
+        assert!(!fork_shape(&doc), "nothing to tell the lineages apart: read as upstream, which is the same shape");
+        assert!(decode(&serde_json::to_vec(&doc).unwrap()).is_ok());
+        doc["project"] = Value::Null;
+        assert!(!fork_shape(&doc), "a damaged document is not a fork file (and never a panic)");
+    }
+
+    /// Upstream's own v13 (multi-stream audio), v14 (narrations) and v15 (notes) files open and
+    /// are written back at this fork's schema.
+    #[test]
+    fn upstream_v13_to_v15_files_load() {
+        let (p, _) = graded_project();
+        let mut plain = p.clone();
+        plain.stills.clear();
+        for item in plain.items.values_mut() {
+            if let filmcraft_project::ItemKind::Sequence(seq) = &mut item.kind {
+                for clip in std::sync::Arc::make_mut(seq).video_tracks.iter_mut().flat_map(|t| t.items.iter_mut()) {
+                    clip.grade = None;
+                }
+            }
+        }
+        plain.notes = "upstream notes".into();
+        for v in [13, 14, 15] {
+            let mut doc: Value = serde_json::from_slice(&encode(&plain, false)).unwrap();
+            doc.as_object_mut().unwrap().remove("lineage");
+            doc["schema_version"] = Value::from(v);
+            assert!(!fork_shape(&doc), "v{v}: upstream's `audio_streams`, no grade, no stills");
+            let l = decode(&serde_json::to_vec(&doc).unwrap()).unwrap_or_else(|e| panic!("upstream v{v} file refused: {e}"));
+            assert_eq!((l.schema_version, l.migrated()), (v, true));
+            assert_eq!(l.project, plain);
+            assert_eq!(media_streams(&l.project), 1);
+            let again = decode(&encode(&l.project, true)).unwrap();
+            assert_eq!((again.schema_version, &again.project), (SCHEMA_VERSION, &plain));
+        }
+    }
+
+    /// The envelope carries the lineage marker; a file at this build's schema number without it
+    /// comes from another lineage and is refused, never misread.
+    #[test]
+    fn lineage_marker_is_written_and_decides_same_numbered_files() {
+        let p = Project::new("Marked");
+        let mut doc: Value = serde_json::from_slice(&encode(&p, true)).unwrap();
+        assert_eq!(doc["lineage"], FORK_LINEAGE);
+        assert_eq!(decode(&serde_json::to_vec(&doc).unwrap()).unwrap().project, p);
+        doc.as_object_mut().unwrap().remove("lineage");
+        let e = decode(&serde_json::to_vec(&doc).unwrap()).unwrap_err();
+        assert!(matches!(e, FormatError::OtherLineage { found } if found == SCHEMA_VERSION), "{e}");
+        assert!(e.to_string().contains("another FilmCraft lineage"), "{e}");
+        // an unknown marker is not ours either; an older unmarked file (upstream's) still opens
+        doc["lineage"] = Value::from("someone-else");
+        assert!(matches!(decode(&serde_json::to_vec(&doc).unwrap()), Err(FormatError::OtherLineage { .. })));
+        doc.as_object_mut().unwrap().remove("lineage");
+        doc["schema_version"] = Value::from(SCHEMA_VERSION - 1);
+        assert_eq!(decode(&serde_json::to_vec(&doc).unwrap()).unwrap().project, p);
+    }
+
+    #[test]
+    fn damaged_sequence_settings_are_rejected_before_rendering() {
+        let mut p = Project::new("Invalid sequence");
+        let id = p.new_sequence("Bad", filmcraft_project::SequenceSettings::default(), 1, 1, None);
+        for (width, height, sample_rate) in [(0, 90, 48000), (160, 0, 48000), (160, 90, 0), (65536, 90, 48000), (32768, 16384, 48000)] {
+            let settings = &mut p.sequence_mut(id).unwrap().settings;
+            (settings.width, settings.height, settings.sample_rate) = (width, height, sample_rate);
+            assert!(matches!(decode(&encode(&p, false)), Err(FormatError::Corrupt(_))));
+        }
+    }
+
+    /// #210 review: load-time validation refuses only overflowing values. A project that breaks a
+    /// structural rule an older build may have written (overlapping or zero-length clips) still
+    /// opens, as it did before; and 16K sequences are not "too large".
+    #[test]
+    fn structural_rule_breaks_still_open() {
+        use filmcraft_project::{ItemKind, SequenceSettings, TrackKind};
+        use filmcraft_time::{FrameRate, Tick, TimeRange};
+        let mut p = Project::new("Legacy");
+        let rate = FrameRate::FPS_24;
+        let layer = p.add_item(
+            "Layer",
+            filmcraft_project::Label::Iris,
+            ItemKind::AdjustmentLayer { width: 1920, height: 1080, rate, duration: rate.tick_of(48) },
+            None,
+        );
+        let settings = SequenceSettings { width: 15360, height: 8640, ..Default::default() };
+        let seq = p.new_sequence("Sequence 01", settings, 1, 1, None);
+        let range = TimeRange::new(Tick::ZERO, rate.tick_of(48));
+        let a = p.make_track_item(layer, TrackKind::Video, Tick::ZERO, range, rate).unwrap();
+        let b = p.make_track_item(layer, TrackKind::Video, rate.tick_of(24), range, rate).unwrap();
+        let mut c = p.make_track_item(layer, TrackKind::Video, rate.tick_of(200), range, rate).unwrap();
+        c.duration = Tick::ZERO;
+        p.sequence_mut(seq).unwrap().video_tracks[0].items = vec![a, b, c];
+        assert!(p.sequence(seq).unwrap().check().is_err(), "the sequence breaks the editor's invariants");
+        let loaded = decode(&encode(&p, false)).unwrap_or_else(|e| panic!("a project that opened before is refused: {e}"));
+        assert_eq!(loaded.project.sequence(seq).unwrap().video_tracks[0].items.len(), 3);
     }
 
     #[test]
@@ -352,6 +652,7 @@ mod tests {
             open_sequences: vec![seq],
             active_sequence: Some(seq),
             sequences: [(seq, SequenceView { pps: 80.0, scroll: 1.5, v_scroll: 0.0, a_scroll: 4.0, video_track_h: 60.0, audio_track_h: 56.0 })].into(),
+            playheads: [(seq, filmcraft_time::Tick(3 * filmcraft_time::TICKS_PER_SECOND))].into(),
         };
         for pretty in [true, false] {
             let l = decode(&encode_with_view(&p, Some(&view), pretty)).unwrap();

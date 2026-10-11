@@ -10,17 +10,20 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+craft-ui = { workspace = true }
 filmcraft-time = { workspace = true }
 filmcraft-geom = { workspace = true }
 filmcraft-color = { workspace = true }
 filmcraft-frame = { workspace = true }
 filmcraft-media = { workspace = true }
 filmcraft-project = { workspace = true }
+filmcraft-tts = { workspace = true }
 filmcraft-edit = { workspace = true }
 filmcraft-render = { workspace = true }
 filmcraft-text = { workspace = true }
 filmcraft-audio-dsp = { workspace = true }
 filmcraft-engine = { workspace = true }
+filmcraft-export = { workspace = true }
 filmcraft-gpu = { workspace = true }
 filmcraft-scopes = { workspace = true }
 egui = { workspace = true }
@@ -36,6 +39,9 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # Thread/process CPU clocks for frame-job profiling (safe wrappers; see frames.rs).
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["std", "time"] }
+# the same clocks on Windows (GetThreadTimes / GetProcessTimes behind a safe API; MIT OR Apache-2.0)
+[target.'cfg(windows)'.dependencies]
+cpu-time = "1"
 
 # blocking adapter / device requests when FilmCraft creates the wgpu device (Linux interop)
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -50,3 +56,8 @@ filmcraft-platform = { workspace = true }
 filmcraft-interchange = { workspace = true }
 filmcraft-isobmff = { workspace = true }
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
+
+# build.rs bakes contributors/contributors.json into the binary (About ▸ Contributors).
+[build-dependencies]
+serde_json = { workspace = true }
+toml = "1"

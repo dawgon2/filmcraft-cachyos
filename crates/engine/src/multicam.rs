@@ -323,11 +323,7 @@ fn placed_item(p: &mut Project, item: ItemId, kind: TrackKind, exact: Tick, rang
 }
 
 fn sync_source_size(p: &Project, item: ItemId) -> Option<(u32, u32)> {
-    match &p.item(item)?.kind {
-        ItemKind::Media(m) => m.info.video.as_ref().map(|v| (v.width, v.height)),
-        ItemKind::Subclip { parent, .. } => sync_source_size(p, *parent),
-        _ => None,
-    }
+    p.resolve_media(item).and_then(|(_, media, _)| media.info.video.as_ref().map(|video| (video.width, video.height)))
 }
 
 // ---------------------------------------------------------------- Synchronize
@@ -479,12 +475,12 @@ fn sync_items(s: &Session, items: &[ItemId], cmd: &str) -> Result<Vec<SyncClip>>
 }
 
 fn settings_for(s: &Session, item: ItemId) -> SequenceSettings {
-    let info = match s.project.item(item).map(|i| &i.kind) {
-        Some(ItemKind::Media(m)) => Some(m.info.clone()),
-        Some(ItemKind::Subclip { parent, .. }) => s.project.item(*parent).and_then(|i| i.as_media()).map(|m| m.info.clone()),
+    let media = match s.project.item(item).map(|i| &i.kind) {
+        Some(ItemKind::Media(m)) => Some(m),
+        Some(ItemKind::Subclip { parent, .. }) => s.project.item(*parent).and_then(|i| i.as_media()),
         _ => None,
     };
-    let mut st = info.as_ref().map(crate::commands::default_seq_settings_for).unwrap_or_default();
+    let mut st = media.map(crate::commands::default_seq_settings_for).unwrap_or_default();
     if let Some(m) = s.project.item(item).and_then(|i| i.as_media())
         && let Some(r) = m.interpret.frame_rate
     {

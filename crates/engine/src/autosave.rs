@@ -22,12 +22,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use filmcraft_format::autosave as names;
 use filmcraft_project::Project;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::settings;
 
@@ -398,6 +399,7 @@ impl Preferences {
         self.playback.postroll_seconds = secs(self.playback.postroll_seconds);
         self.trim.large_trim_offset = self.trim.large_trim_offset.clamp(1, 1000);
         self.labels.sanitize_labels();
+        self.appearance.sync_color_theme();
         self.version = settings::PREFS_VERSION;
     }
 
@@ -460,6 +462,12 @@ impl Preferences {
         let _: Preferences = serde_json::from_value(v.clone()).map_err(|e| format!("`{key}`: {e}"))?;
         settings::sanitize(&mut v, &Self::default().to_value());
         let mut p: Preferences = serde_json::from_value(v).map_err(|e| format!("`{key}`: {e}"))?;
+        // Old clients that set the single Color Theme still pick the theme they name (before
+        // `clamp`, which brings `colorTheme` back in line with the mode and theme choices).
+        if key == "appearance.colorTheme" {
+            let theme = p.appearance.color_theme.clone();
+            p.appearance.select_theme(&theme);
+        }
         p.clamp();
         *self = p;
         Ok(())
@@ -477,12 +485,25 @@ impl Preferences {
     }
 }
 
-/// The per-user data directory (`FILMCRAFT_DATA_DIR` overrides):
+/// A file with this name next to the executable makes the install portable: its data directory is
+/// `<exe dir>/data` instead of the per-user one (the Windows portable zip ships it).
+pub const PORTABLE_MARKER: &str = "portable.txt";
+
+/// `<exe_dir>/data` when `exe_dir` holds [`PORTABLE_MARKER`], else `None`.
+pub fn portable_data_dir(exe_dir: &Path) -> Option<PathBuf> {
+    exe_dir.join(PORTABLE_MARKER).is_file().then(|| exe_dir.join("data"))
+}
+
+/// The data directory. `FILMCRAFT_DATA_DIR` overrides; a portable install ([`PORTABLE_MARKER`] next
+/// to the executable) uses `<exe dir>/data`; otherwise the per-user directory:
 /// macOS `~/Library/Application Support/FilmCraft`, Windows `%APPDATA%\FilmCraft`,
 /// elsewhere `$XDG_DATA_HOME/filmcraft` or `~/.local/share/filmcraft`.
 pub fn default_data_dir() -> Option<PathBuf> {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(d) = env("FILMCRAFT_DATA_DIR") {
+        return Some(d);
+    }
+    if let Some(d) = std::env::current_exe().ok().and_then(|exe| exe.parent().and_then(portable_data_dir)) {
         return Some(d);
     }
     if cfg!(target_os = "macos") {

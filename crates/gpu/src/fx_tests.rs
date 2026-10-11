@@ -41,6 +41,9 @@ fn fl(v: f64) -> ParamValue {
 fn col(r: f32, g: f32, b: f32) -> ParamValue {
     ParamValue::Color([r, g, b, 1.0])
 }
+fn ch(c: u32) -> ParamValue {
+    ParamValue::Choice(c)
+}
 fn pt(x: f64, y: f64) -> ParamValue {
     ParamValue::Vec2(Vec2::new(x, y))
 }
@@ -187,6 +190,113 @@ fn cases() -> Vec<(&'static str, Vec<(&'static str, ParamValue)>, bool)> {
         ("alpha_adjust", vec![("opacity", fl(60.0))], false),
         ("alpha_adjust", vec![("ignore", ParamValue::Bool(true)), ("invert", ParamValue::Bool(true))], false),
         ("alpha_adjust", vec![("invert", ParamValue::Bool(true)), ("mask_only", ParamValue::Bool(true)), ("opacity", fl(150.0))], false),
+        ("vignette", vec![], false),
+        ("vignette", vec![("amount", fl(-100.0)), ("midpoint", fl(50.0)), ("roundness", fl(0.0)), ("feather", fl(50.0))], false),
+        (
+            "vignette",
+            vec![("amount", fl(-30.0)), ("midpoint", fl(20.0)), ("roundness", fl(-100.0)), ("feather", fl(0.0)), ("color", col(0.1, 0.4, 0.7))],
+            false,
+        ),
+        ("vignette", vec![("amount", fl(40.0)), ("midpoint", fl(90.0)), ("roundness", fl(100.0)), ("feather", fl(100.0))], false),
+        ("video_limiter", vec![], false),
+        ("video_limiter", vec![("axis", ch(0)), ("clip_level", ch(0)), ("compression", ch(0))], false),
+        ("video_limiter", vec![("axis", ch(1)), ("clip_level", ch(9)), ("compression", ch(4))], false),
+        ("video_limiter", vec![("axis", ch(2)), ("clip_level", ch(5)), ("compression", ch(2))], false),
+        ("video_limiter", vec![("axis", ch(3)), ("clip_level", ch(0)), ("compression", ch(1))], false),
+        (
+            "video_limiter",
+            vec![
+                ("axis", ch(2)),
+                ("clip_level", ch(0)),
+                ("compression", ch(0)),
+                ("gamut_warning", ParamValue::Bool(true)),
+                ("warning_color", col(0.0, 1.0, 0.0)),
+            ],
+            false,
+        ),
+        (
+            "lumetri",
+            vec![
+                ("temperature", fl(20.0)),
+                ("tint", fl(-10.0)),
+                ("exposure", fl(0.5)),
+                ("contrast", fl(15.0)),
+                ("highlights", fl(-20.0)),
+                ("shadows", fl(25.0)),
+                ("whites", fl(10.0)),
+                ("blacks", fl(-15.0)),
+                ("saturation", fl(110.0)),
+                ("creative_on", ParamValue::Bool(false)),
+                ("vignette_on", ParamValue::Bool(false)),
+            ],
+            false,
+        ),
+        (
+            "lumetri",
+            vec![
+                ("basic_on", ParamValue::Bool(false)),
+                ("creative_sat", fl(120.0)),
+                ("vibrance", fl(30.0)),
+                ("faded_film", fl(25.0)),
+                ("shadow_tint", col(0.4, 0.45, 0.6)),
+                ("highlight_tint", col(0.6, 0.55, 0.4)),
+                ("vignette_on", ParamValue::Bool(false)),
+            ],
+            false,
+        ),
+        (
+            "lumetri",
+            vec![
+                ("basic_on", ParamValue::Bool(false)),
+                ("creative_on", ParamValue::Bool(false)),
+                ("vignette_amount", fl(-3.0)),
+                ("vignette_midpoint", fl(45.0)),
+                ("vignette_roundness", fl(-30.0)),
+                ("vignette_feather", fl(60.0)),
+            ],
+            false,
+        ),
+        (
+            "lumetri",
+            vec![
+                ("temperature", fl(-15.0)),
+                ("tint", fl(10.0)),
+                ("exposure", fl(0.3)),
+                ("contrast", fl(20.0)),
+                ("highlights", fl(-10.0)),
+                ("shadows", fl(15.0)),
+                ("whites", fl(-5.0)),
+                ("blacks", fl(5.0)),
+                ("saturation", fl(105.0)),
+                ("creative_sat", fl(110.0)),
+                ("vibrance", fl(20.0)),
+                ("faded_film", fl(15.0)),
+                ("shadow_tint", col(0.48, 0.5, 0.55)),
+                ("highlight_tint", col(0.52, 0.5, 0.45)),
+                ("vignette_amount", fl(2.0)),
+                ("vignette_midpoint", fl(50.0)),
+                ("vignette_roundness", fl(20.0)),
+                ("vignette_feather", fl(50.0)),
+            ],
+            false,
+        ),
+        (
+            "lumetri",
+            vec![("exposure", fl(4.0)), ("contrast", fl(100.0)), ("temperature", fl(100.0)), ("tint", fl(100.0)), ("whites", fl(100.0)), ("blacks", fl(100.0))],
+            false,
+        ),
+        (
+            "lumetri",
+            vec![
+                ("exposure", fl(-4.0)),
+                ("contrast", fl(-100.0)),
+                ("temperature", fl(-100.0)),
+                ("tint", fl(-100.0)),
+                ("whites", fl(-100.0)),
+                ("blacks", fl(-100.0)),
+            ],
+            false,
+        ),
     ]
 }
 
@@ -204,11 +314,14 @@ fn gpu_effects_match_cpu_exactly() {
     let mut failures = Vec::new();
     for (id, params, steps) in cases() {
         let e = effect(id, &params);
-        let op = FxOp::eval(&e, &cx(Tick::ZERO, 1.0), w as usize, h as usize).unwrap_or_else(|| panic!("{id} has no GPU op"));
-        assert!(op.gpu_ok(), "{id} {params:?}: not GPU-capable");
+        // (a chained effect — Lumetri — is several ops: its colour chain, HSL Secondary, Sharpen)
+        let ops = FxOp::eval_all(&e, &cx(Tick::ZERO, 1.0), w as usize, h as usize).unwrap_or_else(|| panic!("{id} has no GPU op"));
+        assert!(ops.iter().all(FxOp::gpu_ok), "{id} {params:?}: not GPU-capable");
         let mut cpu = filmcraft_render::Image { w: w as usize, h: h as usize, px: px.clone() };
-        op.apply(&mut cpu);
-        let fx = LayerFx { size: (w, h), decimation: 1, ops: vec![op] };
+        for op in &ops {
+            op.apply(&mut cpu);
+        }
+        let fx = LayerFx { size: (w, h), decimation: 1, ops };
         let (_, _, gpu) = c.effect_image(&frame, &fx).expect("effect image");
         let (worst, flips) = compare(&cpu.px, &gpu);
         eprintln!("{id} {params:?}: max rel diff {worst:.2e}, {:.3}% flipped", flips * 100.0);
@@ -319,7 +432,36 @@ fn hostile_parameters_are_bounded() {
         // minifying resamples (the CPU's mip path) stay on the CPU
         effect("transform", &[("scale_height", fl(20.0))]),
         effect("crop", &[("left", fl(-300.0)), ("zoom", ParamValue::Bool(true))]),
+        effect("vignette", &[("amount", fl(f64::NAN))]),
+        effect("vignette", &[("midpoint", fl(f64::INFINITY))]),
+        effect("vignette", &[("roundness", fl(f64::NAN))]),
+        effect("vignette", &[("feather", fl(f64::NAN))]),
+        effect("video_limiter", &[("clip_level", fl(f64::NAN))]),
+        effect("video_limiter", &[("compression", fl(f64::INFINITY))]),
+        effect("video_limiter", &[("axis", fl(f64::NAN))]),
+        effect("video_limiter", &[("warning_color", ParamValue::Color([f32::NAN, 0.0, 0.0, 1.0]))]),
     ];
+    // Lumetri is a colour chain (fork ADR 0003): a non-finite slider either leaves its operation
+    // out (the CPU and the GPU agree) or makes a non-finite op the GPU refuses; the CPU copes
+    for e in [
+        effect("lumetri", &[("exposure", fl(f64::NAN))]),
+        effect("lumetri", &[("temperature", fl(f64::INFINITY))]),
+        effect("lumetri", &[("contrast", fl(f64::NAN))]),
+        effect("lumetri", &[("vignette_amount", fl(f64::NAN))]),
+    ] {
+        let ops = FxOp::eval_all(&e, &cx(Tick::ZERO, 1.0), w, h).expect("lumetri has a GPU form");
+        let mut img = filmcraft_render::Image::filled(w, h, [0.3, 0.2, 0.1, 1.0]);
+        for op in &ops {
+            op.apply(&mut img);
+        }
+        // whatever the GPU would run is finite arithmetic on finite pixels
+        let gpu_ops: Vec<&FxOp> = ops.iter().filter(|o| o.gpu_ok()).collect();
+        let mut finite = filmcraft_render::Image::filled(w, h, [0.3, 0.2, 0.1, 1.0]);
+        for op in gpu_ops {
+            op.apply(&mut finite);
+        }
+        assert!(finite.px.iter().all(|v| v.is_finite()), "{}: a GPU-capable Lumetri op produced non-finite pixels", e.effect);
+    }
     for e in &nan {
         let op = FxOp::eval(e, &cx(Tick::ZERO, 1.0), w, h);
         // gaussian with an infinite radius is capped (no blur), which the GPU runs
@@ -355,6 +497,35 @@ fn hostile_parameters_are_bounded() {
     assert_eq!(gpu.len(), w * h * 4);
     // a working image larger than any texture is refused, not attempted
     assert!(c.effect_image(&frame, &LayerFx { size: (1 << 20, 4), decimation: 1, ops: vec![FxOp::BlackWhite] }).is_none());
+}
+
+/// Every Lumetri section has a GPU form in the fork (ADR 0003: one colour chain, HSL Secondary as
+/// a keyed chain, Sharpen as an unsharp mask), in SDR and HDR working spaces alike. (Upstream's
+/// single-op Lumetri fell back to the CPU for these; the chain does not.)
+#[test]
+fn every_lumetri_section_has_a_gpu_form() {
+    let (w, h) = (40usize, 24usize);
+    let cases: Vec<(&str, EffectInstance)> = vec![
+        ("sharpen + input LUT", effect("lumetri", &[("sharpen", fl(10.0)), ("input_lut", ParamValue::Text("custom.cube".into()))])),
+        ("sharpen", effect("lumetri", &[("sharpen", fl(20.0))])),
+        ("input LUT", effect("lumetri", &[("input_lut", ParamValue::Text("test.cube".into()))])),
+        ("look LUT", effect("lumetri", &[("look_lut", ParamValue::Text("look.cube".into()))])),
+        ("look", effect("lumetri", &[("look", ch(1))])),
+        ("luma curve", effect("lumetri", &[("curve_luma", ParamValue::Curve(vec![[0.0, 0.1], [1.0, 0.9]]))])),
+        ("hue vs sat", effect("lumetri", &[("hue_vs_sat", ParamValue::Curve(vec![[0.5, 0.5]]))])),
+        ("wheel offset", effect("lumetri", &[("wheel_shadows", pt(0.5, 0.0))])),
+        ("wheel lightness", effect("lumetri", &[("wheel_midtones_l", fl(20.0))])),
+        ("HSL Secondary", effect("lumetri", &[("hsl_on", ParamValue::Bool(true))])),
+    ];
+    for (name, e) in &cases {
+        let ops = FxOp::eval_all(e, &cx(Tick::ZERO, 1.0), w, h).unwrap_or_else(|| panic!("{name}: no GPU form"));
+        assert!(ops.iter().all(FxOp::gpu_ok), "{name}: {ops:?}");
+    }
+    // an HDR working space grades the PQ signal: the same chain, with its HDR encode / decode
+    let mut cx_hdr = cx(Tick::ZERO, 1.0);
+    cx_hdr.working = filmcraft_color::WorkingSpace::Rec2100Pq;
+    let ops = FxOp::eval_all(&effect("lumetri", &[("exposure", fl(0.5))]), &cx_hdr, w, h).expect("HDR Lumetri has a GPU form");
+    assert!(ops.iter().all(FxOp::gpu_ok), "{ops:?}");
 }
 
 /// Layers with effect chains in a composited plan — YUV and RGBA sources, a decimated working
@@ -525,5 +696,76 @@ fn working_image_smaller_than_the_frame_matches_cpu() {
         let mean = cpu.px.iter().zip(&gpu).map(|(a, b)| (a - b).abs()).sum::<f32>() / gpu.len() as f32;
         eprintln!("{size:?}: mean abs diff {mean:.2e}");
         assert!(mean < 2e-3, "{size:?}: mean abs diff {mean}");
+    }
+}
+
+/// The half-float upload is lossless for this input, so a 1:1 effect source draw must be too.
+/// Odd dimensions expose interpolation drift that can invent opacity before any effect runs.
+#[test]
+fn effect_source_identity_preserves_odd_sized_half_float_texels() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    for (w, h) in [(67u32, 41u32), (96, 54), (64, 32)] {
+        let px = picture(w, h);
+        let frame = VideoFrame::rgba_f32(w, h, px.clone());
+        for n in [0, 1] {
+            let (ow, oh, gpu) = c.effect_image(&frame, &LayerFx { size: (w, h), decimation: n, ops: Vec::new() }).expect("source image");
+            assert_eq!((ow, oh, gpu.len()), (w, h, px.len()));
+            for (i, (expected, actual)) in px.iter().zip(&gpu).enumerate() {
+                assert_eq!(actual.to_bits(), expected.to_bits(), "{w}x{h} n{n} source component{i}: {actual} != {expected}");
+            }
+        }
+    }
+}
+
+#[test]
+fn alpha_invert_does_not_amplify_invented_opacity_at_odd_source_pixels() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (67, 41);
+    let px = picture(w, h);
+    let frame = VideoFrame::rgba_f32(w, h, px.clone());
+    let op = FxOp::Invert { channel: 4, blend: 0.2 };
+    let mut cpu = filmcraft_render::Image { w: w as usize, h: h as usize, px: px.clone() };
+    op.apply(&mut cpu);
+    let (_, _, gpu) = c.effect_image(&frame, &LayerFx { size: (w, h), decimation: 1, ops: vec![op] }).expect("alpha invert image");
+    assert_eq!(gpu.len(), px.len());
+    let (worst, flips) = compare(&cpu.px, &gpu);
+    assert!(worst <= EXACT && flips == 0.0, "alpha invert: {worst}, {flips}");
+    let mut transparent = 0;
+    for (source, result) in px.as_chunks::<4>().0.iter().zip(gpu.as_chunks::<4>().0.iter()) {
+        if source[3] == 0.0 {
+            transparent += 1;
+            assert_eq!(&result[..3], &[0.0; 3], "a transparent source must not acquire neighboring RGB");
+            assert!((result[3] - 0.8).abs() <= f32::EPSILON);
+        }
+    }
+    assert_eq!(transparent, 402);
+}
+
+/// The exact source grid keeps the existing box-minification behavior at non-unit factors.
+#[test]
+fn effect_source_integer_decimation_preserves_cpu_box_oracle() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    for (w, h) in [(67u32, 41u32), (96, 54)] {
+        let frame = VideoFrame::rgba_f32(w, h, picture(w, h));
+        for n in [2, 4, 8] {
+            let (ow, oh, cpu) = frame.to_linear_f32_decimated(n as usize);
+            let (gw, gh, gpu) =
+                c.effect_image(&frame, &LayerFx { size: (ow as u32, oh as u32), decimation: n, ops: Vec::new() }).expect("decimated source image");
+            assert_eq!((gw as usize, gh as usize, gpu.len()), (ow, oh, cpu.len()));
+            let (worst, flips) = compare(&cpu, &gpu);
+            assert!(worst <= EXACT && flips == 0.0, "{w}x{h} n{n} source box: {worst}, {flips}");
+        }
     }
 }

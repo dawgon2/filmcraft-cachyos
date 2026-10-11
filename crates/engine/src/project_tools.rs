@@ -22,7 +22,7 @@
 //! | `clip.automateToSequence` | Clip ▸ Automate to Sequence… |
 //! | `help.systemReport` | query behind Help ▸ System Compatibility Report… |
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use filmcraft_project::{BinEntry, FindOp, FindQuery, FindRow, ItemId, ItemKind, MarkerKind, MediaRef, Project, SearchBin, TrackKind};
 use filmcraft_time::{Tick, TimeDisplay, TimeRange};
@@ -370,11 +370,7 @@ fn targets(s: &Session, p: &Value) -> Vec<ItemId> {
 
 /// The media clip behind an item (subclips resolve to their parent).
 fn media_of(p: &Project, id: ItemId) -> Option<(ItemId, &filmcraft_project::MediaClip)> {
-    match &p.item(id)?.kind {
-        ItemKind::Media(m) => Some((id, m)),
-        ItemKind::Subclip { parent, .. } => media_of(p, *parent),
-        _ => None,
-    }
+    p.resolve_media(id).map(|(root, media, _)| (root, media))
 }
 
 fn file_path(m: &filmcraft_project::MediaClip) -> Option<&str> {
@@ -704,14 +700,54 @@ fn new_from_template(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// The selected items plus everything they need: sequence contents (recursively), subclip
 /// parents, multi-camera / merged-clip sources and graphic canvases.
+///
+/// Bins and items share one id space, so a named bin contributes every item it holds (and
+/// everything those items need), as `project.delete` does. The project's own top bin does not,
+/// since no command acts on it (#244), and only ids that name a real item end up in the result.
 pub fn closure(p: &Project, roots: &[ItemId]) -> BTreeSet<ItemId> {
+    // Index the bin tree once. Told apart from items with a set membership test (rather than a
+    // full `find_bin` per queued id, which is O(n²) when exporting many items from a flat
+    // project) and expanded from the indexed children (rather than a second walk per bin).
+    let mut bins: BTreeSet<u64> = BTreeSet::new();
+    let mut children: BTreeMap<u64, (Vec<ItemId>, Vec<u64>)> = BTreeMap::new();
+    let mut bin_stack = vec![&p.root];
+    while let Some(b) = bin_stack.pop() {
+        bins.insert(b.id.0);
+        let mut direct = (Vec::new(), Vec::new());
+        for c in &b.children {
+            match c {
+                BinEntry::Item(i) => direct.0.push(*i),
+                BinEntry::Bin(x) => {
+                    direct.1.push(x.id.0);
+                    bin_stack.push(x);
+                }
+            }
+        }
+        children.insert(b.id.0, direct);
+    }
+
     let mut keep: BTreeSet<ItemId> = BTreeSet::new();
     let mut todo: Vec<ItemId> = roots.to_vec();
+    let mut seen_bins: BTreeSet<u64> = BTreeSet::new();
+    let mut bin_todo: Vec<u64> = Vec::new();
     while let Some(id) = todo.pop() {
-        if !keep.insert(id) {
+        if bins.contains(&id.0) && id.0 != p.root.id.0 {
+            bin_todo.push(id.0);
+            while let Some(bid) = bin_todo.pop() {
+                if !seen_bins.insert(bid) {
+                    continue;
+                }
+                if let Some((items, subs)) = children.get(&bid) {
+                    todo.extend(items.iter().copied());
+                    bin_todo.extend(subs.iter().copied());
+                }
+            }
             continue;
         }
         let Some(it) = p.item(id) else { continue };
+        if !keep.insert(id) {
+            continue;
+        }
         match &it.kind {
             ItemKind::Subclip { parent, .. } => todo.push(*parent),
             ItemKind::Sequence(q) => {
@@ -745,6 +781,7 @@ pub fn project_subset(p: &Project, keep: &BTreeSet<ItemId>) -> Project {
     out.items.retain(|id, _| keep.contains(id));
     prune(&mut out.root, keep);
     out.transcripts.retain(|id, _| keep.contains(id));
+    out.narrations.retain(|id, _| keep.contains(id));
     out.search_bins.clear();
     out
 }
@@ -759,6 +796,9 @@ fn export_selection(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("file.exportSelectionProject", "select items in the Project panel"));
     }
     let keep = closure(&s.project, &roots);
+    if keep.is_empty() {
+        return Err(bad("file.exportSelectionProject", "the selection has no items to export"));
+    }
     let mut sub = project_subset(&s.project, &keep);
     let name = std::path::Path::new(&path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| sub.name.clone());
     sub.name = name.clone();
@@ -810,7 +850,7 @@ pub fn info_json(name: &str, path: Option<&str>, info: &filmcraft_media::MediaIn
             "bitrate": vs.bitrate, "color": format!("{:?} / {:?} / {:?}", vs.color.primaries, vs.color.transfer, vs.color.matrix),
         });
     }
-    if let Some(a) = &info.audio {
+    if let Some(a) = info.audio() {
         v["audio"] = json!({"codec": a.codec, "sampleRate": a.sample_rate, "channels": a.channels, "bitsPerSample": a.bits_per_sample});
     }
     v
@@ -1018,7 +1058,7 @@ fn edit_offline(s: &mut Session, p: &Value) -> Result<Value> {
 fn source_settings(s: &mut Session, p: &Value) -> Result<Value> {
     let id = targets(s, p).into_iter().find(|i| media_of(&s.project, *i).is_some()).ok_or_else(|| EngineError::Other("select a clip".into()))?;
     let (_, m) = media_of(&s.project, id).ok_or_else(|| EngineError::Other("select a clip".into()))?;
-    let codec = m.info.video.as_ref().map(|v| v.codec.clone()).or_else(|| m.info.audio.as_ref().map(|a| a.codec.clone())).unwrap_or_default();
+    let codec = m.info.video.as_ref().map(|v| v.codec.clone()).or_else(|| m.info.audio().map(|a| a.codec.clone())).unwrap_or_default();
     Ok(json!({
         "item": id.0,
         "codec": codec,

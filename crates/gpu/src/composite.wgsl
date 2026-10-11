@@ -14,7 +14,7 @@ struct U {
     p0: vec4<f32>,   // opacity, kind (0 rgba8 srgb straight, 1 rgba16f premul linear, 2 yuv planar, 3 yuv biplanar: tex1 = CbCr), taps, transfer (0 srgb, 1 linear, 2 pq, 3 hlg)
     p1: vec4<f32>,   // y_off y_scale c_off c_scale (code units)
     p2: vec4<f32>,   // kr kb code_scale footprint
-    p3: vec4<f32>,   // blend mode (index into filmcraft_render::Blend::ALL), alpha-plane scale (0: none), texel → code multiplier, unused
+    p3: vec4<f32>,   // blend mode (index into filmcraft_render::Blend::ALL), alpha-plane scale (0: none), texel → code multiplier, Maximum Render Quality (1: Lanczos-3 minification)
 };
 
 @group(0) @binding(0) var<uniform> u: U;
@@ -45,13 +45,15 @@ fn vs(@builtin(vertex_index) vi: u32) -> VOut {
 
 fn load4(t: texture_2d<f32>, p: vec2<f32>) -> vec4<f32> {
     let d = vec2<i32>(textureDimensions(t));
-    let q = p - 0.5;
+    var q = p - 0.5;
     // Snap offsets within 1/512 px of a texel centre onto it: at 1:1 the interpolated position
-    // is off by float rounding on some drivers (RADV), which would mix in a trace of the
-    // neighbouring texel (and turn a transparent texel's alpha of 0 into ~1e-6).
-    let qs = select(q, round(q), abs(q - round(q)) < vec2(1.0 / 512.0));
-    let i = vec2<i32>(floor(qs));
-    let f = qs - floor(qs);
+    // is off by float rounding on some drivers (RADV, Intel), which would mix in a trace of the
+    // neighbouring texel (fork F0; upstream's 1e-4 is too tight for both of the fork's GPUs).
+    let rq = round(q);
+    if abs(q.x - rq.x) < 1.0 / 512.0 { q.x = rq.x; }
+    if abs(q.y - rq.y) < 1.0 / 512.0 { q.y = rq.y; }
+    let i = vec2<i32>(floor(q));
+    let f = q - floor(q);
     let a = textureLoad(t, clamp(i, vec2(0), d - 1), 0);
     let b = textureLoad(t, clamp(i + vec2(1, 0), vec2(0), d - 1), 0);
     let cc = textureLoad(t, clamp(i + vec2(0, 1), vec2(0), d - 1), 0);
@@ -341,6 +343,18 @@ fn blend_rgb(mode: u32, b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
 fn linear_to_srgb(v: vec3<f32>) -> vec3<f32> {
     let hi = 1.055 * pow(max(v, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
     return select(hi, v * 12.92, v <= vec3(0.0031308));
+}
+
+// Effect sources are axis-aligned scaled working images (box-decimated by an integer, and
+// resampled further when the working image is smaller still). Raster-interpolated source
+// coordinates can mix adjacent texels at a nominal pixel center, inventing alpha near zero.
+// Keep the regular transformed/minified layer path unchanged; only this source draw inverts its
+// (pure scale) matrix exactly at the working pixel's centre: `pos / scale`, which is `pos × n`
+// for an integer decimation n.
+@fragment
+fn fs_fx_source(in: VOut) -> @location(0) vec4<f32> {
+    let s = vec2(max(u.m0.x, 1e-6), max(u.m0.w, 1e-6));
+    return layer_color(in.pos.xy / s);
 }
 
 // Blend modes that need the destination: written without fixed-function blending.

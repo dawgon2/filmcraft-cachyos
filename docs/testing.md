@@ -20,6 +20,7 @@ FILMCRAFT_REQUIRE_ORACLES=1 cargo test --workspace   # CI: missing ffmpeg fails 
 | Monitor view / Graphics menu | `crates/ui-egui/tests/view_ui.rs`, `crates/engine/src/graphics_tests.rs` | View menu items and checkmarks, playback/paused resolution, channel / comparison / multi-camera / waveform display modes, magnification and Hand-tool panning, guides dragged from the rulers (move, lock, remove, Add Guide…, templates in the preferences), snapping a graphic to the frame centre and a guide; align to frame / as group / to selection, distribute (centres and gaps), arrange, select next/previous graphic and layer, reset parameters / duration, vertical text, New Layer from file (`FILMCRAFT_UI_SHOTS=<dir>` writes `view-*.png`) |
 | Settings | `crates/engine/src/settings_tests.rs`, `crates/ui-egui/tests/settings_ui.rs` | schema keys and defaults, persistence in the data directory, v1 → v2 migration and repair of bad values, validation, per-category reset; each wired setting (still / transition durations, step many, label defaults and colours, media scaling, timebase, recent projects, media cache policy, output mapping, smart quotes, auto-transcribe); the dialog: every category from its command and Cmd+,, edits by automation id, OK / Cancel / Escape / Reset…, theme, label names in Edit ▸ Label, tooltips, frame cache (`FILMCRAFT_UI_SHOTS=<dir>` writes `settings-*.png`) |
 | Scopes and panels (M8.9 / M12.6) | `crates/scopes/src/tests.rs`, `crates/engine/src/{scopes,panels}_tests.rs`, `crates/ui-egui/tests/panels_ui.rs` | scope maths on generated frames (flat colours → exact histogram bins, ramps → waveform row = code value, 75 % bars → parade levels and vectorscope target cells for BT.601/709/2020, HLS hue angles, YC chroma, Clamp Signal, decimation, NaN); `scopes.read` on a colour matte (exact bins, 78.43 %) and on Bars and Tone (the six targets); metadata edits (one undo step, read-only fields refused, saved in the project), the event log (failed / disabled commands, repeats, jobs started / finished / failed / cancelled); every panel from Window ▸, the scopes' wrench menu, presets, five-scope grid, typing into a Metadata field, Timecode rows and modes, Events filter / Clear All, Progress cancel, Reference Monitor park / gang / scopes (`FILMCRAFT_UI_SNAPSHOT_DIR=<dir>` writes `panels-*.png`); `perf_scopes_at_1080p` (ignored) times each scope |
+| Keyframe navigator and Effect Controls ruler | `crates/engine/src/tests.rs` (`add_keyframe_toggles_the_keyframe_at_the_playhead`), `crates/ui-egui/tests/keyframes_ui.rs`, `lane_tests` in `crates/ui-egui/src/panels/effect_controls.rs` | `effects.addKeyframe` adds a keyframe at the playhead or removes the one there (the value falls back to the remaining keyframes; undo, redo, parameters that name nothing); headless: the Properties diamond turns animation on, adds and removes the keyframe at the playhead (Scale 50 % → 100 % again), its ◀ ▶ arrows and Effect Controls' step between keyframes, Crop is applied before its first keyframe; a click on the Effect Controls time ruler and a drag of the playhead's handle move the playhead, and no playhead is drawn off the clip; ruler labels are sequence timecode, and clip times, frame rates and panel widths at their limits don't panic (`FILMCRAFT_UI_SHOTS=<dir>` writes `keyframes-*.png`) |
 | Golden images | `crates/golden/tests/golden.rs` | CPU renders vs committed PNGs; GPU vs CPU on the same scenes (§3) |
 | Engine / command | `crates/engine/src/tests.rs` | run commands on the demo project, assert the sequence, undo/redo, disabled cases |
 | Render | `crates/render/src/tests.rs` | compositing, opacity, Motion, cross dissolve midpoint, ½-res vs full, GPU plan vs reference, audio mix, audio-effect continuity |
@@ -30,9 +31,11 @@ FILMCRAFT_REQUIRE_ORACLES=1 cargo test --workspace   # CI: missing ffmpeg fails 
 | 5.1 / multichannel | `crates/audio-dsp/src/channels.rs`, `crates/render/src/mixer_tests.rs`, `crates/export/src/surround_tests.rs`, `crates/engine/src/mixer_tests.rs`, `crates/ui-egui/tests/audio51_ui.rs` | BS.775 downmix / upmix coefficients exact, mixdown types; 5.1 panner point gains equal-power (Σg² = 1 over a 21×21 grid × 3 centre settings), speaker positions exact, 5.1 through the default puck bit-exact identity; graph: stereo/mono tracks into a 5.1 Mix (L/R, C, rear right, room centre −6 dB each, LFE = mean), 5.1 track through a 5.1 Mix and folded into stereo, a 5.1 submix, `pan51` automation block-invariant, six-channel meters; export: 6-ch WAV (`WAVE_FORMAT_EXTENSIBLE`, mask 0x3F) and ProRes MOV (6 × 24-bit PCM) decoded by ffmpeg **sample-exact**, ffprobe `channels` 6 / `channel_layout` 5.1; AAC 5.1 in MP4: every decoded channel's own tone ≥ 30 dB above the others' (no swapped channels), stereo export of a 5.1 Mix = BS.775 within 2·10⁻⁶; `sequence.settings {mix}`, `file.newSequence {mix, trackType}`, panner lanes, Write pass records the puck; UI: puck drag (one undo step), Center / LFE, six meter bars |
 | Audio Clip Mixer automation, Track Mixer view | `crates/engine/src/mixer_tests.rs`, `crates/ui-egui/tests/audio51_ui.rs` | Touch: a 201-point fader ramp thins to ≤ 6 clip keyframes, values within 0.1 dB, live override while held, values outside the gesture unchanged, one undo step; Latch holds until stop; Write records volume and pan from the start; a gesture across two clips writes both; Read commits once without a pass; UI: Clip Mixer mode dropdown, a recorded fader drag writes clip keyframes; Show/Hide Tracks, Meter Input(s) Only, transport record button |
 | Voice-over | `crates/engine/src/voiceover_tests.rs`, `crates/ui-egui/tests/voiceover_ui.rs` | synthetic click train lands in `mix_sequence` exactly at R + k·period (pre-roll dropped, exact sample count), punch-in between In/Out (ramp source, every sample checked), one undo step + undo/redo, take numbering, record-arm/targeting track choice, sync/discard/zero-length/locked cases, cue times; UI: right-click Mic → Voice-Over Record Settings dialog (edits persist on OK, Cancel discards), the Mic button starts and stops a take on its track with pre-roll and overlay |
+| Text to Speech | `crates/tts/src/**/*.rs` (Kokoro tests need `FILMCRAFT_KOKORO_DIR`), `crates/tts-text`, `crates/engine/src/narration_tests.rs`, `crates/ui-egui/tests/tts_ui.rs` | built-in voices: determinism, finite samples, exact-silence pause markers, pace scales length, measured pitch per voice and per semitone, hostile scripts; engine: narration placed at the playhead with clip length = speech (sample-exact), never overwrites (busy tracks → next free track → new track), occupied/locked/unknown track refused with no change, edit keeps start/length/speed (longer speech: whole speech in the file; shorter: file padded with exact zeros), edits write beside the previous file, undo/redo restore the project exactly, enabled only with a narration clip (or `clip`), 16 hostile parameter sets refused without change, preview changes nothing, save/reload keeps narrations, the narration is audible in `mix_sequence`; UI: type + Add pause + Add to timeline, the new clip is selected and loaded, clicking the clip on the timeline loads its script, Save edits it in place as one undo step, Advanced twirl, panel opens beside Properties; natural voices: 50-sentence Whisper-base WER 2.1–3.6 % for all 9 voices (crate README), loaders fuzzed with hostile files, `tts.render` cache, download refused without the feature |
 | Remix | `crates/audio-dsp/src/remix.rs`, `crates/render/src/remix.rs`, `crates/engine/src/remix_tests.rs`, `crates/ui-egui/tests/remix_ui.rs` | generated rhythmic music (Rust-synthesised drums, bass, chord sections at 90–128 BPM, 22.05/44.1/48 kHz): tempo within 0.3 BPM, every beat within 10 ms (measured ≤ 8.9 ms); remix targets from 0.4× to 2.2× the source within one beat (measured ≤ 12 ms at default sliders), every cut on a detected beat, intro and outro kept, pieces ≥ 4 beats, deterministic; silence, tone and noise refused; rendering independent of request cuts, source-exact outside the 20 ms equal-power crossfades, no clicks; the engine's mix equals the source pieces (< 1e-5); undo, redo and revert exact; overlaps refused; Remix Properties dialog and Remix tool drag driven by automation id |
 | Oracle | `crates/*/tests/*oracle*.rs`, `conformance.rs` | compare with ffmpeg/ffprobe (§2) |
 | Robustness / fuzz | `*/tests/robustness.rs`, `*/tests/fuzz.rs` | seeded mutation and truncation of real and synthetic files; nothing may panic |
+| Program monitor while dragging | `crates/ui-egui/tests/perf_ui.rs` | headless: a parameter changed on every UI pass (a value dragged in Effect Controls or Properties) and a backward scrub leave the Program monitor's picture at most one step behind (it shows the frame asked for the pass before while the frame due renders; it used to freeze until the mouse rested); a frame still rendering is kept when the same frame is asked for at a newer revision, so frames slower than a refresh (CPU effects) are shown too; `perf.stats` reports the picture's frame and revision against the playhead and the project |
 | Performance | `*/tests/perf.rs` (`#[ignore]`) | §5 |
 
 Commit `*.proptest-regressions` files so failing cases are re-run.
@@ -66,7 +69,26 @@ are never linked or shipped ([AGENTS.md](../AGENTS.md) §2).
   the matrix.
 - Fixture sources are synthetic: `testsrc2`, `mandelbrot`, SMPTE bars, noise and fades, sine tones.
   H.264 and HEVC fixtures need ffmpeg built with libx264 and libx265. VideoToolbox fixtures are
-  generated only on macOS.
+  generated only on macOS. The Media Foundation parity tests (`crates/platform/tests/media_foundation.rs`,
+  Windows only) make their 640x360, 1080p and 2160p H.264 / HEVC / Main 10 fixtures with ffmpeg and skip
+  without a Direct3D 11 video device or the HEVC / VP9 / AV1 codec extensions of the Microsoft Store. The VP9 and
+  AV1 fixtures (libvpx-vp9, libaom-av1; 360p, 1080p, 2160p, hidden alt-ref frames, two GOPs) need an ffmpeg with those encoders.
+
+The NVENC tests (`crates/platform/tests/nvenc.rs` and `nvenc_export.rs` for H.264, `nvenc_rgba_input.rs` for
+the GPU's RGB → 4:2:0 conversion, `nvenc_hevc.rs`,
+`nvenc_hevc_export.rs`, `nvenc_hevc_probe.rs` and `nvenc_hevc_warm.rs` for H.265, `nvenc_hevc_main10.rs` and
+`nvenc_hevc_hdr_export.rs` for Main 10 HDR; Windows only) skip, printing `SKIPPED`, without an NVIDIA GPU
+with NVENC (H.265: when the HEVC probe says there is no HEVC encoder; Main 10: when the Main 10 probe says
+there is no 10-bit encoder; on a machine that has one, a configuration NVENC refuses fails the test). The FFI layout tests in
+`crates/platform/src/nvenc/abi_tests.rs` were generated from a C program built with MSVC
+(`cl` after `vcvars64.bat`) against NVIDIA's MIT-licensed `nvEncodeAPI.h` (12.1); the header and the
+program are not in the repository. To regenerate them, put the header in a scratch directory and
+write a program that prints, for every type, field, constant and GUID of `src/nvenc/ffi.rs` that the
+asserts name (H.264, HEVC and the HEVC picture parameters with their SEI payload array), `sizeof` / `alignof` / `offsetof`, the enum and macro values cast to
+64-bit integers and the GUIDs as 128-bit hex; for the bit-fields of the `flags` words, which
+`offsetof` cannot take, zero a structure, set that one field to its maximum and print the 32-bit word.
+Compare the numbers with the asserts (a difference is drift, which must be understood before
+anything is "fixed" to match) and add asserts for anything new.
 
 ### Pass criteria per codec
 
@@ -174,13 +196,19 @@ window (for example on a locked screen, where `ui.screenshot` cannot capture).
 `crates/ui-egui/tests/essential_sound_ui.rs` does the same for the Essential Sound panel (type buttons,
 switches, a slider drag as one undo step, section bypass, Auto-Match, ducking, Browse presets;
 `essential-sound-*.png`).
+`crates/ui-egui/tests/clip_audio_ui.rs` covers the audio of video clips (#223): the linked audio's
+Volume, Channel Volume and Panner in Effect Controls and Properties, and the Volume line on audio
+clips in the Timeline (a drag is one undo step, Pen-tool keyframes, keyframe drags, a click or
+right-click on the line still reaches the clip; `FILMCRAFT_UI_SHOTS=<dir>` writes `volume-*.png`).
 
 Essential Sound engine tests (`crates/engine/src/essential_sound_tests.rs`) build projects from
 generated speech-like and tonal WAVs: Auto-Match lands within ±0.5 LU of the target (measured: 0.000 LU,
-with and without a repair/clarity chain); ducking on a dialogue + music project gives keyframes within
-60 ms of the expected times (measured 20 ms) and −15.00 dB in the mix; each repair stage improves its
-metric through the render path (hum −39 dB, rumble −22 dB, noise floor −13 dB, sibilance −19 dB,
-reverb tail −10 dB); the mix is bit-identical however requests are cut and the WAV export equals it.
+with and without a repair/clarity chain) and measures a mono clip as one channel (3.01 LU below the
+same signal as dual mono, within 0.1 LU of a one-channel meter over the file); ducking on a dialogue +
+music project gives keyframes within 60 ms of the expected times (measured 20 ms) and −15.00 dB in the
+mix; each repair stage improves its metric through the render path (hum −39 dB, rumble −22 dB, noise
+floor −13 dB, sibilance −19 dB, reverb tail −10 dB); the mix is bit-identical however requests are cut
+and the WAV export equals it.
 `perf_full_dialogue_chain_realtime_factor` (ignored; run with `--release`) prints the realtime factor of
 all nine Dialogue effects on one clip (22× on one core).
 
@@ -316,3 +344,13 @@ At load ~25–60 the same final build plays h264-1080, stack3 and h264-2160 at F
 in 3 of 3 runs (192/0) and render previews 192/0. The 4K fixture needs ~4 cores of decode per
 real-time second (≈160 ms CPU per frame at 170 Mbit/s); the demo project's procedural footage
 ~190 ms per Full-resolution frame.
+
+### Audio mixer throughput
+
+`perf_24_tracks_3_effects_realtime_factor` (24 tracks, 72 inserts and a compressed submix on one
+core) must run at least 4x realtime in release builds (1x in debug). On Unix it times the test
+thread's CPU time, so it runs with the rest of the suite. Hosts without a per-thread CPU clock
+(Windows) fall back to wall time, which depends on load, so there it is ignored by default; run it
+explicitly with
+`cargo test --release -p filmcraft-render --lib perf_24_tracks_3_effects_realtime_factor -- --ignored --nocapture`
+and record the machine with the result.

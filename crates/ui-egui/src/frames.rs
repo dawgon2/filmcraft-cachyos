@@ -35,6 +35,22 @@ pub enum Target {
     MulticamAngle(ItemId, u32),
 }
 
+/// Item jobs at this priority or a larger number are background work: thumbnails of the Project
+/// panel and the timeline (50) and the Media Browser (40). Monitors and playback use 0..=3. Their
+/// decoders are small and are not kept (`filmcraft_media::cancel::with_background`).
+pub const BACKGROUND_PRIO: u32 = 40;
+
+/// Whether a job is a thumbnail: a single item at a background priority. Sequence frames are never
+/// background, whatever their priority (the scopes ask for the program frame at 40 while playing,
+/// and must not turn the program's decoders into small ones).
+fn is_background(job: &Job) -> bool {
+    background_work(job.prio, job.key.target)
+}
+
+fn background_work(prio: u32, target: Target) -> bool {
+    prio >= BACKGROUND_PRIO && matches!(target, Target::Item(_))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrameKey {
     pub target: Target,
@@ -318,7 +334,11 @@ pub fn thread_cpu_time() -> Option<Duration> {
         let t = rustix::time::clock_gettime(rustix::time::ClockId::ThreadCPUTime);
         Some(Duration::new(t.tv_sec as u64, t.tv_nsec as u32))
     }
-    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+    #[cfg(windows)]
+    {
+        cpu_time::ThreadTime::try_now().ok().map(|t| t.as_duration())
+    }
+    #[cfg(not(any(windows, all(unix, not(target_arch = "wasm32")))))]
     {
         None
     }
@@ -331,7 +351,11 @@ pub fn process_cpu_time() -> Option<Duration> {
         let t = rustix::time::clock_gettime(rustix::time::ClockId::ProcessCPUTime);
         Some(Duration::new(t.tv_sec as u64, t.tv_nsec as u32))
     }
-    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+    #[cfg(windows)]
+    {
+        cpu_time::ProcessTime::try_now().ok().map(|t| t.as_duration())
+    }
+    #[cfg(not(any(windows, all(unix, not(target_arch = "wasm32")))))]
     {
         None
     }
@@ -370,6 +394,9 @@ impl filmcraft_media::MediaSource for TimedSource {
     fn audio(&self, start: i64, frames: usize, sample_rate: u32) -> filmcraft_media::Result<filmcraft_frame::AudioBuffer> {
         self.0.audio(start, frames, sample_rate)
     }
+    fn audio_stream(&self, stream: usize, start: i64, frames: usize, sample_rate: u32) -> filmcraft_media::Result<filmcraft_frame::AudioBuffer> {
+        self.0.audio_stream(stream, start, frames, sample_rate)
+    }
 }
 
 /// The job's source provider: the pool, with source fetches timed (the time feeds
@@ -398,18 +425,30 @@ const KEEP_PASSED: usize = 8;
 /// What a cached plan is charged per GPU-resident layer frame (see [`GpuPlan::bytes`]).
 const GPU_PLAN_CHARGE: usize = 16 << 20;
 
+/// What a plan's GPU-resident layer frames (hardware decoder surfaces) are charged: mostly the
+/// GOP caches' own frames (charged to their VRAM budget there), so a plan is charged a share,
+/// which still bounds how many surfaces plans can keep alive (768 MB / 16 MB = 48).
+fn gpu_plan_charge(plan: &filmcraft_render::plan::FramePlan) -> usize {
+    use filmcraft_render::plan::{FramePlan, PlanLayer, PlanStep};
+    let layers = |ls: &[PlanLayer]| ls.iter().map(|l| l.frame.gpu_bytes().min(GPU_PLAN_CHARGE)).sum::<usize>();
+    match plan {
+        FramePlan::Image(_) => 0,
+        FramePlan::Layers { layers: ls, .. } => layers(ls),
+        FramePlan::Composite { steps, .. } => steps
+            .iter()
+            .map(|s| match s {
+                PlanStep::Layers(ls) => layers(ls),
+                PlanStep::Transition { inputs, .. } => inputs.iter().map(|ls| layers(ls)).sum(),
+                PlanStep::Output(_) => 0,
+            })
+            .sum(),
+    }
+}
+
 impl GpuPlan {
     /// Bytes this plan keeps alive (layer frames + converted texels).
     fn bytes(&self) -> usize {
-        let frames = match &self.plan {
-            // GPU-resident frames (hardware decoder surfaces): mostly the GOP caches' own frames
-            // (charged to their VRAM budget there), so a plan is charged a share, which still
-            // bounds how many surfaces plans can keep alive (768 MB / 16 MB = 48)
-            filmcraft_render::plan::FramePlan::Layers { layers, .. } => {
-                layers.iter().map(|l| l.frame.byte_size() + l.frame.gpu_bytes().min(GPU_PLAN_CHARGE)).sum()
-            }
-            filmcraft_render::plan::FramePlan::Image(img) => img.px.len() * 4,
-        };
+        let frames = self.plan.source_bytes() + gpu_plan_charge(&self.plan);
         frames + self.prepared.bytes()
     }
 }
@@ -767,10 +806,15 @@ impl FrameServer {
             // A new frame on screen for this view replaces the one asked for before: scrubbing
             // asks for one per refresh, and without this the oldest position would decode
             // first (or keep a decoder busy seeking to it) while the newest waits.
+            //
+            // A job already running for the same frame at an older revision (a value being
+            // dragged asks for a new revision per refresh) is left to finish: it needs the same
+            // source frames, so it holds no decoder back, and when frames take longer than a
+            // refresh, cancelling each one for the next would show nothing until the mouse rests.
             let same_view = |k: &FrameKey| k.target == key.target && k.size == key.size;
             q.retain(|j| !(j.prio == 0 && !j.prefetch && same_view(&j.key)));
             for (k, c, prefetch) in self.shared.in_flight.lock().unwrap_or_else(|e| e.into_inner()).iter() {
-                if !prefetch && *k != key && same_view(k) {
+                if !prefetch && same_view(k) && k.frame != key.frame {
                     c.store(true, Ordering::Relaxed);
                 }
             }
@@ -1135,23 +1179,25 @@ fn run_job(sh: &Shared, job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Ser
                 filmcraft_media::cancel::with_pace(job.pace, || {
                     filmcraft_media::cancel::with_deadline(job.deadline, || {
                         filmcraft_media::cancel::with_draft(job.key.draft, || {
-                            if let Target::SequencePlan(seq) = job.key.target {
-                                let (plan, pv) = plan_job(job, seq, pool, services, previews);
-                                loading = filmcraft_media::pending::take();
-                                if !job.cancel.load(Ordering::Relaxed) && !loading {
-                                    // Convert texels for upload here, not on the UI thread when the frame is shown.
-                                    let prepared = filmcraft_gpu::prepare(&plan);
-                                    sh.plans.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, GpuPlan { plan, prepared });
+                            filmcraft_media::cancel::with_background(is_background(job), || {
+                                if let Target::SequencePlan(seq) = job.key.target {
+                                    let (plan, pv) = plan_job(job, seq, pool, services, previews);
+                                    loading = filmcraft_media::pending::take();
+                                    if !job.cancel.load(Ordering::Relaxed) && !loading {
+                                        // Convert texels for upload here, not on the UI thread when the frame is shown.
+                                        let prepared = filmcraft_gpu::prepare(&plan);
+                                        sh.plans.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, GpuPlan { plan, prepared });
+                                    }
+                                    pv
+                                } else {
+                                    let (img, pv) = render_job(job, pool, services, previews);
+                                    loading = filmcraft_media::pending::take();
+                                    if !job.cancel.load(Ordering::Relaxed) && !loading {
+                                        sh.done.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, Arc::new(img));
+                                    }
+                                    pv
                                 }
-                                pv
-                            } else {
-                                let (img, pv) = render_job(job, pool, services, previews);
-                                loading = filmcraft_media::pending::take();
-                                if !job.cancel.load(Ordering::Relaxed) && !loading {
-                                    sh.done.lock().unwrap_or_else(|e| e.into_inner()).insert(job.key, Arc::new(img));
-                                }
-                                pv
-                            }
+                            })
                         })
                     })
                 })
@@ -1284,7 +1330,8 @@ fn render_job(job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>, pr
 
 #[cfg(test)]
 mod tests {
-    use super::{PlaybackMeter, SkimControl, playback_plan};
+    use super::{PlaybackMeter, SkimControl, Target, background_work, playback_plan};
+    use filmcraft_project::ItemId;
     use web_time::Instant;
 
     /// Feed `n` refreshes of consecutive grid frames from `from`, each `ready` or not, 20 ms
@@ -1385,33 +1432,38 @@ mod tests {
         assert_eq!((m.shown, m.dropped), (4, 1));
     }
 
-    /// Threads of this process whose name starts with `prefix` (Linux).
-    #[cfg(target_os = "linux")]
-    fn threads_named(prefix: &str) -> usize {
-        std::fs::read_dir("/proc/self/task")
-            .map(|d| d.flatten().filter(|t| std::fs::read_to_string(t.path().join("comm")).is_ok_and(|c| c.starts_with(prefix))).count())
-            .unwrap_or(0)
-    }
-
     /// A dropped frame server stops its workers and empties its caches (they used to run for the
     /// life of the process, keeping every decoded frame and GPU surface they had cached).
-    #[cfg(target_os = "linux")]
+    /// Each worker holds a reference to the server's shared state until it exits, so the test
+    /// counts this server's workers only (counting threads by name raced with other tests'
+    /// frame servers when the suite runs in parallel).
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn dropping_the_server_stops_its_workers() {
         let s = filmcraft_engine::Session::default();
-        let before = threads_named("filmcraft-frame");
         let server = super::FrameServer::new(s.media.clone(), s.services.clone(), s.previews.clone(), 3);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while threads_named("filmcraft-frame") < before + 3 && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert_eq!(threads_named("filmcraft-frame"), before + 3, "three workers started");
+        let shared = std::sync::Arc::downgrade(&server.shared);
+        // the server's own reference plus one per worker
+        assert_eq!(shared.strong_count(), 4, "three workers started");
         drop(server);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while threads_named("filmcraft-frame") > before && std::time::Instant::now() < deadline {
+        while shared.strong_count() > 0 && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        assert_eq!(threads_named("filmcraft-frame"), before, "the workers exited");
+        assert_eq!(shared.strong_count(), 0, "the workers exited");
+    }
+
+    #[test]
+    fn only_item_thumbnails_are_background_work() {
+        let item = Target::Item(ItemId(1));
+        // thumbnails (50) and the Media Browser (40)
+        assert!(background_work(50, item));
+        assert!(background_work(40, item));
+        // the Source monitor shows an item at a foreground priority
+        assert!(!background_work(1, item));
+        // the scopes ask for the program frame at 40 while playing: never background
+        assert!(!background_work(40, Target::Sequence(ItemId(1))));
+        assert!(!background_work(50, Target::SequencePlan(ItemId(1))));
     }
 
     #[test]

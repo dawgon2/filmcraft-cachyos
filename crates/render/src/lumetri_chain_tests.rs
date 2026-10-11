@@ -102,7 +102,8 @@ fn reference(img: &mut Image, e: &EffectInstance, cx: &FxCtx) {
         let s = sat * (1.0 + vib * (1.0 - cur_sat.clamp(0.0, 1.0)));
         v = v.map(|q| l3 + (q - l3) * s);
         if va.abs() > 1e-4 {
-            let nx = (x as f32 / w - 0.5) * 2.0 * if vround < 0.0 { aspect.powf(-vround) } else { 1.0 };
+            // (#719, as upstream's CPU Lumetri: aspect^roundness, +100 a circle)
+            let nx = (x as f32 / w - 0.5) * 2.0 * crate::gpufx::lumetri_vignette_aspect(aspect, vround);
             let ny = (y as f32 / h - 0.5) * 2.0;
             let d = (nx * nx + ny * ny).sqrt() / std::f32::consts::SQRT_2;
             let edge = ((d - vmid * 0.9) / (vfeather.max(0.01) * 0.9)).clamp(0.0, 1.0);

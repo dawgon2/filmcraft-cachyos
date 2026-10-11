@@ -51,6 +51,20 @@ pub fn build_sequence_at(
     effects: &[&str],
     secs: f64,
 ) -> ItemId {
+    let per_layer: Vec<&[&str]> = (0..layers.len()).map(|i| if i == 0 { effects } else { &[][..] }).collect();
+    build_sequence_fx(s, w, h, rate, layers, &per_layer, secs)
+}
+
+/// As [`build_sequence_at`], with the effect ids of each layer (`per_layer[i]` on V(i+1)).
+pub fn build_sequence_fx(
+    s: &mut Session,
+    w: u32,
+    h: u32,
+    rate: FrameRate,
+    layers: &[(ItemId, f64, Option<(f64, f64)>, f64, f64)],
+    per_layer: &[&[&str]],
+    secs: f64,
+) -> ItemId {
     let sizes: Vec<(u32, u32)> = layers
         .iter()
         .map(|l| match s.project.item(l.0).map(|i| &i.kind) {
@@ -81,12 +95,15 @@ pub fn build_sequence_at(
             if let Some(o) = v.effect_mut("opacity").and_then(|o| o.params.get_mut("opacity")) {
                 o.value = ParamValue::Float(opacity);
             }
-            if i == 0 {
-                for (k, id) in effects.iter().enumerate() {
+            {
+                for (k, id) in per_layer.get(i).copied().unwrap_or(&[]).iter().enumerate() {
                     let mut e = find_effect(id).unwrap_or_else(|| panic!("effect {id}")).instance();
                     let set: &[(&str, f64)] = match *id {
                         "lumetri" => &[("temperature", 18.0), ("contrast", 22.0)],
                         "sharpen" => &[("amount", 40.0)],
+                        "gaussian_blur" => &[("blurriness", 8.0)],
+                        "brightness_contrast" => &[("brightness", 10.0), ("contrast", 15.0)],
+                        "proc_amp" => &[("contrast", 110.0)],
                         _ => &[],
                     };
                     for (name, val) in set {
@@ -257,8 +274,11 @@ pub fn ms(d: Duration) -> f64 {
 }
 
 pub fn load_avg() -> String {
-    if let Ok(l) = std::fs::read_to_string("/proc/loadavg") {
-        return l.split_whitespace().take(3).collect::<Vec<_>>().join(" ");
+    if let Ok(s) = std::fs::read_to_string("/proc/loadavg") {
+        let parts: Vec<&str> = s.split_whitespace().take(3).collect();
+        if !parts.is_empty() {
+            return parts.join(", ");
+        }
     }
     Command::new("sysctl")
         .args(["-n", "vm.loadavg"])

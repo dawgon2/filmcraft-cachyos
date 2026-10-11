@@ -1,85 +1,113 @@
 # Handoff: FilmCraft fork (6.2K HEVC on CachyOS + RX 6700 XT)
 
-For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**,
-§5 phases, §7 progress log), then **all of [`GRADE-PLAN.md`](../../GRADE-PLAN.md)** (§1 audit:
-don't rebuild what exists; §7 subagents), then this file. Rewritten 2026-10-11 in session 9
-(G0 accepted, tagged `grade-0`, built). Phase order (FORK-PLAN §1a.6): 5 (done) → G0 (done) →
-**G1** → 6 → G2 → 7 → 8.
+For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**
+incl. §1a.6 order, §1a.16 6E, §1a.17 grader, §1a.18 YouTube gaps; §5 phases; §7 progress log),
+then [`GRADE-PLAN.md`](../../GRADE-PLAN.md), [`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md),
+[`EXPORT-PLAN.md`](../../EXPORT-PLAN.md), [`H264-PLAN.md`](../../H264-PLAN.md),
+[`COMPOSITOR-PLAN.md`](../../COMPOSITOR-PLAN.md), [`UPSTREAM-PLAN.md`](../../UPSTREAM-PLAN.md),
+[`DECODER-PLAN.md`](../../DECODER-PLAN.md),
+[`docs/guide/README.md`](../guide/README.md), `docs/fork/OWNER-QUESTIONS.md` (if present), then
+this file. FORK-PLAN §1a.20–23 (never stop, the fork guide, never-without-the-owner, runs and the
+cloud) apply to every phase.
+Rewritten 2026-10-11 in session 10 (G1 accepted, tagged `grade-1`, built). Phase order
+(FORK-PLAN §1a.6, owner): G0 ✓ → G1 ✓ → **U0** ([`UPSTREAM-PLAN.md`](../../UPSTREAM-PLAN.md)) → 6
+→ Y1 → 6E → G2 → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3. Also read UPSTREAM-PLAN.md (all of
+it: "Phase U0" and "U0 merge notes" are the exact steps) and FORK-PLAN §1a.19.
 
 ## Status
 
-- **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` … `phase-5`, `grade-0`.
-  Builds in `~/Apps/filmcraft-builds/phase-1` … `phase-5`, `grade-0`; `latest` → `grade-0`;
-  launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
-- **Phases 0–5 done** (history in FORK-PLAN §7 and `docs/fork-benchmarks.md`): in-process VA-API
-  decode + zero-copy display (2), JKL / cuts (3), GPU colour pipeline with DWG / DI working space
-  and all of Lumetri on the GPU (4, ADR 0003), in-process VA-API HEVC encode, zero-copy export
-  (5). Playback plain / graded 6.2K 1798/0 over 60 s; export 4K 24.6 fps, graded 4K 27.5, 6.2K
-  18.7 (synthetic).
-- **G0 done** (session 9, FORK-PLAN §7):
-  - ADR [`0004-grade-model.md`](../adr/0004-grade-model.md): a grade is `TrackItem.grade:
-    Option<Grade>` (schema v13), `Grade { nodes: Vec<GradeNode>, bypass }`, `GradeNode { id,
-    label, enabled, params: BTreeMap<String, Param> }`. Keys + identity + ranges in
-    `filmcraft_project::grade::NODE_PARAMS` (`lift` / `gamma` / `gain` / `offset` as
-    `Color([r, g, b, master])` offsets around 0, `contrast`, `pivot` (DI 0.336), `saturation`,
-    `temperature`, `tint`, `curve.master|r|g|b`). Accessors clamp (`float_at`, `wheel_at`,
-    `curve`); `MAX_NODES` 64 compiled; `next_id()` always unique.
-  - `filmcraft_render::grade::compile(&Grade, t, working) -> Vec<ColorOp>` (encode to the grading
-    signal, nodes, decode; empty = identity), `item_ops`, `changes_picture`. Wired: GPU plan
-    (`plan.rs` `push_item`: `[input transform, grade, effect chain]` fused), CPU `item_layer`,
-    adjustment layers (CPU). Identity grades keep every shortcut (titles vector-sharp, plain nests).
-    Tests: `render/src/grade.rs`, end of `render/src/tests.rs`, `nest_tests.rs`,
-    `adjustment_tests.rs`, `gpu/src/colorops_tests.rs` `gpu_compiled_grades_match_cpu` (AMD /
-    Intel 2.1e-6).
-  - Widgets: `crates/ui-egui/src/widgets/color.rs` (`curve_editor`, `color_wheel` + `WheelChange`).
-    Reviewer's suggestion for G1.2: make the wheel's lightness slider optional / replaceable by a
-    master ring and return the `egui::Response` (for automation ids / tooltips); neither widget
-    registers an automation id yet (pre-existing).
-  - `effects.move {"clip","index","to"}` (engine `commands.rs`, `movable_run`).
-  - G0 acceptance (synthetic, quick pass): play-graded 240/0 at 3.4 ms CPU/frame, play-full 240/0
-    at 1.9 ms (unchanged); `cargo xtask ci` green.
+- **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` … `phase-5`, `grade-0`,
+  `grade-1`. Builds in `~/Apps/filmcraft-builds/` (`phase-1` … `phase-5`, `grade-0`, `grade-1`);
+  `latest` → `grade-1`; launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
+  Bench binaries `target/fork-bench/bench-{phase0,1,2,4,5,grade0,grade1}`.
+- **Phases 0–5 done** (FORK-PLAN §7, `docs/fork-benchmarks.md`): in-process VA-API decode +
+  zero-copy display, JKL / cuts, GPU colour pipeline (DWG / DI, ADR 0003), in-process VA-API HEVC
+  encode + zero-copy export. Playback plain / graded 6.2K 1798/0 over 60 s; export 4K 24.6 fps,
+  graded 4K 27.5, 6.2K 18.7 (synthetic).
+- **G0 + G1 done** (sessions 9–10): per-clip serial node grade (`TrackItem.grade`, ADR 0004),
+  compiled to `ColorOp`s in the fused GPU pass (`crates/render/src/grade.rs`), film grain
+  `ColorOp::Grain`; `grade.*` / `stills.*` / `compare.*` commands (`crates/engine/src/grade.rs`,
+  `stills.rs`); clip-scoped current node `EditorState.grade_node` (`grade.selectNode`); Color
+  Grading workspace laid out like Resolve's Color page (`ui-egui/src/panels/grade.rs`,
+  `stills.rs`, `dock.rs`); Settings ▸ General ▸ Workflow Premiere / Resolve (`settings.setWorkflow`,
+  "DaVinci Resolve Compatible" keymap, page bar `panels/pages.rs`); schema v14 (stills). G1
+  acceptance (synthetic): control-script checks all passed, play-graded quick 240/0 at 3.8 ms,
+  play-full 240/0 at 2.0 ms, `cargo xtask ci` green.
+- Follow-ups noted, not done (small): `effects.setParam` keyframes at `source_time_at` instead of
+  `effect_time_at` (differs from the render on frame holds without Hold Filters); the stills
+  gallery re-renders missing pictures on the UI thread (move to a frames job); grade keys are
+  app-wide (Ctrl+D in the Edit page toggles a node); the Gallery's empty-state text is clipped in
+  a narrow column.
 
-## Exact next step: GRADE-PLAN Phase G1 ("Lite")
+## Exact next step: Phase U0, the first upstream merge (UPSTREAM-PLAN.md), in progress
 
-**Progress (session 10):** every G1 step is done and merged (see FORK-PLAN §7, session 10);
-no lanes in flight. Remaining: G1 acceptance (control script on a synthetic F-Log2 clip: 3 nodes,
-copy to 5 clips, still + wipe, Workflow switch screenshots; play-graded quick ≥ 95 % of Phase 5's
-shown frames; `cargo xtask ci`), tag `grade-1`, build `grade-1`, rewrite this file for Phase 6.
+State (2026-10-11, session 11): ADR 0005 (`docs/adr/0005-upstream-sync.md`, on the sync branch)
+records the strategy: local graft `git replace --graft master 8fcad73` (already in this checkout's
+refs/replace; never pushed), merge of `upstream/main` **`4e2d0bc2`** on the local branch
+`sync/upstream-2026-10-11` in the worktree **`.claude/worktrees/sync-upstream`** (target dir
+`target/agent-sync` inside it). All 55 conflicted files resolved by four Fable resolvers and
+checkpointed (`972a90ba`, a merge commit); an Opus builder then works on `cargo check` / clippy /
+fmt / per-crate tests there with "U0 (WIP): " checkpoint commits, plus the Q2 CRF compatibility
+fix (numeric `crf` without `bitrateMode` → CRF mode, with a test). Owner answers Q1–Q4 in
+`docs/fork/OWNER-QUESTIONS.md` (all resolved; Q2 needs that fix applied, then mark it done).
+**Stage 2 (one VA-API stack) is no longer part of U0:** it is U0.2, right before Phase 8 (owner).
 
-Steps (GRADE-PLAN §3 G1; acceptance there): 1 node stack + Color workspace, 2 primaries panel
-(LGGO wheels with master rings → the existing node keys), 3 curves per node, 4 copy / paste /
-append grade, 5 stills + wipe / split compare, 6 film grain kernel, 7 scopes follow the grade
-(check only), 8 Settings ▸ Workflow: Premiere / Resolve (pages, Color page layout, Resolve keymap
-preset from the public manual only, node grader as default colour panel).
+Next (updated 09:36, session 11 stopped at the 5-hour limit, 95 %):
+- **Done on the sync branch (HEAD `8ea67999`):** everything compiles; all crates' tests green
+  (1679 + ui-egui 136 + 69 integration binaries); fmt, clippy, layers, assets, wasm green; Q2 CRF
+  compatibility fix (`5d2869a3`); i18n entries for the fork's strings (`5279b4d3`). Fable review
+  (three sweeps) found nothing lost; fixes applied in `8ea67999` (load4 snap back to 1/512 px,
+  HDR H.265 export always Main 10). GPU tests (gpu, render, platform VA-API) green on AMD
+  (renderD129 / 1002:73df) and Intel (renderD128 / 8086:4c8a). xm5 quick pass (synthetic,
+  `target/bench/xm5-u0-quick-*.json`): play-full 240/0 at 2.0 ms (grade-1 2.0), play-graded 240/0
+  at 3.4 ms (grade-1 3.8), multicut quick 340/20 (grade-1 binary in the same session 323/37),
+  export 4K 26.7 / graded 27.1 / 6.2K 18.9 fps (grade-1 24.6 / 27.5 / 18.7). The worktree's
+  `target/fixtures/xm5` is a symlink to the main checkout's fixtures.
+- **`cargo xtask ci` was started at 09:35 in the worktree, detached**, log
+  `target/u0-ci.log` in the main checkout (last line `exit N`). If it is still running, wait for it
+  (no builds meanwhile); if it failed, fix and rerun.
+- Follow-ups (not blockers, for later phases): `cropped()` on GPU frames reads back
+  (`crates/frame/src/lib.rs` ~327: `clap`-cropped MP4s lose zero-copy); two VA displays opened at
+  startup (U0.2); the export dialog doesn't say HDR H.265 is promoted to Main 10; zh-cn lacks the
+  HEVC preset / node-command labels (falls back to English); after a hybrid falls back to software
+  the GOP cache still counts it as hardware (pre-existing).
 
-Suggested order and lanes (GRADE-PLAN §7; scheduled-task prompt §3 for models / limits):
-1. **Main, first:** `grade.*` commands in `crates/engine` (new `grade.rs` module next to
-   `color.rs`): `addNode`, `insertNode`, `removeNode`, `moveNode`, `toggleNode`, `labelNode`,
-   `setParam` (mirror `effects.setParam`'s `json_to_param` + keyframes at the playhead),
-   `resetNode`, `bypass`, each through `Session::edit` (`engine/src/lib.rs:745`), with an engine
-   test per command (undo / hostile ids). Commit; that unblocks the lanes.
-2. **Leaf builder (opus, `crates/gpu` + `crates/render`):** film grain `FxOp` (luma-weighted,
-   size / strength / softness, deterministic seed per frame) with CPU oracle + GPU parity; node
-   key `grain.*` compiled in `render/src/grade.rs` (the grade then emits `FxOp`s, not only
-   `ColorOp`s: change `compile`'s output or add a second list; keep identity empty).
-3. **Main:** Color workspace (`ui-egui/src/dock.rs` `workspace()` :232) with node strip (painter
-   widget) + primaries / curves panels using `widgets/color.rs`; automation ids on every widget.
-4. **Leaf builder (sonnet):** copy / paste / append grade (`clip_ops.rs:1024` copy attributes
-   learns `grade`), then stills (grab frame + grade into the project) and wipe / split in the
-   Program monitor Comparison mode (`panels/monitor.rs`, `monitor_view.rs`).
-5. **Leaf builder (sonnet, engine only):** Resolve keymap preset in `crates/engine/src/keyboard.rs`
-   (next to the Premiere preset), from Resolve's public manual; then the Workflow setting.
-6. Acceptance via MCP / control (3-node grade on a synthetic F-Log2 clip, copy to 5 clips, still
-   + wipe, Workflow switch screenshots), play-graded quick ≥ 95 % of Phase 5's shown frames,
-   `cargo xtask ci`, tag `grade-1`, build `grade-1`, rewrite this file.
+4. All green → on `hevc-vaapi`: `git merge --no-commit upstream/main` (4e2d0bc2), then take the
+   sync branch's final tree (first merge `hevc-vaapi` into the sync branch so plan / doc commits
+   made meanwhile are kept; drop the sync branch's COMPOSITOR-PLAN edit, the owner already fixed
+   the ADR number), commit one clean merge, push. Write `docs/fork/UPSTREAM-SYNC.md` + FORK-PLAN
+   §7, tag `upstream-sync-1`, build per §1a.9, remove the worktree and its target dir, rewrite
+   this file for **G2** (owner, 2026-10-11: G2 items 1–10 right after U0, then G2b = G2.11 + G2.12,
+   then Phase 6 and 6E). Y1 note: upstream's VA-API H.264 is in the chain after U0; Y1 wires it
+   into the zero-copy path (without the full U0.2 consolidation).
 
-**After G1: Phase 6** (FORK-PLAN §5). Start with 6.5: extend `xm5-multicut` with realistic cut
-spacing (2 / 3 / 4 / 5 s, mid-GOP entries), record drops per spacing; first find why multicut
-regressed to 302–338 drops vs 237 at Phase 4 (same with the old GOP cache code; saved binaries
-`target/fork-bench/bench-phase{4,5}`). Then 6.1 4:2:2 software decode + badge, 6.2 auto proxies
-with the in-process encoder (export reads originals), 6.3 render cache (like Resolve's Smart
-Cache), 6.6 L 2× zero drops on 6.2K originals via proxies / cache. Don't start the 6.2K
-optimisation phase (§1a.16) without the owner.
+## After U0: G2 (GRADE-PLAN 1–10), G2b (G2.11 + G2.12), then FORK-PLAN Phase 6 (owner, 2026-10-11: §1a.6 order U0 → G2 → G2b → 6 → Y1 → 6E)
+
+Phase 6 notes, for after G2:
+
+Order (scheduled-task prompt §2, FORK-PLAN §5 Phase 6):
+1. **6.5 first: the multicut regression.** `xm5-multicut` regressed to 302–338 drops vs 237 at
+   Phase 4 (same with the old GOP cache code, so not Phase 5's GOP change). Bisect with the saved
+   bench binaries (`target/fork-bench/bench-phase4`, `bench-phase5`, `bench-grade0`,
+   `bench-grade1`) and `--quick` / full multicut runs on an idle machine; use a Fable
+   diagnostician for the root cause (prompt §3). Then extend `xm5-multicut` with realistic cut
+   spacing (2 / 3 / 4 / 5 s, clips entered mid-GOP) and record drops per spacing (synthetic).
+2. **6.1** 4:2:2 software decode on the built-in HEVC decoder (FORK-PLAN §1a.24, not ffmpeg; old note: 4:2:2 software decode (ffmpeg pipe, multithreaded, 4:2:2 biplanar frames)) + the badge
+   "4:2:2: software decode, proxies recommended" on the clip.
+3. **6.2** auto proxies on import with the in-process hardware encoder (`crates/engine/src/
+   proxies.rs`, fast decode paths; export always reads originals).
+4. **6.3** render cache like Resolve's Smart Cache (`crates/engine/src/previews.rs`; background
+   render of graded segments with the hardware encoder, played instead of re-grading; watch the
+   GPU-stall-while-decoding gotcha below). Fable designer for the cache design.
+5. **6.6** L 2× with zero drops on 6.2K originals via proxies / render cache; zero drops at cuts.
+6. Acceptance (FORK-PLAN §5 Phase 6 "Accept", quick passes per §1a.7, synthetic), `cargo xtask
+   ci`, tag `phase-6`, build `phase-6`, rewrite this file for **Y1** (YOUTUBE-PLAN, hard limit
+   8 agent hours; re-scoped by U0).
+
+Lanes that fit (prompt §3): 6.5 runs alone (benchmarks); proxies
+(6.2) and the render cache (6.3) share the hardware encoder and `previews.rs` — design the cache
+first, then build them in separate worktrees. Benchmarks only in the main session with no
+builder compiling.
 
 ## Environment and gotchas
 
@@ -125,6 +153,8 @@ optimisation phase (§1a.16) without the owner.
   `FILMCRAFT_XM5_DIR` (where the xm5 clips live; real clips can be linked there by name),
   `FILMCRAFT_NO_ZERO_COPY` (export reads frames back instead of rendering into encoder surfaces),
   `FILMCRAFT_EXPORT_TRACE` (per-batch export stage times on stderr).
+- **Worktree lanes (session 10):** leaf builders in `.claude/worktrees/agent-*` with
+  `CARGO_TARGET_DIR=target/agent-<name>` (~5 GB each); remove the worktree after merging.
 - **Disk:** see the disk rule above; a debug build of the workspace regrows `target/debug` to ~60 GB. Fixtures: `target/fixtures/xm5/` (12 GB synthetic), `target/fixtures/hevc/`
   (conformance, `.hevc` + ffmpeg `.yuv`), `target/fixtures/platform/`, `target/fixtures/hevc4k/`.
 - **Bench:** `target/release/examples/bench --section xm5 [--only CASE] [--quick] [--json f]`;
@@ -184,6 +214,6 @@ optimisation phase (§1a.16) without the owner.
   encode; a possible 6.2K optimisation phase later (FORK-PLAN §1a.16, only with the owner).
 - First play after loading drops frames for ~0.5–1 s (cold start) → Phase 7.
 - Fujifilm's F-Log2 LUT changes gamut on the log signal; built-in is linear light (FORK-PLAN §7).
-- `Grade::with_node()` and an empty grade render nothing (identity); G1 node commands must keep
-  ids unique (`Grade::next_id`).
+- Grade node ids are per grade (`Grade::next_id`); the current node is clip-scoped
+  (`EditorState.grade_node: Option<GradeSel>`).
 - Linux default keymap has shortcut conflicts (Ctrl+9, Ctrl+Shift+M, Ctrl+T) — not fixed.

@@ -35,7 +35,7 @@ matter:
 
 ## Phase U0: the first upstream merge (after G1, before Phase 6; ≈ 10–30 h)
 
-Order (owner, 2026-10-11): G0 ✓ → G1 → **U0** → 6 → Y1 → 6E → G2 → Y3 → 7 → 8 → Y2 → C1 → H1–H3.
+Order: FORK-PLAN §1a.6 (G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3).
 Every day of delay adds ~200 upstream commits to reconcile, and upstream's VA-API H.264 may make Y1
 mostly free.
 
@@ -45,7 +45,9 @@ mostly free.
    `git replace --graft master 8fcad73`; choose and record in an ADR, **no history rewriting** of
    `hevc-vaapi` or `master`, no force-push).
 2. Resolve per area, with a Fable designer for each conflict cluster:
-   - **Decode:** one VA-API stack, not two. Compare upstream's `vaapi/` with the fork's on
+   - **Decode:** U0 keeps both VA-API stacks (the fork's HEVC decoder first in the chain); the
+     consolidation below is **U0.2, scheduled right before Phase 8** (owner, 2026-10-11; FORK-PLAN
+     §1a.6), with the same 6.2K and conformance gate. Target: one VA-API stack, not two. Compare upstream's `vaapi/` with the fork's on
      correctness (conformance bit-exactness), zero-copy display, 6.2K playback numbers, fallback
      behaviour; keep the better parts, and keep the fork's ffmpeg-pipe fallback (FORK-PLAN §1) under
      a non-colliding name. Upstream's H.264 VA-API → re-scope Y1 accordingly (log it).
@@ -89,14 +91,13 @@ Roughly 15–20 % of the fork's work by value is redundant upstream; the 6.2K / 
   MP4 cropping #288, HybridDecoder replay fix #447, decode-cache memory limits #55, Sequence
   Settings / New Sequence dialogs, ProRes 4444 / EXR / DPX export, CRF.
 
-## Ongoing sync (weekly, ask-first)
+## Ongoing sync (weekly, automatic when green)
 
 Weekly, and only between phases: fetch `upstream`, merge into a `sync/upstream-<date>` branch,
-resolve, run the same gates; show the owner a short summary and merge into `hevc-vaapi` only after
-the owner says yes. Conflicts that need a design call (e.g. upstream rewriting something the fork
+resolve, run the same gates; **merge into `hevc-vaapi` automatically when every gate is green**
+(owner, 2026-10-11: the workflow never stops), then write the summary to docs/fork/UPSTREAM-SYNC.md. Conflicts that need a design call (e.g. upstream rewriting something the fork
 extended) go to docs/fork/OWNER-QUESTIONS.md with a provisional, reversible choice; the work
-continues. *(Default chosen by the agent: ask-first, as recommended; the owner may
-switch it to automatic-when-green.)*
+continues.
 
 ## Contributing back
 

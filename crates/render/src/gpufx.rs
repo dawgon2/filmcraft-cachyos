@@ -184,6 +184,20 @@ pub enum FxOp {
     OpacityMask {
         masks: std::sync::Arc<[crate::mask::FlatMask]>,
     },
+    Vignette {
+        amount: f32,
+        midpoint: f32,
+        roundness: f32,
+        feather: f32,
+        target: [f32; 3],
+    },
+    VideoLimiter {
+        max: f32,
+        comp: f32,
+        axis: u32,
+        warn: bool,
+        warning_color: [f32; 3],
+    },
 }
 
 /// Masks the GPU takes (more points or masks: the clip renders on the CPU).
@@ -234,6 +248,8 @@ pub const GPU_EFFECTS: &[&str] = &[
     "channel_mix",
     "color_replace",
     "alpha_adjust",
+    "vignette",
+    "video_limiter",
 ];
 
 /// `Image::transformed` without the mip path: the destination rectangle it writes and the inverse.
@@ -503,6 +519,46 @@ impl FxOp {
                 use crate::vfx::{bv, fv};
                 FxOp::AlphaAdjust { opacity: fv(e, "opacity", cx) / 100.0, ignore: bv(e, "ignore"), invert: bv(e, "invert"), mask_only: bv(e, "mask_only") }
             }
+            "vignette" => {
+                use crate::vfx::{cv, fv};
+                let amt = fv(e, "amount", cx) / 100.0;
+                let mid = fv(e, "midpoint", cx) / 100.0;
+                let round = fv(e, "roundness", cx) / 100.0;
+                let raw_feather = fv(e, "feather", cx);
+                let feather = if raw_feather.is_finite() { (raw_feather / 100.0).max(0.01) } else { raw_feather };
+                let col = cv(e, "color", cx);
+                let target = if amt < 0.0 { [col[0], col[1], col[2]] } else { [1.0; 3] };
+                FxOp::Vignette { amount: amt, midpoint: mid, roundness: round, feather, target }
+            }
+            "video_limiter" => {
+                use crate::vfx::{bv, cv};
+                use filmcraft_project::ParamValue;
+                let clip_level = match e.param("clip_level").map(|p| p.value.clone()).or_else(|| crate::vfx::def_value(e, "clip_level")) {
+                    Some(ParamValue::Choice(c)) => c as f32,
+                    Some(ParamValue::Float(f)) => f as f32,
+                    _ => 0.0,
+                };
+                let comp_val = match e.param("compression").map(|p| p.value.clone()).or_else(|| crate::vfx::def_value(e, "compression")) {
+                    Some(ParamValue::Choice(c)) => [0.0, 0.03, 0.05, 0.10, 0.20][(c as usize).min(4)],
+                    Some(ParamValue::Float(f)) => f as f32,
+                    _ => 0.03,
+                };
+                let axis = match e.param("axis").map(|p| p.value.clone()).or_else(|| crate::vfx::def_value(e, "axis")) {
+                    Some(ParamValue::Choice(c)) => c,
+                    Some(ParamValue::Float(f)) => {
+                        if f.is_nan() {
+                            u32::MAX
+                        } else {
+                            f as u32
+                        }
+                    }
+                    _ => 3,
+                };
+                let warn = bv(e, "gamut_warning");
+                let c = cv(e, "warning_color", cx);
+                let wc = dec([c[0], c[1], c[2]]);
+                FxOp::VideoLimiter { max: 1.0 + clip_level / 100.0, comp: comp_val, axis, warn, warning_color: wc }
+            }
             _ => return None,
         })
     }
@@ -559,6 +615,8 @@ impl FxOp {
             FxOp::ColorChain(ops) => {
                 ops.iter().all(filmcraft_color::ops::ColorOp::is_finite) && filmcraft_color::ops::gpu_size(ops) <= filmcraft_color::ops::MAX_GPU_PROGRAM
             }
+            FxOp::Vignette { amount, midpoint, roundness, feather, target } => fin(&[*amount, *midpoint, *roundness, *feather]) && fin(target),
+            FxOp::VideoLimiter { max, comp, axis, warning_color, .. } => *axis <= 3 && max.is_finite() && comp.is_finite() && fin(warning_color),
         }
     }
 
@@ -853,8 +911,114 @@ impl FxOp {
                     filmcraft_color::ops::apply_chain_px(correct, c, [x as f32, y as f32], m).0
                 });
             }
+            FxOp::Vignette { amount, midpoint, roundness, feather, target } => {
+                let (amt, mid, round, feather, target) = (*amount, *midpoint, *roundness, *feather, *target);
+                if !amt.is_finite() || !mid.is_finite() || !round.is_finite() || !feather.is_finite() || !target.iter().all(|c| c.is_finite()) {
+                    return;
+                }
+                if amt.abs() < 1e-5 {
+                    return;
+                }
+                let (w, h) = (img.w as f32, img.h as f32);
+                let aspect = w / h;
+                img.map_rgb(|c, x, y| {
+                    let mut nx = (x as f32 + 0.5) / w * 2.0 - 1.0;
+                    let ny = (y as f32 + 0.5) / h * 2.0 - 1.0;
+                    // roundness 100 = circle; 0 = an ellipse following the frame; −100 = squarer
+                    if round > 0.0 {
+                        nx *= 1.0 + (aspect - 1.0) * round;
+                    }
+                    let p = if round < 0.0 { 2.0 + (-round) * 6.0 } else { 2.0 };
+                    // 0 at the centre, 1 at the corners
+                    let d = (nx.abs().powf(p) + ny.abs().powf(p)).powf(1.0 / p) / 2f32.powf(1.0 / p);
+                    let edge = crate::vfx::smoothstep(mid - feather * 0.5, mid + feather * 0.5, d);
+                    dec(crate::vfx::lerp3(enc(c), target, edge * amt.abs()))
+                });
+            }
+            FxOp::VideoLimiter { max, comp, axis, warn, warning_color } => {
+                let (max, comp, axis, warn, wc) = (*max, *comp, *axis, *warn, *warning_color);
+                if !max.is_finite() || !comp.is_finite() || !wc.iter().all(|c| c.is_finite()) {
+                    return;
+                }
+                img.map_rgb(|c, _, _| {
+                    let v = [linear_to_enc(c[0]), linear_to_enc(c[1]), linear_to_enc(c[2])];
+                    let out = limit(v, max, comp, axis);
+                    if warn && v.iter().zip(&out).any(|(a, b)| (a - b).abs() > 1e-4) {
+                        return wc;
+                    }
+                    out.map(enc_to_linear)
+                });
+            }
         }
     }
+}
+
+/// Horizontal scale of the Lumetri vignette's coordinates for a Roundness of `vround`
+/// (−1 … 1) on a frame `aspect` wide. At 0 the vignette is an ellipse that follows the
+/// frame; positive values move it towards a circle (1 = a true circle), negative values
+/// stretch it into a wider oval. Non-finite or out-of-range input never yields NaN.
+pub fn lumetri_vignette_aspect(aspect: f32, vround: f32) -> f32 {
+    if !aspect.is_finite() || aspect <= 0.0 || !vround.is_finite() {
+        return 1.0;
+    }
+    aspect.powf(vround.clamp(-1.0, 1.0))
+}
+
+/// sRGB encoding that keeps values above 1 (super-whites) instead of clamping them.
+#[inline]
+fn linear_to_enc(v: f32) -> f32 {
+    if v <= 1.0 { filmcraft_color::linear_to_srgb(v.max(0.0)) } else { 1.0 + (v - 1.0) / 2.4 }
+}
+#[inline]
+fn enc_to_linear(v: f32) -> f32 {
+    if v <= 1.0 { filmcraft_color::srgb_to_linear(v.max(0.0)) } else { 1.0 + (v - 1.0) * 2.4 }
+}
+
+#[inline]
+fn knee(v: f32, max: f32, comp: f32) -> f32 {
+    let k = max * (1.0 - comp);
+    if comp <= 0.0 || v <= k {
+        return v.min(max);
+    }
+    let r = max - k;
+    k + r * (1.0 - (-(v - k) / r).exp())
+}
+
+pub(crate) fn limit(v: [f32; 3], max: f32, comp: f32, axis: u32) -> [f32; 3] {
+    let m = filmcraft_color::Matrix::Bt709;
+    let ycc = filmcraft_color::rgb_to_ycbcr(v[0], v[1], v[2], m);
+    let (kr, kb) = (0.2126f32, 0.0722f32);
+    let to_rgb = |y: f32, cb: f32, cr: f32| {
+        let r = y + 2.0 * (1.0 - kr) * cr;
+        let b = y + 2.0 * (1.0 - kb) * cb;
+        let g = (y - kr * r - kb * b) / (1.0 - kr - kb);
+        [r, g, b]
+    };
+    let (mut y, mut cb, mut cr) = (ycc[0], ycc[1], ycc[2]);
+    if axis != 1 {
+        y = knee(y.max(0.0), max, comp);
+    }
+    if axis != 0 {
+        // scale chroma so every channel fits 0…max (the gamut of legal R′G′B′)
+        let rgb = to_rgb(y, cb, cr);
+        let mut s = 1.0f32;
+        for &ch in &rgb {
+            let d = ch - y;
+            if ch > max && d > 1e-6 {
+                s = s.min(((max - y) / d).max(0.0));
+            }
+            if ch < 0.0 && d < -1e-6 {
+                s = s.min((y / -d).max(0.0));
+            }
+        }
+        if axis == 3 && s < 1.0 - 1e-4 {
+            // smart limit: soft chroma compression rather than a hard cut
+            s = knee(s, 1.0, comp.max(0.03)).min(1.0);
+        }
+        cb *= s;
+        cr *= s;
+    }
+    to_rgb(y, cb, cr).map(|q| q.clamp(0.0, max))
 }
 
 /// The body of `Image::transformed` (no mip path) for a precomputed inverse and rectangle.

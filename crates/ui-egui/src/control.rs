@@ -10,10 +10,12 @@
 //! - `ui.elements {prefix?}`: registered widgets (optionally filtered by id prefix)
 //! - `ui.set {tool?, workspace?, mode?, theme?, focused?, playbackRes?, timeline?:{pps,scroll}}`
 //! - `ui.panel.show {panel}` / `ui.panel.close {panel}`
+//! - `ui.set {tts: {voice, pitch, pace, text…}}`: patch the Text to Speech panel draft
 //! - `ui.click {id | x,y, button?, count?, modifiers?}` / `ui.move {x,y}` / `ui.scroll {x,y,dx,dy}`
 //! - `ui.drag {from:{id|x,y}, to:{id|x,y}, steps?, modifiers?}`: synthetic press-move-release
 //! - `ui.key {key, command?, shift?, alt?, ctrl?}` / `ui.type {text}`
-//! - `ui.timeline.hit {x, y}`: what the timeline shows at a point (track, clip, edge, time)
+//! - `ui.timeline.hit {x, y, modifiers?}`: what the timeline shows at a point (track, clip, edge,
+//!   time) and `kind`, the trim a press of the current tool with `modifiers` starts there
 //! - `ui.timeline.locate {clip, edge?}`: screen point of a clip body/edge (for drags)
 //! - `ui.playback {action: play|stop|toggle, speed?}`
 //! - `ui.screenshot {path?, panel?}`: PNG of the window (or one panel)
@@ -25,7 +27,7 @@ use serde_json::{Value, json};
 
 use crate::FilmcraftApp;
 use crate::dock::PanelKind;
-use crate::state::{Mode, PlaybackRes, Tool};
+use crate::state::{Mode, PlaybackRes, ThumbnailMode, Tool};
 
 /// Prefix marking errors that may resolve after another frame.
 pub const RETRY: &str = "\u{1}";
@@ -62,10 +64,23 @@ fn err(e: impl std::fmt::Display) -> Outcome {
     Outcome::Done(json!({"ok": false, "error": e.to_string()}))
 }
 
+/// Modifier flags from `{modifiers: {ctrl, command, shift, alt}}` (or the same keys at the top
+/// level), as the OS would report them pressed.
 fn modifiers(p: &Value) -> egui::Modifiers {
     let m = p.get("modifiers").unwrap_or(p);
     let b = |k: &str| m.get(k).and_then(Value::as_bool).unwrap_or(false);
-    egui::Modifiers { alt: b("alt"), ctrl: b("ctrl"), shift: b("shift"), mac_cmd: cfg!(target_os = "macos") && b("command"), command: b("command") }
+    as_pressed(egui::Modifiers { alt: b("alt"), ctrl: b("ctrl"), shift: b("shift"), mac_cmd: cfg!(target_os = "macos") && b("command"), command: b("command") })
+}
+
+/// `m` as egui-winit reports a physical press: off macOS Control is the primary modifier, so
+/// `ctrl` and `command` are one key and a press of either carries both. A synthetic `Ctrl+Z` then
+/// matches a `Cmd+Z` binding exactly as the real key does (#245).
+fn as_pressed(mut m: egui::Modifiers) -> egui::Modifiers {
+    if !cfg!(target_os = "macos") && (m.ctrl || m.command) {
+        m.ctrl = true;
+        m.command = true;
+    }
+    m
 }
 
 /// Resolve a point from `{id}` (element centre) or `{x, y}`.
@@ -109,6 +124,15 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
             ok(serde_json::to_value(app.auto.query(prefix)).unwrap_or_default())
         }
         "ui.set" => {
+            // Text to Speech panel draft (voice, pitch, pace, text…), merged into the current one
+            if let Some(patch) = p.get("tts") {
+                let mut cur = serde_json::to_value(&app.ui.tts).unwrap_or_default();
+                merge(&mut cur, patch);
+                match serde_json::from_value(cur) {
+                    Ok(d) => app.ui.tts = d,
+                    Err(e) => return err(format!("bad `tts`: {e}")),
+                }
+            }
             if let Some(t) = s("tool") {
                 match Tool::from_name(t) {
                     Some(t) => app.ui.tool = t,
@@ -165,9 +189,29 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                 if let Some(v) = tl.get("audioTrackHeight").and_then(Value::as_f64) {
                     app.ui.timeline.audio_track_h = v as f32;
                 }
+                // Show Video Thumbnails: "off" or a mode ("head", "headAndTail", "continuous")
+                if let Some(m) = tl.get("thumbnails").and_then(Value::as_str) {
+                    if m.eq_ignore_ascii_case("off") {
+                        app.ui.timeline.show_thumbnails = false;
+                    } else {
+                        let Some(mode) = ThumbnailMode::from_name(m) else {
+                            return err(format!("unknown thumbnail mode `{m}` (off, head, headAndTail, continuous)"));
+                        };
+                        app.ui.timeline.show_thumbnails = true;
+                        app.ui.timeline.thumbnail_mode = mode;
+                    }
+                }
             }
             if let Some(q) = s("effectsSearch") {
                 app.ui.effects_search = q.to_string();
+            }
+            // Effect Controls keyframe selection (`[{clip, effect, param, mask?, time}]`), replaced;
+            // references to missing keyframes are dropped by the panel
+            if let Some(v) = p.get("keyframeSelection") {
+                match serde_json::from_value(v.clone()) {
+                    Ok(sel) => app.ui.keyframe_selection = sel,
+                    Err(e) => return err(format!("`keyframeSelection`: {e}")),
+                }
             }
             if let Some(v) = p.get("safeMargins").and_then(Value::as_bool) {
                 app.ui.program.safe_margins = v;
@@ -264,7 +308,9 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
             if req.method == "ui.panel.show" {
                 app.show_panel(panel);
             } else {
-                app.ui.dock.close(panel);
+                if let Err(error) = app.apply_dock(craft_ui::docking::Action::Close { panel }) {
+                    return err(&error);
+                }
             }
             ok(Value::Null)
         }
@@ -275,6 +321,7 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                 Err(e) => return err(e),
             };
             let m = modifiers(p);
+            app.synthetic.push(egui::Event::ModifiersChanged(m));
             app.synthetic.push(egui::Event::PointerMoved(pos));
             if req.method == "ui.click" {
                 let button = match s("button") {
@@ -288,6 +335,7 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                     app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: false, modifiers: m });
                 }
             }
+            app.synthetic.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
             Outcome::AfterInput
         }
         "ui.drag" => {
@@ -299,6 +347,7 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
             };
             let steps = p.get("steps").and_then(Value::as_u64).unwrap_or(12).max(2);
             let m = modifiers(p);
+            app.synthetic.push(egui::Event::ModifiersChanged(m));
             app.synthetic.push(egui::Event::PointerMoved(a));
             app.synthetic.push(egui::Event::PointerButton { pos: a, button: egui::PointerButton::Primary, pressed: true, modifiers: m });
             for i in 1..=steps {
@@ -306,6 +355,7 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                 app.synthetic.push(egui::Event::PointerMoved(a + (b - a) * f));
             }
             app.synthetic.push(egui::Event::PointerButton { pos: b, button: egui::PointerButton::Primary, pressed: false, modifiers: m });
+            app.synthetic.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
             Outcome::AfterInput
         }
         "ui.scroll" => {
@@ -315,6 +365,7 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
             };
             let dx = p.get("dx").and_then(Value::as_f64).unwrap_or(0.0) as f32;
             let dy = p.get("dy").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            app.synthetic.push(egui::Event::ModifiersChanged(modifiers(p)));
             app.synthetic.push(egui::Event::PointerMoved(pos));
             app.synthetic.push(egui::Event::MouseWheel {
                 unit: egui::MouseWheelUnit::Point,
@@ -328,19 +379,22 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                 pressed: false,
                 modifiers: Default::default(),
             });
+            app.synthetic.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
             Outcome::AfterInput
         }
         "ui.key" => {
             let Some(name) = s("key") else { return err("missing `key`") };
-            let Some((mut m, key)) = crate::menus::parse_shortcut(name) else { return err(format!("unknown key `{name}`")) };
-            let extra = modifiers(p);
-            m |= extra;
+            let Some((m, key)) = crate::menus::parse_shortcut(name) else { return err(format!("unknown key `{name}`")) };
+            let m = as_pressed(m | modifiers(p));
+            app.synthetic.push(egui::Event::ModifiersChanged(m));
             app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: m });
             app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers: m });
+            app.synthetic.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
             Outcome::AfterInput
         }
         "ui.type" => {
             let Some(text) = s("text") else { return err("missing `text`") };
+            app.synthetic.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
             app.synthetic.push(egui::Event::Text(text.to_string()));
             app.synthetic.push(egui::Event::Key { key: egui::Key::F35, physical_key: None, pressed: false, repeat: false, modifiers: Default::default() });
             Outcome::AfterInput
@@ -350,7 +404,7 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                 Ok(p) => p,
                 Err(e) => return err(e),
             };
-            ok(crate::panels::timeline::hit_json(app, pos))
+            ok(crate::panels::timeline::hit_json(app, pos, modifiers(p)))
         }
         "ui.timeline.locate" => {
             let Some(c) = p.get("clip").and_then(Value::as_u64) else { return err("need `clip`") };
@@ -381,11 +435,34 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
             ok(Value::Null)
         }
         "ui.focus" => {
-            // Explicit request: activate the app and take keyboard focus.
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            ok(Value::Null)
+            if p.is_null() || p.as_object().is_some_and(|object| object.is_empty()) {
+                // Existing explicit request: activate the app and take OS keyboard focus.
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                return ok(Value::Null);
+            }
+            let Some(object) = p.as_object().filter(|object| object.len() == 1 && object.contains_key("id")) else {
+                return err("ui.focus expects {} or {id: string}");
+            };
+            let Some(id) = object.get("id").and_then(Value::as_str) else { return err("ui.focus needs a string `id`") };
+            let Some(element) = app.auto.find(id) else { return err(format!("no element `{id}` (see ui.elements)")) };
+            let Some(widget_id) = element.response_id else { return err(format!("element `{id}` has no focusable widget")) };
+            let Some(response) = ctx.read_response(widget_id) else { return err(format!("widget `{id}` is not present")) };
+            if !response.enabled()
+                || !response.sense.is_focusable()
+                || !response.interact_rect.is_finite()
+                || !response.interact_rect.is_positive()
+                || !response.interact_rect.intersects(ctx.content_rect())
+            {
+                return err(format!("widget `{id}` is not enabled, visible and focusable"));
+            }
+            // A widget target never activates the native window. The next ui.inspect reports
+            // actual focus ownership separately from this request acknowledgement.
+            response.request_focus();
+            ok(json!({"focusRequested": id, "widgetId": format!("{:016x}", widget_id.value())}))
         }
         "app.quit" => {
+            // scripted quits don't wait on the save prompt; unsaved changes stay in the recovery journal
+            app.quit_confirmed = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             ok(Value::Null)
         }
@@ -412,11 +489,24 @@ fn merge(v: &mut Value, patch: &Value) {
 
 pub fn inspect(app: &FilmcraftApp, ctx: &egui::Context) -> Value {
     let size = ctx.content_rect().size();
+    let keyboard_focus = ctx.memory(|memory| memory.focused()).map(|id| {
+        let elements: Vec<_> = app.auto.previous.iter().filter(|element| element.response_id == Some(id)).collect();
+        json!({
+            "widgetId": format!("{:016x}", id.value()),
+            "elementIds": elements.iter().map(|element| element.id.as_str()).collect::<Vec<_>>(),
+            "label": elements.first().map(|element| element.label.as_str()),
+            "active": ctx.read_response(id).is_some_and(|response| response.has_focus()),
+        })
+    });
     json!({
         "window": [size.x, size.y],
         "pixelsPerPoint": ctx.pixels_per_point(),
         "fps": app.fps,
+        "keyboardFocus": keyboard_focus,
+        "input": {"mode": if app.control_input_only { "controlOnly" } else { "interactive" },
+            "nativeWindowFocused": app.native_window_focused, "effectiveWindowFocused": ctx.input(|input| input.focused)},
         "ui": app.ui,
+        "sourcePlayback": {"playing": app.source_playback.clock.playing, "audioClock": app.source_playback.clock.audio_clock, "playhead": app.session.state.source_playhead.0},
         "playback": {"playing": app.playback.playing, "speed": app.playback.speed, "loop": app.playback.looping, "audioClock": app.playback.audio_clock, "dropped": app.playback.meter.counts().1, "shown": app.playback.meter.counts().0, "preroll": app.playback.preroll.is_some()},
         "playhead": app.session.playhead().0,
         "activeSequence": app.session.state.active_sequence.map(|i| i.0),

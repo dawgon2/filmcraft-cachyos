@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use filmcraft_codecs::hw::NalStreamInfo;
+use filmcraft_codecs::hw::StreamInfo;
 use filmcraft_codecs::{CodecError, DecodedFrame, Result, VideoDecoder};
 use filmcraft_isobmff::SampleEntry;
 
@@ -33,7 +33,7 @@ pub struct HybridDecoder {
     next: Vec<HwFallback>,
     sw: Option<Box<dyn VideoDecoder>>,
     entry: SampleEntry,
-    info: NalStreamInfo,
+    info: StreamInfo,
     draft: bool,
     /// Samples (and pts) since the last restart point; `None` once the bound was passed.
     log: Option<Vec<(Vec<u8>, i64)>>,
@@ -48,7 +48,8 @@ pub struct HybridDecoder {
 
 impl HybridDecoder {
     /// Wrap `hw`, a decoder for `entry` (whose stream is described by `info`).
-    pub fn new(hw: Box<dyn VideoDecoder>, entry: SampleEntry, info: NalStreamInfo) -> Self {
+    pub fn new(hw: Box<dyn VideoDecoder>, entry: SampleEntry, info: impl Into<StreamInfo>) -> Self {
+        let info = info.into();
         filmcraft_codecs::hw::note_hw_session();
         filmcraft_codecs::hw::note_backend(hw.name());
         Self {
@@ -81,7 +82,7 @@ impl HybridDecoder {
         if self.info.is_irap(sample) {
             // An HEVC CRA keeps the previous restart point: replaying from the CRA itself would
             // treat it as a first picture and drop its RASL pictures, which the hardware decodes.
-            let cra = self.info.codec == filmcraft_codecs::hw::NalCodec::Hevc && self.info.nal_types(sample).contains(&21);
+            let cra = self.info.keeps_previous_restart(sample);
             match self.log.as_mut() {
                 Some(log) if cra => {
                     log.drain(..self.last_irap.min(log.len()));
@@ -112,13 +113,10 @@ impl HybridDecoder {
         }
     }
 
-    /// In-band parameter sets that differ from the sample entry's (the hardware session was set
-    /// up from those).
+    /// In-band parameter sets (sequence header, key frame format) that differ from the sample
+    /// entry's (the hardware session was set up from those).
     fn parameter_sets_changed(&self, sample: &[u8]) -> bool {
-        self.info
-            .nals(sample)
-            .into_iter()
-            .any(|n| n.first().is_some_and(|&h| self.info.is_parameter_set(self.info.nal_type(h))) && !self.info.parameter_sets.iter().any(|p| p == n))
+        self.info.parameters_changed(sample)
     }
 
     /// Software output after a fallback: pictures already returned are dropped, carried hardware
@@ -145,7 +143,10 @@ impl HybridDecoder {
     }
 
     /// Switch to the software decoder after `err`, replaying the log (which ends with the sample
-    /// that failed).
+    /// that failed). The replay goes on past samples the software decoder rejects, as decoding in
+    /// software from the restart point would: one that the hardware had already decoded is logged
+    /// (its call returned long ago), and if the failed sample itself is rejected its error is this
+    /// call's, while the pictures replayed before it are kept for the next output.
     fn fall_back(&mut self, err: CodecError) -> Result<Vec<DecodedFrame>> {
         let Some(mut hw) = self.hw.take() else { return Err(err) };
         log::warn!("{} failed ({err}); continuing with the software decoder", hw.name());
@@ -200,12 +201,28 @@ impl HybridDecoder {
             return Err(CodecError::Decode(format!("{err} (continuing in software after the next seek)")));
         };
         let mut frames = Vec::new();
-        for (s, p) in &log {
+        let mut rejected = None;
+        let last = log.len().saturating_sub(1);
+        for (i, (s, p)) in log.iter().enumerate() {
             let Some(sw) = self.sw.as_mut() else { break };
-            frames.extend(sw.decode(s, *p)?);
+            match sw.decode(s, *p) {
+                Ok(out) => frames.extend(out),
+                Err(e) if i == last => rejected = Some(e),
+                Err(e) => log::warn!("software replay after the hardware decoder failed: {e}"),
+            }
         }
         self.log = Some(log);
-        Ok(self.merge(frames))
+        match rejected {
+            None => Ok(self.merge(frames)),
+            Some(e) => {
+                for f in frames {
+                    if !self.emitted.contains(&f.pts) {
+                        self.carry.insert(f.pts, f);
+                    }
+                }
+                Err(e)
+            }
+        }
     }
 }
 

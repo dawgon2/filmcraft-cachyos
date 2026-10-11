@@ -30,10 +30,10 @@ fn settings(encoder: HevcEncoder, bits: u8, crf: Option<u8>) -> ExportSettings {
         format: Format::Hevc,
         hevc_encoder: encoder,
         hevc_bit_depth: bits,
-        crf,
+        crf: crf.map_or(filmcraft_export::DEFAULT_CRF, f32::from),
         bitrate_kbps: 4000,
         max_bitrate_kbps: Some(6000),
-        bitrate_mode: BitrateMode::Vbr1Pass,
+        bitrate_mode: if crf.is_some() { BitrateMode::Crf } else { BitrateMode::Vbr1Pass },
         keyframe_distance: Some(24),
         ..Default::default()
     }
@@ -147,7 +147,7 @@ fn ffmpeg_vaapi_round_trips_in_order() {
 /// reordering, and the colour description in the stream and the sample entry.
 #[test]
 fn in_process_vaapi_round_trips_in_order() {
-    for (bits, crf, mode) in [(10u8, None, BitrateMode::Vbr1Pass), (8, None, BitrateMode::Cbr), (10, Some(24), BitrateMode::Vbr1Pass)] {
+    for (bits, crf, mode) in [(10u8, None, BitrateMode::Vbr1Pass), (8, None, BitrateMode::Cbr), (10, Some(24), BitrateMode::Crf)] {
         let mut s = settings(HevcEncoder::Vaapi, bits, crf);
         s.bitrate_mode = mode;
         s.signal = ColorSignal::HLG;

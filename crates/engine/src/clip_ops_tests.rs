@@ -261,7 +261,7 @@ fn new_sequence_from_clip_bin_from_selection_and_offline_file() {
         .unwrap();
     let it = s.project.item(ItemId(r["item"].as_u64().unwrap())).unwrap();
     let m = it.as_media().unwrap();
-    assert!(m.offline && m.info.audio.is_none() && m.info.video.is_some());
+    assert!(m.offline && !m.info.has_audio() && m.info.video.is_some());
     assert_eq!(m.info.duration, s.sequence_rate().snap_nearest(Tick(4 * TICKS_PER_SECOND)));
     assert_eq!(m.info.start_timecode, Some(3600 * 24));
     assert_eq!(it.metadata["Tape Name"], "A001");
@@ -372,7 +372,7 @@ fn modify_audio_channels_and_breakout_to_mono() {
     s.project = std::sync::Arc::new({
         let mut p = (*s.project).clone();
         if let Some(m) = p.item_mut(item_named(&s, "Bars and Tone")).and_then(|i| i.as_media_mut()) {
-            m.info.audio = None;
+            m.info.audio_streams.clear();
         }
         p
     });
@@ -510,10 +510,14 @@ fn frame_blending_renders_in_between_frames() {
         *a = (*a + b) * 0.5;
     }
     assert!(mean_abs_diff(&avg, &blended) < mean_abs_diff(&sampled, &blended), "closer to the average than to either frame");
-    // optical flow falls back to blending
+    // optical flow synthesises a motion-compensated frame instead of the cross-fade
     s.execute("clip.timeInterpolation.opticalFlow", json!({})).unwrap();
     s.execute("playhead.set", json!({"time": t.0})).unwrap();
-    assert!(mean_abs_diff(&s.render_program(0.125).unwrap(), &blended) < 1e-6);
+    let flowed = s.render_program(0.125).unwrap();
+    // the moving traffic is motion compensated, the static city stays as blended
+    let d = mean_abs_diff(&flowed, &blended);
+    assert!(d > 1e-6, "optical flow should not be the plain cross-fade: {d}");
+    assert!(d < mean_abs_diff(&blended, &sampled), "optical flow stays near the blend on mostly static footage: {d}");
     // at 100 % nothing is blended
     s.execute("clip.speedDuration", json!({"speed": 100.0})).unwrap();
     assert!(filmcraft_render::interpolation_blend(&clip(&s, c.id.0), t, src_rate).is_none());
@@ -557,7 +561,7 @@ fn extract_audio_writes_a_wav_and_imports_it() {
     let item = s.project.item(ItemId(e["item"].as_u64().unwrap())).unwrap();
     let m = item.as_media().unwrap();
     assert!(m.info.video.is_none());
-    assert_eq!(m.info.audio.as_ref().unwrap().channels, 2);
+    assert_eq!(m.info.audio().unwrap().channels, 2);
     let src_dur = s.project.item(forest).unwrap().duration();
     assert!((m.info.duration - src_dur).0.abs() < TICKS_PER_SECOND / 100, "same length");
     assert_eq!(s.project.root.parent_of(item.id), s.project.root.parent_of(forest));
@@ -838,6 +842,32 @@ fn subclip_source_monitor_trims_and_markers() {
     assert!(matches!(s.project.item(sub).unwrap().kind, ItemKind::Subclip { restrict_trims: false, .. }));
 }
 
+/// #29: a Color Matte's color can be changed after it is created; the generated frames follow,
+/// and undo brings the old color back (the media pool regenerates the matte, it doesn't keep
+/// serving the first one).
+#[test]
+fn color_matte_color_changes_and_undoes() {
+    let mut s = demo();
+    let matte = s.execute("file.newColorMatte", json!({"width": 64, "height": 36, "color": "#ff0000"})).unwrap()["item"].as_u64().unwrap();
+    let px = |s: &Session| {
+        let f = s.source(ItemId(matte)).unwrap().video_frame(filmcraft_media::FrameRequest::full(Tick::ZERO)).unwrap();
+        f.to_rgba8()[..3].to_vec()
+    };
+    assert_eq!(px(&s), [255, 0, 0]);
+    let r = s.execute("project.matteColor", json!({"item": matte, "color": "#0000ff"})).unwrap();
+    assert_eq!(r["color"], "#0000ff");
+    assert_eq!(px(&s), [0, 0, 255]);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(px(&s), [255, 0, 0]);
+    // the selected matte when no item is named; anything else is refused
+    s.state.project_selection = vec![ItemId(matte)];
+    s.execute("project.matteColor", json!({"color": "#00ff00"})).unwrap();
+    assert_eq!(px(&s), [0, 255, 0]);
+    let bars = s.execute("file.newBarsAndTone", json!({})).unwrap()["item"].as_u64().unwrap();
+    assert!(s.execute("project.matteColor", json!({"item": bars, "color": "#00ff00"})).is_err());
+    assert!(s.execute("project.matteColor", json!({"item": matte, "color": "green"})).is_err());
+}
+
 /// A damaged project whose subclip is its own parent (#66): `media_duration` followed the chain
 /// without a bound and overflowed the stack. It gives up after a few hops now.
 #[test]
@@ -884,4 +914,111 @@ fn effects_move_reorders_standard_effects_only() {
     assert!(s.execute("effects.move", json!({"clip": a, "index": 0})).is_err());
     assert!(s.execute("effects.move", json!({"clip": 987_654, "index": 0, "to": 1})).is_err());
     assert_eq!(ids(&s), snapshot);
+}
+
+/// #164: Add Edit with a clip selected cut every targeted track. Like Premiere it now cuts only
+/// the selected clips under the playhead; with nothing selected there, the targeted tracks.
+#[test]
+fn add_edit_cuts_only_the_selected_clips() {
+    let mut s = demo();
+    let count = |s: &Session| {
+        let q = s.active_sequence().unwrap();
+        (q.video_tracks.iter().map(|t| t.items.len()).sum::<usize>(), q.audio_tracks.iter().map(|t| t.items.len()).sum::<usize>())
+    };
+    // a V1 clip and a time inside it
+    let first = v1(&s)[1].clone();
+    let t = first.start + filmcraft_time::Tick(first.duration.0 / 2);
+    let (v0, a0) = count(&s);
+    s.state.selection = vec![first.id];
+    s.execute("sequence.addEdit", json!({"time": t.0})).unwrap();
+    let (v1n, a1n) = count(&s);
+    assert_eq!((v1n, a1n), (v0 + 1, a0), "only the selected V1 clip is cut");
+    // nothing selected under the playhead: every targeted track is cut
+    s.execute("edit.undo", json!({})).unwrap();
+    s.state.selection.clear();
+    let r = s.execute("sequence.addEdit", json!({"time": t.0})).unwrap();
+    assert!(r["cuts"].as_u64().unwrap() > 1, "{r}");
+}
+
+#[test]
+fn linked_slip_keeps_picture_and_sound_aligned_at_unequal_media_limits() {
+    let mut s = Session::default();
+    s.execute("file.newProject", json!({"name": "Slip"})).unwrap();
+    s.execute("file.newSequence", json!({"name": "Sequence", "fps": 25, "video": 1, "audio": 1, "width": 16, "height": 16})).unwrap();
+    let r = s.execute("file.newOfflineFile", json!({"name": "Media", "seconds": 4, "fps": 25, "video": true, "audio": true})).unwrap();
+    let item = r["item"].as_u64().unwrap();
+    let fr = s.sequence_rate().tick_of(1);
+    let r =
+        s.execute("timeline.place", json!({"item": item, "track": "V1", "audioTrack": "A1", "time": 0, "sourceIn": fr.0 * 20, "duration": fr.0 * 60})).unwrap();
+    let (v, a) = (r["clips"][0].as_u64().unwrap(), r["clips"][1].as_u64().unwrap());
+    // lengthen only the picture so the pair has unequal tail handles
+    s.execute("sequence.linkedSelection", json!({"on": false})).unwrap();
+    s.execute("timeline.trim", json!({"clip": v, "edge": "out", "deltaFrames": 20})).unwrap();
+    s.execute("sequence.linkedSelection", json!({"on": true})).unwrap();
+    s.execute("timeline.slip", json!({"clip": v, "deltaFrames": 30})).unwrap();
+    assert_eq!(clip(&s, v).source_in, Tick(fr.0 * 20));
+    assert_eq!(clip(&s, a).source_in, Tick(fr.0 * 20), "sound must not slip alone");
+    s.execute("timeline.slip", json!({"clip": v, "deltaFrames": -10})).unwrap();
+    assert_eq!((clip(&s, v).source_in, clip(&s, a).source_in), (Tick(fr.0 * 10), Tick(fr.0 * 10)));
+}
+
+#[test]
+fn reset_keeps_keyframes_and_resets_one_parameter() {
+    // #284: Reset Effect used to replace the effect with a fresh one, deleting every keyframe
+    let mut s = demo();
+    let a = v1(&s)[0].clone();
+    let sec = Tick(TICKS_PER_SECOND);
+    let (t0, t1, mid) = (a.start, a.start + sec, a.start + Tick(TICKS_PER_SECOND / 2));
+    for (t, v) in [(t0, 150.0), (t1, 50.0)] {
+        s.execute("effects.setParam", json!({"clip": a.id.0, "effect": "motion", "param": "scale", "value": v, "keyframe": true, "time": t.0})).unwrap();
+    }
+    s.execute("effects.setParam", json!({"clip": a.id.0, "effect": "motion", "param": "rotation", "value": 30.0})).unwrap();
+    let idx = clip(&s, a.id.0).effects.iter().position(|e| e.effect == "motion").unwrap();
+    s.execute("playhead.set", json!({"time": mid.0})).unwrap();
+    s.execute("effects.reset", json!({"clip": a.id.0, "index": idx})).unwrap();
+    let it = clip(&s, a.id.0);
+    let scale = it.effect("motion").unwrap().param("scale").unwrap();
+    // (the playhead snaps to a frame)
+    let mid_media = it.source_time_at(s.playhead());
+    let kf: Vec<(Tick, f64)> = scale.keyframes.iter().map(|k| (k.time, k.value.as_f64().unwrap())).collect();
+    assert_eq!(kf, vec![(it.source_time_at(t0), 150.0), (mid_media, 100.0), (it.source_time_at(t1), 50.0)], "keyframes kept, default at the playhead");
+    assert_eq!(f64_param(&it, "motion", "rotation"), 0.0);
+    // one parameter: only it goes back to its default
+    s.execute("effects.setParam", json!({"clip": a.id.0, "effect": "motion", "param": "rotation", "value": 45.0})).unwrap();
+    s.execute("effects.setParam", json!({"clip": a.id.0, "effect": "opacity", "param": "opacity", "value": 40.0})).unwrap();
+    s.execute("effects.resetParam", json!({"clip": a.id.0, "effect": "motion", "param": "rotation"})).unwrap();
+    let it = clip(&s, a.id.0);
+    assert_eq!(f64_param(&it, "motion", "rotation"), 0.0);
+    assert_eq!(f64_param(&it, "opacity", "opacity"), 40.0);
+    assert_eq!(it.effect("motion").unwrap().param("scale").unwrap().keyframes.len(), 3);
+    assert!(s.execute("effects.resetParam", json!({"clip": a.id.0, "effect": "motion", "param": "nope"})).is_err());
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(f64_param(&clip(&s, a.id.0), "motion", "rotation"), 45.0);
+}
+
+#[test]
+fn keyboard_slip_keeps_linked_clips_in_sync_past_the_shorter_handle() {
+    let mut s = Session::default();
+    s.execute("file.newProject", json!({"name": "Slip"})).unwrap();
+    s.execute("file.newSequence", json!({"name": "Sequence", "fps": 25, "video": 1, "audio": 1, "width": 16, "height": 16})).unwrap();
+    let r = s.execute("file.newOfflineFile", json!({"name": "Media", "seconds": 4, "fps": 25, "video": true, "audio": true})).unwrap();
+    let item = r["item"].as_u64().unwrap();
+    let fr = s.sequence_rate().tick_of(1);
+    let r =
+        s.execute("timeline.place", json!({"item": item, "track": "V1", "audioTrack": "A1", "time": 0, "sourceIn": fr.0 * 20, "duration": fr.0 * 60})).unwrap();
+    let (v, a) = (r["clips"][0].as_u64().unwrap(), r["clips"][1].as_u64().unwrap());
+    // lengthen only the picture: it keeps 10 frames of tail handle, the sound keeps 20
+    s.execute("sequence.linkedSelection", json!({"on": false})).unwrap();
+    s.execute("timeline.trim", json!({"clip": v, "edge": "out", "deltaFrames": 10})).unwrap();
+    s.execute("sequence.linkedSelection", json!({"on": true})).unwrap();
+    s.execute("timeline.select", json!({"clips": [v, a]})).unwrap();
+    for _ in 0..3 {
+        s.execute("timeline.slipLeft5", json!({})).unwrap();
+    }
+    assert_eq!((clip(&s, v).source_in, clip(&s, a).source_in), (Tick(fr.0 * 30), Tick(fr.0 * 30)));
+    // with linked selection off each selected clip still slips on its own
+    s.execute("sequence.linkedSelection", json!({"on": false})).unwrap();
+    s.execute("timeline.select", json!({"clips": [v, a]})).unwrap();
+    s.execute("timeline.slipLeft5", json!({})).unwrap();
+    assert_eq!((clip(&s, v).source_in, clip(&s, a).source_in), (Tick(fr.0 * 30), Tick(fr.0 * 35)));
 }

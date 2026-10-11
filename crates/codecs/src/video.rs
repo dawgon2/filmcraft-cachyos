@@ -50,7 +50,18 @@ pub trait VideoDecoder: Send {
     fn is_hardware(&self) -> bool {
         false
     }
+    /// Made with fewer worker threads than a decoder for playback gets, because it was made for
+    /// background work ([`filmcraft_media::cancel::with_background`]). A request for a monitor
+    /// replaces such a decoder.
+    fn thread_limited(&self) -> bool {
+        false
+    }
 }
+
+/// Worker threads of the H.264 decoders made for background work (thumbnails): a frame-threaded
+/// 4K decoder holds `threads + 2` pictures in flight (~0.5 GB with 16 threads), and the frame
+/// workers already decode different files in parallel.
+const BACKGROUND_H264_THREADS: usize = 2;
 
 /// NAL unit headers of a length-prefixed (avcC / hvcC) sample: the first two bytes of each unit.
 fn nal_headers(sample: &[u8], length_size: usize) -> impl Iterator<Item = (u8, u8)> + '_ {
@@ -205,19 +216,36 @@ pub struct H264Decoder {
     dec: filmcraft_h264::Decoder,
     length_size: usize,
     draft: bool,
+    /// Worker threads (a background decoder gets fewer).
+    threads: usize,
 }
 
 impl H264Decoder {
+    /// The worker threads for a decoder made now.
+    fn threads_now() -> usize {
+        if filmcraft_media::cancel::background() { BACKGROUND_H264_THREADS.min(h264_threads()) } else { h264_threads() }
+    }
+
+    fn make_inner(avcc: &[u8], threads: usize) -> Result<filmcraft_h264::Decoder> {
+        let mut dec = filmcraft_h264::Decoder::with_threads(threads);
+        if !avcc.is_empty() {
+            dec.configure_avcc(avcc).map_err(h264_error)?;
+        }
+        Ok(dec)
+    }
+
     pub fn new(avcc: Vec<u8>) -> Result<Self> {
         recycle_h264_planes();
-        let dec = filmcraft_h264::Decoder::from_avcc(&avcc).map_err(|e| CodecError::Decode(e.to_string()))?;
+        let threads = Self::threads_now();
+        let dec = Self::make_inner(&avcc, threads)?;
         let length_size = avcc_length_size(&avcc);
-        Ok(Self { avcc, dec, length_size, draft: false })
+        Ok(Self { avcc, dec, length_size, draft: false, threads })
     }
     /// A decoder for Annex B byte-stream samples (start codes, in-band parameter sets: MXF, TS).
     pub fn annexb() -> Self {
         recycle_h264_planes();
-        Self { avcc: Vec::new(), dec: filmcraft_h264::Decoder::new(), length_size: 0, draft: false }
+        let threads = Self::threads_now();
+        Self { avcc: Vec::new(), dec: filmcraft_h264::Decoder::with_threads(threads), length_size: 0, draft: false, threads }
     }
     fn convert(p: filmcraft_h264::Picture) -> DecodedFrame {
         use std::sync::Arc;
@@ -241,24 +269,35 @@ impl H264Decoder {
     }
 }
 
+/// An H.264 decoder error as a [`CodecError`]: a feature the decoder does not implement (High
+/// 4:2:2, field pictures...) is [`CodecError::Unsupported`], so the media pool shows the
+/// unreadable slate instead of a black picture (#626); anything else is a decode error.
+fn h264_error(e: filmcraft_h264::Error) -> CodecError {
+    match e {
+        filmcraft_h264::Error::Unsupported(what) => CodecError::Unsupported(format!("H.264: {what}")),
+        e => CodecError::Decode(e.to_string()),
+    }
+}
+
 impl VideoDecoder for H264Decoder {
     fn decode(&mut self, sample: &[u8], pts: i64) -> Result<Vec<DecodedFrame>> {
-        let pics = self.dec.decode(sample, pts).map_err(|e| CodecError::Decode(e.to_string()))?;
+        let pics = self.dec.decode(sample, pts).map_err(h264_error)?;
         Ok(pics.into_iter().map(Self::convert).collect())
     }
     fn flush(&mut self) -> Vec<DecodedFrame> {
         self.dec.flush().into_iter().map(Self::convert).collect()
     }
     fn reset(&mut self) {
-        if self.avcc.is_empty() {
-            self.dec = filmcraft_h264::Decoder::new();
-        } else if let Ok(d) = filmcraft_h264::Decoder::from_avcc(&self.avcc) {
+        if let Ok(d) = Self::make_inner(&self.avcc, self.threads) {
             self.dec = d;
         }
         self.dec.set_draft(self.draft);
     }
     fn name(&self) -> &str {
         "FilmCraft H.264"
+    }
+    fn thread_limited(&self) -> bool {
+        self.threads < h264_threads()
     }
     fn set_draft(&mut self, on: bool) {
         self.draft = on;
@@ -304,7 +343,7 @@ pub struct HevcDecoder {
 
 impl HevcDecoder {
     pub fn new(hvcc: Vec<u8>) -> Result<Self> {
-        let dec = filmcraft_hevc::Decoder::from_hvcc(&hvcc).map_err(|e| CodecError::Decode(e.to_string()))?;
+        let dec = filmcraft_hevc::Decoder::from_hvcc(&hvcc).map_err(hevc_error)?;
         let (length_size, highest_tid) = hvcc_length_size_and_tid(&hvcc);
         Ok(Self { hvcc, dec, length_size, highest_tid })
     }
@@ -344,9 +383,17 @@ impl HevcDecoder {
     }
 }
 
+/// An HEVC decoder error as a [`CodecError`] (see [`h264_error`]).
+fn hevc_error(e: filmcraft_hevc::Error) -> CodecError {
+    match e {
+        filmcraft_hevc::Error::Unsupported(what) => CodecError::Unsupported(format!("HEVC: {what}")),
+        e => CodecError::Decode(e.to_string()),
+    }
+}
+
 impl VideoDecoder for HevcDecoder {
     fn decode(&mut self, sample: &[u8], pts: i64) -> Result<Vec<DecodedFrame>> {
-        let pics = self.dec.decode(sample, pts).map_err(|e| CodecError::Decode(e.to_string()))?;
+        let pics = self.dec.decode(sample, pts).map_err(hevc_error)?;
         Ok(pics.into_iter().map(Self::convert).collect())
     }
     fn flush(&mut self) -> Vec<DecodedFrame> {
@@ -417,32 +464,14 @@ impl Vp9Decoder {
 
     /// `None` for a picture whose planes mix sample types (never produced by the decoder).
     fn convert(&self, p: filmcraft_vp9::Picture) -> Option<DecodedFrame> {
-        use filmcraft_color::{Matrix, Primaries, Range};
+        use filmcraft_color::Range;
         use filmcraft_frame::{Chroma, PixelData};
         use filmcraft_vp9::Plane;
         use std::sync::Arc;
         let (w, h) = (p.width as usize, p.height as usize);
         let (cw, ch) = (p.chroma_width as usize, p.chroma_height as usize);
-        let mut color = filmcraft_color::ColorInfo { matrix: filmcraft_frame::default_matrix(p.width, p.height), ..filmcraft_color::ColorInfo::REC709 };
-        // color_space (7.2.2): 1 BT.601, 2 BT.709, 3 SMPTE-170, 4 SMPTE-240, 5 BT.2020, 7 sRGB.
-        match p.color.color_space {
-            1 | 3 => color.matrix = Matrix::Bt601,
-            2 | 4 => color.matrix = Matrix::Bt709,
-            5 => {
-                color.matrix = Matrix::Bt2020Ncl;
-                color.primaries = Primaries::Bt2020;
-            }
-            _ => {}
-        }
-        if let Some(t) = self.transfer {
-            color.transfer = t;
-        }
-        if let Some(pr) = self.primaries {
-            color.primaries = pr;
-        }
-        if p.color.full_range {
-            color.range = Range::Full;
-        }
+        // (shared with the hardware decoders: `hw_frame::vp9_color`)
+        let color = crate::hw_frame::vp9_color(p.width, p.height, p.color.color_space, p.color.full_range, self.transfer, self.primaries);
         let (pts, draft) = (p.pts, p.draft);
         if p.color.color_space == 7 {
             // RGB (profiles 1 / 3, 4:4:4): the planes carry G, B, R.
@@ -541,25 +570,8 @@ impl Av1Decoder {
         let draft = p.draft;
         let w = p.width as usize;
         let h = p.height as usize;
-        let mut color = filmcraft_color::ColorInfo::REC709;
-        if let Some(m) = filmcraft_color::Matrix::from_code(p.matrix_coefficients) {
-            color.matrix = m;
-        } else {
-            color.matrix = filmcraft_frame::default_matrix(p.width, p.height);
-        }
-        if let Some(t) = filmcraft_color::Transfer::from_code(p.transfer_characteristics) {
-            color.transfer = t;
-        }
-        color.primaries = match p.color_primaries {
-            9 => filmcraft_color::Primaries::Bt2020,
-            12 => filmcraft_color::Primaries::P3D65,
-            5 => filmcraft_color::Primaries::Bt601_625,
-            6 => filmcraft_color::Primaries::Bt601_525,
-            _ => filmcraft_color::Primaries::Bt709,
-        };
-        if p.full_range {
-            color.range = filmcraft_color::Range::Full;
-        }
+        // (shared with the hardware decoders: `hw_frame::av1_color`)
+        let color = crate::hw_frame::av1_color(p.width, p.height, p.matrix_coefficients, p.transfer_characteristics, p.color_primaries, p.full_range);
         let chroma = match (p.subsampling_x, p.subsampling_y) {
             (1, 1) => filmcraft_frame::Chroma::C420,
             (1, 0) => filmcraft_frame::Chroma::C422,

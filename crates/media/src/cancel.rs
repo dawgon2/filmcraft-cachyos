@@ -19,6 +19,10 @@
 //! [`with_draft`] marks reduced-resolution playback (opt-in): decoders may take spec-safe
 //! shortcuts that only change pictures nothing references (H.264: no deblocking of non-reference
 //! pictures). Never set for exports, renders or a frame shown while paused.
+//!
+//! [`with_background`] marks work nobody waits on interactively (thumbnails of the Project panel,
+//! the Media Browser and the timeline): sources should not keep expensive state, such as a
+//! frame-threaded 4K decoder, for it once it is done.
 
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
@@ -34,6 +38,7 @@ thread_local! {
     static DEADLINE: Cell<u64> = const { Cell::new(u64::MAX) };
     static SKIM: Cell<Option<Tick>> = const { Cell::new(None) };
     static PACE: Cell<Option<Duration>> = const { Cell::new(None) };
+    static BACKGROUND: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Run `f` with the hardware-decode pace `interval` (restoring the previous one after): a source
@@ -82,6 +87,27 @@ pub fn with_deadline<R>(due: u64, f: impl FnOnce() -> R) -> R {
 /// The deadline of the work running on this thread (`u64::MAX`: none).
 pub fn deadline() -> u64 {
     DEADLINE.with(Cell::get)
+}
+
+/// Run `f` as background work when `on` (restoring the previous hint after): a thumbnail, not a
+/// frame a monitor or playback waits for.
+pub fn with_background<R>(on: bool, f: impl FnOnce() -> R) -> R {
+    /// Restores the previous hint however `f` ends (a panic caught further up must not leave the
+    /// worker thread marked as background).
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            BACKGROUND.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(BACKGROUND.with(|c| c.replace(on)));
+    f()
+}
+
+/// Whether the work running on this thread is background work (off unless inside
+/// [`with_background`]`(true, …)`).
+pub fn background() -> bool {
+    BACKGROUND.with(Cell::get)
 }
 
 /// Run `f` with the draft-decoding hint `on` (restoring the previous one after). Frames decoded
@@ -153,6 +179,24 @@ mod tests {
             assert!(draft());
         });
         assert!(!draft());
+    }
+
+    #[test]
+    fn background_is_off_by_default_and_scoped() {
+        assert!(!background());
+        with_background(true, || {
+            assert!(background());
+            with_background(false, || assert!(!background()));
+            assert!(background());
+        });
+        assert!(!background());
+    }
+
+    #[test]
+    fn a_panic_inside_background_work_does_not_leave_the_thread_marked() {
+        let r = std::panic::catch_unwind(|| with_background(true, || panic!("boom")));
+        assert!(r.is_err());
+        assert!(!background());
     }
 
     #[test]

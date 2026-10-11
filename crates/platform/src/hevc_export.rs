@@ -766,7 +766,7 @@ impl HevcEncoder {
             rate,
             ten_bit: s.hevc_bit_depth == 10,
             keyint: s.keyframe_distance.unwrap_or(0).max(1),
-            crf: s.crf,
+            crf: (s.bitrate_mode == filmcraft_export::BitrateMode::Crf).then(|| s.crf.round().clamp(0.0, 51.0) as u8),
             cbr: s.bitrate_mode == filmcraft_export::BitrateMode::Cbr,
             target_kbps: s.bitrate_kbps,
             max_kbps: s.max_bitrate_kbps.unwrap_or(s.bitrate_kbps),

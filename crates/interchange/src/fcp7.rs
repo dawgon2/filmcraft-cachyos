@@ -110,6 +110,24 @@ struct Imp<'a, 'i, 'r> {
     in_progress: HashSet<String>,
     links: Vec<PendingLink>,
     xml_clip_ids: HashMap<(ItemId, String), ClipId>,
+    /// `(sequence key, file key)` pairs where some audio clip item of that file uses `sourcetrack/trackindex` > 1,
+    /// i.e. the file's channels are split onto mono tracks in that sequence (#463).
+    split_files: HashSet<(String, String)>,
+}
+
+/// The `(sequence key, file key)` an audio clip item belongs to, if it references a file.
+fn clip_seq_file(c: Node) -> Option<(String, String)> {
+    let seq = c.ancestors().skip(1).find(|a| a.has_tag_name("sequence"))?;
+    Some((node_key(seq), node_key(child(c, "file")?)))
+}
+
+/// The 1-based `sourcetrack/trackindex` of an audio clip item.
+fn audio_track_index(c: Node) -> Option<i64> {
+    let st = child(c, "sourcetrack")?;
+    if child_text(st, "mediatype").is_some_and(|m| m != "audio") {
+        return None;
+    }
+    child_i64(st, "trackindex")
 }
 
 fn node_key(n: Node) -> String {
@@ -136,9 +154,15 @@ pub(crate) fn import(text_in: &str, opts: &ImportOptions, report: &mut Report) -
         in_progress: HashSet::new(),
         links: Vec::new(),
         xml_clip_ids: HashMap::new(),
+        split_files: HashSet::new(),
     };
     for n in root.descendants().filter(|n| n.is_element()) {
         match n.tag_name().name() {
+            "clipitem" if audio_track_index(n).is_some_and(|i| i > 1) => {
+                if let Some(key) = clip_seq_file(n) {
+                    imp.split_files.insert(key);
+                }
+            }
             "file" if elements(n).next().is_some() => {
                 imp.files.entry(node_key(n)).or_insert(n);
             }
@@ -481,6 +505,17 @@ impl<'a, 'i> Imp<'a, 'i, '_> {
         ti.enabled = child_bool(c, "enabled").unwrap_or(true);
         if let Some(l) = path_text(c, &["labels", "label2"]).and_then(label_from) {
             ti.label = l;
+        }
+        // `sourcetrack/trackindex` (1-based) picks the source channel of a mono track split off a multichannel file (#463).
+        // Index 1 is also what a stereo clip on a stereo track carries, so it means channel 0 only when another clip
+        // item of the same file in this sequence uses a higher index (the file is split); otherwise it keeps the
+        // default (empty) channel mapping.
+        if kind == TrackKind::Audio
+            && let Some(idx) = audio_track_index(c)
+            && (idx > 1 || (idx == 1 && clip_seq_file(c).is_some_and(|k| self.split_files.contains(&k))))
+            && let Ok(ch) = u16::try_from(idx - 1)
+        {
+            ti.source_channels = vec![ch];
         }
         if let Some(mode) = child_text(c, "compositemode") {
             match BLEND_XML.iter().find(|(n, _)| n.eq_ignore_ascii_case(mode)) {
@@ -932,6 +967,10 @@ impl Exp<'_, '_> {
         let hold = c.frame_hold;
         let src_in = hold.unwrap_or(c.source_in);
         let src_out = if hold.is_some() { src_in + c.duration } else { c.source_out() };
+        let (start_f, end_f, in_f) = (frames_round(rate, c.start), frames_round(rate, c.end()), frames_round(rate, src_in));
+        // At normal speed (and on a freeze frame) the source span is the record span. Rounded on its own
+        // it can come out a frame shorter or longer than `end - start` (#340), so derive it from them.
+        let out_f = if hold.is_some() || c.speed.abs() == 1.0 { in_f.saturating_add(end_f.saturating_sub(start_f)) } else { frames_round(rate, src_out) };
         self.w.open(tag, &[("id", xid)]);
         if generator.is_none() && !is_seq {
             let mid = self.master_id(base);
@@ -940,12 +979,12 @@ impl Exp<'_, '_> {
         self.w.text("name", &c.name);
         self.w.text("enabled", bool_str(c.enabled));
         let media_dur = self.p.item(base).map(|i| i.duration()).unwrap_or(Tick::ZERO).max(src_out);
-        self.w.text("duration", frames_round(rate, media_dur));
+        self.w.text("duration", frames_round(rate, media_dur).max(out_f));
         write_rate(&mut self.w, rate);
-        self.w.text("start", frames_round(rate, c.start));
-        self.w.text("end", frames_round(rate, c.end()));
-        self.w.text("in", frames_round(rate, src_in));
-        self.w.text("out", frames_round(rate, src_out));
+        self.w.text("start", start_f);
+        self.w.text("end", end_f);
+        self.w.text("in", in_f);
+        self.w.text("out", out_f);
         self.w.text("pproTicksIn", src_in.0);
         self.w.text("pproTicksOut", src_out.0);
         if let Some(g) = &generator {
@@ -958,7 +997,7 @@ impl Exp<'_, '_> {
         if kind == TrackKind::Audio {
             self.w.open("sourcetrack", &[]);
             self.w.text("mediatype", "audio");
-            self.w.text("trackindex", 1);
+            self.w.text("trackindex", c.source_channels.first().map_or(1, |ch| u32::from(*ch).saturating_add(1)));
             self.w.close();
         }
         if let Some(blend) = param(c, "opacity", "blend").and_then(|p| p.value.as_f64()).map(|v| v as u32).filter(|v| *v != 0) {
@@ -1055,7 +1094,7 @@ impl Exp<'_, '_> {
             self.w.close();
             self.w.close();
         }
-        if let Some(a) = &m.info.audio {
+        if let Some(a) = m.info.audio() {
             self.w.open("audio", &[]);
             self.w.open("samplecharacteristics", &[]);
             self.w.text("depth", a.bits_per_sample.unwrap_or(16));

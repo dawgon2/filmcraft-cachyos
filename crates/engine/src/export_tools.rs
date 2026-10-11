@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use filmcraft_export::presets::{DEFAULT_PRESET, preset_key};
-use filmcraft_export::{ExportPreset, ExportSettings, Format};
+use filmcraft_export::{BitrateMode, ExportPreset, ExportSettings, Format, GpuRendering, HardwareEncoding};
 use filmcraft_project::{ItemId, Project};
 use filmcraft_time::{FrameRate, Tick, TimeRange};
 use serde::{Deserialize, Serialize};
@@ -129,12 +129,30 @@ fn parse_file(bytes: &[u8]) -> std::result::Result<PresetFile, String> {
 // settings
 // ---------------------------------------------------------------------------------------------
 
+/// `sampleRate` → `sample_rate`.
+fn camel_to_snake(k: &str) -> String {
+    let mut out = String::with_capacity(k.len() + 2);
+    for c in k.chars() {
+        if c.is_ascii_uppercase() {
+            out.push('_');
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Deep-merge `patch` into `base` (objects merge, everything else replaces).
 fn merge(base: &mut Value, patch: &Value) {
     match (base, patch) {
         (Value::Object(b), Value::Object(p)) => {
             for (k, v) in p {
-                merge(b.entry(k.clone()).or_insert(Value::Null), v);
+                // Some nested settings structs serialize snake_case (`audio.sample_rate`); accept the documented camelCase
+                // spelling for them too instead of adding a second, ignored key next to the default.
+                let snake = camel_to_snake(k);
+                let key = if !b.contains_key(k) && b.contains_key(&snake) { snake } else { k.clone() };
+                merge(b.entry(key).or_insert(Value::Null), v);
             }
         }
         (b, p) => *b = p.clone(),
@@ -187,18 +205,48 @@ pub fn settings_from_params(s: &Session, p: &Value, cmd: &str) -> Result<(Option
     if let Some(v) = u64_p(p, "quality") {
         settings.quality = v.min(100) as u8;
     }
-    if let Some(v) = u64_p(p, "bitrateKbps") {
-        settings.bitrate_kbps = v as u32;
+    if let Some(v) = crate::commands::checked_u32_p(p, "bitrateKbps", cmd)? {
+        settings.bitrate_kbps = v;
         settings.adaptive_bitrate = None;
     }
-    if let Some(v) = u64_p(p, "maxBitrateKbps") {
-        settings.max_bitrate_kbps = Some(v as u32);
+    if let Some(v) = crate::commands::checked_u32_p(p, "maxBitrateKbps", cmd)? {
+        settings.max_bitrate_kbps = Some(v);
     }
     if let Some(v) = str_p(p, "bitrateMode") {
-        settings.bitrate_mode = serde_json::from_value(json!(v)).map_err(|_| bad(cmd, "bitrateMode: cbr | vbr1Pass | vbr2Pass"))?;
+        settings.bitrate_mode = serde_json::from_value(json!(v)).map_err(|_| bad(cmd, "bitrateMode: cbr | vbr1Pass | vbr2Pass | crf"))?;
     }
-    if let Some(v) = u64_p(p, "keyframeDistance") {
-        settings.keyframe_distance = Some(v as u32);
+    if let Some(v) = f64_p(p, "crf") {
+        settings.crf = v as f32;
+        if p.get("bitrateMode").is_none() {
+            settings.bitrate_mode = BitrateMode::Crf;
+        }
+    }
+    if let Some(v) = crate::commands::checked_u32_p(p, "keyframeDistance", cmd)? {
+        settings.keyframe_distance = Some(v);
+    }
+    if let Some(v) = p.get("hardwareEncoding") {
+        settings.hardware_encoding = match v {
+            Value::Bool(on) => {
+                if *on {
+                    HardwareEncoding::Auto
+                } else {
+                    HardwareEncoding::Off
+                }
+            }
+            other => serde_json::from_value(other.clone()).map_err(|_| bad(cmd, "hardwareEncoding: off | auto"))?,
+        };
+    }
+    if let Some(v) = p.get("gpuRendering") {
+        settings.gpu_rendering = match v {
+            Value::Bool(on) => {
+                if *on {
+                    GpuRendering::Auto
+                } else {
+                    GpuRendering::Off
+                }
+            }
+            other => serde_json::from_value(other.clone()).map_err(|_| bad(cmd, "gpuRendering: off | auto"))?,
+        };
     }
     if let Some(v) = bool_p(p, "burnCaptions") {
         settings.burn_captions = v;
@@ -216,7 +264,10 @@ pub fn settings_from_params(s: &Session, p: &Value, cmd: &str) -> Result<(Option
         if v > 51 {
             return Err(bad(cmd, "crf / qp: 0–51"));
         }
-        settings.crf = Some(v as u8);
+        settings.crf = v as f32;
+        if p.get("bitrateMode").is_none() {
+            settings.bitrate_mode = BitrateMode::Crf;
+        }
     }
     // (a number or its text: "10" was silently ignored before, so "Main 10" exports were 8-bit)
     let depth = |k: &str| u64_p(p, k).or_else(|| str_p(p, k).and_then(|t| t.trim().parse().ok()));
@@ -241,8 +292,13 @@ pub fn settings_from_params(s: &Session, p: &Value, cmd: &str) -> Result<(Option
     if let Some(v) = bool_p(p, "sdr") {
         settings.sdr = v;
     }
-    if let (Some(w), Some(h)) = (u64_p(p, "width"), u64_p(p, "height")) {
-        settings.frame_size = Some((w as u32, h as u32));
+    if let Some(v) = bool_p(p, "alpha") {
+        settings.alpha = v;
+    }
+    match (crate::commands::checked_u32_p(p, "width", cmd)?, crate::commands::checked_u32_p(p, "height", cmd)?) {
+        (Some(w), Some(h)) => settings.frame_size = Some((w, h)),
+        (None, None) => {}
+        _ => return Err(bad(cmd, "provide both width and height")),
     }
     if let Some(v) = p.get("fps") {
         settings.frame_rate = Some(parse_rate(v).ok_or_else(|| bad(cmd, "fps: a number (29.97) or \"num/den\""))?);
@@ -274,6 +330,7 @@ pub fn sequence_param(s: &Session, p: &Value, cmd: &str) -> Result<ItemId> {
 /// without a `range` mean `custom`.
 pub fn range_param(s: &Session, project: &Project, seq: ItemId, v: Option<&Value>, p: &Value, cmd: &str) -> Result<Option<TimeRange>> {
     let q = project.sequence(seq).ok_or(EngineError::NoSequence)?;
+    q.check_bounds().map_err(|e| bad(cmd, e))?;
     let fd = q.settings.frame_rate.frame_duration();
     let whole = TimeRange::from_bounds(Tick::ZERO, q.duration().max(fd));
     let mode = match v {
@@ -283,13 +340,9 @@ pub fn range_param(s: &Session, project: &Project, seq: ItemId, v: Option<&Value
         Some(o @ Value::Object(_)) => return range_param(s, project, seq, o.get("mode").or(Some(&json!("custom"))), o, cmd),
         Some(other) => return Err(bad(cmd, format!("range: unexpected {other}"))),
     };
-    Ok(Some(match mode.as_str() {
+    let range = match mode.as_str() {
         "entire" | "entiresequence" | "sequence" | "all" => whole,
-        "inout" | "sequenceinout" => {
-            let a = q.mark_in.unwrap_or(Tick::ZERO);
-            let b = q.mark_out.map(|o| o + fd).unwrap_or(q.duration());
-            TimeRange::from_bounds(a, b.max(a + fd))
-        }
+        "inout" | "sequenceinout" => filmcraft_export::export_range(project, seq, &ExportSettings::default()).map_err(|e| bad(cmd, e.to_string()))?,
         "workarea" => q.work_area.ok_or_else(|| bad(cmd, "the sequence has no work area"))?,
         "custom" => {
             let a = time_p(s, p, "start").ok_or_else(|| bad(cmd, "custom range: need start (startTime / startSeconds / startFrame / startTimecode)"))?;
@@ -297,10 +350,13 @@ pub fn range_param(s: &Session, project: &Project, seq: ItemId, v: Option<&Value
             if b <= a {
                 return Err(bad(cmd, "custom range: end must be after start"));
             }
-            TimeRange::from_bounds(a, b)
+            let duration = b.0.checked_sub(a.0).ok_or_else(|| bad(cmd, "custom range: duration overflows"))?;
+            TimeRange::new(a, Tick(duration))
         }
         other => return Err(bad(cmd, format!("range `{other}`: entire | inOut | workArea | custom"))),
-    }))
+    };
+    filmcraft_export::validate_range(range).map_err(|e| bad(cmd, e.to_string()))?;
+    Ok(Some(range))
 }
 
 /// Where exports go when no path is given: next to the saved project, else ~/Movies, else the
@@ -313,7 +369,7 @@ pub fn default_export_dir(s: &Session) -> PathBuf {
         // the web build's virtual file table: written files are offered as downloads
         return PathBuf::from("/exports");
     }
-    if let Ok(h) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+    if let Some(h) = crate::media_browser::std_home_dir() {
         let movies = Path::new(&h).join("Movies");
         return if movies.is_dir() { movies } else { PathBuf::from(h) };
     }
@@ -330,17 +386,32 @@ fn file_safe(n: &str) -> String {
 fn with_extension(path: &str, settings: &ExportSettings) -> String {
     let ext = settings.extension();
     match Path::new(path).extension().and_then(|e| e.to_str()) {
-        Some(e) if e.eq_ignore_ascii_case(ext) || (settings.format == Format::TiffSequence && e.eq_ignore_ascii_case("tiff")) => path.to_string(),
+        Some(e)
+            if e.eq_ignore_ascii_case(ext)
+                || (settings.format == Format::TiffSequence && e.eq_ignore_ascii_case("tiff"))
+                || (settings.format == Format::JpegSequence && e.eq_ignore_ascii_case("jpeg"))
+                || (settings.format == Format::Aac && e.eq_ignore_ascii_case("aac")) =>
+        {
+            path.to_string()
+        }
         Some(_) if settings.is_image_sequence() || matches!(settings.format, Format::Aiff) => format!("{}.{ext}", path.rsplit_once('.').map_or(path, |x| x.0)),
         _ => format!("{path}.{ext}"),
     }
 }
 
-fn expand_home(p: &str) -> String {
-    match (p.strip_prefix("~/"), std::env::var("HOME")) {
-        (Some(rest), Ok(h)) => format!("{h}/{rest}"),
+/// `~/` expanded to the home directory (`USERPROFILE` on Windows). On Windows `/` becomes `\`:
+/// after a `\\?\` prefix (what `canonicalize` returns) `/` is not a separator.
+pub fn expand_home(p: &str) -> String {
+    let p = match (p.strip_prefix("~/"), crate::media_browser::std_home_dir()) {
+        (Some(rest), Some(h)) => format!("{h}/{rest}"),
         _ => p.to_string(),
-    }
+    };
+    if cfg!(windows) { p.replace('/', "\\") } else { p }
+}
+
+/// `x` names a folder: it ends in a separator or already exists as one.
+fn is_folder(x: &str) -> bool {
+    x.ends_with(['/', '\\']) || Path::new(x).is_dir()
 }
 
 /// Output path for `seq`: the `path` param (a file, or a directory ending in `/` or existing), else
@@ -348,7 +419,7 @@ fn expand_home(p: &str) -> String {
 fn output_path(s: &Session, p: &Value, seq: ItemId, settings: &ExportSettings, suffix: Option<usize>) -> String {
     let name = s.project.item(seq).map(|i| i.name.clone()).unwrap_or_else(|| "Sequence".into());
     let base = match str_p(p, "path").map(expand_home) {
-        Some(x) if x.ends_with('/') || x.ends_with('\\') || Path::new(&x).is_dir() => Path::new(&x).join(file_safe(&name)).to_string_lossy().to_string(),
+        Some(x) if is_folder(&x) => Path::new(&x).join(file_safe(&name)).to_string_lossy().to_string(),
         Some(x) => x,
         None => default_export_dir(s).join(file_safe(&name)).to_string_lossy().to_string(),
     };
@@ -539,6 +610,7 @@ fn item_json(s: &Session, it: &QueueItem) -> Value {
         "range": it.settings.range,
         "status": it.status,
         "progress": progress,
+        "etaSeconds": job.filter(|_| it.status == QueueStatus::Encoding).and_then(|j| j.progress.eta()).map(|d| d.as_secs_f64()),
         "statusText": status_text,
         "job": it.job,
         "error": it.error,
@@ -641,11 +713,7 @@ fn queue_add(s: &mut Session, p: &Value) -> Result<Value> {
             };
             st.range = range_param(s, &project, seq, *r, times, cmd)?;
             // several ranges of one sequence get numbered names; several sequences their own names
-            let suffix = if many && (ranges.len() > 1 || str_p(p, "path").is_some_and(|x| !x.ends_with('/') && !Path::new(&expand_home(x)).is_dir())) {
-                Some(n)
-            } else {
-                None
-            };
+            let suffix = if many && (ranges.len() > 1 || str_p(p, "path").is_some_and(|x| !is_folder(&expand_home(x)))) { Some(n) } else { None };
             st.path = output_path(s, p, seq, &st, suffix);
             n += 1;
             items.push((seq, st));
@@ -770,7 +838,7 @@ fn queue_move(s: &mut Session, p: &Value) -> Result<Value> {
     let n = s.export_queue.items.len() as i64;
     let to = match (p.get("to").and_then(Value::as_i64), p.get("by").and_then(Value::as_i64)) {
         (Some(t), _) => t,
-        (None, Some(b)) => i as i64 + b,
+        (None, Some(b)) => (i as i64).saturating_add(b),
         _ => return Err(bad(cmd, "need `to` (index) or `by` (±n)")),
     }
     .clamp(0, n - 1) as usize;

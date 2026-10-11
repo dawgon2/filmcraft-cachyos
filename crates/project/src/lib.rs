@@ -21,6 +21,7 @@ pub mod keyframe;
 pub mod mask;
 pub mod mixer;
 pub mod multicam;
+pub mod narration;
 pub mod still;
 pub mod transcript;
 pub mod vtransition;
@@ -41,6 +42,7 @@ pub use keyframe::{Interpolation, Keyframe, Param, ParamValue};
 pub use mask::{Mask, MaskMode, MaskPath, MaskVertex, TrackMethod};
 pub use mixer::{AutomationMode, InputMap, MixerStrip, TrackSend};
 pub use multicam::{Camera, MergedClip, MulticamAudio, MulticamSel, MulticamSource};
+pub use narration::{Narration, VocalPitch};
 pub use still::Still;
 pub use transcript::{Speaker, Transcript, Word};
 
@@ -178,14 +180,6 @@ pub const PIXEL_ASPECTS: &[(&str, &str, (u32, u32))] = &[
     ("anamorphic-2", "Anamorphic 2:1 (2.0)", (2, 1)),
 ];
 
-/// A pixel aspect ratio as a number (1 for a zero term), limited to 0.1…10.
-pub fn par_ratio(p: (u32, u32)) -> f64 {
-    if p.0 == 0 || p.1 == 0 {
-        return 1.0;
-    }
-    (f64::from(p.0) / f64::from(p.1)).clamp(0.1, 10.0)
-}
-
 /// A pixel aspect by id (`PIXEL_ASPECTS`) or as `N:D` (1…10 000 each).
 pub fn parse_par(s: &str) -> Option<(u32, u32)> {
     if let Some((_, _, r)) = PIXEL_ASPECTS.iter().find(|(id, _, _)| *id == s) {
@@ -281,6 +275,12 @@ impl MediaClip {
     pub fn frame_rate(&self) -> FrameRate {
         self.interpret.frame_rate.unwrap_or_else(|| self.info.frame_rate())
     }
+    /// Pixel aspect ratio of the picture, in lowest terms: Modify ▸ Interpret Footage's override,
+    /// else the file's. A ratio that makes no sense ([`checked_par`]) is ignored: an override in
+    /// favour of the file's value, the file's in favour of square pixels.
+    pub fn pixel_aspect(&self) -> (u32, u32) {
+        self.interpret.par.and_then(checked_par).or_else(|| self.info.video.as_ref().and_then(|v| checked_par(v.par))).unwrap_or((1, 1))
+    }
     pub fn duration(&self) -> Tick {
         self.info.duration
     }
@@ -290,7 +290,9 @@ impl MediaClip {
 #[allow(clippy::large_enum_variant)]
 pub enum ItemKind {
     Media(MediaClip),
-    Sequence(Box<Sequence>),
+    /// Shared so project snapshots used by undo and background readers do not deep-copy every
+    /// timeline. Mutators detach with `Arc::make_mut`.
+    Sequence(std::sync::Arc<Sequence>),
     /// A subclip: a media item restricted to a range.
     Subclip {
         parent: ItemId,
@@ -355,7 +357,7 @@ impl ProjectItem {
     }
     pub fn as_sequence_mut(&mut self) -> Option<&mut Sequence> {
         match &mut self.kind {
-            ItemKind::Sequence(s) => Some(s),
+            ItemKind::Sequence(s) => Some(std::sync::Arc::make_mut(s)),
             _ => None,
         }
     }
@@ -527,6 +529,10 @@ pub enum AudioChannels {
 }
 
 /// A clip instance on a track.
+fn is_zero_stream(stream: &usize) -> bool {
+    *stream == 0
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TrackItem {
     pub id: ClipId,
@@ -581,6 +587,9 @@ pub struct TrackItem {
     /// left/right). Empty = the first two channels (mono sources on both sides).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_channels: Vec<u16>,
+    /// Audio stream within the media container (0 = the primary stream).
+    #[serde(default, skip_serializing_if = "is_zero_stream")]
+    pub audio_stream: usize,
     /// Graphic clips: roll / crawl, responsive time and the template the graphic came from
     /// ([`GraphicMeta`]). Schema v12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -824,6 +833,8 @@ impl Track {
     }
     /// Invariant check: items do not overlap.
     pub fn check(&self) -> Result<(), String> {
+        // Validate before calling end(), including on a single-item track.
+        self.check_bounds()?;
         for w in self.items.windows(2) {
             if w[0].end() > w[1].start {
                 return Err(format!("{}: items {:?} and {:?} overlap", self.name, w[0].id, w[1].id));
@@ -832,6 +843,21 @@ impl Track {
         for i in &self.items {
             if i.duration.0 <= 0 {
                 return Err(format!("{}: item {:?} has non-positive duration", self.name, i.id));
+            }
+        }
+        Ok(())
+    }
+    /// Only the value bounds that keep timeline arithmetic from overflowing (no structural rules
+    /// such as overlap or positive duration); what a loaded project must satisfy.
+    pub fn check_bounds(&self) -> Result<(), String> {
+        for item in &self.items {
+            if !bounded_time_range(item.start, item.duration) {
+                return Err(format!("{}: item {:?} is outside supported time bounds", self.name, item.id));
+            }
+        }
+        for transition in &self.transitions {
+            if !bounded_time_range(transition.start, transition.duration) {
+                return Err(format!("{}: transition {:?} is outside supported time bounds", self.name, transition.id));
             }
         }
         Ok(())
@@ -882,6 +908,86 @@ impl Default for SequenceSettings {
             working_space: "Rec. 709".into(),
             color: filmcraft_color::ColorPipeline::REC709,
         }
+    }
+}
+
+/// Largest frame side, in pixels.
+pub const MAX_FRAME_SIDE: u32 = 32_768;
+/// Largest frame area, in pixels (16384 x 16384: 16K and 16384 x 8192 panoramas fit).
+pub const MAX_FRAME_PIXELS: u64 = 268_435_456;
+
+/// Bound working-frame allocations while retaining 16K and wide panoramic frames.
+pub fn validate_frame_size(width: u32, height: u32) -> Result<(), String> {
+    if width == 0 || height == 0 || width > MAX_FRAME_SIDE || height > MAX_FRAME_SIDE || u64::from(width) * u64::from(height) > MAX_FRAME_PIXELS {
+        return Err(format!("frame size must be positive, at most {MAX_FRAME_SIDE} pixels per side and {MAX_FRAME_PIXELS} pixels total"));
+    }
+    Ok(())
+}
+
+/// The most a pixel aspect ratio may stretch a picture either way (8:1 or 1:8). Real footage stays
+/// well inside (2:1 for 2x anamorphic lenses, 4:3 for HDV, 0.9 for NTSC DV); a ratio beyond it is
+/// garbage from a damaged file and is treated as square.
+pub const MAX_PIXEL_ASPECT: f64 = 8.0;
+
+/// A pixel aspect ratio fit to compute with, in lowest terms, or `None` when it is unset (a zero
+/// term, as decoders report "not signalled") or stretches more than [`MAX_PIXEL_ASPECT`] either
+/// way. Ratios come from media, project and interchange files, so they are untrusted.
+pub fn checked_par(par: (u32, u32)) -> Option<(u32, u32)> {
+    let (n, d) = par;
+    if n == 0 || d == 0 {
+        return None;
+    }
+    let r = f64::from(n) / f64::from(d);
+    if !(1.0 / MAX_PIXEL_ASPECT..=MAX_PIXEL_ASPECT).contains(&r) {
+        return None;
+    }
+    let (mut a, mut b) = (n, d);
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    let g = a.max(1);
+    Some((n / g, d / g))
+}
+
+/// [`checked_par`], with square pixels for a ratio that is unset or makes no sense.
+pub fn sane_par(par: (u32, u32)) -> (u32, u32) {
+    checked_par(par).unwrap_or((1, 1))
+}
+
+/// The width of one pixel over its height ([`sane_par`] first): 1.333… for 4:3 pixels.
+pub fn par_ratio(par: (u32, u32)) -> f64 {
+    let (n, d) = sane_par(par);
+    f64::from(n) / f64::from(d)
+}
+
+/// The size of a `size` picture with `par` pixels in the pixels of a frame whose pixel aspect is
+/// `frame_par`: the width scales by par / frame_par, the height stays. A 1440 x 1080 picture with
+/// 4:3 pixels covers 1920 x 1080 square pixels.
+pub fn conformed_size(size: (u32, u32), par: (u32, u32), frame_par: (u32, u32)) -> (f64, f64) {
+    let (par, frame_par) = (sane_par(par), sane_par(frame_par));
+    let w = if par == frame_par { f64::from(size.0) } else { f64::from(size.0) * par_ratio(par) / par_ratio(frame_par) };
+    (w, f64::from(size.1))
+}
+
+impl SequenceSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_frame_size(self.width, self.height)?;
+        if self.frame_rate.num <= 0
+            || self.frame_rate.den <= 0
+            || self.frame_rate.as_f64() > 1000.0
+            || self.frame_rate.num > i64::from(u32::MAX)
+            || self.frame_rate.den > i64::from(u32::MAX)
+            || (i128::from(TICKS_PER_SECOND) * i128::from(self.frame_rate.den) / i128::from(self.frame_rate.num.max(1))) > i128::from(Tick::MAX.0)
+        {
+            return Err("frame rate must be positive, at most 1000 fps, with unsigned 32-bit rational components".into());
+        }
+        if self.sample_rate == 0 || self.sample_rate > 384_000 {
+            return Err("sample rate must be between 1 and 384000 Hz".into());
+        }
+        if self.par.0 == 0 || self.par.1 == 0 {
+            return Err("pixel aspect ratio must be positive".into());
+        }
+        Ok(())
     }
 }
 
@@ -1014,6 +1120,7 @@ impl Sequence {
         v
     }
     pub fn check(&self) -> Result<(), String> {
+        self.check_bounds()?;
         for t in self.all_tracks() {
             t.check()?;
         }
@@ -1022,6 +1129,33 @@ impl Sequence {
         }
         Ok(())
     }
+    /// The hostile-value bounds alone (settings, marks and every time range), without the
+    /// structural invariants of [`Sequence::check`]: a project that breaks only those (e.g. an
+    /// overlap written by an older build) still opens, but nothing in it can overflow.
+    pub fn check_bounds(&self) -> Result<(), String> {
+        self.settings.validate()?;
+        if self.mark_in.into_iter().chain(self.mark_out).any(|t| t < Tick::MIN || t > Tick::MAX)
+            || self.work_area.is_some_and(|r| !bounded_time_range(r.start, r.duration))
+        {
+            return Err("sequence marks or work area are outside supported time bounds".into());
+        }
+        for t in self.all_tracks() {
+            t.check_bounds()?;
+        }
+        for t in &self.caption_tracks {
+            t.check_bounds()?;
+        }
+        Ok(())
+    }
+}
+
+/// Bound persisted timeline arithmetic before any start + duration operation: start, duration and
+/// end all stay within `Tick::MIN..=Tick::MAX`, leaving headroom for later edit math. Negative
+/// positions remain supported; the sign of the duration is a structural rule (track items and
+/// captions require a positive one in their own invariant checks), not a bound.
+pub(crate) fn bounded_time_range(start: Tick, duration: Tick) -> bool {
+    let within = |t: i64| (Tick::MIN.0..=Tick::MAX.0).contains(&t);
+    within(start.0) && within(duration.0) && start.0.checked_add(duration.0).is_some_and(within)
 }
 
 /// Project-level settings.
@@ -1145,6 +1279,14 @@ pub struct Project {
     /// project item. Schema v12.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub source_graphics: BTreeMap<ItemId, SourceGraphic>,
+    /// Narrations (Text to Speech): the script and voice settings each generated WAV item was
+    /// made from, keyed by that item. Schema v14.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub narrations: BTreeMap<ItemId, Narration>,
+    /// Project notes (Window ▸ Project Notes): free plain text kept with the project, for to-dos,
+    /// instructions for whoever opens it next, frame numbers and the like. Schema v15.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub notes: String,
     /// The colour stills gallery (GRADE-PLAN G1.5): grabbed frames with the grade that made them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stills: Vec<Still>,
@@ -1186,9 +1328,9 @@ impl SequenceView {
     }
 }
 
-/// What was open when a project was saved: the Timeline's sequence tabs in order, the active one
-/// and how each sequence was shown. Stored beside the project in its file, not in it: it is not
-/// part of the edit and never an undo step.
+/// What was open when a project was saved: the Timeline's sequence tabs in order, the active one,
+/// how each sequence was shown and where its playhead was. Stored beside the project in its file,
+/// not in it: it is not part of the edit and never an undo step.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProjectView {
     #[serde(default)]
@@ -1197,6 +1339,17 @@ pub struct ProjectView {
     pub active_sequence: Option<ItemId>,
     #[serde(default)]
     pub sequences: BTreeMap<ItemId, SequenceView>,
+    /// Each sequence's playhead, so a sequence reopens where it was left. Files
+    /// written before it existed have none, and every playhead starts at zero as it did then.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub playheads: BTreeMap<ItemId, Tick>,
+}
+
+impl ProjectView {
+    /// The latest playhead a project file may ask for: ten million seconds (about 115 days), the
+    /// same bound as a sequence view's scroll position. Playheads are read from project files, so
+    /// nothing in them is trusted.
+    pub const MAX_PLAYHEAD: Tick = Tick(10_000_000 * TICKS_PER_SECOND);
 }
 
 /// A LUT imported into the project (`lut.import`). Lumetri refers to it as `lib:<id>`.
@@ -1231,6 +1384,8 @@ impl Project {
             transcripts: BTreeMap::new(),
             search_bins: Vec::new(),
             source_graphics: BTreeMap::new(),
+            narrations: BTreeMap::new(),
+            notes: String::new(),
             stills: Vec::new(),
         }
     }
@@ -1264,20 +1419,35 @@ impl Project {
         id
     }
 
-    /// Move items into a bin (the root when `bin` is None). Returns how many moved; unknown items
-    /// are skipped. Fails (returns None) when the bin does not exist.
+    /// Move items, and bins named by id, into a bin (the root when `bin` is None). A bin goes with
+    /// everything in it. Returns how many moved; unknown ids are skipped, and so is a bin that
+    /// would land in itself or in one of its own sub-bins. Fails (returns None) when the target
+    /// bin does not exist.
     pub fn move_to_bin(&mut self, items: &[ItemId], bin: Option<BinId>) -> Option<usize> {
         let target = bin.unwrap_or(self.root.id);
         self.root.find_bin(target)?;
         let mut moved = 0;
         for &id in items {
-            if !self.items.contains_key(&id) || !self.root.remove_item(id) {
-                continue;
+            let entry = if self.items.contains_key(&id) {
+                if !self.root.remove_item(id) {
+                    continue;
+                }
+                BinEntry::Item(id)
+            } else {
+                let b = BinId(id.0);
+                // never the root, nor a bin that holds the target (or is it)
+                if b == self.root.id || self.root.find_bin(b).is_none_or(|x| x.find_bin(target).is_some()) {
+                    continue;
+                }
+                let Some(sub) = self.root.remove_bin(b) else { continue };
+                BinEntry::Bin(sub)
+            };
+            match self.root.find_bin_mut(target) {
+                Some(t) => t.children.push(entry),
+                // cannot happen (the target is outside what was taken out), but never lose it
+                None => self.root.children.push(entry),
             }
-            if let Some(b) = self.root.find_bin_mut(target) {
-                b.children.push(BinEntry::Item(id));
-                moved += 1;
-            }
+            moved += 1;
         }
         Some(moved)
     }
@@ -1395,7 +1565,7 @@ impl Project {
             let id = TrackId(self.alloc_id());
             seq.audio_tracks.push(Track::new(id, TrackKind::Audio, format!("Audio {}", i + 1)));
         }
-        self.add_item(name, Label::Forest, ItemKind::Sequence(Box::new(seq)), bin)
+        self.add_item(name, Label::Forest, ItemKind::Sequence(std::sync::Arc::new(seq)), bin)
     }
 
     /// Re-base an item's media time: whatever was at media time `t` is at `t - delta` afterwards
@@ -1417,6 +1587,7 @@ impl Project {
         }
         for it in self.items.values_mut() {
             if let ItemKind::Sequence(seq) = &mut it.kind {
+                let seq = std::sync::Arc::make_mut(seq);
                 for t in seq.all_tracks_mut() {
                     for ti in t.items.iter_mut().filter(|ti| users.contains(&ti.item)) {
                         ti.source_in -= delta;
@@ -1488,6 +1659,7 @@ impl Project {
             hold_filters: false,
             field_options: None,
             source_channels,
+            audio_stream: 0,
             graphic: source_graphic.and_then(|sg| sg.meta.map(Box::new)),
             grade: None,
         })
@@ -1534,6 +1706,24 @@ fn resolve_auto_points_sized(e: &mut EffectInstance, frame: (u32, u32), source: 
 }
 
 impl Project {
+    /// Resolve media through at most sixteen items, preserving the outermost subclip range.
+    /// Missing parents, cycles and longer chains are unavailable media.
+    pub fn resolve_media(&self, item: ItemId) -> Option<(ItemId, &MediaClip, Option<TimeRange>)> {
+        let mut id = item;
+        let mut range = None;
+        for _ in 0..16 {
+            match &self.item(id)?.kind {
+                ItemKind::Media(media) => return Some((id, media, range)),
+                ItemKind::Subclip { parent, range: span, .. } => {
+                    range.get_or_insert(*span);
+                    id = *parent;
+                }
+                _ => return None,
+            }
+        }
+        None
+    }
+
     /// Size in pixels of what an item shows: a media clip's picture, a sequence's frame, an
     /// adjustment layer or graphic; a subclip has the size of its parent. `None` without
     /// picture. This is the size the renderer centres a clip's "auto" anchor in.
@@ -1552,6 +1742,35 @@ impl Project {
             };
         }
         None
+    }
+
+    /// Pixel aspect ratio of what an item shows, in lowest terms: a media clip's
+    /// ([`MediaClip::pixel_aspect`], Interpret Footage first), a nested sequence's, a subclip its
+    /// parent's. `None` for items drawn in the pixels of whatever sequence they are in (graphics,
+    /// adjustment layers) and for an item that doesn't exist.
+    pub fn source_par(&self, item: ItemId) -> Option<(u32, u32)> {
+        let mut id = item;
+        // subclips of subclips: bounded, as in `source_size`
+        for _ in 0..16 {
+            return match &self.item(id)?.kind {
+                ItemKind::Media(m) => Some(m.pixel_aspect()),
+                ItemKind::Sequence(q) => Some(sane_par(q.settings.par)),
+                ItemKind::AdjustmentLayer { .. } | ItemKind::Graphic { .. } => None,
+                ItemKind::Subclip { parent, .. } => {
+                    id = *parent;
+                    continue;
+                }
+            };
+        }
+        None
+    }
+
+    /// [`Project::source_size`] in the pixels of a frame whose pixel aspect is `frame_par`
+    /// ([`conformed_size`]): what Scale to Frame Size, Set to Frame Size and Fit / Fill fit into
+    /// the frame. Items without a pixel aspect of their own take the frame's.
+    pub fn conformed_source_size(&self, item: ItemId, frame_par: (u32, u32)) -> Option<(f64, f64)> {
+        let size = self.source_size(item)?;
+        Some(conformed_size(size, self.source_par(item).unwrap_or(frame_par), frame_par))
     }
 
     /// Resolve the "auto" (NaN) points of the clips in the sequences `sequences` selects, for
@@ -1679,6 +1898,40 @@ mod tests {
     }
 
     #[test]
+    fn hostile_frame_rates_are_rejected_before_frame_arithmetic() {
+        for frame_rate in [FrameRate { num: i64::MAX, den: i64::MAX }, FrameRate { num: 1, den: i64::from(u32::MAX) }] {
+            let settings = SequenceSettings { frame_rate, ..Default::default() };
+            assert!(settings.validate().is_err());
+        }
+        for (width, height) in [(7680, 4320), (15360, 8640), (16384, 8192), (16384, 16384), (32768, 8192)] {
+            assert!(SequenceSettings { width, height, ..Default::default() }.validate().is_ok(), "{width}x{height}");
+        }
+        assert!(validate_frame_size(32768, 16384).is_err());
+        assert!(validate_frame_size(65536, 1).is_err());
+    }
+
+    #[test]
+    fn corrupt_timeline_times_are_rejected_before_end_arithmetic() {
+        let (mut project, media, seq) = demo_project();
+        let rate = project.sequence(seq).unwrap().settings.frame_rate;
+        let range = TimeRange::new(Tick::ZERO, rate.tick_of(24));
+        let first = project.make_track_item(media, TrackKind::Video, Tick::ZERO, range, rate).unwrap();
+        let second = project.make_track_item(media, TrackKind::Video, rate.tick_of(24), range, rate).unwrap();
+        project.sequence_mut(seq).unwrap().video_tracks[0].items = vec![first, second];
+        for start in [Tick(i64::MAX), Tick(i64::MIN), Tick::MAX] {
+            project.sequence_mut(seq).unwrap().video_tracks[0].items[0].start = start;
+            let result = std::panic::catch_unwind(|| project.sequence(seq).unwrap().check());
+            assert!(result.is_ok());
+            assert!(result.unwrap().is_err());
+        }
+        project.sequence_mut(seq).unwrap().video_tracks[0].items[0].start = Tick::ZERO;
+        for mark in [Tick(i64::MAX), Tick(i64::MIN)] {
+            project.sequence_mut(seq).unwrap().mark_out = Some(mark);
+            assert!(project.sequence(seq).unwrap().check().is_err());
+        }
+    }
+
+    #[test]
     fn point_params_keep_auto_through_json_and_no_other_point_reads_null() {
         // serde_json writes NaN as `null`; a point parameter reads it back as NaN ("auto")
         let json = serde_json::to_string(&ParamValue::Vec2(Vec2::new(f64::NAN, 540.0))).unwrap();
@@ -1699,6 +1952,22 @@ mod tests {
         path["vertices"][0]["p"]["x"] = serde_json::Value::Null;
         assert!(serde_json::from_value::<MaskPath>(path.clone()).is_err());
         assert!(serde_json::from_value::<ParamValue>(serde_json::json!({ "Path": path })).is_err());
+    }
+
+    #[test]
+    fn media_resolution_bounds_depth_and_preserves_the_outer_range() {
+        let (mut p, media, _) = demo_project();
+        assert_eq!(p.resolve_media(media).map(|(id, _, range)| (id, range)), Some((media, None)));
+        let mut parent = media;
+        let mut last_range = TimeRange::default();
+        for n in 0..15 {
+            last_range = TimeRange::new(Tick(n * 1000), Tick(100));
+            parent = p.add_item("Sub", Label::Iris, ItemKind::Subclip { parent, range: last_range, restrict_trims: false }, None);
+        }
+        assert_eq!(p.resolve_media(parent).map(|(id, _, range)| (id, range)), Some((media, Some(last_range))));
+        let too_deep = p.add_item("Too deep", Label::Iris, ItemKind::Subclip { parent, range: last_range, restrict_trims: false }, None);
+        assert!(p.resolve_media(too_deep).is_none());
+        assert!(p.resolve_media(ItemId(u64::MAX)).is_none());
     }
 
     #[test]
@@ -1809,6 +2078,53 @@ mod tests {
     }
 
     #[test]
+    fn a_bin_moves_into_another_bin_with_its_contents() {
+        let mut p = Project::new("x");
+        let outer = p.add_bin("Footage", None);
+        let inner = p.add_bin("B-Roll", None);
+        let deep = p.add_bin("Drone", Some(inner));
+        let i = p.add_item("a", Label::Iris, ItemKind::AdjustmentLayer { width: 10, height: 10, rate: FrameRate::FPS_24, duration: Tick(1) }, Some(deep));
+        assert_eq!(p.move_to_bin(&[ItemId(inner.0)], Some(outer)), Some(1));
+        let o = p.root.find_bin(outer).unwrap();
+        assert!(o.children.iter().any(|c| matches!(c, BinEntry::Bin(b) if b.id == inner)));
+        assert!(!p.root.children.iter().any(|c| matches!(c, BinEntry::Bin(b) if b.id == inner)));
+        assert_eq!(p.root.parent_of(i), Some(deep));
+        assert!(o.find_bin(deep).is_some());
+        // never into itself or its own sub-bin, and the root never moves
+        assert_eq!(p.move_to_bin(&[ItemId(outer.0)], Some(outer)), Some(0));
+        assert_eq!(p.move_to_bin(&[ItemId(outer.0)], Some(deep)), Some(0));
+        assert_eq!(p.move_to_bin(&[ItemId(p.root.id.0)], Some(outer)), Some(0));
+        assert!(p.root.find_bin(outer).unwrap().find_bin(deep).is_some());
+        // and back out to the root
+        assert_eq!(p.move_to_bin(&[ItemId(inner.0)], None), Some(1));
+        assert!(p.root.children.iter().any(|c| matches!(c, BinEntry::Bin(b) if b.id == inner)));
+    }
+
+    #[test]
+    fn project_clone_shares_sequences_until_mutated() {
+        fn sequence_arc(p: &Project, id: ItemId) -> &std::sync::Arc<Sequence> {
+            match &p.item(id).unwrap().kind {
+                ItemKind::Sequence(q) => q,
+                _ => unreachable!(),
+            }
+        }
+
+        let (mut p, _, a) = demo_project();
+        let b = p.new_sequence("Sequence 02", SequenceSettings::default(), 1, 1, None);
+        let before = p.clone();
+
+        assert!(std::sync::Arc::ptr_eq(sequence_arc(&p, a), sequence_arc(&before, a)));
+        assert!(std::sync::Arc::ptr_eq(sequence_arc(&p, b), sequence_arc(&before, b)));
+
+        p.sequence_mut(a).unwrap().mark_in = Some(Tick(1));
+
+        assert!(!std::sync::Arc::ptr_eq(sequence_arc(&p, a), sequence_arc(&before, a)));
+        assert!(std::sync::Arc::ptr_eq(sequence_arc(&p, b), sequence_arc(&before, b)));
+        assert_eq!(before.sequence(a).unwrap().mark_in, None);
+        assert_eq!(Project::from_json(&p.to_json()).unwrap(), p);
+    }
+
+    #[test]
     fn nest_cycle_finds_sequences_that_contain_themselves() {
         let (mut p, clip, a) = demo_project();
         let rate = p.sequence(a).unwrap().settings.frame_rate;
@@ -1872,5 +2188,62 @@ mod tests {
         assert_eq!(p.nest_overhang(&nest), None);
         nest.frame_hold = Some(f(100));
         assert_eq!(p.nest_overhang(&nest), Some(nest.range()));
+    }
+
+    #[test]
+    fn pixel_aspect_ratios_are_reduced_and_hostile_ones_are_square() {
+        assert_eq!(checked_par((4, 3)), Some((4, 3)));
+        assert_eq!(checked_par((40, 30)), Some((4, 3)));
+        assert_eq!(checked_par((u32::MAX, u32::MAX)), Some((1, 1)));
+        assert_eq!(checked_par((u32::MAX, u32::MAX - 1)), Some((u32::MAX, u32::MAX - 1)));
+        assert_eq!(checked_par((8, 1)), Some((8, 1)));
+        assert_eq!(checked_par((1, 8)), Some((1, 8)));
+        for bad in [(0, 0), (0, 1), (1, 0), (9, 1), (1, 9), (u32::MAX, 1), (1, u32::MAX)] {
+            assert_eq!(checked_par(bad), None, "{bad:?}");
+            assert_eq!(sane_par(bad), (1, 1), "{bad:?}");
+            assert_eq!(par_ratio(bad), 1.0, "{bad:?}");
+        }
+        assert!((par_ratio((4, 3)) - 4.0 / 3.0).abs() < 1e-12);
+        // 1440 x 1080 with 4:3 pixels is 1920 x 1080 square pixels, and itself in a 4:3 frame
+        assert_eq!(conformed_size((1440, 1080), (4, 3), (1, 1)), (1920.0, 1080.0));
+        assert_eq!(conformed_size((1440, 1080), (4, 3), (8, 6)), (1440.0, 1080.0));
+        assert_eq!(conformed_size((1920, 1080), (1, 1), (4, 3)), (1440.0, 1080.0));
+        assert_eq!(conformed_size((u32::MAX, u32::MAX), (8, 1), (1, 8)), (u32::MAX as f64 * 64.0, u32::MAX as f64));
+        assert_eq!(conformed_size((1440, 1080), (0, 0), (u32::MAX, 1)), (1440.0, 1080.0));
+    }
+
+    #[test]
+    fn source_par_follows_interpret_footage_subclips_and_sequences() {
+        let (mut p, clip, seq) = demo_project();
+        assert_eq!(p.source_par(clip), Some((1, 1)));
+        let sub = p.add_item("Sub", Label::Iris, ItemKind::Subclip { parent: clip, range: TimeRange::new(Tick::ZERO, Tick(100)), restrict_trims: false }, None);
+        fn media(p: &mut Project, id: ItemId) -> &mut MediaClip {
+            match &mut p.item_mut(id).unwrap().kind {
+                ItemKind::Media(m) => m,
+                _ => unreachable!(),
+            }
+        }
+        // the file's ratio, reduced
+        media(&mut p, clip).info.video.as_mut().unwrap().par = (40, 30);
+        assert_eq!((p.source_par(clip), p.source_par(sub)), (Some((4, 3)), Some((4, 3))));
+        assert_eq!(p.conformed_source_size(clip, (1, 1)), Some((1920.0 * 4.0 / 3.0, 1080.0)));
+        // Interpret Footage wins over the file
+        media(&mut p, clip).interpret.par = Some((2, 1));
+        assert_eq!(p.source_par(sub), Some((2, 1)));
+        // a nonsensical override falls back to the file, a nonsensical file value to square
+        media(&mut p, clip).interpret.par = Some((0, 7));
+        assert_eq!(p.source_par(clip), Some((4, 3)));
+        media(&mut p, clip).info.video.as_mut().unwrap().par = (u32::MAX, 1);
+        assert_eq!(p.source_par(clip), Some((1, 1)));
+        // a nested sequence has its own ratio; graphics and missing items have none
+        p.sequence_mut(seq).unwrap().settings.par = (0, 0);
+        assert_eq!(p.source_par(seq), Some((1, 1)));
+        p.sequence_mut(seq).unwrap().settings.par = (8, 6);
+        assert_eq!(p.source_par(seq), Some((4, 3)));
+        assert_eq!(p.conformed_source_size(seq, (1, 1)), Some((2560.0, 1080.0)));
+        let adj = p.add_item("Adj", Label::Iris, ItemKind::AdjustmentLayer { width: 1440, height: 1080, rate: FrameRate::FPS_24, duration: Tick(100) }, None);
+        assert_eq!(p.source_par(adj), None);
+        assert_eq!(p.conformed_source_size(adj, (4, 3)), Some((1440.0, 1080.0)));
+        assert_eq!(p.source_par(ItemId(987_654_321)), None);
     }
 }

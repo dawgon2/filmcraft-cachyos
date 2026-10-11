@@ -24,6 +24,7 @@ pub const ALIGN_OPTS: &[&str] = &["Left", "Center", "Right", "Justify"];
 pub const CAPS_OPTS: &[&str] = &["Normal", "All Caps", "Small Caps"];
 pub const STROKE_OPTS: &[&str] = &["Outer", "Center", "Inner"];
 pub const SHAPE_OPTS: &[&str] = &["Rectangle", "Ellipse", "Polygon", "Path"];
+pub const FILL_KIND_OPTS: &[&str] = &["Solid", "Linear Gradient"];
 
 /// Whether an effect instance is a graphic layer.
 pub fn is_layer_id(id: &str) -> bool {
@@ -58,6 +59,10 @@ fn appearance() -> Vec<ParamDef> {
     vec![
         bo("fill", "Fill", true, A),
         co("fill_color", "Fill Color", [1.0, 1.0, 1.0, 1.0], A),
+        chc("fill_kind", "Fill Type", FILL_KIND_OPTS, 0, A),
+        co("gradient_start", "Gradient Start", [1.0, 1.0, 1.0, 1.0], A),
+        co("gradient_end", "Gradient End", [0.15, 0.15, 0.15, 1.0], A),
+        p("gradient_angle", "Gradient Angle", ParamKind::Angle, ParamValue::Float(0.0), true, A),
         bo("stroke", "Stroke", false, A),
         co("stroke_color", "Stroke Color", [0.0, 0.0, 0.0, 1.0], A),
         fl("stroke_width", "Stroke Width", 4.0, (0.0, 1000.0), (0.0, 100.0), "", A),
@@ -125,6 +130,7 @@ pub(crate) fn layer_defs() -> Vec<EffectDef> {
                 chc("caps", "Capitalisation", CAPS_OPTS, 0, X),
                 bo("underline", "Underline", false, X),
                 fl("box_width", "Text Box Width", 0.0, (0.0, 100_000.0), (0.0, 3840.0), "", X),
+                fl("box_height", "Text Box Height", 0.0, (0.0, 100_000.0), (0.0, 2160.0), "", X),
                 bo("vertical", "Vertical Text", false, X),
             ],
         ),
@@ -143,10 +149,22 @@ pub(crate) fn layer_defs() -> Vec<EffectDef> {
     ]
 }
 
+/// A linear fill across the layer's local bounds. Colours are sRGB-encoded straight RGBA.
+/// Angle is degrees clockwise on screen (y down); 0 runs left to right.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinearGradient {
+    pub start: [f32; 4],
+    pub end: [f32; 4],
+    pub angle: f32,
+}
+
 /// Fill / strokes / background / shadow of a layer (colours are sRGB-encoded straight RGBA).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Appearance {
     pub fill: Option<[f32; 4]>,
+    /// Set when Fill Type is Linear Gradient. Replaces the solid fill. A text run with its own
+    /// fill colour stays solid; the other characters keep the ramp.
+    pub gradient: Option<LinearGradient>,
     /// (colour, width px, type: 0 outer, 1 centre, 2 inner), outermost last.
     pub strokes: Vec<([f32; 4], f32, u32)>,
     /// (colour with opacity in alpha, padding px, corner radius px).
@@ -192,8 +210,10 @@ pub struct TextProps {
     /// 0 normal, 1 all caps, 2 small caps.
     pub caps: u32,
     pub underline: bool,
-    /// Area-text width (0 = point text).
+    /// Paragraph-text box width (0 = point text).
     pub box_width: f32,
+    /// Paragraph-text box height: lines that do not fit are not shown (0 = as tall as the text).
+    pub box_height: f32,
     /// Vertical text (characters stacked top to bottom; columns right to left).
     pub vertical: bool,
     /// Per-character style overrides as *byte* ranges of `text` (sorted, non-overlapping).
@@ -286,6 +306,7 @@ pub fn eval_layer(e: &EffectInstance, t: Tick, frame: (u32, u32)) -> Option<Laye
                 caps: ch(e, "caps", t),
                 underline: bb(e, "underline", t),
                 box_width: ff(e, "box_width", t).max(0.0),
+                box_height: ff(e, "box_height", t).max(0.0),
                 vertical: bb(e, "vertical", t),
             }
         }),
@@ -330,7 +351,17 @@ pub fn eval_layer(e: &EffectInstance, t: Tick, frame: (u32, u32)) -> Option<Laye
         uid: e.layer.as_ref().map_or(0, |x| x.uid),
         pin: e.layer.as_ref().and_then(|x| x.pin.clone()).filter(|p| p.any()),
         content,
-        appearance: Appearance { fill: bb(e, "fill", t).then(|| cc(e, "fill_color", t)), strokes, background, shadow },
+        appearance: Appearance {
+            fill: bb(e, "fill", t).then(|| cc(e, "fill_color", t)),
+            gradient: (bb(e, "fill", t) && ch(e, "fill_kind", t) == 1).then(|| LinearGradient {
+                start: cc(e, "gradient_start", t),
+                end: cc(e, "gradient_end", t),
+                angle: ff(e, "gradient_angle", t),
+            }),
+            strokes,
+            background,
+            shadow,
+        },
         transform: LayerTransform {
             position,
             anchor: vv(e, "anchor", t),
@@ -393,7 +424,7 @@ pub fn new_vertical_text_layer(text: &str, position: Vec2, size: f64) -> EffectI
 /// Reset a layer's parameters to their defaults, keeping its content (name, text, shape kind,
 /// geometry and path) — Graphics ▸ Reset All Parameters.
 pub fn reset_layer_params(e: &mut EffectInstance) {
-    const KEEP: &[&str] = &["name", "text", "shape", "size", "sides", "points", "vertical"];
+    const KEEP: &[&str] = &["name", "text", "shape", "size", "sides", "points", "vertical", "box_width", "box_height"];
     let Some(def) = crate::effect::find_effect(&e.effect) else { return };
     let mut fresh = def.instance();
     for k in KEEP {
@@ -453,8 +484,17 @@ mod tests {
         assert_eq!(t.size, 72.0);
         assert_eq!(t.font, "Inter");
         assert_eq!(s.appearance.fill, Some([1.0, 0.0, 0.0, 1.0]));
+        assert!(s.appearance.gradient.is_none(), "solid fill stays solid");
         assert_eq!(s.transform.position, Vec2::new(100.0, 200.0));
         assert!(s.appearance.strokes.is_empty() && s.appearance.shadow.is_none());
+        e.params.get_mut("fill_kind").unwrap().value = ParamValue::Choice(1);
+        e.params.get_mut("gradient_start").unwrap().value = ParamValue::Color([1.0, 0.0, 0.0, 1.0]);
+        e.params.get_mut("gradient_end").unwrap().value = ParamValue::Color([0.0, 0.0, 1.0, 1.0]);
+        e.params.get_mut("gradient_angle").unwrap().value = ParamValue::Float(90.0);
+        let g = eval_layer(&e, Tick::ZERO, (1920, 1080)).unwrap().appearance.gradient.expect("linear fill");
+        assert_eq!(g.start, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(g.end, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(g.angle, 90.0);
         assert!(is_layer(&e));
         assert_eq!(layer_display_name(&e, 0), "Hello");
     }

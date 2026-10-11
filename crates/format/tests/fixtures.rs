@@ -52,6 +52,38 @@ fn v1_edit_loads_with_defaults_for_later_fields() {
     seq.check().unwrap();
 }
 
+#[test]
+fn legacy_audio_field_becomes_primary_stream_and_clip_defaults_to_zero() {
+    let p = decode(&fixture("v1-edit.fcproj")).unwrap().project;
+    let media = p.item(ItemId(5)).unwrap().as_media().unwrap();
+    assert_eq!(media.info.audio_streams.len(), 1);
+    assert!(media.info.has_audio());
+    let clip = &p.sequence(ItemId(21)).unwrap().audio_tracks[0].items[0];
+    assert_eq!(clip.audio_stream, 0);
+    let again = decode(&encode(&p, false)).unwrap();
+    assert_eq!(again.project.item(ItemId(5)).unwrap().as_media().unwrap().info.audio_streams, media.info.audio_streams);
+}
+
+/// Out-of-range audio stream data is repaired on load, never a reason to refuse the project.
+#[test]
+fn hostile_audio_stream_counts_and_indices_are_repaired_not_rejected() {
+    let mut p = decode(&fixture("v1-edit.fcproj")).unwrap().project;
+    let seq = ItemId(21);
+    for bad in [filmcraft_media::MAX_AUDIO_STREAMS, usize::MAX] {
+        p.sequence_mut(seq).unwrap().audio_tracks[0].items[0].audio_stream = bad;
+        let loaded = decode(&encode(&p, false)).unwrap().project;
+        assert_eq!(loaded.sequence(seq).unwrap().audio_tracks[0].items[0].audio_stream, 0);
+    }
+    p.sequence_mut(seq).unwrap().audio_tracks[0].items[0].audio_stream = filmcraft_media::MAX_AUDIO_STREAMS - 1;
+    let loaded = decode(&encode(&p, false)).unwrap().project;
+    assert_eq!(loaded.sequence(seq).unwrap().audio_tracks[0].items[0].audio_stream, filmcraft_media::MAX_AUDIO_STREAMS - 1, "in range: kept");
+    let media = p.item_mut(ItemId(5)).unwrap().as_media_mut().unwrap();
+    let stream = media.info.audio_streams[0].clone();
+    media.info.audio_streams.resize(filmcraft_media::MAX_AUDIO_STREAMS + 1, stream);
+    let loaded = decode(&encode(&p, false)).unwrap().project;
+    assert_eq!(loaded.item(ItemId(5)).unwrap().as_media().unwrap().info.audio_streams.len(), filmcraft_media::MAX_AUDIO_STREAMS);
+}
+
 /// Schema 8 (before M3.10): no time interpolation / Hold Filters / Field Options / source channels
 /// on clips, no audio channel map, subclips without Restrict Trims.
 #[test]
@@ -99,7 +131,7 @@ pub fn big_project(n: usize) -> Project {
     let seq_id = ItemId(21);
     let mut next = 1_000_000u64;
     let seq = match &mut p.items.get_mut(&seq_id).unwrap().kind {
-        ItemKind::Sequence(s) => s,
+        ItemKind::Sequence(s) => std::sync::Arc::make_mut(s),
         _ => unreachable!(),
     };
     let v0 = seq.video_tracks[0].items[0].clone();
@@ -257,7 +289,7 @@ fn v12_graded_loads_without_grades() {
     // no grade field is written for clips without one
     assert!(!String::from_utf8_lossy(&encode(&p, false)).contains("\"grade\""));
     // a one-node grade round-trips
-    let seq = p.items.values_mut().find_map(|i| if let ItemKind::Sequence(q) = &mut i.kind { Some(q) } else { None }).unwrap();
+    let seq = p.items.values_mut().find_map(|i| if let ItemKind::Sequence(q) = &mut i.kind { Some(std::sync::Arc::make_mut(q)) } else { None }).unwrap();
     let clip = seq.video_tracks.iter_mut().flat_map(|t| t.items.iter_mut()).next().unwrap();
     let mut g = filmcraft_project::grade::Grade::with_node();
     g.nodes[0].params.insert("lift".into(), filmcraft_project::Param::new(filmcraft_project::ParamValue::Color([0.05, 0.0, -0.05, 0.0])));
@@ -270,6 +302,9 @@ fn v12_graded_loads_without_grades() {
 /// afterwards round-trip in the current schema.
 #[test]
 fn v13_loads_without_stills_and_v14_round_trips_them() {
+    // a pre-U0 fork file: v13 meant grades here, multi-stream audio upstream; its single `audio`
+    // object says which (see the module docs on fork lineage)
+    assert!(filmcraft_format::fork_shape(&serde_json::from_slice::<serde_json::Value>(&fixture("v13-graded.fcproj")).unwrap()));
     let l = decode(&fixture("v13-graded.fcproj")).unwrap();
     assert_eq!(l.schema_version, 13);
     assert!(l.migrated());
