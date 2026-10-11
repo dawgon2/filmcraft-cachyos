@@ -26,6 +26,8 @@ struct U {
 
 // the mask register (`ColorOp::apply_px`)
 var<private> mask_reg: f32 = 1.0;
+// the stash register (CO_STASH / CO_MIX_STASH; the chain's input until a CO_STASH)
+var<private> stash_reg: vec3<f32> = vec3(0.0);
 
 const CO_MATRIX: u32 = 1u;
 const CO_DECODE: u32 = 2u;
@@ -65,6 +67,8 @@ const CO_LOOK: u32 = 21u;
 const CO_HSL_KEY: u32 = 22u;
 const CO_HSL_CORRECT: u32 = 23u;
 const CO_GRAIN: u32 = 24u;
+const CO_STASH: u32 = 25u;
+const CO_MIX_STASH: u32 = 26u;
 
 fn rgb_to_hsl(c: vec3<f32>) -> vec3<f32> {
     let r = c.x; let g = c.y; let b = c.z;
@@ -477,6 +481,7 @@ fn grain_noise(xy: vec2<f32>, inv_size: f32, softness: f32, seed: u32) -> f32 {
 
 fn run_chain(c0: vec3<f32>, xy: vec2<f32>) -> vec3<f32> {
     var c = c0;
+    stash_reg = c0;
     var pc: u32 = 0u;
     let len = min(u.i1.x, arrayLength(&prog));
     loop {
@@ -711,17 +716,34 @@ fn run_chain(c0: vec3<f32>, xy: vec2<f32>) -> vec3<f32> {
                 pc = pc + 4u;
             }
             case CO_HSL_KEY: {
-                let hdr = at(pc + 7u) != 0.0;
+                let hdr = at(pc + 8u) != 0.0;
                 let u0 = to_unit(c, hdr, unit_scale(c, hdr));
                 let h = rgb_to_hsl(u0);
                 let hue = at(pc + 1u);
-                let soft = at(pc + 6u);
+                let soft = at(pc + 7u);
                 let dh = min(abs(h.x - hue), 1.0 - abs(h.x - hue));
                 let mh = 1.0 - clamp((dh - at(pc + 2u) / 2.0) / soft, 0.0, 1.0);
-                let ms = clamp((h.y - at(pc + 3u)) / soft, 0.0, 1.0);
-                let ml = min(clamp((h.z - at(pc + 4u)) / soft, 0.0, 1.0), clamp((at(pc + 5u) - h.z) / soft, 0.0, 1.0));
+                var ms = clamp((h.y - at(pc + 3u)) / soft, 0.0, 1.0);
+                let sat_max = at(pc + 4u);
+                if (sat_max < 1.0) {
+                    ms = min(ms, clamp((sat_max - h.y) / soft, 0.0, 1.0));
+                }
+                let ml = min(clamp((h.z - at(pc + 5u)) / soft, 0.0, 1.0), clamp((at(pc + 6u) - h.z) / soft, 0.0, 1.0));
                 mask_reg = mh * ms * ml;
-                pc = pc + 8u;
+                pc = pc + 9u;
+            }
+            case CO_STASH: {
+                stash_reg = c;
+                pc = pc + 1u;
+            }
+            case CO_MIX_STASH: {
+                var m = mask_reg;
+                if (at(pc + 1u) != 0.0) {
+                    m = 1.0 - m;
+                }
+                mask_reg = m;
+                c = stash_reg + (c - stash_reg) * m;
+                pc = pc + 2u;
             }
             case CO_HSL_CORRECT: {
                 let shift = at(pc + 1u);

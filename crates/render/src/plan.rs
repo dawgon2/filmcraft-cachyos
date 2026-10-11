@@ -421,7 +421,7 @@ fn push_item(
     let ft = item.source_time_at(t);
     let mt = item.effect_time_at(t);
     // (cheap: no operations built; the grade is compiled once, below, when it renders)
-    let graded_item = crate::grade::changes_picture(item, mt);
+    let graded_item = crate::grade::changes_picture(project, item, mt);
     let (op, own) = crate::opacity_blend(item, mt);
     let bl = blend.unwrap_or(own);
     // A multi-camera clip that only shows its angle (no effects, untransformed, same frame size)
@@ -540,12 +540,19 @@ fn push_item(
             };
             let mut ops: Option<Vec<FxOp>> = Some(input.clone().into_iter().collect());
             // (grain sizes scale with the working image: `px_scale`)
-            let graded = if grades { crate::grade::item_ops(item, mt, t, seq.settings.color.working, px_scale) } else { Vec::new() };
+            let graded = if grades { crate::grade::item_fx(project, item, mt, t, seq.settings.color.working, px_scale, lw, lh) } else { Vec::new() };
             if !graded.is_empty() {
-                let g = FxOp::ColorChain(graded.into());
                 match ops.as_mut() {
-                    Some(v) if g.gpu_ok() => v.push(g),
-                    _ => ops = None,
+                    Some(v) if graded.iter().all(FxOp::gpu_ok) => v.extend(graded),
+                    Some(_) => {
+                        // (e.g. node LUTs too large together for the GPU program: CPU every frame)
+                        static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            log::warn!("a clip's colour grade doesn't fit the GPU program; it renders on the CPU");
+                        }
+                        ops = None;
+                    }
+                    None => {}
                 }
             }
             for e in &chain {

@@ -36,7 +36,8 @@ upstream. Rules: no history rewriting of `hevc-vaapi` or `master`, no force-push
    stack with the fork's zero-copy path on top, upstream's `OP_LUMETRI` retired in favour of the
    ColorOps chain, `gop.rs` fixes), each consolidation a separate reviewed commit. **Update
    (owner, 2026-10-11):** U0 ships stage 1 plus the Lumetri retirement; the one-VA-API-stack
-   consolidation is its own phase, **U0.2**, right before Phase 8 (FORK-PLAN §1a.6).
+   consolidation is its own phase, **U0.2**, right after Phase 6E (owner, 2026-10-11, moved from before
+   Phase 8; FORK-PLAN §1a.6).
 5. **Project schema.** Upstream and the fork both used schema numbers 13 and 14. Upstream's
    numbering wins (v13 multi-stream audio, v14 narrations, v15 notes); the fork's grades and
    stills become **v16**. Fork files saved as v13 / v14 (whose fork steps were no-ops) are detected

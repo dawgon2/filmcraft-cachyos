@@ -8,9 +8,13 @@
 //! keyframe commands (`effects.addKeyframe`, `effects.toggleAnimation`, …) take `"mask": n` to
 //! address `path` / `feather` / `opacity` / `expansion`. Every edit is one undo step (`merge`: a
 //! key folds a continuous drag into one step).
+//!
+//! A colour grade node's **windows** (fork G2.2) are masks too: pass `"node": id` instead of
+//! `effect` (the selected mask remembers which), and every command here (add, edit, select,
+//! list, track) works on that node's windows.
 
 use filmcraft_geom::{Affine, Vec2};
-use filmcraft_project::{ClipId, EffectInstance, Mask, MaskMode, MaskPath, MaskVertex, ParamValue, TrackKind, TrackMethod};
+use filmcraft_project::{ClipId, EffectInstance, Mask, MaskMode, MaskPath, MaskShape, MaskVertex, ParamValue, TrackItem, TrackKind, TrackMethod};
 use filmcraft_time::Tick;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -27,6 +31,68 @@ pub struct MaskSel {
     pub clip: ClipId,
     pub effect: usize,
     pub mask: usize,
+    /// A colour grade node's windows instead of an effect's masks (`effect` is then unused).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<u64>,
+}
+
+impl MaskSel {
+    pub fn owner(&self) -> Owner {
+        match self.node {
+            Some(n) => Owner::Node(n),
+            None => Owner::Effect(self.effect),
+        }
+    }
+}
+
+/// What holds a mask list: an effect (index on the clip) or a colour grade node (its windows).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Owner {
+    Effect(usize),
+    Node(u64),
+}
+
+impl Owner {
+    /// The selection of mask `mask` of this owner on `clip`.
+    pub fn sel(self, clip: ClipId, mask: usize) -> MaskSel {
+        match self {
+            Owner::Effect(effect) => MaskSel { clip, effect, mask, node: None },
+            Owner::Node(n) => MaskSel { clip, effect: 0, mask, node: Some(n) },
+        }
+    }
+}
+
+/// The masks `o` holds on `it`.
+pub fn masks_of(it: &TrackItem, o: Owner) -> Option<&Vec<Mask>> {
+    match o {
+        Owner::Effect(i) => it.effects.get(i).map(|e| &e.masks),
+        Owner::Node(n) => it.grade.as_ref()?.node(n).map(|n| &n.windows),
+    }
+}
+
+/// [`masks_of`], mutable.
+pub fn masks_of_mut(it: &mut TrackItem, o: Owner) -> Option<&mut Vec<Mask>> {
+    match o {
+        Owner::Effect(i) => it.effects.get_mut(i).map(|e| &mut e.masks),
+        Owner::Node(n) => it.grade.as_mut()?.node_mut(n).map(|n| &mut n.windows),
+    }
+}
+
+/// The owner a command addresses on `it`: `node` (a grade node id), else `effect`, else (with
+/// `sel`) the selected mask's owner when it is on this clip, else the Opacity effect. None: the
+/// node / effect doesn't exist (or `node` isn't an id).
+fn owner_for(it: &TrackItem, p: &Value, sel: Option<MaskSel>, clip: ClipId) -> Option<Owner> {
+    let node = |n: u64| it.grade.as_ref()?.node(n).map(|_| Owner::Node(n));
+    if let Some(v) = p.get("node").filter(|v| !v.is_null()) {
+        return node(v.as_u64()?);
+    }
+    let sel = sel.filter(|s| s.clip == clip);
+    if p.get("effect").is_none_or(Value::is_null)
+        && let Some(n) = sel.and_then(|s| s.node)
+    {
+        return node(n);
+    }
+    effect_index(&it.effects, p.get("effect"), sel.filter(|s| s.node.is_none()), clip).map(Owner::Effect)
 }
 
 fn spec(id: &'static str, label: &'static str, params: &'static str, run: Run) -> CommandSpec {
@@ -38,7 +104,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
         spec(
             "masks.add",
             "Create Mask",
-            r#"{"clip":id?,"effect":index|id?="opacity","shape":"ellipse"|"polygon"|"rectangle"|"bezier","path":[[x,y]…]|{vertices}?,"center":[x,y]?,"size":[w,h]?,"cornerRadius":px?}"#,
+            r#"{"clip":id?,"effect":index|id?="opacity","shape":"ellipse"|"polygon"|"rectangle"|"bezier"|"linear","path":[[x,y]…]|{vertices}?,"center":[x,y]?,"size":[w,h]?,"cornerRadius":px?,"start":[x,y]? (linear: full effect),"end":[x,y]? (linear: no effect)}"#,
             add,
         ),
         spec("masks.remove", "Delete Mask", r#"{"clip":id?,"effect":index|id?,"mask":n?}"#, remove),
@@ -175,17 +241,19 @@ fn edit_mask<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut Mas
     let clip = target_clip(s, p)?;
     let sel = s.state.selected_mask;
     let ph = time_p(s, p, "").unwrap_or(s.playhead());
-    let eff = p.get("effect").cloned();
-    let mask_i = u64_p(p, "mask").map(|m| m as usize).or(sel.filter(|x| x.clip == clip).map(|x| x.mask));
+    let pv = p.clone();
+    let mask_i = u64_p(p, "mask").map(|m| m as usize);
     let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
     let body = move |pr: &mut filmcraft_project::Project, _: &mut crate::EditorState| -> Result<R> {
         let q = pr.sequence_mut(seq_id).ok_or(EngineError::NoSequence)?;
         let (_, it) = q.find_item_mut(clip).ok_or(filmcraft_edit::EditError::NoItem(clip))?;
-        let mt = it.source_time_at(ph.clamp(it.start, it.end() - Tick(1)));
-        let ei = effect_index(&it.effects, eff.as_ref(), sel, clip).ok_or_else(|| bad(label, "no such effect on clip"))?;
-        let e = &mut it.effects[ei];
-        let mi = mask_i.ok_or_else(|| bad(label, "need `mask`"))?;
-        let m = e.masks.get_mut(mi).ok_or_else(|| bad(label, format!("no mask {mi}")))?;
+        // (the time the renderer evaluates masks and grades at: frame holds match)
+        let mt = it.effect_time_at(ph.clamp(it.start, it.end() - Tick(1)));
+        let o = owner_for(it, &pv, sel, clip).ok_or_else(|| bad(label, "no such effect or grade node on clip"))?;
+        let masks = masks_of_mut(it, o).ok_or_else(|| bad(label, "no such effect or grade node on clip"))?;
+        // (the selected mask is the default only when it belongs to the addressed owner)
+        let mi = mask_i.or(sel.filter(|x| x.clip == clip && x.owner() == o).map(|x| x.mask)).ok_or_else(|| bad(label, "need `mask`"))?;
+        let m = masks.get_mut(mi).ok_or_else(|| bad(label, format!("no mask {mi}")))?;
         f(m, mt)
     };
     match str_p(p, "merge") {
@@ -208,8 +276,22 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
     let center = p.get("center").and_then(pt).unwrap_or(Vec2::new(w / 2.0, h / 2.0));
     let r = w.min(h) * 0.2;
     let size = p.get("size").and_then(pt).unwrap_or(Vec2::new(r * 2.0, r * 2.0));
+    let linear = shape == "linear" || shape == "gradient";
     let path = match p.get("path") {
+        Some(v) if linear => {
+            let path = path_from_json(v).ok_or_else(|| bad("masks.add", "bad `path`"))?;
+            let mut pts = path.vertices.iter().map(|v| v.p).filter(|q| q.x.is_finite() && q.y.is_finite());
+            let (Some(a), Some(b)) = (pts.next(), pts.next_back()) else {
+                return Err(bad("masks.add", "a linear mask needs a start and an end point"));
+            };
+            MaskPath::linear(a, b)
+        }
         Some(v) => path_from_json(v).ok_or_else(|| bad("masks.add", "bad `path`"))?,
+        // a graduated filter down the frame: full at the top of `size`, none at its bottom
+        None if linear => MaskPath::linear(
+            p.get("start").and_then(pt).unwrap_or(center - Vec2::new(0.0, size.y / 2.0)),
+            p.get("end").and_then(pt).unwrap_or(center + Vec2::new(0.0, size.y / 2.0)),
+        ),
         None => match shape.as_str() {
             "ellipse" => MaskPath::ellipse(center, size * 0.5),
             "polygon" | "rectangle" | "rect" | "4-point" => {
@@ -223,48 +305,70 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
             _ => return Err(bad("masks.add", "a bezier mask needs `path` (pen points)")),
         },
     };
-    if path.len() < 3 && path.closed {
+    if path.len() < 3 && path.closed && !linear {
         return Err(bad("masks.add", "a mask needs at least 3 vertices"));
     }
-    let eff = p.get("effect").cloned();
+    if linear
+        && (!path.vertices.iter().all(|v| v.p.x.is_finite() && v.p.y.is_finite()) || path.vertices.first().map(|v| v.p) == path.vertices.last().map(|v| v.p))
+    {
+        return Err(bad("masks.add", "a linear mask needs two distinct, finite points"));
+    }
+    let pv = p.clone();
     let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
-    let (ei, mi, name) = s.edit("Create Mask", move |pr, st| {
+    let (o, mi, name) = s.edit("Create Mask", move |pr, st| {
         let q = pr.sequence_mut(seq_id).ok_or(EngineError::NoSequence)?;
+        if pv.get("node").is_some_and(|v| !v.is_null()) && !q.video_tracks.iter().any(|t| t.item(clip).is_some()) {
+            return Err(bad("masks.add", "a window needs a clip on a video track"));
+        }
         let (_, it) = q.find_item_mut(clip).ok_or(filmcraft_edit::EditError::NoItem(clip))?;
-        let ei = effect_index(&it.effects, eff.as_ref(), None, clip).ok_or_else(|| bad("masks.add", "no such effect on clip"))?;
-        let e = &mut it.effects[ei];
-        if e.def().is_none_or(|d| d.kind != filmcraft_project::EffectKind::Video) {
-            return Err(bad("masks.add", "masks apply to video effects"));
+        let o = owner_for(it, &pv, None, clip).ok_or_else(|| bad("masks.add", "no such effect or grade node on clip"))?;
+        if let Owner::Effect(ei) = o {
+            let e = it.effects.get(ei).ok_or_else(|| bad("masks.add", "no such effect on clip"))?;
+            if e.def().is_none_or(|d| d.kind != filmcraft_project::EffectKind::Video) {
+                return Err(bad("masks.add", "masks apply to video effects"));
+            }
+            if e.effect == "motion" {
+                return Err(bad("masks.add", "Motion has no masks"));
+            }
         }
-        if e.effect == "motion" {
-            return Err(bad("masks.add", "Motion has no masks"));
+        let masks = masks_of_mut(it, o).ok_or_else(|| bad("masks.add", "no such effect or grade node on clip"))?;
+        if matches!(o, Owner::Node(_)) && masks.len() >= filmcraft_project::grade::MAX_WINDOWS {
+            return Err(bad("masks.add", format!("a node has at most {} windows", filmcraft_project::grade::MAX_WINDOWS)));
         }
-        let n = e.masks.iter().filter_map(|m| m.name.strip_prefix("Mask (")?.strip_suffix(')')?.parse::<usize>().ok()).max().unwrap_or(0) + 1;
-        let name = format!("Mask ({n})");
-        e.masks.push(Mask::new(name.clone(), path));
-        let mi = e.masks.len() - 1;
-        st.selected_mask = Some(MaskSel { clip, effect: ei, mask: mi });
-        Ok((ei, mi, name))
+        let prefix = if matches!(o, Owner::Node(_)) { "Window (" } else { "Mask (" };
+        let n = masks.iter().filter_map(|m| m.name.strip_prefix(prefix)?.strip_suffix(')')?.parse::<usize>().ok()).max().unwrap_or(0) + 1;
+        let name = format!("{prefix}{n})");
+        masks.push(match path.vertices.as_slice() {
+            [a, b] if linear => Mask::linear(name.clone(), a.p, b.p),
+            _ => Mask::new(name.clone(), path),
+        });
+        let mi = masks.len() - 1;
+        st.selected_mask = Some(o.sel(clip, mi));
+        Ok((o, mi, name))
     })?;
-    Ok(json!({"clip": clip.0, "effect": ei, "mask": mi, "name": name}))
+    Ok(match o {
+        Owner::Effect(ei) => json!({"clip": clip.0, "effect": ei, "mask": mi, "name": name}),
+        Owner::Node(n) => json!({"clip": clip.0, "node": n, "mask": mi, "name": name}),
+    })
 }
 
 fn remove(s: &mut Session, p: &Value) -> Result<Value> {
     let clip = target_clip(s, p)?;
     let sel = s.state.selected_mask;
-    let eff = p.get("effect").cloned();
-    let mask_i = u64_p(p, "mask").map(|m| m as usize).or(sel.filter(|x| x.clip == clip).map(|x| x.mask)).ok_or_else(|| bad("masks.remove", "need `mask`"))?;
+    let pv = p.clone();
+    let mask_i = u64_p(p, "mask").map(|m| m as usize);
     let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
     s.edit("Delete Mask", move |pr, st| {
         let q = pr.sequence_mut(seq_id).ok_or(EngineError::NoSequence)?;
         let (_, it) = q.find_item_mut(clip).ok_or(filmcraft_edit::EditError::NoItem(clip))?;
-        let ei = effect_index(&it.effects, eff.as_ref(), sel, clip).ok_or_else(|| bad("masks.remove", "no such effect on clip"))?;
-        let e = &mut it.effects[ei];
-        if mask_i >= e.masks.len() {
+        let o = owner_for(it, &pv, sel, clip).ok_or_else(|| bad("masks.remove", "no such effect or grade node on clip"))?;
+        let masks = masks_of_mut(it, o).ok_or_else(|| bad("masks.remove", "no such effect or grade node on clip"))?;
+        let mask_i = mask_i.or(sel.filter(|x| x.clip == clip && x.owner() == o).map(|x| x.mask)).ok_or_else(|| bad("masks.remove", "need `mask`"))?;
+        if mask_i >= masks.len() {
             return Err(bad("masks.remove", format!("no mask {mask_i}")));
         }
-        e.masks.remove(mask_i);
-        if st.selected_mask.is_some_and(|x| x.clip == clip && x.effect == ei) {
+        masks.remove(mask_i);
+        if st.selected_mask.is_some_and(|x| x.clip == clip && x.owner() == o) {
             st.selected_mask = None;
         }
         Ok(())
@@ -372,6 +476,9 @@ fn add_vertex(s: &mut Session, p: &Value) -> Result<Value> {
     let after = u64_p(p, "after").ok_or_else(|| bad("masks.addVertex", "need `after`"))? as usize;
     let at = p.get("at").and_then(pt).ok_or_else(|| bad("masks.addVertex", "need `at`"))?;
     edit_mask(s, p, "Add Mask Vertex", move |m, t| {
+        if m.shape == MaskShape::Linear {
+            return Err(bad("masks.addVertex", "a linear mask has just its start and end points"));
+        }
         let n = m.path_at(t).vertices.len();
         // clamp against the length before any insertion, so the index stays valid in the grown path
         let i = (after + 1).min(n);
@@ -439,6 +546,9 @@ fn drop_all(m: &mut Mask, _t: Tick, f: impl Fn(&mut MaskPath)) {
 fn toggle_smooth(s: &mut Session, p: &Value) -> Result<Value> {
     let vi = u64_p(p, "vertex").ok_or_else(|| bad("masks.toggleVertexSmooth", "need `vertex`"))? as usize;
     edit_mask(s, p, "Convert Mask Vertex", move |m, t| {
+        if m.shape == MaskShape::Linear {
+            return Err(bad("masks.toggleVertexSmooth", "a linear mask's points have no curve handles"));
+        }
         let mut path = m.path_at(t);
         let n = path.vertices.len();
         if vi >= n {
@@ -502,12 +612,12 @@ fn select(s: &mut Session, p: &Value) -> Result<Value> {
     let clip = target_clip(s, p)?;
     let seq = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let (_, it) = seq.find_item(clip).ok_or_else(|| bad("masks.select", "no such clip"))?;
-    let ei = effect_index(&it.effects, p.get("effect"), None, clip).ok_or_else(|| bad("masks.select", "no such effect on clip"))?;
+    let o = owner_for(it, p, None, clip).ok_or_else(|| bad("masks.select", "no such effect or grade node on clip"))?;
     let mi = u64_p(p, "mask").unwrap_or(0) as usize;
-    if mi >= it.effects[ei].masks.len() {
+    if mi >= masks_of(it, o).map_or(0, Vec::len) {
         return Err(bad("masks.select", format!("no mask {mi}")));
     }
-    s.state.selected_mask = Some(MaskSel { clip, effect: ei, mask: mi });
+    s.state.selected_mask = Some(o.sel(clip, mi));
     Ok(Value::Null)
 }
 
@@ -522,7 +632,7 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
             if only.is_some_and(|c| c != it.id) {
                 continue;
             }
-            let mt = it.source_time_at(ph.clamp(it.start, it.end() - Tick(1)));
+            let mt = it.effect_time_at(ph.clamp(it.start, it.end() - Tick(1)));
             for (ei, e) in it.effects.iter().enumerate() {
                 for (mi, m) in e.masks.iter().enumerate() {
                     out.push(json!({
@@ -531,6 +641,7 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
                         "effectId": e.effect,
                         "mask": mi,
                         "name": m.name,
+                        "shape": if m.shape == MaskShape::Linear { "linear" } else { "path" },
                         "mode": m.mode.label(),
                         "inverted": m.inverted,
                         "trackMethod": m.track_method.label(),
@@ -539,7 +650,27 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
                         "expansion": m.expansion.f64_at(mt),
                         "path": path_to_json(&m.path_at(mt)),
                         "pathKeyframes": m.path.keyframes.iter().map(|k| k.time.0).collect::<Vec<_>>(),
-                        "selected": s.state.selected_mask == Some(MaskSel { clip: it.id, effect: ei, mask: mi }),
+                        "selected": s.state.selected_mask == Some(Owner::Effect(ei).sel(it.id, mi)),
+                    }));
+                }
+            }
+            for n in it.grade.iter().flat_map(|g| &g.nodes) {
+                for (mi, m) in n.windows.iter().enumerate() {
+                    out.push(json!({
+                        "clip": it.id.0,
+                        "node": n.id,
+                        "mask": mi,
+                        "name": m.name,
+                        "shape": if m.shape == MaskShape::Linear { "linear" } else { "path" },
+                        "mode": m.mode.label(),
+                        "inverted": m.inverted,
+                        "trackMethod": m.track_method.label(),
+                        "feather": m.feather.f64_at(mt),
+                        "opacity": m.opacity.f64_at(mt),
+                        "expansion": m.expansion.f64_at(mt),
+                        "path": path_to_json(&m.path_at(mt)),
+                        "pathKeyframes": m.path.keyframes.iter().map(|k| k.time.0).collect::<Vec<_>>(),
+                        "selected": s.state.selected_mask == Some(Owner::Node(n.id).sel(it.id, mi)),
                     }));
                 }
             }
@@ -580,13 +711,14 @@ fn track(s: &mut Session, p: &Value) -> Result<Value> {
     let seq = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let (_, it) = seq.find_item(clip).ok_or_else(|| bad("masks.track", "no such clip"))?;
     let it = it.clone();
-    let ei = effect_index(&it.effects, p.get("effect"), sel, clip).ok_or_else(|| bad("masks.track", "no such effect on clip"))?;
+    let o = owner_for(&it, p, sel, clip).ok_or_else(|| bad("masks.track", "no such effect or grade node on clip"))?;
     let mi = u64_p(p, "mask")
         .map(|m| m as usize)
-        .or(sel.filter(|x| x.clip == clip && x.effect == ei).map(|x| x.mask))
+        .or(sel.filter(|x| x.clip == clip && x.owner() == o).map(|x| x.mask))
         .ok_or_else(|| bad("masks.track", "need `mask`"))?;
-    let mask = it.effects[ei].masks.get(mi).cloned().ok_or_else(|| bad("masks.track", format!("no mask {mi}")))?;
-    if s.mask_jobs.iter().any(|j| j.target.clip == clip && j.target.effect == ei && j.target.mask == mi) {
+    let mask = masks_of(&it, o).and_then(|v| v.get(mi)).cloned().ok_or_else(|| bad("masks.track", format!("no mask {mi}")))?;
+    let target = o.sel(clip, mi);
+    if s.mask_jobs.iter().any(|j| j.target == target) {
         return Err(bad("masks.track", "this mask is already being tracked"));
     }
     let method = match str_p(p, "method") {
@@ -687,7 +819,7 @@ fn track(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let run = crate::export_tools::guard_job(job.progress.clone(), job.result.clone(), run);
     s.jobs.push(job);
-    s.mask_jobs.push(PendingTrack { job: id, target: MaskSel { clip, effect: ei, mask: mi }, seq: seq_id, keys, applied: 0 });
+    s.mask_jobs.push(PendingTrack { job: id, target, seq: seq_id, keys, applied: 0 });
     let wait = crate::commands::bool_p(p, "wait").unwrap_or(false);
     if wait || cfg!(target_arch = "wasm32") {
         run();
@@ -722,7 +854,7 @@ pub fn poll(s: &mut Session) {
             let r = s.edit_merged("Track Mask", &key, move |pr, _| {
                 let q = pr.sequence_mut(seq_id).ok_or(EngineError::NoSequence)?;
                 let (_, it) = q.find_item_mut(target.clip).ok_or(filmcraft_edit::EditError::NoItem(target.clip))?;
-                let m = it.effects.get_mut(target.effect).and_then(|e| e.masks.get_mut(target.mask)).ok_or_else(|| bad("masks.track", "the mask is gone"))?;
+                let m = masks_of_mut(it, target.owner()).and_then(|v| v.get_mut(target.mask)).ok_or_else(|| bad("masks.track", "the mask is gone"))?;
                 for (t, path) in new {
                     m.path.put_keyframe(t, ParamValue::Path(path));
                 }

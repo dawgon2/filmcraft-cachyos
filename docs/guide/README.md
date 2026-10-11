@@ -30,9 +30,10 @@ own solver and explanations).
 | [color/nodes.md](color/nodes.md) | What a node is, how the chain flows, one job per node, a starter tree for F-Log2; later parallel / layer / splitter / outside / key mixer (C2) | written (G0–G1) |
 | [color/primaries.md](color/primaries.md) | Lift / Gamma / Gain / Offset wheels, contrast and pivot, saturation, temperature / tint | written (G0–G1) |
 | [color/curves.md](color/curves.md) | Custom and the five hue / luma / sat curves | partial (G0–G1) |
-| [color/secondaries.md](color/secondaries.md) | Qualifier, windows, tracking (G2) | to write |
-| [color/matching.md](color/matching.md) | Stills, wipe / split, copy / paste / append grades, "same grade?", shot comparison, Shot Match | partial (G0–G1) |
-| [color/finishing.md](color/finishing.md) | Noise reduction, grain, LUTs, scopes | partial (G0–G1) |
+| [color/secondaries.md](color/secondaries.md) | Qualifier, windows, tracking (G2) | written (G2.1–G2.3) |
+| [color/noise.md](color/noise.md) | Spatial noise reduction on a node (G2.4) | written (G2.4, spatial) |
+| [color/matching.md](color/matching.md) | Stills, wipe / split, copy / paste / append grades, "same grade?", shot comparison, Shot Match, node explainer | written (G0–G2) |
+| [color/finishing.md](color/finishing.md) | Grain, highlight soft clip, node LUTs, scopes (noise reduction: noise.md) | partial (grain, soft clip, LUT; scopes to write) |
 | [color/lumetri.md](color/lumetri.md) | Lumetri Color (Premiere-style) and how it relates to the node grader | to write |
 | [color/recipes.md](color/recipes.md) | Task recipes in plain steps ("make the sky bluer without touching skin", "fix grey skin", "match a wide and a close-up") | to write |
 | [editing.md](editing.md) | Cutting, JKL, proxies and the render cache (Phase 6), multicam | to write |

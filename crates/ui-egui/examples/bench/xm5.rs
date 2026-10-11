@@ -248,6 +248,23 @@ fn set_dwg(s: &mut Session, seq: ItemId) {
     .expect("dwg");
 }
 
+/// A grade node with spatial noise reduction (luma 0.3, chroma 0.3, σ 1.5 source px) on every
+/// clip of the first video track (fork G2.4 acceptance: play-graded with NR on).
+fn add_nr_node(s: &mut Session, seq: ItemId) {
+    s.edit("nr", |p: &mut Project, _| {
+        let q = p.sequence_mut(seq).expect("seq");
+        for it in &mut q.video_tracks[0].items {
+            let mut n = filmcraft_project::grade::GradeNode::new(1);
+            for (k, v) in [("nr.luma", 0.3), ("nr.chroma", 0.3), ("nr.size", 1.5)] {
+                n.params.insert(k.into(), filmcraft_project::Param::new(ParamValue::Float(v)));
+            }
+            it.grade = Some(filmcraft_project::grade::Grade { nodes: vec![n], bypass: false });
+        }
+        Ok(())
+    })
+    .expect("nr");
+}
+
 fn grade(s: &mut Session, seq: ItemId) {
     interpret_flog2(s, seq);
     s.edit("grade", |p: &mut Project, _| {
@@ -436,6 +453,7 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
         || o.wants("play-flog2")
         || o.wants("play-dwg")
         || o.wants("play-graded")
+        || o.wants("play-graded-nr")
         || JKL.iter().any(|(name, ..)| o.wants(name))
     {
         let mut s = Session::default();
@@ -480,6 +498,16 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
                 grade(&mut s, seq);
                 for _ in 0..o.repeat {
                     play(&s, seq, o, "xm5-play-graded", play_s, 1.0, Tick::ZERO, &mut rows);
+                }
+            }
+            // (fork G2.4: the graded case plus a grade node with spatial noise reduction)
+            if o.wants("play-graded-nr") {
+                if !o.wants("play-graded") {
+                    grade(&mut s, seq);
+                }
+                add_nr_node(&mut s, seq);
+                for _ in 0..o.repeat {
+                    play(&s, seq, o, "xm5-play-graded-nr", play_s, 1.0, Tick::ZERO, &mut rows);
                 }
             }
         } else {

@@ -67,17 +67,96 @@ copied clip's motion, opacity, effects and so on; since G1 it also carries the g
 command's `grade` option (default on) leaves the grade out when set to false; the dialog has no
 Grade checkbox yet, so from the dialog the grade always comes along.
 
-## Coming in G2
+## "Same grade?"
+
+**[Fork]**
+
+### Why
+
+After copying a grade around a scene it is easy to nudge one clip by accident. FilmCraft can tell
+you which clips carry *exactly* the same grade: same nodes in the same order with the same
+settings (node names and ids don't matter, nor do settings left at their neutral value).
+
+### Steps
+
+1. Select a clip and open the **Match** tab {ui:grade.tab.match} on the Color page.
+2. The first line says **Same grade as:** followed by the other clips with an identical grade, or
+   that no other clip has it.
+3. For scripts, `grade.compareData` groups every video clip of the sequence by grade
+   (`{"groups": [{"clips": [...]}]}`); pass `"clips"` to look at some only.
+
+## Compare shots and check a scene
+
+**[Fork]**
+
+### Why
+
+Two shots of the same scene should look like they belong together. **Compare shots** measures the
+two *graded* pictures (brightness by tonal range, colour cast, saturation) and says in plain words
+how they differ ("B is about ⅓ stop darker", "B is slightly warmer"), with a match score out of
+100. **Check scene** looks at several shots and names the one that differs most from the rest.
+It is a guide, not a verdict: a wide shot and a close-up can legitimately differ, and only
+tonal ranges both shots actually contain are compared (a note says so when they share little).
+
+### Steps
+
+1. In the **Match** tab, choose the **Reference** clip {ui:grade.match.reference}.
+2. Click **Compare shots** {ui:grade.match.compare} (`grade.compareShots` with `"with"`; or
+   `"referenceTime"` for any frame of the sequence). The score and the differences appear below.
+3. To check a scene, select its clips in the timeline and click **Check scene**
+   {ui:grade.match.checkScene} (`grade.checkScene`). The clip that stands out is named first.
+
+## Shot Match
 
 **[Resolve-style]** **[Fork]**
 
-- **"Same grade?"**: clips with identical grades share a badge (planned command
-  `grade.compareData`).
-- **Shot comparison and a scene check**: plain-language differences between two shots (planned
-  command `grade.compareShots`).
-- **Shot Match**: solve a node that matches one shot to another.
+### Why
 
-None of these exist yet; use the wipe and your eyes.
+Shot Match does the first pass of a match for you: it solves a new node's Lift / Gamma / Gain /
+Offset and saturation so the clip's measured look matches the reference. Because the result is
+an ordinary node, you can see exactly what it did, adjust it, or switch it off.
+
+### Steps
+
+1. Choose the **Reference** clip in the **Match** tab.
+2. Click **Shot Match** {ui:grade.match.shotMatch} (`grade.shotMatch`). A node labelled
+   "Shot Match" is added at the end of the grade (one undo step); skin tones are weighted less
+   so a colour cast on faces doesn't drive the match (`"faceDetection": false` turns that off).
+3. Compare again, then refine the node by hand.
+
+**[Fork]** The match is solved on the clip's grade *before* its effects (the new node runs before
+the effect stack), while the reference is measured as it finally looks. Effects after the grade
+that change colour (Lumetri, Tint, opacity) aren't accounted for: check with **Compare shots**
+afterwards. The Match tab shows once the clip has a grade (add an empty node first: it changes
+nothing); the commands work on any video clip. These requests render frames while you wait, so a
+long scene check takes a few seconds (at most 64 clips are measured).
+
+**[Resolve-style]** Like Resolve's Shot Match, the idea is "make this look like that"; the solver
+and its controls are FilmCraft's own (it writes the primaries of a node instead of a hidden
+adjustment).
+
+## The node explainer
+
+**[Fork]**
+
+### Why
+
+A grade with several nodes is hard to read. The explainer measures what each node actually does
+to the picture (not just which sliders moved) and says it in one sentence, e.g. "Node 2 'Skin':
+affects 18 % of the frame; inside it, midtones +⅙ stop, slightly less magenta; shadows and
+highlights untouched".
+
+### Steps
+
+1. Select a node and open the **Match** tab.
+2. Click **Explain node** {ui:grade.match.explainNode} (`grade.explainNode`) for the selected node,
+   or **Explain grade** {ui:grade.match.explainGrade} (`grade.explainGrade`) for one sentence per
+   node.
+3. Click **Show what changed** {ui:grade.match.changes} to see a heat map of where, and how
+   strongly, the node changed the picture (`grade.explainNode` with `"overlay": <png path>`).
+
+Numbers are measured on the frame at the playhead (or the clip's middle frame), rounded to ⅙ of
+a stop and whole percentages; anything below a just-noticeable change is called "untouched".
 
 ## If you know Resolve
 

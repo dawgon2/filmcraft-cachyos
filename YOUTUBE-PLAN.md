@@ -7,7 +7,7 @@ there are **no third-party plugins or Fusion-style compositing**. Every FORK-PLA
 (never crash, `Tick` time, everything is a command, layering, `unsafe` only in `crates/platform`
 and `crates/gpu/src/interop.rs`, `cargo xtask ci` per phase, a build per phase per §1a.9).
 
-**Order: FORK-PLAN §1a.6** (G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3). Y2 moved after Phase 8
+**Order: FORK-PLAN §1a.6** (G0 ✓ → G1 ✓ → U0 ✓ → G2 → G2b → 6 → Y1 → 6E → U0.2 → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3). Y2 moved after Phase 8
 (owner): the owner's current clips are constant frame rate; VFR matters for phone footage.
 The owner's clips checked 2026-10-11: OBS records HEVC 1080p30 (already on the fast path); the
 Canon camera records **4K23.976 H.264 High**; all three were constant frame rate. Y1 moved after

@@ -35,7 +35,7 @@ matter:
 
 ## Phase U0: the first upstream merge (after G1, before Phase 6; ≈ 10–30 h)
 
-Order: FORK-PLAN §1a.6 (G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3).
+Order: FORK-PLAN §1a.6 (G0 ✓ → G1 ✓ → U0 ✓ → G2 → G2b → 6 → Y1 → 6E → U0.2 → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3).
 Every day of delay adds ~200 upstream commits to reconcile, and upstream's VA-API H.264 may make Y1
 mostly free.
 
@@ -46,8 +46,8 @@ mostly free.
    `hevc-vaapi` or `master`, no force-push).
 2. Resolve per area, with a Fable designer for each conflict cluster:
    - **Decode:** U0 keeps both VA-API stacks (the fork's HEVC decoder first in the chain); the
-     consolidation below is **U0.2, scheduled right before Phase 8** (owner, 2026-10-11; FORK-PLAN
-     §1a.6), with the same 6.2K and conformance gate. Target: one VA-API stack, not two. Compare upstream's `vaapi/` with the fork's on
+     consolidation below is **U0.2, scheduled right after Phase 6E** (owner, 2026-10-11, moved from
+     before Phase 8; FORK-PLAN §1a.6), with the same 6.2K and conformance gate. Target: one VA-API stack, not two. Compare upstream's `vaapi/` with the fork's on
      correctness (conformance bit-exactness), zero-copy display, 6.2K playback numbers, fallback
      behaviour; keep the better parts, and keep the fork's ffmpeg-pipe fallback (FORK-PLAN §1) under
      a non-colliding name. Upstream's H.264 VA-API → re-scope Y1 accordingly (log it).
@@ -101,7 +101,7 @@ continues.
 
 ## Contributing back
 
-Pipeline (after U0, so contributions start from a synced fork):
+Pipeline (owner, 2026-10-11: runs in a contribution slot at each phase boundary from G2b on, FORK-PLAN §1a.25):
 1. Pick candidates (below); for each, build a clean branch **on upstream `main`** in the `cachyos`
    remote: fork-only parts removed (ffmpeg fallbacks, FORK-PLAN / HANDOFF / plan files, X-M5
    benches), upstream's rules met (no `unsafe` outside `crates/platform` with an ADR, ffmpeg only

@@ -1,5 +1,5 @@
 //! Effect masks (Premiere's per-effect masks: ellipse, 4-point polygon or rounded rectangle,
-//! free-draw Bézier).
+//! free-draw Bézier) and the linear (gradient) window of a graduated filter.
 //!
 //! Every mask is a closed cubic Bézier path in **clip pixel space** (full-resolution source
 //! pixels, the space of effect point parameters). An ellipse is four smooth vertices with circular
@@ -12,6 +12,15 @@
 //! hold otherwise), *Feather* (falloff width in pixels, centred on the edge), *Opacity* (%),
 //! *Expansion* (pixels, grows/shrinks the shape by signed distance), *Inverted*, and a combine
 //! [`MaskMode`] with the masks above it. Coverage is computed by `filmcraft_render::mask`.
+//!
+//! A [`MaskShape::Linear`] mask (a graduated filter) reuses the same keyframable *Mask Path*: its
+//! first and last vertices are the gradient's *start* and *end* points ([`MaskPath::linear`]: two
+//! corner vertices, open). Coverage is 1 on the start side, 0 beyond the end, with a smoothstep
+//! ramp between them, so the distance between the points is the softness. Feather widens that
+//! ramp (total width = distance + feather, centred on the midpoint), Expansion moves the transition
+//! towards the end (positive) or the start (negative); Opacity, Inverted and the mode work as for
+//! every mask. Because it is an ordinary two-vertex path, keyframes, tracking and the vertex
+//! commands apply unchanged.
 
 use filmcraft_geom::{Affine, Vec2};
 use serde::{Deserialize, Serialize};
@@ -77,6 +86,11 @@ impl MaskPath {
     /// A polygon through `points` (corner vertices).
     pub fn polygon(points: &[Vec2]) -> Self {
         Self { vertices: points.iter().map(|p| MaskVertex::corner(*p)).collect(), closed: true }
+    }
+    /// The two points of a linear (gradient) mask: `start` (full coverage) and `end` (none), as an
+    /// open path of two corner vertices.
+    pub fn linear(start: Vec2, end: Vec2) -> Self {
+        Self { vertices: vec![MaskVertex::corner(start), MaskVertex::corner(end)], closed: false }
     }
     /// An axis-aligned rectangle (Premiere's 4-point polygon mask default).
     pub fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Self {
@@ -373,11 +387,32 @@ impl TrackMethod {
     }
 }
 
+/// What a mask's path describes. Projects saved before linear masks have no `shape` and load as
+/// [`MaskShape::Path`]; path masks keep serializing without the field.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MaskShape {
+    /// The filled (closed) Bézier path: ellipse, polygon, rounded rectangle, free-draw.
+    #[default]
+    Path,
+    /// A linear gradient window from the path's first vertex (coverage 1) to its last (coverage 0).
+    Linear,
+}
+
+impl MaskShape {
+    pub fn is_path(&self) -> bool {
+        *self == MaskShape::Path
+    }
+}
+
 /// A mask on an effect instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Mask {
     pub name: String,
-    /// `ParamValue::Path`.
+    /// Path or linear gradient (absent in older projects: a path).
+    #[serde(default, skip_serializing_if = "MaskShape::is_path")]
+    pub shape: MaskShape,
+    /// `ParamValue::Path` (for a linear mask: start = first vertex, end = last vertex).
     pub path: Param,
     /// Feather width in clip pixels (≥ 0).
     pub feather: Param,
@@ -400,6 +435,7 @@ impl Mask {
     pub fn new(name: impl Into<String>, path: MaskPath) -> Self {
         Self {
             name: name.into(),
+            shape: MaskShape::Path,
             path: Param::new(ParamValue::Path(path)),
             feather: Param::new(ParamValue::Float(10.0)),
             opacity: Param::new(ParamValue::Float(100.0)),
@@ -408,6 +444,26 @@ impl Mask {
             mode: MaskMode::Add,
             track_method: TrackMethod::default(),
         }
+    }
+    /// A linear (gradient) mask from `start` (coverage 1) to `end` (coverage 0). Its feather starts
+    /// at 0: the distance between the points is the softness.
+    pub fn linear(name: impl Into<String>, start: Vec2, end: Vec2) -> Self {
+        let mut m = Self::new(name, MaskPath::linear(start, end));
+        m.shape = MaskShape::Linear;
+        m.feather = Param::new(ParamValue::Float(0.0));
+        m
+    }
+    /// The start and end points of a linear mask at `t` (first and last path vertex; `None` for a
+    /// path mask or a path with fewer than two vertices).
+    pub fn linear_points_at(&self, t: filmcraft_time::Tick) -> Option<(Vec2, Vec2)> {
+        if self.shape != MaskShape::Linear {
+            return None;
+        }
+        let path = self.path_at(t);
+        if path.vertices.len() < 2 {
+            return None;
+        }
+        Some((path.vertices.first()?.p, path.vertices.last()?.p))
     }
     pub fn param(&self, id: &str) -> Option<&Param> {
         match id {
@@ -521,6 +577,34 @@ mod tests {
         let s = serde_json::to_string(&m).unwrap();
         let back: Mask = serde_json::from_str(&s).unwrap();
         assert_eq!(back, m);
+    }
+
+    #[test]
+    fn old_mask_json_loads_as_a_path_and_linear_masks_round_trip() {
+        // path masks serialize exactly as before (no `shape`)
+        let old = Mask::new("Mask (1)", MaskPath::rect(0.0, 0.0, 10.0, 5.0));
+        let v = serde_json::to_value(&old).unwrap();
+        assert!(v.get("shape").is_none(), "{v}");
+        // a mask as saved before linear masks existed
+        let legacy = r#"{"name":"Mask (2)","path":{"value":{"Path":{"vertices":[{"p":{"x":1.0,"y":2.0}},{"p":{"x":5.0,"y":2.0}},{"p":{"x":3.0,"y":6.0}}]}}},
+            "feather":{"value":{"Float":4.0}},"opacity":{"value":{"Float":100.0}},"expansion":{"value":{"Float":0.0}},"inverted":true,"mode":"Subtract"}"#;
+        let m: Mask = serde_json::from_str(legacy).unwrap();
+        assert_eq!((m.shape, m.inverted, m.mode, m.path_at(Tick(0)).len()), (MaskShape::Path, true, MaskMode::Subtract, 3));
+        assert_eq!(m.linear_points_at(Tick(0)), None);
+        // a keyframed linear mask round-trips and interpolates its points
+        let mut l = Mask::linear("Mask (3)", Vec2::new(0.0, 0.0), Vec2::new(0.0, 100.0));
+        assert_eq!(l.feather.f64_at(Tick(0)), 0.0);
+        l.path.put_keyframe(Tick(0), ParamValue::Path(MaskPath::linear(Vec2::new(0.0, 0.0), Vec2::new(0.0, 100.0))));
+        l.path.put_keyframe(Tick(100), ParamValue::Path(MaskPath::linear(Vec2::new(100.0, 0.0), Vec2::new(100.0, 200.0))));
+        let s = serde_json::to_string(&l).unwrap();
+        assert!(s.contains(r#""shape":"linear""#), "{s}");
+        let back: Mask = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, l);
+        assert_eq!(back.linear_points_at(Tick(50)), Some((Vec2::new(50.0, 0.0), Vec2::new(50.0, 150.0))));
+        // an emptied path has no points
+        let mut e = l.clone();
+        e.path = Param::new(ParamValue::Path(MaskPath::default()));
+        assert_eq!(e.linear_points_at(Tick(0)), None);
     }
 
     #[test]

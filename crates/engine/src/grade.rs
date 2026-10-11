@@ -53,6 +53,8 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             r#"{"clip":id?,"node":id?,"param":str,"value":num|[r,g,b,master?]|[[x,y]],"time":ticks?,"merge":str?}"#,
             set_param,
         ),
+        spec("grade.pickQualifier", "Pick Qualifier Colour", r#"{"clip":id?,"node":id?,"x":0..1,"y":0..1,"mode":"set"|"add"?,"time":ticks?}"#, pick_qualifier),
+        spec("grade.setLut", "Set Node LUT", r#"{"clip":id?,"node":id?,"lut":"builtin:<id>"|"lib:<id>"|""?,"path":str?}"#, set_lut),
         spec("grade.toggleAnimation", "Toggle Node Parameter Animation", r#"{"clip":id?,"node":id?,"param":str,"time":ticks?}"#, toggle_animation),
         spec("grade.resetNode", "Reset Node", r#"{"clip":id?,"node":id?,"param":str?}"#, reset),
         spec("grade.bypass", "Bypass Grade", r#"{"clip":id?,"on":bool?}"#, bypass),
@@ -65,7 +67,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
 }
 
 /// The clip a command addresses: `clip`, else the first selected clip on a video track.
-fn target(s: &Session, p: &Value, cmd: &str) -> Result<ClipId> {
+pub(crate) fn target(s: &Session, p: &Value, cmd: &str) -> Result<ClipId> {
     if p.get("clip").is_some() {
         return clip_p(p, "clip").ok_or_else(|| bad(cmd, "`clip` must be a clip id"));
     }
@@ -73,7 +75,7 @@ fn target(s: &Session, p: &Value, cmd: &str) -> Result<ClipId> {
     s.state.selection.iter().copied().find(|c| is_video(q, *c)).ok_or_else(|| bad(cmd, "need `clip` (or a selected video clip)"))
 }
 
-fn is_video(q: &Sequence, c: ClipId) -> bool {
+pub(crate) fn is_video(q: &Sequence, c: ClipId) -> bool {
     q.video_tracks.iter().any(|t| t.item(c).is_some())
 }
 
@@ -87,7 +89,7 @@ fn node_id(p: &Value, k: &str, cmd: &str) -> Result<u64> {
 }
 
 /// The explicit `node` argument: None when absent, an error when present but not a node id.
-fn node_arg(p: &Value, cmd: &str) -> Result<Option<u64>> {
+pub(crate) fn node_arg(p: &Value, cmd: &str) -> Result<Option<u64>> {
     match p.get("node") {
         None | Some(Value::Null) => Ok(None),
         Some(v) => v.as_u64().map(Some).ok_or_else(|| bad(cmd, "`node` must be a node id")),
@@ -96,7 +98,7 @@ fn node_arg(p: &Value, cmd: &str) -> Result<Option<u64>> {
 
 /// The node a command acts on: the explicit one, else the current node (already checked to be on
 /// this clip), else the grade's only node.
-fn pick(g: &Grade, want: Option<u64>, current: Option<u64>, cmd: &str) -> Result<u64> {
+pub(crate) fn pick(g: &Grade, want: Option<u64>, current: Option<u64>, cmd: &str) -> Result<u64> {
     if let Some(w) = want {
         return Ok(w);
     }
@@ -110,7 +112,7 @@ fn pick(g: &Grade, want: Option<u64>, current: Option<u64>, cmd: &str) -> Result
 }
 
 /// The addressed clip and the current node when it belongs to that clip.
-fn current_for(s: &Session, p: &Value, cmd: &str) -> Result<(ClipId, Option<u64>)> {
+pub(crate) fn current_for(s: &Session, p: &Value, cmd: &str) -> Result<(ClipId, Option<u64>)> {
     let c = target(s, p, cmd)?;
     Ok((c, s.state.grade_node.filter(|sel| sel.clip == c).map(|sel| sel.node)))
 }
@@ -132,7 +134,7 @@ fn select(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Run `f` on the clip's grade (created empty when missing and `create`) as one undo step.
-fn edit_grade<R>(s: &mut Session, p: &Value, cmd: &'static str, label: &str, create: bool, f: impl FnOnce(&mut Grade) -> Result<R>) -> Result<R> {
+pub(crate) fn edit_grade<R>(s: &mut Session, p: &Value, cmd: &'static str, label: &str, create: bool, f: impl FnOnce(&mut Grade) -> Result<R>) -> Result<R> {
     edit_grade_merged(s, p, cmd, label, create, None, f)
 }
 
@@ -160,10 +162,13 @@ fn edit_grade_merged<R>(
         let g = it.grade.as_mut().ok_or_else(|| bad(cmd, "the clip has no grade"))?;
         f(g)
     };
-    match merge {
+    let r = match merge {
         Some(k) => s.edit_merged(label, &format!("grade:{}:{k}", c.0), body),
         None => s.edit(label, body),
-    }
+    };
+    // (a removed node takes its selected window with it)
+    s.fix_state();
+    r
 }
 
 fn node_mut<'a>(g: &'a mut Grade, id: u64, cmd: &str) -> Result<&'a mut GradeNode> {
@@ -331,7 +336,7 @@ fn identity(kind: NodeParamKind) -> ParamValue {
 
 /// The clip time of sequence time `tl` (clamped into the clip) at which the renderer evaluates
 /// the grade (`effect_time_at`, so frame holds match), where keyframes live.
-fn media_time(s: &Session, p: &Value, c: ClipId) -> Tick {
+pub(crate) fn media_time(s: &Session, p: &Value, c: ClipId) -> Tick {
     let tl = time_p(s, p, "").unwrap_or_else(|| s.playhead());
     s.active_sequence()
         .and_then(|q| q.find_item(c))
@@ -363,6 +368,191 @@ fn set_param(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     Ok(Value::Null)
+}
+
+/// Qualifier picker (G2.1): sample the node's input at `x`, `y` (0…1 of the sequence frame) and
+/// set the node's qualifier around it (`mode` "set", the default), or widen it to include the
+/// sample ("add"). The input is the clip through its input transform and the nodes before this
+/// one (no effects). One undo step.
+fn pick_qualifier(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.pickQualifier";
+    let want = node_arg(p, CMD)?;
+    let (c, current) = current_for(s, p, CMD)?;
+    let coord = |k: &str| p.get(k).and_then(Value::as_f64).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0) as f32);
+    let (Some(x), Some(y)) = (coord("x"), coord("y")) else {
+        return Err(bad(CMD, "need `x` and `y` (0…1 of the frame)"));
+    };
+    let add = match str_p(p, "mode") {
+        None | Some("set") => false,
+        Some("add") => true,
+        Some(m) => return Err(bad(CMD, format!("unknown mode `{m}` (set or add)"))),
+    };
+    let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let working = q.settings.color.working;
+    let (_, it) = q.find_item(c).ok_or_else(|| bad(CMD, "no such clip"))?;
+    if s.project.item(it.item).is_some_and(|pi| matches!(pi.kind, filmcraft_project::ItemKind::AdjustmentLayer { .. })) {
+        // (its input is the composite below it, which `render_clip` doesn't draw)
+        return Err(bad(CMD, "the picker doesn't work on adjustment layers yet: set the qualifier's ranges by hand"));
+    }
+    let g = it.grade.as_ref().ok_or_else(|| bad(CMD, "the clip has no grade"))?;
+    let id = pick(g, want, current, CMD)?;
+    let pos = g.nodes.iter().position(|n| n.id == id).ok_or_else(|| bad(CMD, format!("no node {id}")))?;
+    let tl = time_p(s, p, "").unwrap_or_else(|| s.playhead()).clamp(it.start, (it.end() - Tick(1)).max(it.start));
+    // the node's input: the nodes before it, no effects after the grade
+    let mut probe = (*s.project).clone();
+    if let Some((_, pi)) = probe.sequence_mut(seq_id).and_then(|q| q.find_item_mut(c)) {
+        if let Some(pg) = pi.grade.as_mut() {
+            pg.nodes.truncate(pos);
+        }
+        for e in pi.effects.iter_mut().filter(|e| !e.def().is_some_and(|d| d.intrinsic)) {
+            e.enabled = false;
+        }
+    }
+    let provider = s.media.provider(s.project.clone(), s.services.clone());
+    let opts = filmcraft_render::RenderOptions { scale: 0.25, working_output: true, ..Default::default() };
+    let img = filmcraft_render::render_clip(&probe, seq_id, c, tl, opts, &provider).ok_or_else(|| bad(CMD, "the clip has no picture"))?;
+    let rgb = sample(&img, x, y).ok_or_else(|| bad(CMD, "the clip has no picture there"))?;
+    let [h, sat, l] = filmcraft_render::grade::qualifier_hsl(working, rgb);
+    let mt = media_time(s, p, c);
+    let set = edit_grade(s, p, CMD, "Pick Qualifier", false, |g| {
+        let mut set = Vec::new();
+        let n = node_mut(g, id, CMD)?;
+        let was_on = n.float_at("qual.on", mt) >= 0.5;
+        let vals: Vec<(&str, f32)> = if add && was_on {
+            let f = |k| n.float_at(k, mt);
+            // (a nearly grey sample has no meaningful hue: the hue band stays)
+            let (hue, width) = if sat < 0.05 { (f("qual.hue"), f("qual.hueWidth")) } else { widen_hue(f("qual.hue"), f("qual.hueWidth"), h) };
+            vec![
+                ("qual.hue", hue),
+                ("qual.hueWidth", width),
+                ("qual.satLow", f("qual.satLow").min(sat - PICK_SAT)),
+                ("qual.satHigh", f("qual.satHigh").max(sat + PICK_SAT)),
+                ("qual.lumLow", f("qual.lumLow").min(l - PICK_LUM)),
+                ("qual.lumHigh", f("qual.lumHigh").max(l + PICK_LUM)),
+            ]
+        } else {
+            // a nearly grey sample has no meaningful hue: select every hue
+            let width = if sat < 0.05 { 1.0 } else { PICK_HUE };
+            vec![
+                ("qual.on", 1.0),
+                ("qual.hue", h),
+                ("qual.hueWidth", width),
+                ("qual.satLow", sat - PICK_SAT),
+                ("qual.satHigh", sat + PICK_SAT),
+                ("qual.lumLow", l - PICK_LUM),
+                ("qual.lumHigh", l + PICK_LUM),
+            ]
+        };
+        for (k, v) in vals {
+            let Some(NodeParamKind::Float { min, max, .. }) = node_param(k).map(|d| d.kind) else { continue };
+            let v = ParamValue::Float(f64::from(v.clamp(min, max)));
+            match n.params.get_mut(k) {
+                Some(prm) => prm.set_at(mt, v.clone()),
+                None => {
+                    n.params.insert(k.to_string(), Param::new(v.clone()));
+                }
+            }
+            set.push((k, v));
+        }
+        Ok(set)
+    })?;
+    let params: serde_json::Map<String, Value> = set
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k.to_string(),
+                match v {
+                    ParamValue::Float(f) => json!(f),
+                    _ => Value::Null,
+                },
+            )
+        })
+        .collect();
+    Ok(json!({ "clip": c.0, "node": id, "sample": { "hue": h, "sat": sat, "luma": l }, "params": params }))
+}
+
+/// The node's LUT (G2.6): a reference (`lut`, as Lumetri's: `builtin:<id>`, `lib:<id>`; empty or
+/// absent: none) or a `.cube` / `.3dl` file (`path`: imported into the project's LUT library
+/// first, as its own "Import LUT" undo step, after the node is checked). Setting the reference
+/// is one undo step.
+fn set_lut(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.setLut";
+    let want = node_arg(p, CMD)?;
+    let (c, current) = current_for(s, p, CMD)?;
+    // (check the node before importing anything, so a refused call leaves no library entry)
+    {
+        let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+        if !is_video(q, c) {
+            return Err(bad(CMD, "a grade needs a clip on a video track"));
+        }
+        let g = q.find_item(c).and_then(|(_, it)| it.grade.as_ref()).ok_or_else(|| bad(CMD, "the clip has no grade"))?;
+        let id = pick(g, want, current, CMD)?;
+        g.node(id).ok_or_else(|| bad(CMD, format!("no node {id}")))?;
+    }
+    let r = match (str_p(p, "path"), str_p(p, "lut")) {
+        (Some(path), _) => {
+            let path = path.to_string();
+            format!("lib:{}", crate::color::import_lut(s, &path, None)?.0)
+        }
+        (None, Some(r)) => r.to_string(),
+        (None, None) => String::new(),
+    };
+    if !r.is_empty() && filmcraft_render::luts::resolve(Some(&s.project), &r).is_none() {
+        return Err(bad(CMD, format!("unknown LUT `{r}`")));
+    }
+    let lut = r.clone();
+    let id = edit_grade(s, p, CMD, "Set Node LUT", false, move |g| {
+        let id = pick(g, want, current, CMD)?;
+        node_mut(g, id, CMD)?.lut = lut;
+        Ok(id)
+    })?;
+    Ok(json!({"node": id, "lut": r, "name": filmcraft_render::luts::label(Some(&s.project), &r)}))
+}
+
+/// Half-widths the picker selects around a sample (hue: the full width).
+const PICK_HUE: f32 = 0.08;
+const PICK_SAT: f32 = 0.2;
+const PICK_LUM: f32 = 0.15;
+
+/// The hue band (centre, full width, both 0…1, wrapping) widened to include `h` with a margin.
+fn widen_hue(centre: f32, width: f32, h: f32) -> (f32, f32) {
+    // signed distance from the centre to h around the circle, −½…½
+    let d = (h - centre + 0.5).rem_euclid(1.0) - 0.5;
+    let half = width / 2.0;
+    if d.abs() + PICK_HUE / 4.0 <= half {
+        return (centre, width);
+    }
+    // move the far edge out to h (plus a margin), keep the near edge
+    let (lo, hi) = (centre - half, centre + half);
+    let (lo, hi) = if d > 0.0 { (lo, centre + d + PICK_HUE / 4.0) } else { (centre + d - PICK_HUE / 4.0, hi) };
+    let width = (hi - lo).min(1.0);
+    (((lo + hi) / 2.0).rem_euclid(1.0), width)
+}
+
+/// The mean straight colour of the 3×3 pixels around `x`, `y` (0…1) of a premultiplied image;
+/// None where the image is transparent.
+fn sample(img: &filmcraft_render::Image, x: f32, y: f32) -> Option<[f32; 3]> {
+    if img.w == 0 || img.h == 0 {
+        return None;
+    }
+    let cx = ((x * img.w as f32) as usize).min(img.w - 1);
+    let cy = ((y * img.h as f32) as usize).min(img.h - 1);
+    let mut acc = [0.0f32; 4];
+    for yy in cy.saturating_sub(1)..=(cy + 1).min(img.h - 1) {
+        for xx in cx.saturating_sub(1)..=(cx + 1).min(img.w - 1) {
+            let i = (yy * img.w + xx) * 4;
+            if let Some(px) = img.px.get(i..i + 4) {
+                for (a, v) in acc.iter_mut().zip(px) {
+                    *a += if v.is_finite() { *v } else { 0.0 };
+                }
+            }
+        }
+    }
+    if acc[3] <= 1e-4 {
+        return None;
+    }
+    Some([acc[0] / acc[3], acc[1] / acc[3], acc[2] / acc[3]])
 }
 
 fn kind_hint(kind: NodeParamKind) -> &'static str {
@@ -475,7 +665,7 @@ pub(crate) fn grade_targets(s: &Session, p: &Value, cmd: &str, skip: Option<Clip
 
 /// Run `f` on the grade slot of every target as one undo step; returns how many clips changed.
 pub(crate) fn edit_grades(s: &mut Session, targets: &[ClipId], label: &str, f: impl Fn(&mut Option<Grade>)) -> Result<usize> {
-    s.edit_sequence(label, |q, _, _| {
+    let r = s.edit_sequence(label, |q, _, _| {
         let mut n = 0;
         for c in targets {
             let (_, it) = q.find_item_mut(*c).ok_or(filmcraft_edit::EditError::NoItem(*c))?;
@@ -486,7 +676,9 @@ pub(crate) fn edit_grades(s: &mut Session, targets: &[ClipId], label: &str, f: i
             }
         }
         Ok(n)
-    })
+    });
+    s.fix_state();
+    r
 }
 
 fn copy(s: &mut Session, p: &Value) -> Result<Value> {
@@ -547,4 +739,30 @@ fn apply_from(s: &mut Session, p: &Value) -> Result<Value> {
     let targets = grade_targets(s, p, CMD, Some(from))?;
     let n = edit_grades(s, &targets, "Apply Grade", |slot| *slot = Some(g.clone()))?;
     Ok(json!({ "clips": n }))
+}
+
+#[cfg(test)]
+mod pick_tests {
+    use super::widen_hue;
+
+    fn contains(centre: f32, width: f32, h: f32) -> bool {
+        let d = (h - centre + 0.5).rem_euclid(1.0) - 0.5;
+        d.abs() <= width / 2.0 + 1e-5
+    }
+
+    #[test]
+    fn widen_hue_wraps_keeps_and_caps() {
+        // inside the band: unchanged
+        assert_eq!(widen_hue(0.3, 0.2, 0.32), (0.3, 0.2));
+        // across 0 / 1, both directions
+        for (c, w, h) in [(0.95, 0.1, 0.05), (0.05, 0.1, 0.9), (0.5, 0.0, 0.7), (0.2, 0.05, 0.1)] {
+            let (nc, nw) = widen_hue(c, w, h);
+            assert!((0.0..1.0).contains(&nc) && nw <= 1.0 && nw >= w, "{c} {w} {h} → {nc} {nw}");
+            assert!(contains(nc, nw, h), "{c} {w} {h} → {nc} {nw} misses h");
+            // the old band's near edge is kept
+            assert!(contains(nc, nw, c), "{c} {w} {h} → {nc} {nw} misses the old centre");
+        }
+        // never wider than every hue
+        assert!(widen_hue(0.0, 0.9, 0.5).1 <= 1.0);
+    }
 }

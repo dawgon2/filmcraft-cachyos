@@ -7,10 +7,12 @@
 //! parameters emit nothing, and a grade that changes nothing compiles to an empty chain, so it
 //! renders bit-exactly like no grade at all.
 
-use filmcraft_color::ops::{ColorOp, GRAIN_MAX_SIZE, Table};
+use filmcraft_color::ops::{ColorOp, GRAIN_MAX_SIZE, Table, Tf};
 use filmcraft_color::{GradeSpace, WorkingSpace};
 use filmcraft_project::TrackItem;
-use filmcraft_project::grade::{Grade, GradeNode};
+use filmcraft_project::grade::{Grade, GradeNode, MAX_WINDOWS, Qualifier};
+
+use crate::gpufx::FxOp;
 use filmcraft_time::Tick;
 
 /// Luma weights of the saturation control (Lumetri's).
@@ -23,8 +25,8 @@ const HDR_WHITE_NITS: f32 = 1000.0;
 const CURVE_SAMPLES: usize = 1024;
 
 /// Where a grade renders, for its positional operations (film grain).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GradeCtx {
+#[derive(Clone, Copy, Debug)]
+pub struct GradeCtx<'a> {
     /// Image pixels per full-resolution pixel. "Full resolution" is the clip's source pixels
     /// (`px_scale` of the effect stage: the working image's width over the source width, also
     /// when a large source is graded at the size drawn, `plan.rs`; `FILMCRAFT_FULL_SIZE_GRADE`
@@ -34,20 +36,32 @@ pub struct GradeCtx {
     pub seq_time: Tick,
     /// The track item (clip id): two stacked clips of one source don't share a grain pattern.
     pub clip: u64,
+    /// The project, for node LUTs from its LUT library (`lib:` references; None: built-ins only).
+    pub project: Option<&'a filmcraft_project::Project>,
 }
 
-impl Default for GradeCtx {
+impl Default for GradeCtx<'_> {
     fn default() -> Self {
-        Self { px_scale: 1.0, seq_time: Tick(0), clip: 0 }
+        Self { px_scale: 1.0, seq_time: Tick(0), clip: 0, project: None }
     }
 }
 
-/// `item`'s grade at clip time `t` (sequence time `seq_t`) as a chain on working linear light,
-/// for an image of `px_scale` pixels per source pixel (empty: no grade, bypassed, or nothing that
-/// changes the picture).
-pub fn item_ops(item: &TrackItem, t: Tick, seq_t: Tick, working: WorkingSpace, px_scale: f32) -> Vec<ColorOp> {
-    let ctx = GradeCtx { px_scale, seq_time: seq_t, clip: item.id.0 };
-    item.grade.as_ref().map(|g| compile_at(g, t, working, ctx)).unwrap_or_default()
+/// `item`'s grade at clip time `t` (sequence time `seq_t`) as steps on working linear light, for
+/// a `w`×`h` image of `px_scale` pixels per source pixel (empty: no grade, bypassed, or nothing
+/// that changes the picture). See [`compile_fx`].
+#[allow(clippy::too_many_arguments)]
+pub fn item_fx(
+    project: &filmcraft_project::Project,
+    item: &TrackItem,
+    t: Tick,
+    seq_t: Tick,
+    working: WorkingSpace,
+    px_scale: f32,
+    w: usize,
+    h: usize,
+) -> Vec<FxOp> {
+    let ctx = GradeCtx { px_scale, seq_time: seq_t, clip: item.id.0, project: Some(project) };
+    item.grade.as_ref().map(|g| compile_fx(g, t, working, ctx, w, h)).unwrap_or_default()
 }
 
 /// True when `item`'s grade changes the picture at clip time `t` (an empty, identity, bypassed or
@@ -55,12 +69,16 @@ pub fn item_ops(item: &TrackItem, t: Tick, seq_t: Tick, working: WorkingSpace, p
 /// vector-sharp, a nested sequence keeps drawing its own layers). Cheap: reads the parameters,
 /// builds no operations or curve tables. (A hostile grade whose chain [`compile_at`] drops as
 /// non-finite still counts: the clip then takes the effect path with an empty grade.)
-pub fn changes_picture(item: &TrackItem, t: Tick) -> bool {
-    item.grade.as_ref().is_some_and(|g| g.active_nodes().any(|n| node_changes(n, t)))
+pub fn changes_picture(project: &filmcraft_project::Project, item: &TrackItem, t: Tick) -> bool {
+    item.grade.as_ref().is_some_and(|g| g.active_nodes().any(|n| node_changes(n, t, Some(project))))
 }
 
 /// Whether [`node_ops`] emits anything for `n` at `t` (the same conditions).
-fn node_changes(n: &GradeNode, t: Tick) -> bool {
+fn node_changes(n: &GradeNode, t: Tick, project: Option<&filmcraft_project::Project>) -> bool {
+    let q = n.qualifier_at(t);
+    if q.is_some_and(|q| q.show > 0) || n.float_at("nr.luma", t) > 0.0 || n.float_at("nr.chroma", t) > 0.0 {
+        return true;
+    }
     n.float_at("temperature", t) != 0.0
         || n.float_at("tint", t) != 0.0
         || ["lift", "gamma", "gain", "offset"].iter().any(|k| {
@@ -71,6 +89,8 @@ fn node_changes(n: &GradeNode, t: Tick) -> bool {
         || n.float_at("saturation", t) != 1.0
         || CURVES.iter().any(|(k, _)| n.curve(k).is_some())
         || n.float_at("grain.strength", t) > 0.0
+        || n.float_at("hl.rolloff", t) > 0.0
+        || (!n.lut.is_empty() && n.float_at("lut.mix", t) > 0.0 && crate::luts::resolve(project, &n.lut).is_some())
 }
 
 const CURVES: [(&str, [bool; 3]); 4] =
@@ -89,11 +109,12 @@ pub fn compile(grade: &Grade, t: Tick, working: WorkingSpace) -> Vec<ColorOp> {
 /// Film grain is a positional colour operation ([`ColorOp::Grain`]), so a node's grain sits at the
 /// node's place in the chain, on the grading signal (later nodes grade the grain too, as in a
 /// node grader), and the whole grade stays one fused per-pixel pass.
+///
+/// A qualified node's matte is unblurred here (the per-pixel form) and windows are ignored;
+/// [`compile_fx`] blurs the matte and applies the windows.
 pub fn compile_at(grade: &Grade, t: Tick, working: WorkingSpace, ctx: GradeCtx) -> Vec<ColorOp> {
     let gs = GradeSpace::new(working, HDR_WHITE_NITS);
-    let px_scale = if ctx.px_scale.is_finite() && ctx.px_scale > 0.0 { ctx.px_scale } else { 1.0 };
-    let ctx = GradeCtx { px_scale, ..ctx };
-    let body: Vec<ColorOp> = grade.active_nodes().flat_map(|n| node_ops(n, t, &gs, &ctx)).collect();
+    let body: Vec<ColorOp> = parts(grade, t, &gs, ctx).into_iter().flat_map(|(_, p)| p.into_signal_ops()).collect();
     if body.is_empty() {
         return body;
     }
@@ -103,6 +124,176 @@ pub fn compile_at(grade: &Grade, t: Tick, working: WorkingSpace, ctx: GradeCtx) 
     // (every value is clamped to its schema range, but a chain that still isn't finite is dropped:
     // a grade never poisons the picture)
     if ops.iter().all(ColorOp::is_finite) { ops } else { Vec::new() }
+}
+
+/// `grade` at clip time `t` as image steps on working linear light for a `w`×`h` image: runs of
+/// per-pixel nodes as one fused [`FxOp::ColorChain`] (exactly [`compile_at`]'s chain when no
+/// qualifier blurs its matte), a qualified node with a blurred matte as an
+/// [`FxOp::HslSecondary`] (key on the node's input, blur, the node's correction mixed in by the
+/// matte), a node with windows as an [`FxOp::Masked`] around its steps (the window coverage times
+/// the qualifier's matte). Empty when no node changes the picture or a step isn't finite.
+pub fn compile_fx(grade: &Grade, t: Tick, working: WorkingSpace, ctx: GradeCtx, w: usize, h: usize) -> Vec<FxOp> {
+    let gs = GradeSpace::new(working, HDR_WHITE_NITS);
+    let px_scale = if ctx.px_scale.is_finite() && ctx.px_scale > 0.0 { ctx.px_scale } else { 1.0 };
+    let wrap = |body: Vec<ColorOp>| {
+        let mut ops = gs.encode_ops();
+        ops.extend(body);
+        ops.extend(gs.decode_ops());
+        ops
+    };
+    let mut out = Vec::new();
+    let mut run: Vec<ColorOp> = Vec::new();
+    let keyed = |key: ColorOp, body: Vec<ColorOp>, sigma: f32| {
+        let blur = crate::effects::gaussian_boxes(w, h, sigma, sigma).0;
+        let mut correct = vec![ColorOp::Stash];
+        correct.extend(body);
+        FxOp::HslSecondary { key: wrap(vec![key]).into(), median_r: 0, denoise: 0.0, blur, correct: wrap(correct).into() }
+    };
+    for (n, part) in parts(grade, t, &gs, ctx) {
+        let nr = denoise(n, t, px_scale);
+        let empty = matches!(&part, Part::Signal(ops) if ops.is_empty());
+        if empty && nr.is_none() {
+            continue;
+        }
+        let windows = n.windows.get(..n.windows.len().min(MAX_WINDOWS)).unwrap_or_default();
+        let masks = if windows.is_empty() { Vec::new() } else { crate::mask::prepare(windows, t, px_scale) };
+        if masks.is_empty() && nr.is_none() && !matches!(part, Part::Keyed { .. }) {
+            run.extend(part.into_signal_ops());
+            continue;
+        }
+        if !run.is_empty() {
+            out.push(FxOp::ColorChain(wrap(std::mem::take(&mut run)).into()));
+        }
+        // noise reduction first: it cleans the node's input, which its qualifier then keys
+        let mut steps: Vec<FxOp> = nr.into_iter().collect();
+        if !empty {
+            steps.push(match part {
+                Part::Keyed { key, body, sigma } => keyed(key, body, sigma),
+                part => FxOp::ColorChain(wrap(part.into_signal_ops()).into()),
+            });
+        }
+        if masks.is_empty() {
+            out.extend(steps);
+        } else {
+            out.push(FxOp::Masked { ops: steps, masks: masks.into() });
+        }
+    }
+    if !run.is_empty() {
+        out.push(FxOp::ColorChain(wrap(run).into()));
+    }
+    if out.iter().all(step_finite) { out } else { Vec::new() }
+}
+
+/// Every number of a compiled grade step is finite.
+fn step_finite(o: &FxOp) -> bool {
+    let finite = |ops: &[ColorOp]| ops.iter().all(ColorOp::is_finite);
+    match o {
+        FxOp::ColorChain(ops) => finite(ops),
+        FxOp::HslSecondary { key, correct, .. } => finite(key) && finite(correct),
+        FxOp::Masked { ops, .. } => ops.iter().all(step_finite),
+        _ => true,
+    }
+}
+
+/// A node's noise reduction at clip time `t` for an image of `px_scale` pixels per source pixel
+/// (None: both strengths 0).
+fn denoise(n: &GradeNode, t: Tick, px_scale: f32) -> Option<FxOp> {
+    let (luma, chroma) = (n.float_at("nr.luma", t), n.float_at("nr.chroma", t));
+    (luma > 0.0 || chroma > 0.0).then(|| FxOp::Denoise { luma, chroma, sigma: n.float_at("nr.size", t) * px_scale })
+}
+
+/// One node's share of a compiled grade, on the grading signal.
+enum Part {
+    /// Per-pixel operations.
+    Signal(Vec<ColorOp>),
+    /// A qualified node whose matte is blurred (σ in image pixels): `key` sets the mask from the
+    /// node's input; `body` ends with the [`ColorOp::MixStash`] (and the highlight view).
+    Keyed { key: ColorOp, body: Vec<ColorOp>, sigma: f32 },
+}
+
+impl Part {
+    /// The per-pixel form (a blurred matte unblurred).
+    fn into_signal_ops(self) -> Vec<ColorOp> {
+        match self {
+            Part::Signal(ops) => ops,
+            Part::Keyed { key, body, .. } => {
+                let mut ops = vec![ColorOp::Stash, key];
+                ops.extend(body);
+                ops
+            }
+        }
+    }
+}
+
+/// The parts of every active node, in order, up to and including the first node that shows its
+/// qualifier (the highlight / matte view replaces the picture, so later nodes don't run).
+fn parts<'a>(grade: &'a Grade, t: Tick, gs: &GradeSpace, ctx: GradeCtx) -> Vec<(&'a GradeNode, Part)> {
+    let px_scale = if ctx.px_scale.is_finite() && ctx.px_scale > 0.0 { ctx.px_scale } else { 1.0 };
+    let ctx = GradeCtx { px_scale, ..ctx };
+    let mut out = Vec::new();
+    for n in grade.active_nodes() {
+        let body = node_ops(n, t, gs, &ctx);
+        // (empty parts stay: the node may still reduce noise, `compile_fx`)
+        let Some(q) = n.qualifier_at(t) else {
+            out.push((n, Part::Signal(body)));
+            continue;
+        };
+        let show = q.show.min(2);
+        if body.is_empty() && show == 0 {
+            out.push((n, Part::Signal(body)));
+            continue;
+        }
+        let hdr = gs.is_hdr();
+        let mut body = body;
+        body.push(ColorOp::MixStash { invert: q.invert });
+        if show > 0 {
+            let show_mask = if show == 1 { 1 } else { 3 };
+            body.push(ColorOp::HslCorrect { hue_shift: 0.0, sat: 1.0, temp: 0.0, tint: 0.0, show_mask, hdr });
+        }
+        let key = key_op(&q, hdr);
+        // (Lumetri's HSL Secondary blur: σ up to 20 full-resolution pixels)
+        let sigma = q.blur * QUAL_MAX_BLUR * px_scale;
+        if sigma >= 0.3 {
+            out.push((n, Part::Keyed { key, body, sigma }));
+        } else {
+            let mut ops = vec![ColorOp::Stash, key];
+            ops.extend(body);
+            out.push((n, Part::Signal(ops)));
+        }
+        if show > 0 {
+            break;
+        }
+    }
+    out
+}
+
+/// A working linear-light colour as the qualifier sees it: HSL (0…1) of the grading signal (the
+/// grade picker, `grade.pickQualifier`).
+pub fn qualifier_hsl(working: WorkingSpace, rgb: [f32; 3]) -> [f32; 3] {
+    let gs = GradeSpace::new(working, HDR_WHITE_NITS);
+    let v = filmcraft_color::ops::apply_chain(&gs.encode_ops(), rgb);
+    let u = filmcraft_color::ops::to_unit(v, gs.is_hdr());
+    let h = filmcraft_color::rgb_to_hsl(u[0], u[1], u[2]);
+    h.map(|x| if x.is_finite() { x.clamp(0.0, 1.0) } else { 0.0 })
+}
+
+/// The matte blur at `qual.blur` 1, in full-resolution pixels (σ; Lumetri's HSL Secondary).
+const QUAL_MAX_BLUR: f32 = 20.0;
+
+/// The key of a qualifier. Ranges reaching an end of 0…1 have no soft edge there (a full range
+/// selects everything, black and white included).
+fn key_op(q: &Qualifier, hdr: bool) -> ColorOp {
+    let soft = q.soft.max(1e-3);
+    ColorOp::HslKey {
+        hue: q.hue,
+        range: q.hue_width.max(1e-3),
+        sat_min: if q.sat[0] <= 0.0 { -1.0 } else { q.sat[0] },
+        sat_max: q.sat[1],
+        luma_min: if q.lum[0] <= 0.0 { -1.0 } else { q.lum[0] },
+        luma_max: if q.lum[1] >= 1.0 { 2.0 } else { q.lum[1] },
+        soft,
+        hdr,
+    }
 }
 
 /// One node's operations on the grading signal, in order: temperature / tint (in linear light),
@@ -148,6 +339,24 @@ fn node_ops(n: &GradeNode, t: Tick, gs: &GradeSpace, ctx: &GradeCtx) -> Vec<Colo
             ops.push(ColorOp::Curve { table, channels, hdr });
         }
     }
+    if !n.lut.is_empty()
+        && let Some(lut) = crate::luts::resolve(ctx.project, &n.lut)
+    {
+        let mix = n.float_at("lut.mix", t);
+        if mix > 0.0 {
+            ops.push(ColorOp::Lut { lut, intensity: mix, hdr });
+        }
+    }
+    let rolloff = n.float_at("hl.rolloff", t);
+    if rolloff > 0.0 {
+        // on a display-referred signal (sRGB-encoded working linear, diffuse white 1), whatever
+        // the grading signal: the knee means the same in every working space
+        ops.extend(gs.decode_ops());
+        ops.push(ColorOp::Encode(Tf::Srgb));
+        ops.push(ColorOp::Table(soft_clip(n.float_at("hl.knee", t), rolloff)));
+        ops.push(ColorOp::Decode(Tf::Srgb));
+        ops.extend(gs.encode_ops());
+    }
     let strength = n.float_at("grain.strength", t);
     if strength > 0.0 {
         let softness = n.float_at("grain.softness", t);
@@ -157,6 +366,22 @@ fn node_ops(n: &GradeNode, t: Tick, gs: &GradeSpace, ctx: &GradeCtx) -> Vec<Colo
     }
     ops
 }
+
+/// The highlight soft clip (G2.5) on a display-referred signal (white 1): the identity up to `knee`; above it
+/// `knee + (1 − knee)·tanh((v − knee) / (1 − knee))`, which leaves the knee with slope 1 and
+/// approaches 1 instead of passing it; mixed in by `amount`. Sampled over −0.5…2 (beyond: the
+/// table's linear extension, slope 1 below and ≈ 1 − amount above).
+fn soft_clip(knee: f32, amount: f32) -> Table {
+    let k = f64::from(if knee.is_finite() { knee.clamp(0.05, 0.99) } else { 0.75 });
+    let a = f64::from(if amount.is_finite() { amount.clamp(0.0, 1.0) } else { 0.0 });
+    Table::sample(-0.5, 2.0, SOFT_CLIP_SAMPLES, |v| {
+        let f = if v <= k { v } else { k + (1.0 - k) * ((v - k) / (1.0 - k)).tanh() };
+        v + (f - v) * a
+    })
+}
+
+/// Samples of the soft-clip table (≈ 1 / 800 of the signal range apart).
+const SOFT_CLIP_SAMPLES: usize = 2048;
 
 /// The grain cell size in image pixels and the strength for a `size` (source pixels) grain drawn
 /// at `px_scale`. Cells smaller than a pixel are drawn 1 px and attenuated by the cell size: a
@@ -431,7 +656,7 @@ mod tests {
         let g = Grade { nodes: vec![n], bypass: false };
         for scale in [0.0, -1.0, f32::NAN, f32::INFINITY, 1e-30, 1e30] {
             for t in [Tick(i64::MIN), Tick(-1), Tick(i64::MAX)] {
-                let ops = compile_at(&g, t, WorkingSpace::Rec2100Pq, GradeCtx { px_scale: scale, seq_time: t, clip: u64::MAX });
+                let ops = compile_at(&g, t, WorkingSpace::Rec2100Pq, GradeCtx { px_scale: scale, seq_time: t, clip: u64::MAX, project: None });
                 assert!(!ops.is_empty() && ops.iter().all(ColorOp::is_finite));
                 let out = filmcraft_color::ops::apply_chain_at(&ops, [0.5, 0.2, 0.1], [1e6, -3.0]);
                 assert!(out.iter().all(|v| v.is_finite()), "{out:?}");
@@ -458,7 +683,7 @@ mod tests {
             let n =
                 node(&[("grain.strength", ParamValue::Float(1.0)), ("grain.size", ParamValue::Float(size)), ("grain.softness", ParamValue::Float(softness))]);
             let g = Grade { nodes: vec![n], bypass: false };
-            let at = |px_scale| compile_at(&g, Tick(9), WorkingSpace::Rec709, GradeCtx { px_scale, seq_time: Tick(9), clip: 4 });
+            let at = |px_scale| compile_at(&g, Tick(9), WorkingSpace::Rec709, GradeCtx { px_scale, seq_time: Tick(9), clip: 4, project: None });
             let (w, k) = (256usize, 4usize);
             let full = flat(&at(1.0), w, 0.214);
             let small = w / k;
@@ -478,7 +703,7 @@ mod tests {
     #[test]
     fn grain_seed_mixes_sequence_time_and_clip() {
         let g = Grade { nodes: vec![grain_node(1, 0.6)], bypass: false };
-        let ops = |seq: i64, clip: u64| compile_at(&g, Tick(500), WorkingSpace::Rec709, GradeCtx { px_scale: 1.0, seq_time: Tick(seq), clip });
+        let ops = |seq: i64, clip: u64| compile_at(&g, Tick(500), WorkingSpace::Rec709, GradeCtx { px_scale: 1.0, seq_time: Tick(seq), clip, project: None });
         assert_eq!(patch(&ops(10, 1), 0.18), patch(&ops(10, 1), 0.18));
         // a hold (same clip time, later sequence time) and a stacked clip of the same source
         assert_ne!(patch(&ops(10, 1), 0.18), patch(&ops(11, 1), 0.18));
@@ -503,11 +728,318 @@ mod tests {
             ("grain.strength", ParamValue::Float(0.0)),
             ("grain.strength", ParamValue::Float(0.01)),
             ("grain.size", ParamValue::Float(3.0)),
+            ("qual.on", ParamValue::Float(1.0)),
+            ("qual.show", ParamValue::Float(1.0)),
         ];
         for (k, v) in cases {
             let n = node(&[(k, v.clone())]);
             let compiled = !compile(&Grade { nodes: vec![n.clone()], bypass: false }, Tick(0), WorkingSpace::DaVinciWide).is_empty();
-            assert_eq!(node_changes(&n, Tick(0)), compiled, "{k} {v:?}");
+            assert_eq!(node_changes(&n, Tick(0), None), compiled, "{k} {v:?}");
+        }
+    }
+
+    /// A node lifting red, qualified on `hue` (0…1) with the given extras.
+    fn qualified(extra: &[(&str, ParamValue)]) -> GradeNode {
+        let mut ps = vec![
+            ("gain", ParamValue::Color([0.0, 0.0, 0.0, 0.5])),
+            ("qual.on", ParamValue::Float(1.0)),
+            ("qual.hue", ParamValue::Float(0.0)),
+            ("qual.hueWidth", ParamValue::Float(0.1)),
+            ("qual.satLow", ParamValue::Float(0.3)),
+            ("qual.soft", ParamValue::Float(0.02)),
+        ];
+        ps.extend(extra.iter().cloned());
+        node(&ps)
+    }
+
+    const RED: [f32; 3] = [0.3, 0.02, 0.02];
+    const BLUE: [f32; 3] = [0.02, 0.03, 0.3];
+    const GREY: [f32; 3] = [0.18; 3];
+
+    #[test]
+    fn a_qualifier_limits_the_node_to_its_key() {
+        for ws in SPACES {
+            let plain = compile(&Grade { nodes: vec![node(&[("gain", ParamValue::Color([0.0, 0.0, 0.0, 0.5]))])], bypass: false }, Tick(0), ws);
+            let ops = compile(&Grade { nodes: vec![qualified(&[])], bypass: false }, Tick(0), ws);
+            let (a, b) = (filmcraft_color::ops::apply_chain(&ops, RED), filmcraft_color::ops::apply_chain(&plain, RED));
+            assert!(a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-5), "{ws:?}: {a:?} vs {b:?}");
+            for c in [BLUE, GREY] {
+                let out = filmcraft_color::ops::apply_chain(&ops, c);
+                assert!(out.iter().zip(&c).all(|(x, y)| (x - y).abs() < 1e-5), "{ws:?}: {c:?} → {out:?}");
+            }
+            // inverted: everything but the red
+            let inv = compile(&Grade { nodes: vec![qualified(&[("qual.invert", ParamValue::Float(1.0))])], bypass: false }, Tick(0), ws);
+            let r = filmcraft_color::ops::apply_chain(&inv, RED);
+            assert!(r.iter().zip(&RED).all(|(x, y)| (x - y).abs() < 1e-5), "{r:?}");
+            let g = filmcraft_color::ops::apply_chain(&inv, GREY);
+            let gp = filmcraft_color::ops::apply_chain(&plain, GREY);
+            assert!(g.iter().zip(&gp).all(|(x, y)| (x - y).abs() < 1e-5), "{g:?} vs {gp:?}");
+        }
+    }
+
+    #[test]
+    fn a_full_range_qualifier_selects_everything() {
+        let mut n = qualified(&[]);
+        n.params.insert("qual.hueWidth".into(), Param::new(ParamValue::Float(1.0)));
+        n.params.insert("qual.satLow".into(), Param::new(ParamValue::Float(0.0)));
+        let plain =
+            compile(&Grade { nodes: vec![node(&[("gain", ParamValue::Color([0.0, 0.0, 0.0, 0.5]))])], bypass: false }, Tick(0), WorkingSpace::DaVinciWide);
+        let ops = compile(&Grade { nodes: vec![n], bypass: false }, Tick(0), WorkingSpace::DaVinciWide);
+        for c in [RED, BLUE, GREY, [0.0; 3], [1.0; 3], [20.0, 0.0, 5.0]] {
+            let (a, b) = (filmcraft_color::ops::apply_chain(&ops, c), filmcraft_color::ops::apply_chain(&plain, c));
+            assert!(a.iter().zip(&b).all(|(x, y)| (x - y).abs() <= 1e-5 * y.abs().max(1.0)), "{c:?}: {a:?} vs {b:?}");
+        }
+    }
+
+    #[test]
+    fn sat_high_excludes_saturated_colours() {
+        let n = qualified(&[("qual.hueWidth", ParamValue::Float(1.0)), ("qual.satLow", ParamValue::Float(0.0)), ("qual.satHigh", ParamValue::Float(0.3))]);
+        let ops = compile(&Grade { nodes: vec![n], bypass: false }, Tick(0), WorkingSpace::Rec709);
+        let out = filmcraft_color::ops::apply_chain(&ops, RED);
+        assert!(out.iter().zip(&RED).all(|(x, y)| (x - y).abs() < 1e-5), "{out:?}");
+        let grey = filmcraft_color::ops::apply_chain(&ops, GREY);
+        assert!(grey[1] > GREY[1] + 0.01, "{grey:?}");
+    }
+
+    #[test]
+    fn a_qualifier_alone_changes_nothing_and_highlight_stops_the_chain() {
+        let only = node(&[("qual.on", ParamValue::Float(1.0)), ("qual.hue", ParamValue::Float(0.3))]);
+        let g = Grade { nodes: vec![only.clone()], bypass: false };
+        assert!(compile(&g, Tick(0), WorkingSpace::DaVinciWide).is_empty());
+        assert!(!changes_picture_of(&g));
+        let mut shown = qualified(&[("qual.show", ParamValue::Float(2.0))]);
+        shown.id = 1;
+        let later = with_id(node(&[("saturation", ParamValue::Float(0.0))]), 2);
+        let g = Grade { nodes: vec![shown, later], bypass: false };
+        assert!(changes_picture_of(&g));
+        let ops = compile(&g, Tick(0), WorkingSpace::Rec709);
+        assert!(!ops.iter().any(|o| matches!(o, ColorOp::Saturation { .. })), "later nodes don't run under the matte view");
+        // the matte: white on the red, black on the blue
+        let (r, b) = (filmcraft_color::ops::apply_chain(&ops, RED), filmcraft_color::ops::apply_chain(&ops, BLUE));
+        assert!(r.iter().all(|v| (v - 1.0).abs() < 1e-4) && b.iter().all(|v| v.abs() < 1e-4), "{r:?} {b:?}");
+    }
+
+    fn changes_picture_of(g: &Grade) -> bool {
+        g.active_nodes().any(|n| node_changes(n, Tick(0), None))
+    }
+
+    #[test]
+    fn compile_fx_fuses_unblurred_nodes_and_keys_blurred_ones() {
+        let lift = node(&[("lift", ParamValue::Color([0.1, 0.0, 0.0, 0.0]))]);
+        let g = Grade { nodes: vec![lift.clone(), with_id(qualified(&[]), 2)], bypass: false };
+        let fx = compile_fx(&g, Tick(0), WorkingSpace::DaVinciWide, GradeCtx::default(), 64, 32);
+        let want = compile(&g, Tick(0), WorkingSpace::DaVinciWide);
+        assert!(matches!(fx.as_slice(), [FxOp::ColorChain(ops)] if ops[..] == want[..]), "{fx:?}");
+        let blurred = with_id(qualified(&[("qual.blur", ParamValue::Float(0.5))]), 2);
+        let g = Grade { nodes: vec![lift, blurred, with_id(node(&[("saturation", ParamValue::Float(0.5))]), 3)], bypass: false };
+        let fx = compile_fx(&g, Tick(0), WorkingSpace::DaVinciWide, GradeCtx::default(), 64, 32);
+        assert!(matches!(fx.as_slice(), [FxOp::ColorChain(_), FxOp::HslSecondary { blur, .. }, FxOp::ColorChain(_)] if !blur.is_empty()), "{fx:?}");
+        assert!(fx.iter().all(FxOp::gpu_ok));
+        // the blurred node's correction lands on the red and nowhere else (flat images)
+        let flat = |c: [f32; 3]| {
+            let mut img = crate::Image::new(8, 8);
+            img.px.chunks_mut(4).for_each(|p| p.copy_from_slice(&[c[0], c[1], c[2], 1.0]));
+            let only = Grade { nodes: vec![with_id(qualified(&[("qual.blur", ParamValue::Float(0.5))]), 2)], bypass: false };
+            for op in compile_fx(&only, Tick(0), WorkingSpace::Rec709, GradeCtx::default(), 8, 8) {
+                op.apply(&mut img);
+            }
+            [img.px[0], img.px[1], img.px[2]]
+        };
+        let b = flat(BLUE);
+        assert!(b.iter().zip(&BLUE).all(|(x, y)| (x - y).abs() < 1e-4), "{b:?}");
+        let r = flat(RED);
+        let plain = compile(&Grade { nodes: vec![node(&[("gain", ParamValue::Color([0.0, 0.0, 0.0, 0.5]))])], bypass: false }, Tick(0), WorkingSpace::Rec709);
+        let want = filmcraft_color::ops::apply_chain(&plain, RED);
+        assert!(r.iter().zip(&want).all(|(x, y)| (x - y).abs() < 1e-3), "{r:?} vs {want:?}");
+    }
+
+    /// A 32×16 grey image through the grade's FX steps.
+    fn run_fx(g: &Grade, c: [f32; 3]) -> crate::Image {
+        let mut img = crate::Image::new(32, 16);
+        img.px.chunks_mut(4).for_each(|p| p.copy_from_slice(&[c[0], c[1], c[2], 1.0]));
+        for op in compile_fx(g, Tick(0), WorkingSpace::Rec709, GradeCtx::default(), 32, 16) {
+            op.apply(&mut img);
+        }
+        img
+    }
+
+    fn px(img: &crate::Image, x: usize, y: usize) -> [f32; 3] {
+        let i = (y * img.w + x) * 4;
+        [img.px[i], img.px[i + 1], img.px[i + 2]]
+    }
+
+    #[test]
+    fn a_window_limits_the_node_to_its_shape() {
+        use filmcraft_project::{Mask, MaskPath};
+        let mut n = node(&[("gain", ParamValue::Color([0.0, 0.0, 0.0, 0.5]))]);
+        // a rectangle over the left half (source pixels; feather 0)
+        let mut m = Mask::new("w", MaskPath::rect(0.0, 0.0, 16.0, 16.0));
+        m.feather = Param::new(ParamValue::Float(0.0));
+        n.windows.push(m);
+        let g = Grade { nodes: vec![n.clone()], bypass: false };
+        let fx = compile_fx(&g, Tick(0), WorkingSpace::Rec709, GradeCtx::default(), 32, 16);
+        assert!(matches!(fx.as_slice(), [FxOp::Masked { ops, .. }] if matches!(ops.as_slice(), [FxOp::ColorChain(_)])), "{fx:?}");
+        assert!(fx.iter().all(FxOp::gpu_ok));
+        let img = run_fx(&g, GREY);
+        let (inside, outside) = (px(&img, 4, 8), px(&img, 28, 8));
+        assert!(inside[1] > GREY[1] + 0.01, "{inside:?}");
+        assert!(outside.iter().zip(&GREY).all(|(a, b)| (a - b).abs() < 1e-5), "{outside:?}");
+        // inverted window: the other half
+        n.windows[0].inverted = true;
+        let img = run_fx(&Grade { nodes: vec![n.clone()], bypass: false }, GREY);
+        assert!(px(&img, 28, 8)[1] > GREY[1] + 0.01 && (px(&img, 4, 8)[1] - GREY[1]).abs() < 1e-5);
+        // a window and a qualifier: only where both select (grey isn't red)
+        n.windows[0].inverted = false;
+        let mut q = qualified(&[]);
+        q.windows = n.windows.clone();
+        let img = run_fx(&Grade { nodes: vec![q.clone()], bypass: false }, GREY);
+        assert!((px(&img, 4, 8)[1] - GREY[1]).abs() < 1e-5);
+        let img = run_fx(&Grade { nodes: vec![q], bypass: false }, RED);
+        assert!(px(&img, 4, 8)[0] > RED[0] + 0.01 && (px(&img, 28, 8)[0] - RED[0]).abs() < 1e-5);
+        // windows don't enter the per-pixel chain, and a node with only windows changes nothing
+        let mut empty = GradeNode::new(1);
+        empty.windows = n.windows.clone();
+        assert!(compile_fx(&Grade { nodes: vec![empty], bypass: false }, Tick(0), WorkingSpace::Rec709, GradeCtx::default(), 32, 16).is_empty());
+    }
+
+    #[test]
+    fn noise_reduction_runs_at_the_nodes_input_and_inside_its_windows() {
+        use filmcraft_project::{Mask, MaskPath};
+        let nr = node(&[("nr.luma", ParamValue::Float(0.5)), ("nr.chroma", ParamValue::Float(0.25))]);
+        let g = Grade { nodes: vec![nr.clone()], bypass: false };
+        assert!(changes_picture_of(&g));
+        let ctx = GradeCtx { px_scale: 0.5, ..GradeCtx::default() };
+        let fx = compile_fx(&g, Tick(0), WorkingSpace::DaVinciWide, ctx, 32, 16);
+        assert!(matches!(fx.as_slice(), [FxOp::Denoise { luma: 0.5, chroma: 0.25, sigma: 0.75 }]), "{fx:?}");
+        // (the per-pixel chain has no noise reduction)
+        assert!(compile(&g, Tick(0), WorkingSpace::DaVinciWide).is_empty());
+        // NR, then the node's correction, inside the node's window; the nodes around it fuse
+        let mut n = nr;
+        n.params.insert("gain".into(), Param::new(ParamValue::Color([0.0, 0.0, 0.0, 0.5])));
+        n.windows.push(Mask::new("w", MaskPath::rect(0.0, 0.0, 16.0, 16.0)));
+        let lift = |id| with_id(node(&[("lift", ParamValue::Color([0.1, 0.0, 0.0, 0.0]))]), id);
+        let g = Grade { nodes: vec![lift(1), with_id(n, 2), lift(3)], bypass: false };
+        let fx = compile_fx(&g, Tick(0), WorkingSpace::DaVinciWide, GradeCtx::default(), 32, 16);
+        assert!(
+            matches!(fx.as_slice(), [FxOp::ColorChain(_), FxOp::Masked { ops, .. }, FxOp::ColorChain(_)] if matches!(ops.as_slice(), [FxOp::Denoise { .. }, FxOp::ColorChain(_)])),
+            "{fx:?}"
+        );
+        assert!(fx.iter().all(FxOp::gpu_ok));
+        // zero strengths: nothing
+        let off = node(&[("nr.luma", ParamValue::Float(0.0)), ("nr.size", ParamValue::Float(3.0))]);
+        assert!(compile_fx(&Grade { nodes: vec![off.clone()], bypass: false }, Tick(0), WorkingSpace::DaVinciWide, GradeCtx::default(), 8, 8).is_empty());
+        assert!(!changes_picture_of(&Grade { nodes: vec![off], bypass: false }));
+    }
+
+    #[test]
+    fn soft_clip_rolls_highlights_off_and_leaves_the_rest() {
+        let tab = soft_clip(0.75, 1.0);
+        for v in [-0.3f32, 0.0, 0.2, 0.5, 0.74] {
+            assert!((tab.eval(v) - v).abs() < 1e-3, "{v}: {}", tab.eval(v));
+        }
+        // monotonic, below 1 over the sampled range, slope ≈ 1 at the knee
+        let mut last = f32::MIN;
+        for i in 0..=250 {
+            let v = 0.75 + i as f32 * 0.005;
+            let o = tab.eval(v);
+            assert!(o >= last && o < 1.0, "{v}: {o}");
+            last = o;
+        }
+        assert!(((tab.eval(0.76) - tab.eval(0.75)) / 0.01 - 1.0).abs() < 0.05);
+        // half the amount: half way between
+        let half = soft_clip(0.75, 0.5);
+        assert!((half.eval(1.2) - (1.2 + tab.eval(1.2)) / 2.0).abs() < 1e-3);
+        // a node: the op sits after the curves, and 0 compiles to nothing
+        let n = node(&[("hl.rolloff", ParamValue::Float(0.6)), ("hl.knee", ParamValue::Float(0.8))]);
+        let ops = compile(&Grade { nodes: vec![n], bypass: false }, Tick(0), WorkingSpace::DaVinciWide);
+        assert!(ops.iter().any(|o| matches!(o, ColorOp::Table(_))));
+        let out = filmcraft_color::ops::apply_chain(&ops, [50.0, 0.18, 0.0]);
+        let plain = filmcraft_color::ops::apply_chain(&ops, [0.18; 3]);
+        // (full roll-off at 0.6 of 0.8: everything ends at or below diffuse white)
+        assert!(out[0] < 50.0 && out.iter().all(|v| v.is_finite()), "{out:?}");
+        let full = node(&[("hl.rolloff", ParamValue::Float(1.0)), ("hl.knee", ParamValue::Float(0.8))]);
+        for ws in SPACES {
+            let ops = compile(&Grade { nodes: vec![full.clone()], bypass: false }, Tick(0), ws);
+            let o = filmcraft_color::ops::apply_chain(&ops, [8.0, 1.5, 0.3]);
+            assert!(o[0] <= 1.0 + 1e-3 && o[1] <= 1.0 + 1e-3 && o[1] > 0.6, "{ws:?}: {o:?}");
+        }
+        assert!(plain.iter().all(|v| (v - 0.18).abs() < 1e-4), "mid grey untouched: {plain:?}");
+        let off = node(&[("hl.rolloff", ParamValue::Float(0.0)), ("hl.knee", ParamValue::Float(0.6))]);
+        assert!(compile(&Grade { nodes: vec![off], bypass: false }, Tick(0), WorkingSpace::DaVinciWide).is_empty());
+        for (k, a) in [(f32::NAN, f32::NAN), (-5.0, 9.0), (1.0, 1.0)] {
+            let t = soft_clip(k, a);
+            assert!(t.values.iter().all(|v| v.is_finite()));
+        }
+    }
+
+    #[test]
+    fn a_node_lut_applies_after_the_corrections_and_mixes() {
+        let mut n = node(&[("lut.mix", ParamValue::Float(0.5))]);
+        n.lut = "builtin:look-unknown-for-sure".into();
+        // an unknown reference applies nothing (but the clip still takes the effect path)
+        assert!(compile(&Grade { nodes: vec![n.clone()], bypass: false }, Tick(0), WorkingSpace::Rec709).is_empty());
+        let Some(b) = crate::luts::builtins().iter().find(|b| b.id.starts_with("look-")) else { return };
+        n.lut = format!("builtin:{}", b.id);
+        n.params.insert("saturation".into(), Param::new(ParamValue::Float(0.5)));
+        let ops = compile(&Grade { nodes: vec![n.clone()], bypass: false }, Tick(0), WorkingSpace::Rec709);
+        let sat = ops.iter().position(|o| matches!(o, ColorOp::Saturation { .. }));
+        let lut = ops.iter().position(|o| matches!(o, ColorOp::Lut { intensity, .. } if (*intensity - 0.5).abs() < 1e-6));
+        assert!(sat.is_some() && lut.is_some() && sat < lut, "{ops:?}");
+        n.params.insert("lut.mix".into(), Param::new(ParamValue::Float(0.0)));
+        assert!(!compile(&Grade { nodes: vec![n], bypass: false }, Tick(0), WorkingSpace::Rec709).iter().any(|o| matches!(o, ColorOp::Lut { .. })));
+    }
+
+    #[test]
+    fn hostile_windows_never_panic() {
+        use filmcraft_geom::Vec2;
+        use filmcraft_project::{Mask, MaskPath};
+        let mut n = node(&[("gain", ParamValue::Color([0.0, 0.0, 0.0, 0.5]))]);
+        for i in 0..1000 {
+            let mut m = Mask::new("w", MaskPath::polygon(&[Vec2::new(f64::NAN, 0.0), Vec2::new(1e300, -1e300), Vec2::new(f64::INFINITY, i as f64)]));
+            m.feather = Param::new(ParamValue::Float(f64::INFINITY));
+            m.expansion = Param::new(ParamValue::Float(-1e300));
+            n.windows.push(m);
+        }
+        n.windows.push(Mask::new("empty", MaskPath { vertices: Vec::new(), closed: true }));
+        let g = Grade { nodes: vec![n], bypass: false };
+        for scale in [0.0, f32::NAN, 1e-30, 1e30] {
+            let fx = compile_fx(&g, Tick(0), WorkingSpace::DaVinciWide, GradeCtx { px_scale: scale, ..GradeCtx::default() }, 8, 8);
+            if let Some(FxOp::Masked { masks, .. }) = fx.first() {
+                assert!(masks.len() <= MAX_WINDOWS);
+            }
+            let mut img = crate::Image::new(8, 8);
+            for op in fx {
+                op.apply(&mut img);
+            }
+            assert!(img.px.iter().all(|v| v.is_finite()));
+        }
+    }
+
+    #[test]
+    fn hostile_qualifiers_stay_finite() {
+        let mut n = qualified(&[]);
+        for k in
+            ["qual.hue", "qual.hueWidth", "qual.satLow", "qual.satHigh", "qual.lumLow", "qual.lumHigh", "qual.soft", "qual.blur", "qual.show", "qual.invert"]
+        {
+            n.params.insert(k.into(), Param::new(ParamValue::Float(f64::NAN)));
+        }
+        let mut m = qualified(&[]);
+        for (i, k) in ["qual.hue", "qual.hueWidth", "qual.satLow", "qual.satHigh", "qual.lumLow", "qual.lumHigh", "qual.soft", "qual.blur", "qual.show"]
+            .iter()
+            .enumerate()
+        {
+            m.params.insert((*k).into(), Param::new(ParamValue::Float(if i % 2 == 0 { 1e300 } else { -1e300 })));
+        }
+        for n in [n, m] {
+            let g = Grade { nodes: vec![n], bypass: false };
+            for ws in [WorkingSpace::Rec709, WorkingSpace::DaVinciWide, WorkingSpace::Rec2100Pq] {
+                for op in compile_fx(&g, Tick(0), ws, GradeCtx { px_scale: f32::NAN, ..GradeCtx::default() }, 0, 0) {
+                    assert!(op.gpu_ok(), "{op:?}");
+                }
+                let ops = compile(&g, Tick(0), ws);
+                let out = filmcraft_color::ops::apply_chain(&ops, [0.5, 0.2, 0.1]);
+                assert!(out.iter().all(|v| v.is_finite()), "{out:?}");
+            }
         }
     }
 

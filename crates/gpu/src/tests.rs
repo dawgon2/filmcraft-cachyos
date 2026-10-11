@@ -482,6 +482,77 @@ fn gpu_mask_coverage_matches_cpu() {
     }
 }
 
+/// Linear (gradient) masks: alone, feathered, expanded, inverted, combined with path masks.
+fn linear_test_masks(scale: f32) -> Vec<Vec<filmcraft_render::mask::FlatMask>> {
+    use filmcraft_project::{Mask, MaskMode, ParamValue};
+    let plain = Mask::linear("l", Vec2::new(160.0, 30.0), Vec2::new(160.0, 120.0));
+    let mut diag = Mask::linear("d", Vec2::new(300.0, 170.0), Vec2::new(40.0, 10.0));
+    diag.feather.value = ParamValue::Float(20.0);
+    diag.expansion.value = ParamValue::Float(-12.0);
+    diag.opacity.value = ParamValue::Float(80.0);
+    let mut inv = Mask::linear("i", Vec2::new(100.0, 90.0), Vec2::new(100.5, 90.2));
+    inv.inverted = true;
+    inv.mode = MaskMode::Intersect;
+    let mut far = Mask::linear("f", Vec2::new(-5000.0, 20.0), Vec2::new(5000.0, 160.0));
+    far.mode = MaskMode::Difference;
+    let mut ell = Mask::new("e", filmcraft_project::MaskPath::ellipse(Vec2::new(150.0, 90.0), Vec2::new(90.0, 55.0)));
+    ell.feather.value = ParamValue::Float(10.0);
+    let degenerate = Mask::linear("z", Vec2::new(50.0, 50.0), Vec2::new(50.0, 50.0));
+    let t = filmcraft_time::Tick(0);
+    let p = |ms: &[Mask]| filmcraft_render::mask::prepare(ms, t, scale);
+    vec![p(std::slice::from_ref(&plain)), p(std::slice::from_ref(&diag)), p(&[ell, diag.clone(), inv, far]), p(&[degenerate, plain])]
+}
+
+#[test]
+fn gpu_linear_mask_coverage_matches_cpu() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let g = crate::GpuMask::new(&dev, &q);
+    for scale in [1.0f32, 0.5] {
+        let (w, h) = ((320.0 * scale) as usize, (180.0 * scale) as usize);
+        for (i, masks) in linear_test_masks(scale).into_iter().enumerate() {
+            let cpu = filmcraft_render::mask::coverage(&masks, w, h).unwrap();
+            let gpu = g.coverage(&masks, w, h).expect("gpu coverage");
+            let worst = cpu.iter().zip(&gpu).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+            eprintln!("linear mask {i} @{scale}: max |cpu − gpu| = {worst:e}");
+            assert!(worst < 2e-4, "case {i} scale {scale}: {worst}");
+            assert!(cpu.iter().any(|v| *v > 0.2 && *v < 0.8), "case {i} has a ramp");
+        }
+    }
+}
+
+/// A linear mask through the fused effect chain (`FxOp::Masked` / `FxOp::OpacityMask`).
+#[test]
+fn gpu_linear_masked_effect_matches_cpu() {
+    use super::fx_tests::{compare, picture};
+    use filmcraft_render::gpufx::FxOp;
+    use filmcraft_render::plan::LayerFx;
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (160u32, 90u32);
+    let px = picture(w, h);
+    let frame = VideoFrame::rgba_f32(w, h, px.clone());
+    for (i, masks) in linear_test_masks(0.5).into_iter().enumerate() {
+        let masks: Arc<[filmcraft_render::mask::FlatMask]> = masks.into();
+        let ops = vec![FxOp::Masked { ops: vec![FxOp::BlackWhite], masks: masks.clone() }, FxOp::OpacityMask { masks }];
+        assert!(ops.iter().all(FxOp::gpu_ok), "case {i}");
+        let mut cpu = filmcraft_render::Image { w: w as usize, h: h as usize, px: px.clone() };
+        for op in &ops {
+            op.apply(&mut cpu);
+        }
+        let fx = LayerFx { size: (w, h), decimation: 1, ops };
+        let (_, _, gpu) = c.effect_image(&frame, &fx).expect("effect image");
+        let (worst, flips) = compare(&cpu.px, &gpu);
+        eprintln!("linear masked effect {i}: {worst:.2e}, flips {flips:.4}");
+        assert!(worst <= 1e-3 && flips == 0.0, "case {i}: {worst:.2e}, flips {flips}");
+    }
+}
+
 #[test]
 fn gpu_masked_mix_matches_cpu() {
     let Some((dev, q)) = device() else {

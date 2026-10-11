@@ -120,6 +120,8 @@ pub enum Icon {
     Moon,
     /// Colour parameters: pick a colour from the Program monitor (a pipette).
     Eyedropper,
+    /// Linear (gradient) mask: a frame with a graduated band across it.
+    LinearMask,
 }
 
 pub struct Pen16<'a> {
@@ -763,6 +765,11 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             pen.line(&[(9.5, 7.5), (3.5, 12.5)]);
             pen.line(&[(3.5, 12.5), (2.5, 13.5)]);
         }
+        LinearMask => {
+            pen.rect(2.5, 4.0, 13.5, 12.0);
+            pen.line(&[(2.5, 6.0), (13.5, 6.0)]);
+            pen.line(&[(2.5, 8.0), (13.5, 8.0)]);
+        }
     }
 }
 
@@ -895,6 +902,7 @@ mod tests {
         Network,
         Clock,
         Eyedropper,
+        LinearMask,
     ];
 
     /// Paint `icon` at `ppp` device pixels per point into a rect of `size` points whose corner is

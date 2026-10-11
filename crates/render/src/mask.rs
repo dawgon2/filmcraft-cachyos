@@ -16,11 +16,15 @@
 //! linear ramp across the boundary: exact for straight edges, antialiased everywhere), and a
 //! feathered mask falls off smoothly over `feather` pixels centred on the (expanded) edge — a true
 //! distance falloff, so corners round off and the width is the same along the whole contour.
+//! A linear (gradient) mask is flattened by [`linear_polygon`] to the half-plane on its start
+//! side with feather `|end − start| + feather`, so the same formula gives its smoothstep ramp
+//! (1 at the start point, 0 at the end) on the CPU, in `GpuMask` and in the fused GPU effect
+//! chain without a shape-specific shader path.
 //! Masks combine top to bottom with their [`MaskMode`]. All of this runs in linear light on the
 //! premultiplied working image: a masked effect is `lerp(original, effected, coverage)` per
 //! channel, an opacity mask scales the layer's premultiplied pixels.
 
-use filmcraft_project::{EffectInstance, Mask, MaskMode};
+use filmcraft_project::{EffectInstance, Mask, MaskMode, MaskShape};
 use filmcraft_time::Tick;
 use rayon::prelude::*;
 
@@ -49,18 +53,101 @@ pub fn prepare(masks: &[Mask], t: Tick, px_scale: f32) -> Vec<FlatMask> {
         .iter()
         .filter(|m| m.mode != MaskMode::None)
         .map(|m| {
-            let path = m.path_at(t);
-            let pts = path.flatten(FLATTEN_TOLERANCE / s.max(1e-6)).into_iter().map(|p| [(p.x * s) as f32, (p.y * s) as f32]).collect();
-            FlatMask {
-                pts,
-                feather: (m.feather.f64_at(t).max(0.0) * s) as f32,
-                expansion: (m.expansion.f64_at(t) * s) as f32,
-                opacity: (m.opacity.f64_at(t) / 100.0).clamp(0.0, 1.0) as f32,
-                inverted: m.inverted,
-                mode: m.mode,
-            }
+            // hostile values (damaged project, absurd px_scale) never reach the coverage math:
+            // feather / expansion are finite and capped, non-finite points are dropped
+            let feather = finite_or_zero(m.feather.f64_at(t) * s).clamp(0.0, MAX_FEATHER);
+            let expansion = finite_or_zero(m.expansion.f64_at(t) * s).clamp(-MAX_EXPANSION, MAX_EXPANSION) as f32;
+            let (pts, feather) = if m.shape == MaskShape::Linear {
+                let (a, b) = m.linear_points_at(t).unwrap_or_default();
+                linear_polygon([a.x * s, a.y * s], [b.x * s, b.y * s], feather, expansion)
+            } else {
+                (flatten_path(&m.path_at(t), s), feather as f32)
+            };
+            let pts: Vec<[f32; 2]> = pts.into_iter().filter(|p| p[0].is_finite() && p[1].is_finite()).collect();
+            let opacity = finite_or_zero(m.opacity.f64_at(t) / 100.0).clamp(0.0, 1.0) as f32;
+            FlatMask { pts, feather, expansion, opacity, inverted: m.inverted, mode: m.mode }
         })
         .collect()
+}
+
+/// Largest feather (working px) a mask gets; also the largest linear ramp.
+const MAX_FEATHER: f64 = 1e5;
+/// Largest |expansion| (working px).
+const MAX_EXPANSION: f64 = 1e5;
+/// Most flattened points per mask (a hostile path cannot allocate without bound).
+pub const MAX_MASK_POINTS: usize = 100_000;
+/// Most path vertices flattened (each cubic yields at most 256 chords).
+const MAX_PATH_VERTICES: usize = 10_000;
+
+fn finite_or_zero(v: f64) -> f64 {
+    if v.is_finite() { v } else { 0.0 }
+}
+
+/// A path flattened to working pixels, at most [`MAX_MASK_POINTS`] points (coarser chords when a
+/// huge path would exceed that, truncated as a last resort). Paths with more than
+/// [`MAX_PATH_VERTICES`] vertices are treated as empty.
+fn flatten_path(path: &filmcraft_project::MaskPath, s: f64) -> Vec<[f32; 2]> {
+    if path.len() > MAX_PATH_VERTICES || !s.is_finite() {
+        return Vec::new();
+    }
+    let mut tol = finite_or_zero(FLATTEN_TOLERANCE / s.max(1e-6)).max(1e-4);
+    let mut flat = path.flatten(tol);
+    if flat.len() > MAX_MASK_POINTS {
+        // chord count scales with 1/√tol
+        let r = flat.len() as f64 / MAX_MASK_POINTS as f64;
+        tol *= r * r * 1.1;
+        flat = path.flatten(tol);
+    }
+    flat.into_iter().take(MAX_MASK_POINTS).map(|p| [(p.x * s) as f32, (p.y * s) as f32]).collect()
+}
+
+/// Largest ramp width (working px) of a linear mask; hostile point distances are capped here.
+const LINEAR_MAX_RAMP: f64 = MAX_FEATHER;
+/// Largest distance (working px) of a linear mask's midpoint from the origin (hostile points).
+const LINEAR_MAX_CENTRE: f64 = 1e6;
+/// Distance beyond which the image is assumed not to reach (a 32K frame is ~46 000 px across).
+const LINEAR_REACH: f64 = 65_536.0;
+
+/// A linear (gradient) mask from `a` (coverage 1) to `b` (coverage 0) as a polygon + feather the
+/// shared coverage math turns into the gradient: the start half-plane, bounded by the
+/// perpendicular bisector of `a`–`b`, as a quad reaching far beyond the image, with feather
+/// `|b − a| + feather`. The signed distance to the bisector `sd` then gives
+/// `smoothstep(sd / |b − a| + 0.5)`: exactly 1 at `a`, 0.5 at the midpoint, 0 at `b`. The
+/// bisector is split at geometrically spaced points around the midpoint so the f32 distance to
+/// its segments stays accurate near the image while its ends reach past the feather band. Equal
+/// or non-finite points give no polygon (empty coverage, like a degenerate path).
+pub fn linear_polygon(a: [f64; 2], b: [f64; 2], feather: f64, expansion: f32) -> (Vec<[f32; 2]>, f32) {
+    let feather = if feather.is_finite() { feather.clamp(0.0, LINEAR_MAX_RAMP) } else { 0.0 };
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len = (dx * dx + dy * dy).sqrt();
+    if !len.is_finite() || len < 1e-9 || !a.iter().chain(&b).all(|v| v.is_finite()) {
+        return (Vec::new(), feather as f32);
+    }
+    let width = (len.min(LINEAR_MAX_RAMP) + feather).min(LINEAR_MAX_RAMP);
+    // unit normal towards the end point, tangent along the bisector
+    let (nx, ny) = (dx / len, dy / len);
+    let (tx, ty) = (-ny, nx);
+    // clamp the midpoint along the normal (keeps the side of the frame) and the tangent (slides
+    // along the bisector), never per axis, which would turn the line
+    let (cx, cy) = ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5);
+    let cn = (cx * nx + cy * ny).clamp(-LINEAR_MAX_CENTRE, LINEAR_MAX_CENTRE);
+    let ct = (cx * tx + cy * ty).clamp(-LINEAR_MAX_CENTRE, LINEAR_MAX_CENTRE);
+    let (mx, my) = (nx * cn + tx * ct, ny * cn + ty * ct);
+    let exp = if expansion.is_finite() { f64::from(expansion).abs().min(1e7) } else { 0.0 };
+    // farther than the coverage band from every image pixel
+    let reach = (mx * mx + my * my).sqrt() + LINEAR_REACH + exp + width + 2.0;
+    let at = |o: f64, depth: f64| [(mx + tx * o - nx * depth) as f32, (my + ty * o - ny * depth) as f32];
+    const STEPS: [f64; 5] = [256.0, 1024.0, 4096.0, 16_384.0, LINEAR_REACH];
+    let mut pts = Vec::with_capacity(2 * STEPS.len() + 5);
+    pts.push(at(-reach, 0.0));
+    pts.extend(STEPS.iter().rev().map(|o| at(-o, 0.0)));
+    pts.push(at(0.0, 0.0));
+    pts.extend(STEPS.iter().map(|o| at(*o, 0.0)));
+    pts.push(at(reach, 0.0));
+    // back across the start side
+    pts.push(at(reach, reach));
+    pts.push(at(-reach, reach));
+    (pts, width as f32)
 }
 
 /// The falloff of a signed (expanded) distance for a feather width.
@@ -321,5 +408,186 @@ mod tests {
                 assert!((r - c[y * w + x]).abs() < 1e-5, "({x},{y}) {r} vs {}", c[y * w + x]);
             }
         }
+    }
+
+    fn smoothstep(u: f64) -> f64 {
+        let u = u.clamp(0.0, 1.0);
+        u * u * (3.0 - 2.0 * u)
+    }
+
+    /// Coverage of a lone linear mask over `w`×`h` against `expect(px, py)`.
+    fn check_linear(m: &Mask, w: usize, h: usize, expect: impl Fn(f64, f64) -> f64) {
+        let c = effect_coverage(std::slice::from_ref(m), Tick(0), 1.0, w, h).unwrap();
+        for y in 0..h {
+            for x in 0..w {
+                let e = expect(x as f64 + 0.5, y as f64 + 0.5);
+                let v = c[y * w + x] as f64;
+                assert!((v - e).abs() < 2e-4, "({x},{y}) {v} vs {e}");
+            }
+        }
+    }
+
+    #[test]
+    fn linear_mask_is_a_smoothstep_ramp_from_start_to_end() {
+        // vertical graduated filter: full at y = 10, none at y = 30
+        let m = Mask::linear("m", Vec2::new(50.0, 10.0), Vec2::new(50.0, 30.0));
+        check_linear(&m, 100, 40, |_, py| smoothstep((20.0 - py) / 20.0 + 0.5));
+        let c = effect_coverage(std::slice::from_ref(&m), Tick(0), 1.0, 100, 40).unwrap();
+        assert_eq!(c[5 * 100 + 3], 1.0, "start side");
+        assert_eq!(c[35 * 100 + 97], 0.0, "far side");
+        // a diagonal ramp, start bottom-right, at a non-unit pixel scale
+        let d = Mask::linear("d", Vec2::new(60.0, 50.0), Vec2::new(20.0, 20.0));
+        let flat = prepare(std::slice::from_ref(&d), Tick(0), 0.5);
+        let c = coverage(&flat, 50, 40).unwrap();
+        let (ax, ay, bx, by) = (30.0f64, 25.0, 10.0, 10.0);
+        let len = ((ax - bx) * (ax - bx) + (ay - by) * (ay - by)).sqrt();
+        for y in 0..40 {
+            for x in 0..50 {
+                let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+                // signed distance from the bisector towards the start
+                let sd = ((px - (ax + bx) / 2.0) * (ax - bx) + (py - (ay + by) / 2.0) * (ay - by)) / len;
+                let e = smoothstep(sd / len + 0.5);
+                assert!((c[y * 50 + x] as f64 - e).abs() < 2e-4, "({x},{y}) {} vs {e}", c[y * 50 + x]);
+            }
+        }
+    }
+
+    #[test]
+    fn linear_mask_feather_expansion_invert_opacity() {
+        let mut m = Mask::linear("m", Vec2::new(5.0, 10.0), Vec2::new(5.0, 30.0));
+        // feather widens the ramp around the midpoint: width 20 + 10
+        m.feather.value = filmcraft_project::ParamValue::Float(10.0);
+        check_linear(&m, 10, 40, |_, py| smoothstep((20.0 - py) / 30.0 + 0.5));
+        // expansion moves the transition towards the end point
+        m.feather.value = filmcraft_project::ParamValue::Float(0.0);
+        m.expansion.value = filmcraft_project::ParamValue::Float(5.0);
+        check_linear(&m, 10, 40, |_, py| smoothstep((25.0 - py) / 20.0 + 0.5));
+        // inverted, half opacity
+        m.expansion.value = filmcraft_project::ParamValue::Float(0.0);
+        m.inverted = true;
+        m.opacity.value = filmcraft_project::ParamValue::Float(50.0);
+        check_linear(&m, 10, 40, |_, py| 0.5 * (1.0 - smoothstep((20.0 - py) / 20.0 + 0.5)));
+        // a short ramp (< 1 px) is the antialiased hard edge of the bisector, like a hard path mask
+        let h = Mask::linear("h", Vec2::new(5.0, 20.0), Vec2::new(5.0, 20.0 + 1e-6));
+        let c = effect_coverage(&[h], Tick(0), 1.0, 10, 40).unwrap();
+        assert_eq!((c[19 * 10], c[20 * 10]), (1.0, 0.0));
+    }
+
+    #[test]
+    fn linear_mask_keyframes_and_combines_with_path_masks() {
+        let mut m = Mask::linear("m", Vec2::new(0.0, 0.0), Vec2::new(0.0, 20.0));
+        m.path.put_keyframe(Tick(0), filmcraft_project::ParamValue::Path(MaskPath::linear(Vec2::new(0.0, 0.0), Vec2::new(0.0, 20.0))));
+        m.path.put_keyframe(Tick(100), filmcraft_project::ParamValue::Path(MaskPath::linear(Vec2::new(0.0, 20.0), Vec2::new(0.0, 40.0))));
+        let flat = prepare(std::slice::from_ref(&m), Tick(50), 1.0);
+        // midpoint at y = 20 halfway through
+        let v = coverage_at(&flat, 3.0, 20.0).unwrap();
+        assert!((v - 0.5).abs() < 1e-4, "{v}");
+        // row algorithm == brute force with a linear mask between path masks
+        let a = mask(MaskPath::ellipse(Vec2::new(30.0, 25.0), Vec2::new(20.0, 12.0)), 6.0);
+        let mut l = Mask::linear("l", Vec2::new(40.0, 5.0), Vec2::new(10.0, 35.0));
+        l.mode = MaskMode::Intersect;
+        l.feather.value = filmcraft_project::ParamValue::Float(4.0);
+        l.expansion.value = filmcraft_project::ParamValue::Float(-3.0);
+        let mut b = mask(MaskPath::polygon(&[Vec2::new(5.0, 5.0), Vec2::new(50.0, 10.0), Vec2::new(20.0, 45.0)]), 0.0);
+        b.mode = MaskMode::Difference;
+        let flat = prepare(&[a, l, b], Tick(0), 0.8);
+        let (w, h) = (48, 40);
+        let c = coverage(&flat, w, h).unwrap();
+        for y in 0..h {
+            for x in 0..w {
+                let r = coverage_at(&flat, x as f32 + 0.5, y as f32 + 0.5).unwrap();
+                assert!((r - c[y * w + x]).abs() < 1e-5, "({x},{y}) {r} vs {}", c[y * w + x]);
+            }
+        }
+    }
+
+    /// Regression: non-finite geometry / params used to pass through `prepare` and turn the CPU
+    /// coverage (and a masked effect's pixels) NaN.
+    #[test]
+    fn prepare_keeps_every_mask_finite() {
+        use filmcraft_project::ParamValue;
+        let bad_poly =
+            MaskPath::polygon(&[Vec2::new(1.0, 1.0), Vec2::new(f64::NAN, 2.0), Vec2::new(1e300, 5.0), Vec2::new(6.0, f64::INFINITY), Vec2::new(2.0, 7.0)]);
+        let all_bad = MaskPath::polygon(&[Vec2::new(f64::NAN, 1.0), Vec2::new(f64::INFINITY, 2.0), Vec2::new(1e300, f64::NEG_INFINITY)]);
+        let mut shapes = vec![
+            mask(bad_poly, 0.0),
+            mask(all_bad, 0.0),
+            mask(MaskPath::rect(1.0, 1.0, 6.0, 6.0), 0.0),
+            Mask::linear("l", Vec2::new(f64::NAN, 1.0), Vec2::new(3.0, 1e300)),
+            Mask::linear("l2", Vec2::new(1.0, 1.0), Vec2::new(5.0, 7.0)),
+        ];
+        // a hostile huge path: bounded points
+        shapes.push(mask(MaskPath::polygon(&(0..20_000).map(|i| Vec2::new(i as f64, (i % 7) as f64)).collect::<Vec<_>>()), 0.0));
+        for (feather, expansion, opacity) in
+            [(f64::INFINITY, -1e300, f64::NAN), (f64::NAN, f64::INFINITY, f64::INFINITY), (1e300, 1e300, -1e300), (2.0, 1.0, 50.0)]
+        {
+            for px_scale in [1.0f32, 1e30, 1e-30, f32::INFINITY, f32::NAN, 0.0] {
+                for m in &mut shapes {
+                    m.feather.value = ParamValue::Float(feather);
+                    m.expansion.value = ParamValue::Float(expansion);
+                    m.opacity.value = ParamValue::Float(opacity);
+                    m.inverted = !m.inverted;
+                }
+                let flat = prepare(&shapes, Tick(0), px_scale);
+                for f in &flat {
+                    assert!(f.pts.len() <= MAX_MASK_POINTS);
+                    assert!([f.feather, f.expansion, f.opacity].iter().chain(f.pts.iter().flatten()).all(|v| v.is_finite()), "{f:?}");
+                }
+                let c = coverage(&flat, 8, 8).unwrap();
+                assert!(c.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)), "{feather} {expansion} {px_scale}: {c:?}");
+                let mut img = Image { w: 8, h: 8, px: vec![0.5; 256] };
+                let orig = Image { w: 8, h: 8, px: vec![0.25; 256] };
+                mix(&mut img, &orig, &c);
+                assert!(img.px.iter().all(|v| v.is_finite()));
+            }
+        }
+    }
+
+    /// A far-away diagonal ramp keeps the frame on its side (the midpoint is clamped along the
+    /// normal and the tangent, not per axis, which would swing the line through the frame).
+    #[test]
+    fn far_linear_mask_keeps_its_side() {
+        let a = Vec2::new(3e6, -2e6);
+        for (start, end, want) in [(a, a + Vec2::new(10.0, 10.0), 1.0), (a + Vec2::new(10.0, 10.0), a, 0.0)] {
+            let m = Mask::linear("far", start, end);
+            let c = effect_coverage(&[m], Tick(0), 1.0, 64, 64).unwrap();
+            assert!(c.iter().all(|v| *v == want), "{want}: {:?}", &c[..8]);
+        }
+    }
+
+    #[test]
+    fn linear_mask_survives_hostile_values() {
+        let pts = [
+            (Vec2::new(5.0, 5.0), Vec2::new(5.0, 5.0)),
+            (Vec2::new(f64::NAN, 5.0), Vec2::new(5.0, 20.0)),
+            (Vec2::new(5.0, 5.0), Vec2::new(f64::INFINITY, 20.0)),
+            (Vec2::new(-1e300, 5.0), Vec2::new(1e300, 20.0)),
+            (Vec2::new(1e12, 1e12), Vec2::new(1e12 + 10.0, 1e12)),
+            (Vec2::new(-1e9, 3.0), Vec2::new(1e9, 7.0)),
+        ];
+        for (i, (a, b)) in pts.into_iter().enumerate() {
+            for (feather, expansion) in [(0.0, 0.0), (f64::NAN, f64::NAN), (f64::INFINITY, f64::NEG_INFINITY), (1e30, 1e30), (-5.0, -1e9)] {
+                for inverted in [false, true] {
+                    let mut m = Mask::linear("m", a, b);
+                    m.feather.value = filmcraft_project::ParamValue::Float(feather);
+                    m.expansion.value = filmcraft_project::ParamValue::Float(expansion);
+                    m.inverted = inverted;
+                    let flat = prepare(std::slice::from_ref(&m), Tick(0), 1.0);
+                    let c = coverage(&flat, 12, 12).unwrap();
+                    assert!(c.iter().all(|v| (0.0..=1.0).contains(v)), "{i} {feather} {expansion}: {c:?}");
+                    let r = coverage_at(&flat, 6.5, 6.5).unwrap();
+                    assert!((0.0..=1.0).contains(&r), "{i}: {r}");
+                }
+            }
+        }
+        // equal points: empty coverage (the whole frame when inverted)
+        let mut m = Mask::linear("m", Vec2::new(5.0, 5.0), Vec2::new(5.0, 5.0));
+        assert!(effect_coverage(std::slice::from_ref(&m), Tick(0), 1.0, 8, 8).unwrap().iter().all(|v| *v == 0.0));
+        m.inverted = true;
+        assert!(effect_coverage(std::slice::from_ref(&m), Tick(0), 1.0, 8, 8).unwrap().iter().all(|v| *v == 1.0));
+        // a linear mask whose path lost its vertices is empty, too
+        m.path.value = filmcraft_project::ParamValue::Path(MaskPath::default());
+        m.inverted = false;
+        assert!(effect_coverage(&[m], Tick(0), 1.0, 8, 8).unwrap().iter().all(|v| *v == 0.0));
     }
 }

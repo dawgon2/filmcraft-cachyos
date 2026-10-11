@@ -34,6 +34,8 @@ Both sides added CRF: the fork as `crf: Option<u8>` (set = constant quality), up
 
 **Owner's answer (2026-10-11): keep upstream's model, plus the compatibility fix:** a numeric `crf` without `bitrateMode` loads as CRF mode (`deserialize_crf` / the preset loader in `crates/export`), with a test, so no fork preset silently changes. Apply it, then mark resolved.
 
+**Applied** in U0 (`crates/export/src/lib.rs` `deserialize_crf` / legacy-CRF mapping, tests in `settings_tests.rs`). Resolved (session 13, 2026-10-11).
+
 ## Q3 (2026-10-11, U0 step 2): two VA-API decoders during the merge
 
 Upstream has its own VA-API H.264 / HEVC decoder (`crates/platform/src/vaapi/`); the fork has its
@@ -68,3 +70,24 @@ Recorded so they can be undone; all keep both sides working.
   (reverse and forward up to 2×) instead of upstream's forward-only mix rate.
 
 **Owner's answer (2026-10-11): fine, all accepted.** Resolved.
+
+## Q5 (2026-10-11, between G2 and G2b): make `cargo xtask ci` ~20 minutes
+
+Owner asked (live): can ci take ~20 min instead of 40–65 without weakening it? Where the time
+goes: two full release passes (`clippy --release`, `test --release`) plus the wasm build, all
+non-incremental, ~135 test binaries run one by one, `CARGO_BUILD_JOBS=6` and `nice 19`.
+- **Plan (proposed to the owner, not started):** a measured step at the start of the next run:
+  (1) per-stage timing in `xtask ci`; (2) a `[profile.ci]` inheriting release (same opt-level, so
+  the realtime-mixer test keeps its meaning) with `incremental = true` and more codegen units;
+  (3) clippy without `--release`; (4) `cargo-nextest` if installed (user-level, optional, same
+  tests in parallel). Keep 6 jobs (desktop rule). Verify the same test count passes; record
+  before / after.
+- **Trade-off:** `Cargo.toml` / `xtask` are upstream files → a small merge conflict per sync;
+  an env-only variant (no profile) gains less.
+- **Owner's answer (2026-10-11, live): "make all the appropriate changes … apply to this CI".**
+  Done in session 13: per-stage timing, clippy in the check profile, `[profile.ci]` (release
+  opt-level, incremental, 64 codegen units), `cargo-nextest` 0.9.148 installed (user-level) with
+  6 test threads and the `perf_*` / `realtime` tests run alone, doctests via `cargo test --doc`,
+  and the 68 `crates/ui-egui/tests/*.rs` binaries merged into one (`tests/ui/main.rs`). First run
+  on the new setup: **21.7 min** (tests 21 min incl. ~19 min compiling, 3,095 + 7 passed; test
+  execution 2 min 21 s) vs 40–65 min before. Resolved.

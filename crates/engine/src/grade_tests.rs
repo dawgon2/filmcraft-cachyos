@@ -296,3 +296,174 @@ fn graded_clip_survives_save_and_open() {
     assert_eq!(grade(&t, c), Some(before));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn pick_qualifier_sets_ranges_around_the_sample_in_one_undo_step() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    let before = grade(&s, c);
+    let r = s.execute("grade.pickQualifier", json!({"node": a, "x": 0.5, "y": 0.5})).unwrap();
+    let n = grade(&s, c).unwrap().nodes[0].clone();
+    let t = filmcraft_time::Tick(0);
+    assert!(n.float_at("qual.on", t) >= 0.5, "{r}");
+    let (h, sat, l) = (r["sample"]["hue"].as_f64().unwrap() as f32, r["sample"]["sat"].as_f64().unwrap() as f32, r["sample"]["luma"].as_f64().unwrap() as f32);
+    let at = |k| n.params.get(k).and_then(|p| if let ParamValue::Float(v) = p.value { Some(v as f32) } else { None }).unwrap();
+    assert!(at("qual.lumLow") <= l && l <= at("qual.lumHigh"), "{r}");
+    assert!(at("qual.satLow") <= sat && sat <= at("qual.satHigh"), "{r}");
+    assert!((at("qual.hue") - h).abs() < 1e-6, "{r}");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(grade(&s, c), before, "one undo step");
+}
+
+#[test]
+fn pick_qualifier_add_widens_and_hostile_input_is_refused() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    for p in [
+        json!({"node": a}),
+        json!({"node": a, "x": "a", "y": 0.5}),
+        json!({"node": a, "x": 0.5, "y": 0.5, "mode": "nope"}),
+        json!({"node": 999, "x": 0.5, "y": 0.5}),
+    ] {
+        assert!(s.execute("grade.pickQualifier", p.clone()).is_err(), "{p}");
+    }
+    // out-of-range coordinates clamp to the frame
+    s.execute("grade.pickQualifier", json!({"node": a, "x": -5.0, "y": 1e300})).unwrap();
+    s.execute("grade.setParam", json!({"node": a, "param": "qual.lumLow", "value": 0.4})).unwrap();
+    s.execute("grade.setParam", json!({"node": a, "param": "qual.lumHigh", "value": 0.41})).unwrap();
+    let r = s.execute("grade.pickQualifier", json!({"node": a, "x": 0.5, "y": 0.5, "mode": "add"})).unwrap();
+    let l = r["sample"]["luma"].as_f64().unwrap();
+    let lo = r["params"]["qual.lumLow"].as_f64().unwrap();
+    let hi = r["params"]["qual.lumHigh"].as_f64().unwrap();
+    assert!(lo <= l.min(0.4) + 1e-6 && hi >= l.max(0.41) - 1e-6, "{r}");
+}
+
+#[test]
+fn set_lut_sets_validates_and_undoes() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    let Some(b) = filmcraft_render::luts::builtins().first() else { return };
+    let r = format!("builtin:{}", b.id);
+    s.execute("grade.setLut", json!({"node": a, "lut": r})).unwrap();
+    assert_eq!(grade(&s, c).unwrap().nodes[0].lut, r);
+    assert!(s.execute("grade.setLut", json!({"node": a, "lut": "lib:nope"})).is_err());
+    assert!(s.execute("grade.setLut", json!({"node": a, "path": "/no/such/file.cube"})).is_err());
+    // a refused node imports nothing
+    let luts = s.project.luts.len();
+    let dir0 = std::env::temp_dir().join(format!("fc-grade-lut0-{}", std::process::id()));
+    std::fs::create_dir_all(&dir0).unwrap();
+    let f0 = dir0.join("x.cube");
+    std::fs::write(&f0, "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n").unwrap();
+    assert!(s.execute("grade.setLut", json!({"node": 999, "path": f0.to_string_lossy()})).is_err());
+    assert_eq!(s.project.luts.len(), luts);
+    let _ = std::fs::remove_dir_all(&dir0);
+    assert_eq!(grade(&s, c).unwrap().nodes[0].lut, r, "refused calls change nothing");
+    s.execute("grade.setLut", json!({"node": a, "lut": ""})).unwrap();
+    assert!(grade(&s, c).unwrap().nodes[0].lut.is_empty());
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(grade(&s, c).unwrap().nodes[0].lut, r);
+    // an imported .cube file lands in the project's library
+    let dir = std::env::temp_dir().join(format!("fc-grade-lut-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let f = dir.join("warm.cube");
+    std::fs::write(&f, "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n").unwrap();
+    let v = s.execute("grade.setLut", json!({"node": a, "path": f.to_string_lossy()})).unwrap();
+    assert!(v["lut"].as_str().unwrap().starts_with("lib:"), "{v}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Two video clips of the demo project (the playhead one first).
+fn two_clips(s: &Session) -> (ClipId, ClipId) {
+    let q = s.active_sequence().unwrap();
+    let first = q.video_tracks[0].item_at(s.playhead()).unwrap().id;
+    let other = q.video_tracks.iter().flat_map(|t| &t.items).map(|i| i.id).find(|c| *c != first).unwrap();
+    (first, other)
+}
+
+#[test]
+fn compare_data_groups_identical_grades() {
+    let (mut s, c) = demo();
+    let (_, d) = two_clips(&s);
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.setParam", json!({"clip": c.0, "node": a, "param": "saturation", "value": 0.7})).unwrap();
+    s.execute("grade.copy", json!({"clip": c.0})).unwrap();
+    s.execute("grade.paste", json!({"clips": [d.0]})).unwrap();
+    let r = s.execute("grade.compareData", json!({})).unwrap();
+    let groups = r["groups"].as_array().unwrap();
+    assert!(groups.iter().any(|g| g["clips"].as_array().unwrap().len() == 2), "{r}");
+    // a tweak on one clip breaks the group
+    let dn = grade(&s, d).unwrap().nodes[0].id;
+    s.execute("grade.setParam", json!({"clip": d.0, "node": dn, "param": "saturation", "value": 0.71})).unwrap();
+    let r = s.execute("grade.compareData", json!({})).unwrap();
+    assert!(r["groups"].as_array().unwrap().is_empty(), "{r}");
+    assert!(s.execute("grade.compareData", json!({"clips": ["x"]})).is_err());
+}
+
+#[test]
+fn compare_shots_check_scene_and_shot_match() {
+    let (mut s, c) = demo();
+    let (_, d) = two_clips(&s);
+    // the clip against itself is refused; against another clip it answers with a score and notes
+    assert!(s.execute("grade.compareShots", json!({"clip": c.0, "with": c.0})).is_err());
+    assert!(s.execute("grade.compareShots", json!({"clip": c.0})).is_err(), "needs a reference");
+    let r = s.execute("grade.compareShots", json!({"clip": c.0, "with": d.0})).unwrap();
+    let score = r["score"].as_f64().unwrap();
+    assert!((0.0..=100.0).contains(&score) && r["notes"].is_array(), "{r}");
+    // the scene check needs two clips
+    s.state.selection = vec![c];
+    assert!(s.execute("grade.checkScene", json!({})).is_err());
+    let r = s.execute("grade.checkScene", json!({"clips": [c.0, d.0]})).unwrap();
+    assert_eq!(r["shots"].as_array().unwrap().len(), 2, "{r}");
+    // Shot Match appends one node (one undo step) and doesn't make the match worse
+    let before = grade(&s, c);
+    let m = s.execute("grade.shotMatch", json!({"clip": c.0, "with": d.0})).unwrap();
+    let g = grade(&s, c).unwrap();
+    assert_eq!(g.nodes.last().map(|n| n.label.as_str()), Some("Shot Match"), "{m}");
+    assert!(m["after"].as_f64().unwrap() <= m["before"].as_f64().unwrap() + 1e-6, "{m}");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(grade(&s, c), before);
+}
+
+#[test]
+fn explain_node_and_grade_give_sentences_and_an_overlay() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.setParam", json!({"clip": c.0, "node": a, "param": "gain", "value": [0.0, 0.0, 0.0, 0.3]})).unwrap();
+    let b = add(&mut s, json!({"clip": c.0}));
+    let dir = std::env::temp_dir().join(format!("fc-explain-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let png = dir.join("overlay.png");
+    let r = s.execute("grade.explainNode", json!({"clip": c.0, "node": a, "overlay": png.to_string_lossy()})).unwrap();
+    let sentence = r["sentence"].as_str().unwrap();
+    assert!(sentence.contains("stop"), "{r}");
+    assert!(png.exists());
+    let r = s.execute("grade.explainNode", json!({"clip": c.0, "node": b})).unwrap();
+    assert!(r["sentence"].as_str().unwrap().contains("no visible change"), "{r}");
+    let r = s.execute("grade.explainGrade", json!({"clip": c.0})).unwrap();
+    assert_eq!(r["nodes"].as_array().unwrap().len(), 2);
+    assert!(!r["text"].as_str().unwrap().is_empty());
+    assert!(s.execute("grade.explainNode", json!({"clip": c.0, "node": 999})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn match_and_explain_refuse_hostile_input() {
+    let (mut s, c) = demo();
+    // the reference frame can't be inside the clip; an ungraded clip has nothing to explain
+    let it = s.active_sequence().unwrap().find_item(c).unwrap().1.clone();
+    assert!(s.execute("grade.compareShots", json!({"clip": c.0, "referenceTime": it.start.0})).is_err());
+    assert!(s.execute("grade.explainNode", json!({"clip": c.0})).is_err());
+    assert!(s.execute("grade.explainGrade", json!({"clip": c.0})).is_err());
+    assert!(s.execute("grade.checkScene", json!({"clips": []})).is_err());
+    assert!(s.execute("grade.compareShots", json!({"clip": c.0, "with": "x"})).is_err());
+    // an overlay that can't be written is an error, not a panic
+    let a = add(&mut s, json!({"clip": c.0}));
+    let r = s.execute("grade.explainNode", json!({"clip": c.0, "node": a, "overlay": "/no/such/dir/x.png"}));
+    assert!(r.is_err(), "{r:?}");
+    // Shot Match refuses a full grade
+    let (_, d) = two_clips(&s);
+    for _ in 1..MAX_NODES {
+        add(&mut s, json!({"clip": c.0}));
+    }
+    assert!(s.execute("grade.shotMatch", json!({"clip": c.0, "with": d.0, "faceDetection": false})).is_err());
+}

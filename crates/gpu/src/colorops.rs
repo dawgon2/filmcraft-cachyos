@@ -28,6 +28,8 @@ const CO_LOOK: f32 = 21.0;
 const CO_HSL_KEY: f32 = 22.0;
 const CO_HSL_CORRECT: f32 = 23.0;
 const CO_GRAIN: f32 = 24.0;
+const CO_STASH: f32 = 25.0;
+const CO_MIX_STASH: f32 = 26.0;
 
 /// Values a program may hold (tables of a few thousand samples each; a chain is a handful of ops).
 pub const MAX_PROGRAM: usize = filmcraft_color::ops::MAX_GPU_PROGRAM;
@@ -155,9 +157,11 @@ pub fn program(ops: &[ColorOp]) -> Option<Vec<f32>> {
                 p.extend([CO_LUT, *intensity, flag(*hdr)]);
                 lut(&mut p, l)?;
             }
-            ColorOp::HslKey { hue, range, sat_min, luma_min, luma_max, soft, hdr } => {
-                p.extend([CO_HSL_KEY, *hue, *range, *sat_min, *luma_min, *luma_max, *soft, flag(*hdr)]);
+            ColorOp::HslKey { hue, range, sat_min, sat_max, luma_min, luma_max, soft, hdr } => {
+                p.extend([CO_HSL_KEY, *hue, *range, *sat_min, *sat_max, *luma_min, *luma_max, *soft, flag(*hdr)]);
             }
+            ColorOp::Stash => p.push(CO_STASH),
+            ColorOp::MixStash { invert } => p.extend([CO_MIX_STASH, flag(*invert)]),
             ColorOp::HslCorrect { hue_shift, sat, temp, tint, show_mask, hdr } => {
                 p.extend([CO_HSL_CORRECT, *hue_shift, *sat, *temp, *tint, (*show_mask).min(16) as f32, flag(*hdr)]);
             }

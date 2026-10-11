@@ -666,6 +666,7 @@ pub(crate) fn lumetri_hsl(e: &EffectInstance, cx: &FxCtx, w: usize, h: usize) ->
         hue: f(e, "hsl_hue", cx) / 360.0,
         range: (f(e, "hsl_hue_range", cx) / 360.0).max(1e-3),
         sat_min: f(e, "hsl_sat_min", cx) / 100.0,
+        sat_max: 1.0,
         luma_min: f(e, "hsl_luma_min", cx) / 100.0,
         luma_max: f(e, "hsl_luma_max", cx) / 100.0,
         soft: (f(e, "hsl_soft", cx) / 100.0 * 0.3).max(0.01),

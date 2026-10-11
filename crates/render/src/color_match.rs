@@ -135,7 +135,7 @@ pub fn stats(img: &Image, skin_protect: bool) -> Stats {
 
 /// Residuals between graded statistics and the reference's (bands weighted by how much of both
 /// frames they cover).
-fn residuals(cur: &Stats, refs: &Stats) -> Vec<f32> {
+pub(crate) fn residuals(cur: &Stats, refs: &Stats) -> Vec<f32> {
     let mut r = Vec::with_capacity(10);
     for k in 0..3 {
         let w = (cur.bands[k][0].min(refs.bands[k][0]) * 3.0).clamp(0.0, 1.0).sqrt();
@@ -203,65 +203,14 @@ fn graded_stats(img: &Image, base: &EffectInstance, x: &[f32; 10], skin_protect:
 pub fn solve(current: &Image, reference: &Image, base: &EffectInstance, skin_protect: bool) -> Match {
     let cur = shrink(current, 96);
     let refs = stats(&shrink(reference, 96), skin_protect);
-    let mut x = [0f32; 10];
     let lambda_reg = 0.02f32;
     let cost = |x: &[f32; 10]| -> (Vec<f32>, f32) {
         let r = residuals(&graded_stats(&cur, base, x, skin_protect), &refs);
         let c = r.iter().map(|v| v * v).sum::<f32>() + lambda_reg * lambda_reg * x.iter().map(|v| v * v).sum::<f32>();
         (r, c)
     };
-    let (mut r, mut c) = cost(&x);
-    let before = c.sqrt();
-    let mut mu = 1e-3f32;
-    for _ in 0..12 {
-        // numerical Jacobian (forward differences)
-        let h = 1e-2f32;
-        let mut jac = vec![[0f32; 10]; r.len()];
-        for j in 0..10 {
-            let mut xp = x;
-            xp[j] += h;
-            let (rp, _) = cost(&xp);
-            for (i, row) in jac.iter_mut().enumerate() {
-                row[j] = (rp[i] - r[i]) / h;
-            }
-        }
-        // normal equations with Tikhonov regularisation and LM damping
-        let mut a = [[0f64; 10]; 10];
-        let mut g = [0f64; 10];
-        for (i, row) in jac.iter().enumerate() {
-            for p in 0..10 {
-                g[p] += (row[p] * r[i]) as f64;
-                for q in 0..10 {
-                    a[p][q] += (row[p] * row[q]) as f64;
-                }
-            }
-        }
-        for p in 0..10 {
-            g[p] += (lambda_reg * lambda_reg * x[p]) as f64;
-            a[p][p] += (lambda_reg * lambda_reg) as f64 + mu as f64 * (1.0 + a[p][p]);
-        }
-        let Some(dx) = solve_linear(a, g.map(|v| -v)) else { break };
-        let mut xn = x;
-        for p in 0..10 {
-            xn[p] = (x[p] + dx[p] as f32).clamp(-1.0, 1.0);
-        }
-        let (rn, cn) = cost(&xn);
-        if cn < c {
-            x = xn;
-            r = rn;
-            let improved = c - cn;
-            c = cn;
-            mu = (mu * 0.3).max(1e-6);
-            if improved < 1e-7 {
-                break;
-            }
-        } else {
-            mu *= 10.0;
-            if mu > 1e4 {
-                break;
-            }
-        }
-    }
+    let (mut x, before, mut c) =
+        levenberg_marquardt([0f32; 10], [(-1.0, 1.0); 10], lambda_reg, |x| residuals(&graded_stats(&cur, base, x, skin_protect), &refs));
     if skin_protect {
         // limit the hue shift of the current frame's skin tones to 8°
         let s0 = stats(&cur, true);
@@ -293,31 +242,106 @@ pub fn solve(current: &Image, reference: &Image, base: &EffectInstance, skin_pro
         highlights: [x[4], x[5]],
         lightness: [x[6] * 100.0, x[7] * 100.0, x[8] * 100.0],
         saturation: ((1.0 + x[9]) * 100.0).clamp(0.0, 200.0),
-        before,
+        before: before.sqrt(),
         after: c.sqrt(),
     }
 }
 
+/// Damped Gauss–Newton (Levenberg–Marquardt) on `N` unknowns starting at `x0`: minimises
+/// Σ residuals(x)² + λ² Σ x² (`lambda_reg` = λ, a Tikhonov penalty that keeps the solution
+/// minimal) with forward-difference derivatives (step 0.01), at most 12 iterations, every unknown
+/// kept within its `bounds` (lo, hi). Returns the solution and the cost before and after.
+/// Shared by Lumetri's Apply Match ([`solve`]) and the node Shot Match ([`crate::grade_match`]).
+pub(crate) fn levenberg_marquardt<const N: usize>(
+    x0: [f32; N],
+    bounds: [(f32, f32); N],
+    lambda_reg: f32,
+    residuals: impl Fn(&[f32; N]) -> Vec<f32>,
+) -> ([f32; N], f32, f32) {
+    let cost = |x: &[f32; N]| -> (Vec<f32>, f32) {
+        let r = residuals(x);
+        let c = r.iter().map(|v| v * v).sum::<f32>() + lambda_reg * lambda_reg * x.iter().map(|v| v * v).sum::<f32>();
+        (r, c)
+    };
+    let mut x = x0;
+    let (mut r, mut c) = cost(&x);
+    let before = c;
+    let mut mu = 1e-3f32;
+    for _ in 0..12 {
+        // numerical Jacobian (forward differences)
+        let h = 1e-2f32;
+        let mut jac = vec![[0f32; N]; r.len()];
+        for j in 0..N {
+            let mut xp = x;
+            xp[j] += h;
+            let (rp, _) = cost(&xp);
+            for (i, row) in jac.iter_mut().enumerate() {
+                let (Some(&a), Some(&b)) = (rp.get(i), r.get(i)) else { continue };
+                row[j] = (a - b) / h;
+            }
+        }
+        // normal equations with Tikhonov regularisation and LM damping
+        let mut a = [[0f64; N]; N];
+        let mut g = [0f64; N];
+        for (row, ri) in jac.iter().zip(&r) {
+            for p in 0..N {
+                g[p] += (row[p] * ri) as f64;
+                for q in 0..N {
+                    a[p][q] += (row[p] * row[q]) as f64;
+                }
+            }
+        }
+        for p in 0..N {
+            g[p] += (lambda_reg * lambda_reg * x[p]) as f64;
+            a[p][p] += (lambda_reg * lambda_reg) as f64 + mu as f64 * (1.0 + a[p][p]);
+        }
+        let Some(dx) = solve_linear(a, g.map(|v| -v)) else { break };
+        let mut xn = x;
+        for p in 0..N {
+            let (lo, hi) = bounds[p];
+            let v = x[p] + dx[p] as f32;
+            xn[p] = if lo <= hi { v.clamp(lo, hi) } else { v };
+        }
+        let (rn, cn) = cost(&xn);
+        if cn < c {
+            x = xn;
+            r = rn;
+            let improved = c - cn;
+            c = cn;
+            mu = (mu * 0.3).max(1e-6);
+            if improved < 1e-7 {
+                break;
+            }
+        } else {
+            mu *= 10.0;
+            if mu > 1e4 {
+                break;
+            }
+        }
+    }
+    (x, before, c)
+}
+
 /// Gaussian elimination with partial pivoting.
-fn solve_linear(mut a: [[f64; 10]; 10], mut b: [f64; 10]) -> Option<[f64; 10]> {
-    for col in 0..10 {
-        let piv = (col..10).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
+fn solve_linear<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N]) -> Option<[f64; N]> {
+    for col in 0..N {
+        let piv = (col..N).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
         if a[piv][col].abs() < 1e-14 {
             return None;
         }
         a.swap(col, piv);
         b.swap(col, piv);
-        for row in col + 1..10 {
+        for row in col + 1..N {
             let f = a[row][col] / a[col][col];
-            for k in col..10 {
+            for k in col..N {
                 a[row][k] -= f * a[col][k];
             }
             b[row] -= f * b[col];
         }
     }
-    let mut x = [0f64; 10];
-    for i in (0..10).rev() {
-        let s: f64 = (i + 1..10).map(|k| a[i][k] * x[k]).sum();
+    let mut x = [0f64; N];
+    for i in (0..N).rev() {
+        let s: f64 = (i + 1..N).map(|k| a[i][k] * x[k]).sum();
         x[i] = (b[i] - s) / a[i][i];
     }
     Some(x)

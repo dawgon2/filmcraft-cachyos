@@ -301,6 +301,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
         monitor_view::zoom_pan_input(app, ui, which, video_area, pic, display_w, ppp);
     }
     if which == Which::Program && show_picture {
+        grade_picker(app, ui, &pic_resp, pic);
         eyedropper(app, ui, &pic_resp, pic, target, rate, time);
         crate::panels::graphics::monitor_overlay(app, ui, pic, frame_size);
         crate::panels::masks::monitor_overlay(app, ui, pic, frame_size);
@@ -518,6 +519,32 @@ struct EyedropperPick {
 
 /// Output scale of the frame an eyedropper samples (half size is plenty and quick to render).
 const EYEDROPPER_SCALE: f32 = 0.5;
+
+/// Qualifier picker (Color page ▸ Qualifier ▸ Pick / Add): while armed, the Program picture takes a
+/// crosshair and a click runs `grade.pickQualifier` at that point (the engine samples the node's
+/// input); Esc disarms.
+fn grade_picker(app: &mut FilmcraftApp, ui: &mut egui::Ui, resp: &egui::Response, pic: Rect) {
+    let Some(armed) = app.ui.grade_picker else { return };
+    if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.ui.grade_picker = None;
+        return;
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    }
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+        && pic.width() > 0.0
+        && pic.height() > 0.0
+    {
+        app.ui.grade_picker = None;
+        let (x, y) = (((pos.x - pic.min.x) / pic.width()).clamp(0.0, 1.0), ((pos.y - pic.min.y) / pic.height()).clamp(0.0, 1.0));
+        let mode = if armed.add { "add" } else { "set" };
+        if let Err(e) = app.session.execute("grade.pickQualifier", json!({"clip": armed.clip, "node": armed.node, "x": x, "y": y, "mode": mode})) {
+            app.ui.status = e.to_string();
+        }
+    }
+}
 
 /// Eyedropper: while a colour parameter's eyedropper is armed (Effect Controls), the Program picture
 /// takes a crosshair and a click fills that parameter with the colour under the pointer. The colour is

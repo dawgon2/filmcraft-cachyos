@@ -52,6 +52,8 @@ const OP_MIRROR: u32 = 28;
 const OP_OFFSET: u32 = 29;
 const OP_MEDIAN_MASK: u32 = 30;
 const OP_VIDEO_LIMITER: u32 = 31;
+const OP_DENOISE: u32 = 32;
+const OP_DENOISE_YCC: u32 = 33;
 // (Lumetri is not one op: it is a colour chain, `FxOp::ColorChain`, fork ADR 0003)
 /// Step codes of colour-chain passes: plain, key (writes the mask), masked (reads it).
 const CHAIN_KEY: u32 = 1;
@@ -280,6 +282,22 @@ fn steps(op: &FxOp) -> Vec<Step> {
         }
         FxOp::VideoLimiter { max, comp, axis, warn, warning_color } => {
             out.push(step(OP_VIDEO_LIMITER, [*axis, *warn as u32, 0, 0], &[*max, *comp, warning_color[0], warning_color[1], warning_color[2]]));
+        }
+        FxOp::Denoise { luma, chroma, sigma } => {
+            // (both strengths 0: an exact no-op, no pass; the constants are the CPU's.) A pre-pass
+            // converts every pixel once to (Y, Cb, Cr, α); the filter reads it and keeps the
+            // original (`aux`) for the pixels it leaves unchanged, like Unsharp's combine.
+            if let Some(p) = filmcraft_render::denoise::params(*luma, *chroma, *sigma) {
+                let mut pre = step(OP_DENOISE_YCC, [0; 4], &[]);
+                pre.unsharp_blur = true;
+                out.push(pre);
+                let flags = [p.radius, u32::from(p.luma_k.is_some()), u32::from(p.chroma_k.is_some()), 0];
+                let mut q = vec![p.luma_k.unwrap_or(0.0), p.chroma_k.unwrap_or(0.0), 0.0, 0.0];
+                q.extend_from_slice(&p.spatial);
+                let mut f = step(OP_DENOISE, flags, &q);
+                f.combine = true;
+                out.push(f);
+            }
         }
     }
     out

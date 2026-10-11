@@ -50,6 +50,8 @@ const OP_MIRROR: u32 = 28u;
 const OP_OFFSET: u32 = 29u;
 const OP_MEDIAN_MASK: u32 = 30u;
 const OP_VIDEO_LIMITER: u32 = 31u;
+const OP_DENOISE: u32 = 32u;
+const OP_DENOISE_YCC: u32 = 33u;
 
 fn size() -> vec2<i32> {
     return vec2<i32>(i32(u.i0.y), i32(u.i0.z));
@@ -436,6 +438,132 @@ fn color_op(op: u32, c: vec3<f32>) -> vec3<f32> {
     }
 }
 
+// ---- noise reduction (`filmcraft_render::denoise`)
+
+// `denoise::encode`: sRGB on 0…1, its linear toe below, a linear extension above 1.
+fn nr_enc1(v: f32) -> f32 {
+    if v <= 0.0031308 {
+        return v * 12.92;
+    }
+    if v <= 1.0 {
+        return 1.055 * pow(v, 1.0 / 2.4) - 0.055;
+    }
+    return 1.0 + (v - 1.0) / 2.4;
+}
+
+fn nr_dec1(e: f32) -> f32 {
+    if e <= 0.04045 {
+        return e / 12.92;
+    }
+    if e <= 1.0 {
+        return pow((e + 0.055) / 1.055, 2.4);
+    }
+    return 1.0 + (e - 1.0) * 2.4;
+}
+
+// `denoise::to_ycc`: (Y, Cb = B′ − Y, Cr = R′ − Y) of the encoded straight colour.
+fn nr_ycc(c: vec3<f32>) -> vec3<f32> {
+    let e = vec3(nr_enc1(c.x), nr_enc1(c.y), nr_enc1(c.z));
+    let y = 0.2126 * e.x + 0.7152 * e.y + 0.0722 * e.z;
+    return vec3(y, e.z - y, e.x - y);
+}
+
+// `denoise::from_ycc`
+fn nr_rgb(v: vec3<f32>) -> vec3<f32> {
+    let r = v.z + v.x;
+    let b = v.y + v.x;
+    let g = (v.x - 0.2126 * r - 0.0722 * b) / 0.7152;
+    return vec3(nr_dec1(r), nr_dec1(g), nr_dec1(b));
+}
+
+// Whether `v` is finite (exponent bits; `v != v` may be optimised away).
+fn finite1(v: f32) -> bool {
+    return (bitcast<u32>(v) & 0x7f800000u) != 0x7f800000u;
+}
+
+fn finite4(v: vec4<f32>) -> bool {
+    return finite1(v.x) && finite1(v.y) && finite1(v.z) && finite1(v.w);
+}
+
+// `denoise::pixel_ycc`: (Y, Cb, Cr, α), zeros for a skipped pixel (transparent or non-finite).
+fn denoise_ycc(p: vec2<i32>) -> vec4<f32> {
+    let o = ld(p);
+    if !finite1(o.a) || o.a <= 1e-6 {
+        return vec4(0.0);
+    }
+    let c = vec4(nr_ycc(o.rgb / o.a), o.a);
+    if !finite4(c) {
+        return vec4(0.0);
+    }
+    return c;
+}
+
+// `g(|d|)`, the spatial weight table (p1, p2).
+fn nr_g(d: i32) -> f32 {
+    let a = abs(d);
+    if a < 4 {
+        return u.p1[a];
+    }
+    return u.p2[min(a - 4, 3)];
+}
+
+// `denoise::apply` for one pixel: src = (Y, Cb, Cr, α) from `denoise_ycc`, aux = the original;
+// i1 = (radius, luma on, chroma on), p0 = (1/2σl², 1/2σc²).
+fn denoise_px(p: vec2<i32>) -> vec4<f32> {
+    let s = size();
+    let c0 = ld(p);
+    let orig = textureLoad(aux, p, 0);
+    if c0.w <= 0.0 {
+        return orig;
+    }
+    let r = i32(min(u.i1.x, 7u));
+    let luma_on = u.i1.y != 0u;
+    let chroma_on = u.i1.z != 0u;
+    let kl = u.p0.x;
+    let kc = u.p0.y;
+    var sl = 0.0;
+    var wl = 0.0;
+    var sc = vec2(0.0);
+    var wc = 0.0;
+    for (var y = max(p.y - r, 0); y <= min(p.y + r, s.y - 1); y++) {
+        let gy = nr_g(y - p.y);
+        for (var x = max(p.x - r, 0); x <= min(p.x + r, s.x - 1); x++) {
+            let c = ld(vec2(x, y));
+            if c.w <= 0.0 {
+                continue;
+            }
+            let ws = nr_g(x - p.x) * gy * c.w;
+            if luma_on {
+                let dl = c.x - c0.x;
+                let w1 = ws * exp(-(dl * dl) * kl);
+                sl += w1 * c.x;
+                wl += w1;
+            }
+            if chroma_on {
+                let d1 = c.y - c0.y;
+                let d2 = c.z - c0.z;
+                let w2 = ws * exp(-(d1 * d1 + d2 * d2) * kc);
+                sc += w2 * c.yz;
+                wc += w2;
+            }
+        }
+    }
+    var yy = c0.x;
+    if luma_on && wl > 0.0 {
+        yy = sl / wl;
+    }
+    var cc = c0.yz;
+    if chroma_on && wc > 0.0 {
+        cc = sc / wc;
+    }
+    let out = vec4(nr_rgb(vec3(yy, cc)) * c0.w, c0.w);
+    if !finite4(out) {
+        return orig;
+    }
+    // (alpha: the original's, bit for bit)
+    return vec4(out.rgb, orig.a);
+}
+
 // One output pixel of every op but the running-sum box blur.
 fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
     let s = size();
@@ -521,6 +649,12 @@ fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
                 acc += sample_clamped(pc.x + dx * t, pc.y + dy * t);
             }
             return acc / f32(steps);
+        }
+        case OP_DENOISE_YCC: {
+            return denoise_ycc(p);
+        }
+        case OP_DENOISE: {
+            return denoise_px(p);
         }
         case OP_UNSHARP: {
             // src: the blurred image, aux: the original

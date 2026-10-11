@@ -452,12 +452,71 @@ fn gpu_compiled_grades_match_cpu() {
         ],
         bypass: false,
     };
+    // qualified nodes (G2.1): one per-pixel and inverted, one with a blurred matte (an HSL
+    // secondary step), one showing its highlight
+    let qual = |id: u64, extra: &[(&str, ParamValue)]| {
+        let mut ps = vec![
+            ("gain", ParamValue::Color([0.1, -0.05, 0.0, 0.2])),
+            ("saturation", ParamValue::Float(0.6)),
+            ("qual.on", ParamValue::Float(1.0)),
+            ("qual.hue", ParamValue::Float(0.05)),
+            ("qual.hueWidth", ParamValue::Float(0.25)),
+            ("qual.satLow", ParamValue::Float(0.1)),
+            ("qual.satHigh", ParamValue::Float(0.8)),
+            ("qual.lumLow", ParamValue::Float(0.1)),
+            ("qual.lumHigh", ParamValue::Float(0.9)),
+            ("qual.soft", ParamValue::Float(0.1)),
+        ];
+        ps.extend(extra.iter().cloned());
+        node(id, &ps)
+    };
+    let mut qualified = grade.clone();
+    qualified.nodes.push(qual(4, &[("qual.invert", ParamValue::Float(1.0))]));
+    qualified.nodes.push(qual(5, &[("qual.blur", ParamValue::Float(0.2))]));
+    // a node limited by a window (an ellipse with feather) and a qualified, windowed node (G2.2)
+    let mut windowed = qual(7, &[]);
+    let mut win =
+        filmcraft_project::Mask::new("w", filmcraft_project::MaskPath::ellipse(filmcraft_geom::Vec2::new(30.0, 20.0), filmcraft_geom::Vec2::new(18.0, 12.0)));
+    win.feather = Param::new(ParamValue::Float(6.0));
+    windowed.windows.push(win.clone());
+    qualified.nodes.push(windowed);
+    let mut lifted = node(8, &[("lift", ParamValue::Color([0.0, 0.05, 0.0, 0.02]))]);
+    win.inverted = true;
+    lifted.windows.push(win);
+    // noise reduction at the node's input, inside its (inverted) window (G2.4)
+    lifted.params.insert("nr.luma".into(), Param::new(ParamValue::Float(0.6)));
+    lifted.params.insert("nr.chroma".into(), Param::new(ParamValue::Float(0.4)));
+    qualified.nodes.push(lifted);
+    // a node LUT and the highlight soft clip (G2.5 / G2.6)
+    let mut finishing = node(9, &[("hl.rolloff", ParamValue::Float(0.8)), ("hl.knee", ParamValue::Float(0.6)), ("lut.mix", ParamValue::Float(0.7))]);
+    if let Some(b) = filmcraft_render::luts::builtins().iter().find(|b| b.id.starts_with("look-")) {
+        finishing.lut = format!("builtin:{}", b.id);
+    }
+    qualified.nodes.push(finishing);
+    let mut shown = qualified.clone();
+    shown.nodes.push(qual(6, &[("qual.show", ParamValue::Float(1.0))]));
     let mut c = GpuCompositor::new(&dev, &q);
     let (w, h) = (67u32, 41u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
     let mut failures = Vec::new();
     for ws in [WorkingSpace::Rec709, WorkingSpace::DaVinciWide] {
+        for (name, g) in [("qualified", &qualified), ("highlight", &shown)] {
+            let ctx = filmcraft_render::grade::GradeCtx { seq_time: Tick(5), ..Default::default() };
+            let ops = filmcraft_render::grade::compile_fx(g, Tick(123_456_789), ws, ctx, w as usize, h as usize);
+            assert!(ops.iter().any(|o| matches!(o, FxOp::HslSecondary { .. })), "{name}");
+            assert!(ops.iter().filter(|o| matches!(o, FxOp::Masked { .. })).count() >= 1, "{name}");
+            assert!(ops.iter().all(FxOp::gpu_ok), "{name} {ws:?}");
+            let mut cpu = filmcraft_render::Image { w: w as usize, h: h as usize, px: px.clone() };
+            ops.iter().for_each(|o| o.apply(&mut cpu));
+            let fx = LayerFx { size: (w, h), decimation: 1, ops };
+            let (_, _, gpu) = c.effect_image(&frame, &fx).expect("effect image");
+            let (worst, flips) = compare(&cpu.px, &gpu);
+            eprintln!("{name} grade in {ws:?}: max rel diff {worst:.2e}, {:.3}% off by > 2 %", flips * 100.0);
+            if worst > TOL || flips > 0.0 {
+                failures.push(format!("{name} {ws:?}: {worst:.2e}, flips {flips:.4}"));
+            }
+        }
         assert!(filmcraft_render::grade::compile(&Grade::with_node(), Tick(0), ws).is_empty());
         let ops = filmcraft_render::grade::compile(&grade, Tick(123_456_789), ws);
         assert!(ops.iter().any(|o| matches!(o, ColorOp::Grain { .. })));

@@ -943,6 +943,7 @@
 	Create ellipse mask	Crear máscara de elipse
 	Create 4-point polygon mask	Crear máscara de polígono de 4 puntos
 	Free draw bezier	Bézier a mano alzada
+	Create linear gradient mask	Crear máscara de degradado lineal
 	Click in the Program monitor to place mask points (drag for curves); click the first point or press Enter to close	Haz clic en el monitor de programa para colocar puntos de máscara (arrastra para curvas); haz clic en el primer punto o pulsa Intro para cerrar
 	Delete Mask	Eliminar máscara
 	Inverted	Invertida
@@ -3615,3 +3616,58 @@
 	Stills	Imágenes fijas
 	Vertical 2160×3840 HEVC	HEVC vertical 2160×3840
 	YouTube 4K HEVC	YouTube 4K HEVC
+# fork G2.1: grade qualifier
+	Qualifier	Cualificador
+	Qualifier on	Cualificador activado
+	Pick	Seleccionar
+	Click the picture to select that colour	Haz clic en la imagen para seleccionar ese color
+	Click the picture to widen the selection to that colour	Haz clic en la imagen para ampliar la selección a ese color
+	click the Program picture · Esc cancels	haz clic en la imagen del Programa · Esc cancela
+	Selection	Selección
+	Hue centre	Centro de tono
+	Hue width	Anchura de tono
+	Saturation low	Saturación mínima
+	Saturation high	Saturación máxima
+	Luminance low	Luminancia mínima
+	Luminance high	Luminancia máxima
+	Qualifier softness	Suavidad del cualificador
+	Matte blur	Desenfoque del mate
+	Invert qualifier	Invertir cualificador
+# fork G2.2 / G2.4: grade windows and noise reduction
+	Windows	Ventanas
+	Add window	Añadir ventana
+	No windows: the node acts on the whole picture.	Sin ventanas: el nodo actúa sobre toda la imagen.
+	Track backward	Seguir hacia atrás
+	Track forward	Seguir hacia delante
+	Delete window	Eliminar ventana
+	Select a window to drag its shape on the Program monitor.	Selecciona una ventana para arrastrar su forma en el monitor de Programa.
+	NR luma	RR luma
+	NR chroma	RR croma
+	NR radius	Radio de RR
+# fork G2.5 / G2.6: soft clip and node LUT
+	Soft clip	Recorte suave
+	Highlight roll-off	Atenuación de altas luces
+	Roll-off knee	Inicio de la atenuación
+	LUT mix	Mezcla de LUT
+	Set Node LUT	Establecer LUT del nodo
+# fork G2.8–G2.10: match, compare and explain
+	Match	Igualar
+	No other clip has exactly this grade.	Ningún otro clip tiene exactamente esta corrección.
+	Same grade as:	Misma corrección que:
+	(pick a clip)	(elige un clip)
+	Compare shots	Comparar tomas
+	Shot Match	Igualar toma
+	Check scene	Revisar escena
+	Compare the selected clips and find the one that differs most	Compara los clips seleccionados y encuentra el que más difiere
+	Explain node	Explicar nodo
+	Explain grade	Explicar corrección
+	Show what changed	Mostrar qué cambió
+	Match score	Coincidencia
+	Added a Shot Match node at the end of the grade.	Se añadió un nodo de igualación al final de la corrección.
+	Differs most: clip	Difiere más: clip
+	Compare Grade Data	Comparar datos de corrección
+	Compare Shots	Comparar tomas
+	Check Scene	Revisar escena
+	Explain Node	Explicar nodo
+	Explain Grade	Explicar corrección
+	Pick Qualifier Colour	Seleccionar color del cualificador

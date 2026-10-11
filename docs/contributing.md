@@ -112,7 +112,7 @@ Every commit must pass all of these:
 | Layering | `cargo xtask layers` |
 | Assets | `cargo xtask assets` |
 | wasm | `cargo xtask wasm` (checks every L0–L4 crate, `filmcraft-ui-egui` and `filmcraft-web` for `wasm32-unknown-unknown`) |
-| All of the above | `cargo xtask ci` (runs clippy and tests with `--release`) |
+| All of the above | `cargo xtask ci` (clippy in the check profile, tests in the incremental release-optimised `ci` profile, in parallel with `cargo-nextest` when installed; prints each stage's time) |
 
 Run them with `CRAFT_FONTS_DIR` set too when you change font code ([craft-fonts](#building-with-craft-fonts)).
 

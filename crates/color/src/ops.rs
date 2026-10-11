@@ -303,9 +303,10 @@ pub enum ColorOp {
     /// [`within_unit`].
     Look { look: u32, intensity: f32, hdr: bool },
     /// HSL Secondary key: sets the mask register from the HSL of the signal ([`within_unit`]):
-    /// hue within `range` / 2 of `hue` (wrapping), saturation above `sat_min`, lightness between
-    /// `luma_min` and `luma_max`, each edge over `soft`. `rgb` is unchanged.
-    HslKey { hue: f32, range: f32, sat_min: f32, luma_min: f32, luma_max: f32, soft: f32, hdr: bool },
+    /// hue within `range` / 2 of `hue` (wrapping), saturation above `sat_min` (and below `sat_max`
+    /// when it is under 1; 1 or more: no upper limit), lightness between `luma_min` and
+    /// `luma_max`, each edge over `soft`. `rgb` is unchanged.
+    HslKey { hue: f32, range: f32, sat_min: f32, sat_max: f32, luma_min: f32, luma_max: f32, soft: f32, hdr: bool },
     /// HSL Secondary correction inside the mask on the signal: hue shift, saturation,
     /// temperature, tint (`show_mask` 0), or a view of the mask (1: colour over grey, 2: colour
     /// over black, 3: the mask itself; display images, no HDR scaling).
@@ -316,6 +317,13 @@ pub enum ColorOp {
     /// `l = clamp(weights · rgb, 0, 1)`: strongest in the mid-tones, faint in deep shadows and
     /// highlights, like film. The same `seed` always gives the same grain.
     Grain { strength: f32, inv_size: f32, softness: f32, seed: u32, weights: [f32; 3] },
+    /// Keeps a copy of `rgb` in the stash register (fork G2.1: the start of a grade node limited
+    /// by a qualifier). `rgb` and the mask are unchanged.
+    Stash,
+    /// Mixes `rgb` back towards the stash by the mask register: `rgb = stash + (rgb − stash)·m`
+    /// with `m` = the mask (`1 − mask` when `invert`); the mask register becomes `m`. Ops between
+    /// [`ColorOp::Stash`] and this one act only where the mask is set.
+    MixStash { invert: bool },
 }
 
 /// Half-range (not peak-to-peak) of the grain at strength 1 in the mid-tones, on the grading
@@ -422,9 +430,12 @@ impl ColorOp {
             ColorOp::HslCurves(h) => h.tables().iter().all(|t| t.as_ref().is_none_or(|t| t.lo.is_finite() && t.hi.is_finite() && all(&t.values))),
             ColorOp::Lut { lut, intensity, .. } => intensity.is_finite() && lut_ok(lut),
             ColorOp::Look { intensity, .. } => intensity.is_finite(),
-            ColorOp::HslKey { hue, range, sat_min, luma_min, luma_max, soft, .. } => all(&[*hue, *range, *sat_min, *luma_min, *luma_max, *soft]),
+            ColorOp::HslKey { hue, range, sat_min, sat_max, luma_min, luma_max, soft, .. } => {
+                all(&[*hue, *range, *sat_min, *sat_max, *luma_min, *luma_max, *soft])
+            }
             ColorOp::HslCorrect { hue_shift, sat, temp, tint, .. } => all(&[*hue_shift, *sat, *temp, *tint]),
             ColorOp::Grain { strength, inv_size, softness, weights, .. } => all(&[*strength, *inv_size, *softness]) && all(weights),
+            ColorOp::Stash | ColorOp::MixStash { .. } => true,
         }
     }
 
@@ -450,26 +461,38 @@ impl ColorOp {
 
     /// Apply to the pixel at `xy` (pixel indices in the image the chain runs on).
     pub fn apply_at(&self, c: [f32; 3], xy: [f32; 2]) -> [f32; 3] {
-        let mut mask = 1.0;
-        self.apply_px(c, xy, &mut mask)
+        self.apply_px(c, xy, &mut Regs::new(c))
     }
 
-    /// Apply to the pixel at `xy` with the mask register `mask` (keys write it, masked
-    /// corrections read it; 1 when nothing set it).
-    pub fn apply_px(&self, c: [f32; 3], xy: [f32; 2], mask: &mut f32) -> [f32; 3] {
+    /// Apply to the pixel at `xy` with the registers `regs` (keys write the mask, masked
+    /// corrections read it; [`ColorOp::Stash`] / [`ColorOp::MixStash`] use the stash).
+    pub fn apply_px(&self, c: [f32; 3], xy: [f32; 2], regs: &mut Regs) -> [f32; 3] {
         match self {
-            ColorOp::HslKey { hue, range, sat_min, luma_min, luma_max, soft, hdr } => {
+            ColorOp::HslKey { hue, range, sat_min, sat_max, luma_min, luma_max, soft, hdr } => {
                 let u = to_unit(c, *hdr);
                 let h = crate::rgb_to_hsl(u[0], u[1], u[2]);
                 let dh = (h[0] - hue).abs().min(1.0 - (h[0] - hue).abs());
                 let mh = 1.0 - ((dh - range / 2.0) / soft).clamp(0.0, 1.0);
-                let ms = ((h[1] - sat_min) / soft).clamp(0.0, 1.0);
+                let mut ms = ((h[1] - sat_min) / soft).clamp(0.0, 1.0);
+                if *sat_max < 1.0 {
+                    ms = ms.min(((sat_max - h[1]) / soft).clamp(0.0, 1.0));
+                }
                 let ml = ((h[2] - luma_min) / soft).clamp(0.0, 1.0).min(((luma_max - h[2]) / soft).clamp(0.0, 1.0));
-                *mask = mh * ms * ml;
+                regs.mask = mh * ms * ml;
                 c
             }
+            ColorOp::Stash => {
+                regs.stash = c;
+                c
+            }
+            ColorOp::MixStash { invert } => {
+                let m = if *invert { 1.0 - regs.mask } else { regs.mask };
+                regs.mask = m;
+                let s = regs.stash;
+                [0, 1, 2].map(|k| s[k] + (c[k] - s[k]) * m)
+            }
             ColorOp::HslCorrect { hue_shift, sat, temp, tint, show_mask, hdr } => {
-                let m = *mask;
+                let m = regs.mask;
                 let u = to_unit(c, *hdr);
                 let scale = if *hdr { c[0].max(c[1]).max(c[2]).max(1.0) } else { 1.0 };
                 let out = match show_mask {
@@ -604,11 +627,8 @@ impl ColorOp {
                 let d = strength * GRAIN_AMPLITUDE * wl * grain_noise(xy, *inv_size, *softness, *seed);
                 c.map(|v| v + d)
             }
-            // (mask operations: `apply_px`)
-            ColorOp::HslKey { .. } | ColorOp::HslCorrect { .. } => {
-                let mut mask = 1.0;
-                self.apply_px(c, xy, &mut mask)
-            }
+            // (register operations: `apply_px`)
+            ColorOp::HslKey { .. } | ColorOp::HslCorrect { .. } | ColorOp::Stash | ColorOp::MixStash { .. } => self.apply_px(c, xy, &mut Regs::new(c)),
         }
     }
 }
@@ -630,11 +650,27 @@ pub fn apply_chain_at(ops: &[ColorOp], c: [f32; 3], xy: [f32; 2]) -> [f32; 3] {
 
 /// Run a chain of operations on the pixel at `xy` starting with the mask register at `mask`:
 /// the colour and the mask afterwards.
-pub fn apply_chain_px(ops: &[ColorOp], mut c: [f32; 3], xy: [f32; 2], mut mask: f32) -> ([f32; 3], f32) {
+pub fn apply_chain_px(ops: &[ColorOp], mut c: [f32; 3], xy: [f32; 2], mask: f32) -> ([f32; 3], f32) {
+    let mut regs = Regs { mask, stash: c };
     for op in ops {
-        c = op.apply_px(c, xy, &mut mask);
+        c = op.apply_px(c, xy, &mut regs);
     }
-    (c, mask)
+    (c, regs.mask)
+}
+
+/// A pixel's registers while a chain runs: the mask (keys write it, masked corrections read it;
+/// 1 when nothing set it) and the stash ([`ColorOp::Stash`]; the chain's input until then).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Regs {
+    pub mask: f32,
+    pub stash: [f32; 3],
+}
+
+impl Regs {
+    /// Fresh registers for a chain whose input is `c`.
+    pub fn new(c: [f32; 3]) -> Self {
+        Self { mask: 1.0, stash: c }
+    }
 }
 
 /// A gamut conversion (colour space transform of linear light).

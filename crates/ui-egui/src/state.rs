@@ -405,6 +405,15 @@ pub struct Eyedropper {
     pub mask: Option<usize>,
 }
 
+/// The grade node an armed qualifier picker sets (`grade.pickQualifier`; `add` widens the
+/// qualifier instead of replacing it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GradePicker {
+    pub clip: u64,
+    pub node: u64,
+    pub add: bool,
+}
+
 /// A keyframe selected in the Effect Controls keyframe lane: clip, effect index, parameter (of an
 /// effect mask when `mask` is set) and the keyframe's media time. The panel drops references that
 /// no longer match a keyframe (deleted, moved, another clip selected).
@@ -468,6 +477,10 @@ pub struct UiState {
     /// monitor (Esc or a click elsewhere disarms it). Never saved.
     #[serde(skip)]
     pub eyedropper: Option<Eyedropper>,
+    /// The grade node whose qualifier the next click in the Program picture picks (Color page ▸
+    /// Qualifier ▸ Pick / Add; Esc disarms). Never saved.
+    #[serde(skip)]
+    pub grade_picker: Option<GradePicker>,
     /// Effect Controls: the selected keyframes, highlighted in the keyframe lane (a click selects one).
     #[serde(default)]
     pub keyframe_selection: Vec<KeyframeRef>,
@@ -978,6 +991,7 @@ impl Default for UiState {
             show_scopes: false,
             status: String::new(),
             eyedropper: None,
+            grade_picker: None,
             keyframe_selection: Vec::new(),
             essential_sound_tab: "Edit".into(),
             tts: Default::default(),

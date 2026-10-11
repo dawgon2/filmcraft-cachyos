@@ -114,8 +114,11 @@ screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page sc
    / backward / frame; results stored as keyframes like effect masks today.
 4. **Spatial noise reduction** (the F-Log2 shadows need it): a GPU edge-preserving filter
    (bilateral or a small non-local-means), luma / chroma strength separately, as a node option.
-   Then **temporal NR** (motion-compensated, reusing the tracker's optical flow, 1–2 frames each
-   side) if the playback budget allows; otherwise it applies at export and in the render cache only.
+   **Temporal NR is deferred out of G2 (owner, 2026-10-11)** to FORK-PLAN Phase 6, after the
+   render cache (6.3) exists: motion-compensated, reusing the tracker's optical flow, 1–2 frames
+   each side, applied at export and in the render cache (live playback only if the budget allows).
+   Reason: too heavy for 6.2K playback without the cache, and no real X-M5 footage to tune
+   ghosting on right now. G2 ships spatial NR only; G2's acceptance doesn't include temporal NR.
 5. **Highlight control:** a per-grade highlight roll-off / "soft clip" knob feeding the existing
    BT.2390 output stage.
 6. **LUT node** (reuse the existing LUT op).
@@ -224,7 +227,7 @@ beginner questions pass the control-name check. Tag `grade-2b`, build per FORK-P
 ## 4. Order against FORK-PLAN (owner's decision)
 
 Remaining FORK-PLAN phases: 6 (4:2:2, proxies, render cache), 7 (polish, soak), 8 (backup
-backends). **Current order: FORK-PLAN §1a.6** (G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3). The reasoning below was for the first version.
+backends). **Current order: FORK-PLAN §1a.6** (G0 ✓ → G1 ✓ → U0 ✓ → G2 → G2b → 6 → Y1 → 6E → U0.2 → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3). The reasoning below was for the first version.
 - G0 / G1 first: they're what you'll use, and graded 6.2K already plays at 1798/0.
 - Phase 6 before G2: temporal NR and heavy multi-node grades are exactly what the render cache is
   for, and 4:2:2 clips need proxies before grading them is pleasant.

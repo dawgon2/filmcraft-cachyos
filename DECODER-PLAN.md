@@ -1,7 +1,7 @@
 # DECODER-PLAN.md: Phase D, a 4:2:2 HEVC decoder that beats ffmpeg on this machine
 
 Written 2026-10-11 (session 8, with the owner). Scheduled **after Phase 7, before Phase 8** (owner):
-… → C1 → C2 → 7 (+ Y4) → **D** → 8 → Y2 → H1 → H2 → H3 (FORK-PLAN §1a.6). All FORK-PLAN rules apply:
+… → 6E → U0.2 → Y3 → C1 → C2 → 7 (+ Y4) → **D** → 8 → Y2 → H1 → H2 → H3 (FORK-PLAN §1a.6). All FORK-PLAN rules apply:
 never crash, no `unsafe` outside `crates/platform` and `crates/gpu/src/interop.rs`, layering, pure
 Rust, ffmpeg only as a test oracle and benchmark ceiling (§1a.24).
 

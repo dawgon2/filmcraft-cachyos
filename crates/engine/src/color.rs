@@ -84,7 +84,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
     ]
 }
 
-fn import_lut(s: &mut Session, path: &str, name: Option<&str>) -> Result<(String, Value)> {
+pub(crate) fn import_lut(s: &mut Session, path: &str, name: Option<&str>) -> Result<(String, Value)> {
     let text = std::fs::read_to_string(path).map_err(|e| bad("lut.import", format!("{path}: {e}")))?;
     let fmt = LutFormat::from_path(path).ok_or_else(|| bad("lut.import", "expected a .cube or .3dl file"))?;
     let lut = Lut::parse(&text, Some(fmt)).map_err(|e| bad("lut.import", format!("{path}: {e}")))?;

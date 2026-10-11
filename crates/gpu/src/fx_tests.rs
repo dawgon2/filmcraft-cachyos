@@ -769,3 +769,114 @@ fn effect_source_integer_decimation_preserves_cpu_box_oracle() {
         }
     }
 }
+
+/// Noise reduction (`FxOp::Denoise`, G2.4a) on the GPU against `denoise::apply`: a noisy test
+/// picture (alpha bands, super-whites, transparent rows) with an inf, a NaN and a NaN-alpha pixel,
+/// luma / chroma / both, spatial sigmas 0.25…3.5 (radius 1…7) and hostile values. The CPU runs
+/// on the GPU's own working image (the source draw decides what a non-finite texel becomes);
+/// non-finite values must be the same on both, finite ones within 1e-3.
+#[test]
+fn gpu_denoise_matches_cpu() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    if let Ok(a) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) {
+        eprintln!("adapter: {}", a.get_info().name);
+    }
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (67u32, 41u32);
+    // the test picture plus deterministic, half-float-representable noise
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut px: Vec<f32> = picture(w, h)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|p| {
+            let mut n = [0.0f32; 3];
+            for v in &mut n {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                *v = ((seed >> 40) as f32 / (1u64 << 24) as f32 - 0.5) * 0.04 * p[3];
+            }
+            [half((p[0] + n[0]).max(0.0)), half((p[1] + n[1]).max(0.0)), half((p[2] + n[2]).max(0.0)), p[3]]
+        })
+        .collect();
+    // opaque rows (y % 7 ≥ 4): an inf, a NaN and a NaN alpha
+    for (x, y, k, v) in [(20usize, 5usize, 0usize, f32::INFINITY), (40, 12, 1, f32::NAN), (10, 19, 3, f32::NAN)] {
+        if let Some(t) = px.get_mut((y * w as usize + x) * 4 + k) {
+            *t = v;
+        }
+    }
+    let frame = VideoFrame::rgba_f32(w, h, px);
+    let (_, _, base) = c.effect_image(&frame, &LayerFx { size: (w, h), decimation: 1, ops: vec![] }).expect("working image");
+    let base_bad = base.iter().filter(|v| !v.is_finite()).count();
+    eprintln!("non-finite values in the working image: {base_bad}");
+    let mut worst_all = 0f32;
+    let cases = [
+        (0.5, 0.5, 1.5),
+        (1.0, 0.0, 0.5),
+        (0.0, 1.0, 2.5),
+        (0.3, 0.8, 3.5),
+        (1.0, 1.0, 3.5),
+        (0.05, 0.02, 1.0),
+        (0.0, 0.0, 1.5),
+        (f32::NAN, 0.7, f32::NAN),
+        (f32::INFINITY, -1.0, 1e30),
+    ];
+    for (luma, chroma, sigma) in cases {
+        let op = FxOp::Denoise { luma, chroma, sigma };
+        assert!(op.gpu_ok());
+        let mut cpu = filmcraft_render::Image { w: w as usize, h: h as usize, px: base.clone() };
+        op.apply(&mut cpu);
+        let (_, _, gpu) = c.effect_image(&frame, &LayerFx { size: (w, h), decimation: 1, ops: vec![op] }).expect("effect image");
+        assert_eq!(cpu.px.len(), gpu.len());
+        let mut worst = 0f32;
+        let mut mismatched = 0usize;
+        for (a, b) in cpu.px.iter().zip(&gpu) {
+            if !a.is_finite() || !b.is_finite() {
+                if !(a.is_nan() && b.is_nan() || a == b) {
+                    mismatched += 1;
+                }
+            } else {
+                worst = worst.max((a - b).abs() / (1.0 + a.abs()));
+            }
+        }
+        let bad = gpu.iter().filter(|v| !v.is_finite()).count();
+        eprintln!("denoise {luma} {chroma} σ{sigma}: max rel diff {worst:.2e}, {bad} non-finite (source {base_bad}), {mismatched} mismatched");
+        assert!(worst < 1e-3 && mismatched == 0 && bad <= base_bad, "denoise {luma} {chroma} σ{sigma}: {worst:.2e}, {mismatched}, {bad}");
+        worst_all = worst_all.max(worst);
+    }
+    eprintln!("denoise GPU parity: max rel diff {worst_all:.2e}");
+}
+
+/// GPU cost of Denoise on a 1920×1080 working image (upload and read-back subtracted by timing
+/// the same image without the op). `cargo test -p filmcraft-gpu --lib gpu_denoise_timing --
+/// --ignored --nocapture`.
+#[test]
+#[ignore = "timing, run by hand"]
+fn gpu_denoise_timing() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (1920u32, 1080u32);
+    let px: Vec<f32> = (0..w * h).flat_map(|i| [(i % 251) as f32 / 251.0, (i % 241) as f32 / 241.0, (i % 239) as f32 / 239.0, 1.0]).collect();
+    let frame = VideoFrame::rgba_f32(w, h, px);
+    let mut time = |ops: Vec<FxOp>| {
+        let fx = LayerFx { size: (w, h), decimation: 1, ops };
+        let _ = c.effect_image(&frame, &fx);
+        let t = std::time::Instant::now();
+        for _ in 0..20 {
+            let _ = c.effect_image(&frame, &fx);
+        }
+        t.elapsed().as_secs_f64() * 1000.0 / 20.0
+    };
+    let base = time(vec![]);
+    for (l, ch, s) in [(1.0, 1.0, 3.5), (1.0, 0.0, 3.5), (0.5, 0.5, 1.5)] {
+        let ms = time(vec![FxOp::Denoise { luma: l, chroma: ch, sigma: s }]);
+        eprintln!("denoise {l} {ch} σ{s} 1080p: {:.2} ms (frame with read-back {ms:.2} ms, without the op {base:.2} ms)", ms - base);
+    }
+}

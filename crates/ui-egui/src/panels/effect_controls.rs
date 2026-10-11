@@ -582,6 +582,8 @@ pub(crate) fn param_row(
             app.auto.add(&format!("effectControls.{}.{}.eyedropper", e.effect, pkey), drop.rect, "Eyedropper");
             if drop.clicked() {
                 app.ui.eyedropper = if armed { None } else { Some(target) };
+                // (one armed picker at a time: the Color page's qualifier picker disarms)
+                app.ui.grade_picker = None;
             }
         }
         (ParamKind::Path, _) => {

@@ -107,7 +107,18 @@ pub fn resolve(project: Option<&Project>, spec: &str) -> Option<Arc<Lut>> {
     }
     let id = spec.strip_prefix("lib:")?;
     let entry = project?.luts.iter().find(|l| l.id == id)?;
-    let key = format!("lib:{:016x}", hash(&entry.text));
+    // (keyed by the entry's text allocation and length plus a hash of its ends, not of the whole
+    // text: resolving runs per node per frame, and a 65³ LUT is megabytes)
+    let text: &str = &entry.text;
+    let ends = |r: std::ops::Range<usize>| text.get(r).map_or(0, hash);
+    let key = format!(
+        "lib:{}:{:x}:{}:{:016x}:{:016x}",
+        entry.id,
+        text.as_ptr() as usize,
+        text.len(),
+        ends(0..text.len().min(4096)),
+        ends(text.len().saturating_sub(4096)..text.len())
+    );
     let fmt = LutFormat::from_path(&format!("x.{}", entry.format));
     cached(key, || Lut::parse(&entry.text, fmt).ok())
 }

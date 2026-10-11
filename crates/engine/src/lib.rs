@@ -20,6 +20,7 @@ pub mod demo;
 pub mod essential_sound;
 pub mod export_tools;
 pub mod grade;
+pub mod grade_tools;
 pub mod graphic_templates;
 pub mod graphics;
 pub mod interchange;
@@ -924,8 +925,11 @@ impl Session {
     pub fn fix_state(&mut self) {
         let p = self.project.clone();
         if let Some(m) = self.state.selected_mask {
-            let ok =
-                self.active_sequence().and_then(|q| q.find_item(m.clip)).and_then(|(_, it)| it.effects.get(m.effect)).is_some_and(|e| m.mask < e.masks.len());
+            let ok = self
+                .active_sequence()
+                .and_then(|q| q.find_item(m.clip))
+                .and_then(|(_, it)| masks::masks_of(it, m.owner()).map(Vec::len))
+                .is_some_and(|n| m.mask < n);
             if !ok {
                 self.state.selected_mask = None;
             }

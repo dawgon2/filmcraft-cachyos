@@ -82,13 +82,15 @@ the agent's own recorded interpretations, not the owner's words.
    G1 ✓ → **U0** (first upstream merge, [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md), tag
    `upstream-sync-1`) → **G2** (GRADE-PLAN items 1–10) → **G2b** (G2.11 local AI explanations + G2.12 Grading
    Coach, moved right after G2 by the owner 2026-10-11; tag `grade-2b`) → **6** (incl. 6.1, 4:2:2 on the built-in HEVC decoder) → Y1 → **6E**
-   (owner, 2026-10-11: all of Phase 6, 6.1 and 6E moved after G2; tags `grade-2`, `phase-6`) → Y3 → **C1 → C2**
+   (owner, 2026-10-11: all of Phase 6, 6.1 and 6E moved after G2; tags `grade-2`, `phase-6`) → **U0.2**
+   (one VA-API stack: upstream's decoder + the fork's zero-copy path,
+   [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md) U0 stage 2; moved out of U0 by the owner 2026-10-11, then
+   from before Phase 8 to right after 6E by the owner 2026-10-11 so the larger upstream contributions
+   (zero-copy VA-API display, §1a.25) can start sooner; tag `upstream-sync-2`) → Y3 → **C1 → C2**
    ([`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md), tags `comp-1`, `comp-2`; moved before Phase 7 by
    the owner 2026-10-11 so Phase 7's soak and real-edit check cover them) → 7 (+ Y4) → **D**
    ([`DECODER-PLAN.md`](DECODER-PLAN.md): the 4:2:2 HEVC decoder made faster than ffmpeg on this
-   PC; tag `decoder-1`) → **U0.2** (one VA-API stack: upstream's decoder + the fork's zero-copy path,
-    [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md) U0 stage 2; moved here from U0 by the owner 2026-10-11; tag
-    `upstream-sync-2`) → 8 → Y2 → H1 → H2 → H3. The plan
+   PC; tag `decoder-1`) → 8 → Y2 → H1 → H2 → H3. The plan
    is complete when H3 is done; then stop (§1a.22 lists what never starts without the owner).
 7. **Benchmark passes.** Quick passes (the key 6.2K playback and decode scenarios, `--quick`, one
    run each, labelled "quick pass") for phases whose main result is known (Phases 1, 3, 6, 8 and
@@ -168,8 +170,9 @@ the agent's own recorded interpretations, not the owner's words.
     gate is green**, then writes the summary to `docs/fork/UPSTREAM-SYNC.md` and §7; design
     calls go to `docs/fork/OWNER-QUESTIONS.md` with a provisional, reversible choice (never
     stop). Later weekly syncs (between phases only) work the same way: merge automatically when
-    every gate is green, summary afterwards (owner, 2026-10-11: the workflow never stops, §1a.20). **Never push to `upstream` or `cachyos`, never open
+    every gate is green, summary afterwards (owner, 2026-10-11: the workflow never stops, §1a.20). **Never push to `upstream`, never open
     PRs, never add a contributors / `people.toml` entry** (the owner is credited as @dawgon2 only).
+    Pushing contribution branches to `cachyos` is allowed only as §1a.25 describes.
     No history rewriting of `hevc-vaapi` or `master`, no force-push. U0's ADR is 0005; later ADRs
     take the next free number.
 20. **Never stop the workflow (owner, 2026-10-11).** Nothing short of the plan being complete stops
@@ -209,6 +212,20 @@ the agent's own recorded interpretations, not the owner's words.
     runtime). Fallback chains become hardware (VA-API) → FilmCraft's built-in decoders / encoders.
     ffmpeg / ffprobe stay **only** as test oracles, fixture generators and benchmark ceilings,
     exactly as upstream allows. H264-PLAN H3 then only has to confirm it for H.264.
+25. **Upstream contributions between phases (owner, 2026-10-11).** Starting after G2b is tagged
+    (`grade-2b`), each phase boundary (after the tag and build, before the next phase starts) gets a
+    **contribution slot**: prepare up to **two** small contributions from the UPSTREAM-PLAN
+    "Contributing back" candidates, easiest first, following its pipeline (clean branch on
+    upstream `main`, fork-only parts removed, upstream's full `cargo xtask ci` green, Fable review
+    against upstream's AGENTS.md, a focused PR description). Push each branch to **`cachyos`**
+    (`contrib/<short-name>`) and list it in `docs/fork/CONTRIBUTIONS.md` (branch, what it does,
+    upstream status checked, PR description draft, state). **Never open the PR**: it posts under
+    the owner's GitHub name, so each one waits for the owner's explicit yes (also listed in
+    OWNER-QUESTIONS.md). Cap the slot at about **2 hours** of run time, then start the next phase;
+    an unfinished contribution resumes at the next slot. Re-check each candidate against current
+    upstream first and drop it if upstream already has it. The larger candidates (zero-copy VA-API
+    display, GPU ColorOps, node grader) wait until after U0.2 and need the owner to talk to the
+    maintainers first.
 
 ## 2. The machine and the footage (don't re-research these)
 
@@ -465,6 +482,10 @@ the way Resolve users do:
    cache; then make zero drops at cuts hold via proxies or the render cache.
 6. **2× on original media (owner, §1a.15):** `xm5-jkl` L 2× with zero dropped frames on 6.2K
    originals, via proxies or the render cache (moved here from Phase 3).
+7. **Temporal NR (owner, 2026-10-11; moved here from G2.4, see GRADE-PLAN §3 G2 item 4):** after
+   the render cache (6.3): motion-compensated noise reduction (tracker optical flow, 1–2 frames
+   each side) as a grade-node option, applied at export and in the render cache; live playback
+   only if the budget allows. Measure noise σ drop and ghosting on the synthetic motion fixture.
 
 **Accept:** a 4:2:2 clip imports, gets proxies automatically, and `xm5-422-play` with proxies
 drops nothing; export from 4:2:2 originals works and matches the source chroma. Zero dropped frames
@@ -1339,3 +1360,87 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   `sync/upstream-2026-10-11`; `cargo xtask ci` running detached (`target/u0-ci.log`). Owner (live):
   order now U0 → G2 (1–10) → G2b (G2.11 + G2.12) → 6 (incl. 6.1) → Y1 → 6E → Y3 → … Usage at
   09:36: weekly 24 % (line ≈ 23.8 %), Fable 32 %.
+- **2026-10-11, session 12 (scheduled-task run, took the lock 10:01; no stale lock, no cloud work
+  pending): U0 accepted and merged.** The 09:35 ci run on the sync branch failed one upstream test
+  (`frames::tests::dropping_the_server_stops_its_workers` counted every `filmcraft-frame` thread in
+  the process and raced with parallel tests: 27 vs 3); fixed to count its own server's workers.
+  `hevc-vaapi` merged into the sync branch (plan / doc commits; COMPOSITOR-PLAN kept as on
+  `hevc-vaapi`), ADR 0005 notes stage 2 = U0.2; `cargo xtask ci` green on the final tree (12:01).
+  One clean merge commit `b2ef7689` on `hevc-vaapi` (parents: fork tip, upstream `4e2d0bc2`),
+  pushed; summary in `docs/fork/UPSTREAM-SYNC.md`. Tagged `upstream-sync-1`. Usage mode (§2c):
+  STEADY (weekly U = 24 %, line L ≈ 25–27 %); Fable 32 % > its line + 3 → Opus in Fable's roles
+  (no subagents were needed this run).
+- **2026-10-11, session 12: U0 build ready.** `~/Apps/filmcraft-builds/upstream-sync-1/`
+  (filmcraft, filmcraft-cli, NOTES.md), `latest` → `upstream-sync-1`, launcher valid; bench saved
+  as `target/fork-bench/bench-u0`. Sync worktree and its target dir removed (local branch
+  `sync/upstream-2026-10-11` kept, never pushed). Next: **G2** (GRADE-PLAN items 1–10), then G2b, then Phase 6.
+- **2026-10-11, session 13 (scheduled-task run, took the lock 12:07; no stale lock, no cloud
+  branches on origin): G2 started; G2.1 done.** Usage mode (§2c) at 12:07: **FULL** (weekly
+  U = 25 %, line L ≈ 28.6 %; 5-hour 6 %); Fable 32 % > its line + 3 → Opus in Fable's roles. Q2's
+  answer was already applied in U0 (`deserialize_crf`); marked resolved. **G2.1 per-node
+  qualifier:** node params `qual.*` (on, hue / width, sat low / high, luma low / high, softness,
+  matte blur, invert, view), new colour ops `Stash` / `MixStash { invert }` and `HslKey.sat_max`
+  (CPU + WGSL); the grade now compiles to FX steps (`grade::compile_fx` / `item_fx`): unblurred
+  qualified nodes stay in the fused chain, a blurred matte becomes an HSL-secondary step; the
+  highlight / matte view stops later nodes (saved with the node, documented). `grade.pickQualifier`
+  (set / add, samples the node's input; refused on adjustment layers for now); Color page
+  Qualifier tab + picker on the Program monitor; es / zh-cn strings; guide page
+  `docs/guide/color/secondaries.md` (qualifier part). GPU parity (synthetic test picture): AMD
+  ≤ 8.7e-6, Intel ≤ 1.2e-5. Opus review: 5 low / medium findings, all fixed. Lanes: G2.4a spatial
+  NR kernel (Opus builder, done, in review) and G2.2a linear window shape (Opus builder, running).
+- **2026-10-11, session 13: G2.2 windows, G2.3 tracking, G2.4 spatial NR done.** Lanes merged
+  after Opus reviews (all findings fixed): **G2.4a** `FxOp::Denoise` (bilateral, luma / chroma,
+  σ in image pixels, YCC pre-pass; parity AMD 7.1e-7, Intel 9.1e-7; ~3–20 ms per 1080p frame on
+  the RX 6700 XT, ~55–115 ms on the Intel GPU) and **G2.2a** linear (gradient) mask shape for
+  every mask + `mask::prepare` hardening against non-finite / huge geometry (a pre-existing
+  NaN-pixel bug of effect masks). Integration: `GradeNode.windows` (masks, ≤ 16; a windowed node
+  renders as `FxOp::Masked` around its steps), node params `nr.luma` / `nr.chroma` / `nr.size`
+  (NR first, then the node's correction, inside its windows); the `masks.*` commands, the
+  Program-monitor handles and the tracker take `"node"` (owner abstraction `masks::Owner`), so
+  windows are drawn, edited and tracked exactly like effect masks; masks are now keyed at the
+  clip's effect time (frame holds match the renderer). Color page Windows and Noise tabs; guide
+  `secondaries.md` (windows, tracking) and new `noise.md`. Tracking test: a window on the
+  synthetic moving disc follows it within 1.5 px over 12 frames. Temporal NR deferred to Phase 6
+  item 7, after the render cache (owner, 2026-10-11; recorded as a limit in the guide).
+- **2026-10-11, session 13: G2.5 highlight soft clip and G2.6 LUT node done** (`6b95d595`). Soft
+  clip = a tanh shoulder per node on a display-referred signal (diffuse white 1), knee / amount
+  params; a node LUT (`GradeNode.lut`, Lumetri-style references, `grade.setLut`, mix). Fable
+  review: the first version keyed the knee on the DI grading signal (almost inert in DWG) and
+  hashed whole LUT texts per frame; both fixed. Owner (live): temporal NR moved to Phase 6 item 7.
+  Lanes: G2.8 / G2.9 shot comparison + Shot Match maths (done, in Fable review), G2.10 explainer
+  maths (Fable review findings being fixed). Usage at 14:15: FULL (weekly 29 %, line ≈ 32 %; 5-hour
+  37 %; Fable 34 %, within its line + 3 → Fable reviews).
+- **2026-10-11, session 13: G2.8 compare, G2.9 Shot Match, G2.10 node explainer done.** Render
+  libraries from two Opus lanes (`grade_match.rs`: grade fingerprint by what renders, shot
+  statistics on `color_match`'s Oklab measures in the working gamut, plain-language notes,
+  consensus / outliers, Shot Match solving a node's LGGO + saturation with the shared
+  Levenberg–Marquardt core, Lumetri's solver bit-identical; `grade_explain.rs`: measured facts per
+  node, ⅙-stop template sentences, change heat map, node-state cache key), both Fable-reviewed
+  twice. Engine `grade.compareData`, `grade.compareShots`, `grade.checkScene`, `grade.shotMatch`,
+  `grade.explainNode` (+ PNG overlay), `grade.explainGrade` (`crates/engine/src/grade_tools.rs`);
+  Color page Match tab; guide `matching.md`. Synthetic results (render tests): a frame vs itself
+  ≥ 99, a +⅓ stop warm copy reads "about ⅓ stop brighter … slightly warmer", Shot Match brings it
+  back to 99.9 (exposure within 0.001 stop) in DWG and Rec.709; explainer sentences pinned for
+  gain, temperature, saturation, qualifier and window grades. Follow-up: the Match requests render
+  synchronously on the UI thread (seconds for a scene check); a background job is noted in HANDOFF.
+- **2026-10-11, session 13: G2 acceptance (synthetic, quick pass).** (1) Skin qualifier (picked
+  with `grade.pickQualifier`, ranges widened) + a tracked circle window on a textured skin disc
+  moving for 5 s (120 frames) over a blue background with a static skin patch outside the window
+  (`masks_tests::g2_accept_skin_qualifier_and_tracked_window_hold_over_5_seconds`): the subject
+  stays graded (≥ 2.08× luminance at frames 0, 30, 60, 90, 119), background and patch change
+  0.00 %. (2) NR: flat-noise σ drops 63–75 % at strength 0.5, a hard edge's 10–90 % width grows
+  ≤ 0.001 px (`denoise.rs` tests). (3) xm5 quick pass (`target/bench/xm5-grade2-quick.json`):
+  play-graded 240/0 at 3.5 ms CPU/frame, GPU 56 %; play-graded **with NR on** (`play-graded-nr`,
+  new bench case) 240/0 at 3.4 ms, GPU 66 %. (4) Export = viewer: the grade's FX steps run on the
+  same plan for both; CPU-vs-GPU parity of every compiled grade (qualifier, windows, NR, LUT, soft
+  clip) ≤ 2.1e-5 on AMD and Intel. (5) Compare / Shot Match / explainer: render tests (self ≥ 99,
+  offset copy named correctly, Shot Match back to 99.9, explainer sentences pinned).
+- **2026-10-11, session 13: faster `cargo xtask ci` (owner, live).** Owner asked for ~20-minute ci
+  without weakening it, applied to the G2 run: per-stage timing; clippy in the check profile;
+  tests in a new `[profile.ci]` (release opt-level, incremental, 64 codegen units); `cargo-nextest`
+  (installed in `~/.cargo/bin`, used when present; 6 test threads; `perf_*` / `realtime` tests run
+  alone afterwards; doctests separately); the 68 ui-egui integration-test binaries merged into one
+  (`crates/ui-egui/tests/ui/main.rs`, a new test file needs a `mod` line). The 68 separate
+  binaries were most of the old time (each re-optimised and linked the UI crate). G2 ci: **green
+  in 21.7 min** (was 40–65), 3,095 tests + 7 timed tests passed, 52 skipped (GPU / oracle gates).
+  OWNER-QUESTIONS Q5 resolved.

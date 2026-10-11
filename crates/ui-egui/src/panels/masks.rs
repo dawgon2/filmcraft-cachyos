@@ -43,7 +43,7 @@ pub fn effect_rows(
     it: &TrackItem,
 ) {
     let t = app.tokens;
-    // creation tools: ellipse, 4-point polygon, free-draw Bézier
+    // creation tools: ellipse, 4-point polygon, free-draw Bézier, linear gradient
     let (r, _) = ui.allocate_exact_size(vec2(body.width(), ROW_H), Sense::hover());
     crate::panels::effect_controls::row_line(ui, r, lane, &t);
     let pen_on = app.ui.mask_pen.as_ref().is_some_and(|p| p.clip == clip.0 && p.effect == idx);
@@ -51,6 +51,7 @@ pub fn effect_rows(
         (Icon::Ellipse, "ellipse", tl!("Create ellipse mask")),
         (Icon::Rectangle, "polygon", tl!("Create 4-point polygon mask")),
         (Icon::Pen, "pen", tl!("Free draw bezier")),
+        (Icon::LinearMask, "linear", tl!("Create linear gradient mask")),
     ]
     .into_iter()
     .enumerate()
@@ -79,7 +80,7 @@ pub fn effect_rows(
     for (k, m) in e.masks.iter().enumerate() {
         let key = format!("mask:{}:{}:{}", clip.0, idx, k);
         let open = !app.ui.collapsed_fx.contains(&key);
-        let selected = app.session.state.selected_mask == Some(filmcraft_engine::masks::MaskSel { clip, effect: idx, mask: k });
+        let selected = app.session.state.selected_mask == Some(filmcraft_engine::masks::MaskSel { clip, effect: idx, mask: k, node: None });
         let (r, resp) = ui.allocate_exact_size(vec2(body.width(), ROW_H), Sense::click());
         if selected {
             ui.painter().rect_filled(r, 0.0, t.row_selected);
@@ -93,7 +94,9 @@ pub fn effect_rows(
         // shape glyph: ellipse for smooth paths, square for polygons
         let path = m.path_at(mt);
         let glyph = Rect::from_center_size(pos2(r.min.x + 42.0, r.center().y), vec2(12.0, 12.0));
-        let gi = if path.vertices.iter().all(|v| v.is_corner()) {
+        let gi = if m.shape == filmcraft_project::MaskShape::Linear {
+            Icon::LinearMask
+        } else if path.vertices.iter().all(|v| v.is_corner()) {
             Icon::Rectangle
         } else if path.len() == 4 {
             Icon::Ellipse
@@ -235,15 +238,17 @@ pub fn monitor_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, fra
         return;
     }
     let it = it.clone();
-    let Some(e) = it.effects.get(sel.effect) else { return };
-    let Some(m) = e.masks.get(sel.mask) else { return };
+    // (an effect's mask, or a grade node's window: fork G2.2)
+    let Some(m) = filmcraft_engine::masks::masks_of(&it, sel.owner()).and_then(|v| v.get(sel.mask)) else { return };
     let mt = it.source_time_at(ph);
     let Some(to_screen) = clip_to_screen(app, &it, mt, pic, frame) else { return };
     let Some(to_clip) = to_screen.inverse() else { return };
     let lin_inv = Affine { e: 0.0, f: 0.0, ..to_clip };
-    let path = m.path_at(mt);
-    let feather = m.feather.f64_at(mt).max(0.0);
-    let expansion = m.expansion.f64_at(mt);
+    // (masks are keyed and rendered at the clip's effect time: frame holds match)
+    let et = it.effect_time_at(ph);
+    let path = m.path_at(et);
+    let feather = m.feather.f64_at(et).max(0.0);
+    let expansion = m.expansion.f64_at(et);
     let t = app.tokens;
     let col = Color32::from_rgb(0x5a, 0xb4, 0xff);
     let painter = ui.painter().with_clip_rect(pic.expand(16.0));
@@ -267,7 +272,10 @@ pub fn monitor_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, fra
         dashed(&fea_pts, col.gamma_multiply(0.6));
     }
     let mut actions: Vec<(String, Value)> = Vec::new();
-    let target = json!({"clip": sel.clip.0, "effect": sel.effect, "mask": sel.mask});
+    let target = match sel.node {
+        Some(n) => json!({"clip": sel.clip.0, "node": n, "mask": sel.mask}),
+        None => json!({"clip": sel.clip.0, "effect": sel.effect, "mask": sel.mask}),
+    };
     let with = |extra: Value| -> Value {
         let mut v = target.clone();
         if let (Some(o), Some(x)) = (v.as_object_mut(), extra.as_object()) {
@@ -289,10 +297,20 @@ pub fn monitor_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, fra
         [v.x, v.y]
     };
     // ---- whole mask (drag inside)
-    let bb = Rect::from_points(&screen).expand(2.0).intersect(pic);
+    // a linear mask is grabbed by a ±8 px band around its start–end segment
+    let lin_seg = match (m.shape, path.vertices.first(), path.vertices.last()) {
+        (filmcraft_project::MaskShape::Linear, Some(a), Some(b)) => Some((sp(&to_screen, a.p), sp(&to_screen, b.p))),
+        _ => None,
+    };
+    let bb = Rect::from_points(&screen).expand(if lin_seg.is_some() { 8.0 } else { 2.0 }).intersect(pic);
     let body = ui.interact(bb, egui::Id::new("mask-body"), Sense::click_and_drag());
     app.auto.add("program.mask.body", bb, &m.name);
-    let ptr_in = |p: Option<Pos2>| p.is_some_and(|p| inside(&flat, to_clip.apply(Vec2::new(p.x as f64, p.y as f64))));
+    let ptr_in = |p: Option<Pos2>| {
+        p.is_some_and(|p| match lin_seg {
+            Some((a, b)) => seg_dist(p, a, b) <= 8.0,
+            None => inside(&flat, to_clip.apply(Vec2::new(p.x as f64, p.y as f64))),
+        })
+    };
     if body.drag_started() {
         let ok = ptr_in(body.interact_pointer_pos());
         ui.data_mut(|d| d.insert_temp(gesture_id.with("body"), ok));
@@ -345,7 +363,7 @@ pub fn monitor_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, fra
         }
     }
     // ---- tangent handles and vertices
-    let sel_v_id = egui::Id::new(("mask-sel-vertex", sel.clip.0, sel.effect, sel.mask));
+    let sel_v_id = egui::Id::new(("mask-sel-vertex", sel.clip.0, sel.effect, sel.mask, sel.node));
     let sel_v: Option<usize> = ui.data(|d| d.get_temp(sel_v_id));
     let alt = ui.input(|i| i.modifiers.alt);
     let cmd = ui.input(|i| i.modifiers.command);
@@ -398,8 +416,9 @@ pub fn monitor_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, fra
             }
         }
     }
-    // Cmd-click on an edge adds a vertex there
+    // Cmd-click on an edge adds a vertex there (not on a linear mask: it has just its two points)
     if cmd
+        && lin_seg.is_none()
         && body.clicked()
         && let Some(pp) = body.interact_pointer_pos()
     {
@@ -558,7 +577,7 @@ pub fn path_value(app: &mut FilmcraftApp, ui: &mut egui::Ui, clip: ClipId, effec
     let Some(e) = it.effects.get(effect) else { return };
     let Some(m) = e.masks.get(k) else { return };
     let base = format!("effectControls.{}.mask{k}", e.effect);
-    let target = filmcraft_engine::masks::MaskSel { clip, effect, mask: k };
+    let target = filmcraft_engine::masks::MaskSel { clip, effect, mask: k, node: None };
     let running = app.session.mask_jobs.iter().find(|j| j.target == target).map(|j| j.job);
     for (icon, dir, frames, id, tip) in [
         (Icon::TrackMaskBack, "backward", None, "back", tl!("Track selected mask backward")),

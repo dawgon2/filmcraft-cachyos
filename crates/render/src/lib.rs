@@ -14,10 +14,13 @@ pub mod audio_fx;
 pub mod blend;
 pub mod color_match;
 pub mod colorman;
+pub mod denoise;
 pub mod effects;
 pub mod flow;
 pub mod gpufx;
 pub mod grade;
+pub mod grade_explain;
+pub mod grade_match;
 pub mod graphic_clip;
 pub mod graphics;
 pub mod image;
@@ -236,9 +239,9 @@ pub(crate) fn render_seq_tracks(project: &Project, seq: &Sequence, t: Tick, opts
                 working: seq.settings.color.working,
             };
             // the adjustment layer's grade, before its effects (fork ADR 0004)
-            let graded = grade::item_ops(item, mt, t, seq.settings.color.working, opts.scale);
-            if !graded.is_empty() {
-                adjusted.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(&graded, c, [x as f32, y as f32]));
+            let (aw, ah) = (adjusted.w, adjusted.h);
+            for op in grade::item_fx(project, item, mt, t, seq.settings.color.working, opts.scale, aw, ah) {
+                op.apply(&mut adjusted);
             }
             for e in item.effects.iter().filter(|e| e.def().is_some_and(|d| !d.intrinsic)) {
                 mask::apply_effect(&mut adjusted, e, &cx);
@@ -458,7 +461,7 @@ pub(crate) fn item_layer_ex(
     let want = if opts.high_quality { 1.0 } else { (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32 };
     let pi = project.item(item.item)?;
     if matches!(pi.kind, ItemKind::Graphic { .. })
-        && !(item.has_opacity_masks() || opts.effects && (item.has_standard_effects() || grade::changes_picture(item, mt)))
+        && !(item.has_opacity_masks() || opts.effects && (item.has_standard_effects() || grade::changes_picture(project, item, mt)))
     {
         // vectors straight to the output: no resampling, crisp at any Motion scale
         let m = Affine::scale(opts.scale as f64, opts.scale as f64).then_apply(&motion);
@@ -469,7 +472,7 @@ pub(crate) fn item_layer_ex(
     }
     // plain media: nothing but the frame itself reaches the output (no effects, no grade)
     let plain_media = matches!(pi.kind, ItemKind::Media(_) | ItemKind::Subclip { .. })
-        && !(opts.effects && (item.has_standard_effects() || grade::changes_picture(item, mt)))
+        && !(opts.effects && (item.has_standard_effects() || grade::changes_picture(project, item, mt)))
         && !item.effect("opacity").is_some_and(|e| e.enabled && !e.masks.is_empty());
     let mut fetched = None;
     if allow_region && plain_media {
@@ -508,9 +511,9 @@ pub(crate) fn item_layer_ex(
             working: seq.settings.color.working,
         };
         // the colour grade: after the input transform, before the effect stack (fork ADR 0004)
-        let graded = grade::item_ops(item, mt, t, cx.working, px_scale);
-        if !graded.is_empty() {
-            layer.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(&graded, c, [x as f32, y as f32]));
+        let (lw, lh) = (layer.w, layer.h);
+        for op in grade::item_fx(project, item, mt, t, cx.working, px_scale, lw, lh) {
+            op.apply(&mut layer);
         }
         for e in item.effects.iter().filter(|e| e.def().is_some_and(|d| !d.intrinsic) && !filmcraft_project::graphic::is_layer(e)) {
             if filmcraft_media::cancel::cancelled() {

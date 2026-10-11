@@ -301,7 +301,7 @@ with the zero-copy input (5.2c).
 | 4:2:2 play (CPU decoder) | 569 / 0 | 569 / 0 | — |
 
 Other Phase 5 checks: every HEVC preset passes ffprobe (Main 10, yuv420p10le, BT.709 tags, tv
-range) and plays in mpv (`crates/ui-egui/tests/hevc_presets.rs`) ✓; export colour matches the
+range) and plays in mpv (`crates/ui-egui/tests/ui/hevc_presets.rs`) ✓; export colour matches the
 Program monitor (mean colour within 0.7 / 255) ✓; zero-copy frames byte-identical to the
 read-back path on AMD and Intel ✓.
 

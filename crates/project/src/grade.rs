@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use crate::keyframe::{Param, ParamValue};
+use crate::mask::Mask;
 use filmcraft_time::Tick;
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +40,20 @@ pub struct GradeNode {
     /// Parameters by key ([`NODE_PARAMS`]); missing keys are the identity.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<String, Param>,
+    /// Windows (G2.2): shapes that limit the node's correction, combined like an effect's masks
+    /// (each mask's mode, feather, expansion, opacity, invert; keyframed and trackable). Paths are
+    /// in the clip's source pixels. Only the first [`MAX_WINDOWS`] render.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub windows: Vec<Mask>,
+    /// A LUT applied by the node after its corrections (G2.6): a LUT reference as Lumetri's
+    /// (`builtin:<id>`, `lib:<id>` of the project's LUT library; empty: none), mixed in by
+    /// `lut.mix`. An unknown reference applies nothing.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lut: String,
 }
+
+/// The most windows a node renders.
+pub const MAX_WINDOWS: usize = 16;
 
 fn enabled_default() -> bool {
     true
@@ -89,6 +103,31 @@ pub const NODE_PARAMS: &[NodeParam] = &[
     // (grain cell size in full-resolution pixels: the clip's source pixels; see `filmcraft_render::grade::GradeCtx`)
     NodeParam { key: "grain.size", label: "Grain size", kind: NodeParamKind::Float { identity: 1.0, min: 1.0, max: 4.0 } },
     NodeParam { key: "grain.softness", label: "Grain softness", kind: NodeParamKind::Float { identity: 0.5, min: 0.0, max: 1.0 } },
+    // HSL qualifier (G2.1): limits the node's correction to a key of its input; ranges on the
+    // grading signal as HSL in 0…1; on / invert are switches (≥ ½ is on), show 0 off,
+    // 1 highlight (colour over grey), 2 matte
+    NodeParam { key: "qual.on", label: "Qualifier", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.hue", label: "Hue centre", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.hueWidth", label: "Hue width", kind: NodeParamKind::Float { identity: 1.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.satLow", label: "Saturation low", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.satHigh", label: "Saturation high", kind: NodeParamKind::Float { identity: 1.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.lumLow", label: "Luminance low", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.lumHigh", label: "Luminance high", kind: NodeParamKind::Float { identity: 1.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.soft", label: "Qualifier softness", kind: NodeParamKind::Float { identity: 0.05, min: 0.001, max: 0.5 } },
+    NodeParam { key: "qual.blur", label: "Matte blur", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.invert", label: "Invert qualifier", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "qual.show", label: "Highlight", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 2.0 } },
+    // spatial noise reduction (G2.4) at the node's input: luma / chroma strength, filter size in
+    // source pixels (σ)
+    NodeParam { key: "nr.luma", label: "NR luma", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "nr.chroma", label: "NR chroma", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "nr.size", label: "NR radius", kind: NodeParamKind::Float { identity: 1.5, min: 0.25, max: 3.5 } },
+    // the node's LUT mix (G2.6)
+    NodeParam { key: "lut.mix", label: "LUT mix", kind: NodeParamKind::Float { identity: 1.0, min: 0.0, max: 1.0 } },
+    // highlight soft clip (G2.5): above the knee (on the grading signal) values roll off
+    // smoothly towards 1 instead of clipping; amount 0 is off
+    NodeParam { key: "hl.rolloff", label: "Highlight roll-off", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "hl.knee", label: "Roll-off knee", kind: NodeParamKind::Float { identity: 0.75, min: 0.5, max: 0.95 } },
 ];
 
 /// The schema entry for `key`.
@@ -102,7 +141,7 @@ pub const MAX_CURVE_POINTS: usize = 64;
 impl GradeNode {
     /// A node with every parameter at identity.
     pub fn new(id: u64) -> Self {
-        Self { id, label: String::new(), enabled: true, params: BTreeMap::new() }
+        Self { id, label: String::new(), enabled: true, params: BTreeMap::new(), windows: Vec::new(), lut: String::new() }
     }
 
     pub fn param(&self, key: &str) -> Option<&Param> {
@@ -145,6 +184,43 @@ impl GradeNode {
             return None;
         }
         Some(pts)
+    }
+}
+
+/// A node's HSL qualifier at one time (G2.1): the ranges on the grading signal (HSL, 0…1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Qualifier {
+    pub hue: f32,
+    /// The full width of the hue band (1: every hue).
+    pub hue_width: f32,
+    pub sat: [f32; 2],
+    pub lum: [f32; 2],
+    /// Width of each soft edge.
+    pub soft: f32,
+    /// Blur of the matte, 0…1 (of the largest radius).
+    pub blur: f32,
+    pub invert: bool,
+    /// 0 off, 1 highlight (colour over grey), 2 the matte.
+    pub show: u32,
+}
+
+impl GradeNode {
+    /// The node's qualifier at clip time `t`, when switched on.
+    pub fn qualifier_at(&self, t: Tick) -> Option<Qualifier> {
+        if self.float_at("qual.on", t) < 0.5 {
+            return None;
+        }
+        let f = |k| self.float_at(k, t);
+        Some(Qualifier {
+            hue: f("qual.hue"),
+            hue_width: f("qual.hueWidth"),
+            sat: [f("qual.satLow"), f("qual.satHigh")],
+            lum: [f("qual.lumLow"), f("qual.lumHigh")],
+            soft: f("qual.soft"),
+            blur: f("qual.blur"),
+            invert: f("qual.invert") >= 0.5,
+            show: f("qual.show").round() as u32,
+        })
     }
 }
 
@@ -247,6 +323,26 @@ mod tests {
         n.params.insert("grain.size".into(), Param::new(ParamValue::Float(-3.0)));
         n.params.insert("grain.softness".into(), Param::new(ParamValue::Float(f64::NAN)));
         assert_eq!([n.float_at("grain.strength", t), n.float_at("grain.size", t), n.float_at("grain.softness", t)], [1.0, 1.0, 0.5]);
+    }
+
+    #[test]
+    fn qualifier_is_off_in_old_nodes_and_its_values_clamp() {
+        // a G1 / v16 node has no qualifier keys
+        let mut old = Grade::with_node();
+        old.nodes[0].params.insert("lift".into(), Param::new(ParamValue::Color([0.1, 0.0, 0.0, 0.0])));
+        let g: Grade = serde_json::from_str(&serde_json::to_string(&old).unwrap()).unwrap();
+        assert!(g.nodes.len() == 1 && g.nodes.iter().all(|n| n.qualifier_at(Tick(0)).is_none()));
+        let mut n = GradeNode::new(1);
+        n.params.insert("qual.on".into(), Param::new(ParamValue::Float(1.0)));
+        let q = n.qualifier_at(Tick(0)).unwrap();
+        assert_eq!((q.hue, q.hue_width, q.sat, q.lum, q.soft, q.blur, q.invert, q.show), (0.0, 1.0, [0.0, 1.0], [0.0, 1.0], 0.05, 0.0, false, 0));
+        n.params.insert("qual.show".into(), Param::new(ParamValue::Float(1e300)));
+        n.params.insert("qual.soft".into(), Param::new(ParamValue::Float(-5.0)));
+        n.params.insert("qual.invert".into(), Param::new(ParamValue::Float(f64::NAN)));
+        let q = n.qualifier_at(Tick(0)).unwrap();
+        assert_eq!((q.show, q.soft, q.invert), (2, 0.001, false));
+        n.params.insert("qual.on".into(), Param::new(ParamValue::Float(0.4)));
+        assert!(n.qualifier_at(Tick(0)).is_none());
     }
 
     #[test]

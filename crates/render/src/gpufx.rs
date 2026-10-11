@@ -198,6 +198,18 @@ pub enum FxOp {
         warn: bool,
         warning_color: [f32; 3],
     },
+    /// Spatial noise reduction (`crate::denoise`): an edge-preserving bilateral filter on a
+    /// luma / two-chroma-difference split of the sRGB-encoded straight colour; alpha unchanged.
+    /// Every value is sanitised by `denoise::params` (CPU and GPU alike).
+    Denoise {
+        /// Luma strength 0…1 (0: luma untouched; NaN → 0, clamped). Range sigma = 0.05 × strength.
+        luma: f32,
+        /// Chroma strength 0…1 (0: chroma untouched; NaN → 0, clamped).
+        chroma: f32,
+        /// Spatial sigma in working-image pixels (scale it by `px_scale`), clamped to 0.25…3.5;
+        /// the window radius is `ceil(2σ)`, 1…=[`crate::denoise::DENOISE_MAX_RADIUS`].
+        sigma: f32,
+    },
 }
 
 /// Masks the GPU takes (more points or masks: the clip renders on the CPU).
@@ -617,6 +629,8 @@ impl FxOp {
             }
             FxOp::Vignette { amount, midpoint, roundness, feather, target } => fin(&[*amount, *midpoint, *roundness, *feather]) && fin(target),
             FxOp::VideoLimiter { max, comp, axis, warning_color, .. } => *axis <= 3 && max.is_finite() && comp.is_finite() && fin(warning_color),
+            // (`denoise::params` turns any values into finite constants, as the CPU does)
+            FxOp::Denoise { .. } => true,
         }
     }
 
@@ -949,6 +963,7 @@ impl FxOp {
                     out.map(enc_to_linear)
                 });
             }
+            FxOp::Denoise { luma, chroma, sigma } => crate::denoise::apply(img, *luma, *chroma, *sigma),
         }
     }
 }

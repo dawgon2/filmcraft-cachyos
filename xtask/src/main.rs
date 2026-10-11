@@ -446,14 +446,61 @@ fn fixtures(only: &[String]) -> Result<(), String> {
     if failed.is_empty() { Ok(()) } else { Err(format!("fixture generation failed in {}", failed.join(", "))) }
 }
 
+/// All the gates, each timed. Tests build with the `ci` profile (release optimisation, so the
+/// realtime / perf tests keep their meaning, but incremental: only changed crates rebuild between
+/// runs). Clippy only type-checks, so it runs in the everyday check profile. With
+/// `cargo-nextest` installed, test binaries run in parallel (`CI_TEST_THREADS`, default 6) and
+/// the timing-sensitive tests (`perf_*`, `*realtime*`) run alone afterwards; doctests run with
+/// `cargo test --doc` (nextest doesn't run them). Without nextest: `cargo test`.
 fn ci() -> Result<(), String> {
     let cargo = env!("CARGO");
-    run(Command::new(cargo).args(["fmt", "--check"]))?;
-    run(Command::new(cargo).args(["clippy", "--workspace", "--all-targets", "--release", "--", "-D", "warnings"]))?;
-    run(Command::new(cargo).args(["test", "--workspace", "--release"]))?;
-    layers()?;
-    assets()?;
-    wasm()
+    let mut times: Vec<(&str, std::time::Duration)> = Vec::new();
+    let mut stage = |name: &'static str, f: &mut dyn FnMut() -> Result<(), String>| -> Result<(), String> {
+        let t0 = std::time::Instant::now();
+        let r = f();
+        times.push((name, t0.elapsed()));
+        eprintln!("== ci: {name} {} in {:.0} s", if r.is_ok() { "ok" } else { "FAILED" }, t0.elapsed().as_secs_f64());
+        r
+    };
+    let threads = std::env::var("CI_TEST_THREADS").ok().filter(|v| v.parse::<u32>().is_ok_and(|n| n > 0)).unwrap_or_else(|| "6".into());
+    let r = (|| {
+        stage("fmt", &mut || run(Command::new(cargo).args(["fmt", "--check"])))?;
+        stage("clippy", &mut || run(Command::new(cargo).args(["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])))?;
+        let nextest = Command::new(cargo).args(["nextest", "--version"]).output().is_ok_and(|o| o.status.success());
+        if nextest {
+            const TIMED: &str = "test(/perf_|realtime/)";
+            stage("tests", &mut || {
+                run(Command::new(cargo)
+                    .args(["nextest", "run", "--workspace", "--cargo-profile", "ci", "--no-fail-fast", "--test-threads", &threads, "-E"])
+                    .arg(format!("not {TIMED}")))
+            })?;
+            stage("timed tests (alone)", &mut || {
+                run(Command::new(cargo).args([
+                    "nextest",
+                    "run",
+                    "--workspace",
+                    "--cargo-profile",
+                    "ci",
+                    "--no-fail-fast",
+                    "--test-threads",
+                    "1",
+                    "--no-tests",
+                    "pass",
+                    "-E",
+                    TIMED,
+                ]))
+            })?;
+            stage("doctests", &mut || run(Command::new(cargo).args(["test", "--workspace", "--doc", "--profile", "ci"])))?;
+        } else {
+            stage("tests", &mut || run(Command::new(cargo).args(["test", "--workspace", "--profile", "ci"])))?;
+        }
+        stage("layers", &mut layers)?;
+        stage("assets", &mut assets)?;
+        stage("wasm", &mut wasm)
+    })();
+    let total: f64 = times.iter().map(|(_, d)| d.as_secs_f64()).sum();
+    eprintln!("== ci timings: {} · total {:.0} s", times.iter().map(|(n, d)| format!("{n} {:.0} s", d.as_secs_f64())).collect::<Vec<_>>().join(" · "), total);
+    r
 }
 
 /// The headless playback benchmark (`crates/ui-egui/examples/bench_playback.rs`); extra

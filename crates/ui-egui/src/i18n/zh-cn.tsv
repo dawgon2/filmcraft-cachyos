@@ -933,6 +933,7 @@
 	Create ellipse mask	创建椭圆蒙版
 	Create 4-point polygon mask	创建 4 点多边形蒙版
 	Free draw bezier	自由绘制贝塞尔
+	Create linear gradient mask	创建线性渐变蒙版
 	Click in the Program monitor to place mask points (drag for curves); click the first point or press Enter to close	在节目监视器中点击以放置蒙版点（拖动可绘制曲线）；点击第一个点或按 Enter 键闭合
 	Delete Mask	删除蒙版
 	Inverted	反相
@@ -3556,3 +3557,58 @@
 	Pixel Aspect Ratio	像素长宽比
 	Primaries	一级校色
 	Use Pixel Aspect Ratio from File ({ratio})	使用文件中的像素长宽比（{ratio}）
+# fork G2.1: grade qualifier
+	Qualifier	限定器
+	Qualifier on	启用限定器
+	Pick	拾取
+	Click the picture to select that colour	点击画面以选择该颜色
+	Click the picture to widen the selection to that colour	点击画面以将选区扩展到该颜色
+	click the Program picture · Esc cancels	点击节目画面 · Esc 取消
+	Selection	选区
+	Hue centre	色相中心
+	Hue width	色相宽度
+	Saturation low	饱和度下限
+	Saturation high	饱和度上限
+	Luminance low	亮度下限
+	Luminance high	亮度上限
+	Qualifier softness	限定器柔和度
+	Matte blur	遮罩模糊
+	Invert qualifier	反转限定器
+# fork G2.2 / G2.4: grade windows and noise reduction
+	Windows	窗口
+	Add window	添加窗口
+	No windows: the node acts on the whole picture.	没有窗口：节点作用于整个画面。
+	Track backward	向后跟踪
+	Track forward	向前跟踪
+	Delete window	删除窗口
+	Select a window to drag its shape on the Program monitor.	选择一个窗口即可在节目监视器上拖动其形状。
+	NR luma	亮度降噪
+	NR chroma	色度降噪
+	NR radius	降噪半径
+# fork G2.5 / G2.6: soft clip and node LUT
+	Soft clip	柔和剪切
+	Highlight roll-off	高光柔和滚降
+	Roll-off knee	滚降拐点
+	LUT mix	LUT 混合
+	Set Node LUT	设置节点 LUT
+# fork G2.8–G2.10: match, compare and explain
+	Match	匹配
+	No other clip has exactly this grade.	没有其他片段使用完全相同的调色。
+	Same grade as:	与以下片段调色相同：
+	(pick a clip)	（选择一个片段）
+	Compare shots	比较镜头
+	Shot Match	镜头匹配
+	Check scene	检查场景
+	Compare the selected clips and find the one that differs most	比较所选片段，找出差异最大的一个
+	Explain node	解释节点
+	Explain grade	解释调色
+	Show what changed	显示变化
+	Match score	匹配分数
+	Added a Shot Match node at the end of the grade.	已在调色末尾添加镜头匹配节点。
+	Differs most: clip	差异最大：片段
+	Compare Grade Data	比较调色数据
+	Compare Shots	比较镜头
+	Check Scene	检查场景
+	Explain Node	解释节点
+	Explain Grade	解释调色
+	Pick Qualifier Colour	拾取限定器颜色

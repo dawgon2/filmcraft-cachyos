@@ -1,7 +1,7 @@
 # COMPOSITOR-PLAN.md: a Fusion-style node compositor, simple first
 
 Written 2026-10-11 (session 8, with the owner). **Phase C1** (a deliberately small compositor) and **C2** are
-scheduled **right after Y3, before Phase 7** (owner, moved 2026-10-11, so Phase 7's soak and real-edit check cover them): FORK-PLAN §1a.6: G0 ✓ → G1 ✓ → U0 → G2 → G2b → 6 → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3.
+scheduled **right after Y3, before Phase 7** (owner, moved 2026-10-11, so Phase 7's soak and real-edit check cover them): FORK-PLAN §1a.6: G0 ✓ → G1 ✓ → U0 ✓ → G2 → G2b → 6 → Y1 → 6E → U0.2 → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3.
 **C2 (the grader's parallel / layer nodes) is scheduled (owner, 2026-10-11); C3 and later are deferred: don't start them without the owner.** All FORK-PLAN rules apply
 (never crash, `Tick` time, everything is a command, every widget has an automation id, layering).
 

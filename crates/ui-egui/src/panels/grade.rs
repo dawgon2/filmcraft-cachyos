@@ -280,10 +280,27 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let mut autos: Vec<(String, Rect, String)> = Vec::new();
     let gest = gesture(&bui);
     let key_of = |what: &str| format!("{node_id}:{what}#{gest}");
-    let mut tab = if app.ui.grade_tab == "curves" { "curves" } else { "primaries" };
+    let mut tab = match app.ui.grade_tab.as_str() {
+        "curves" => "curves",
+        "qualifier" => "qualifier",
+        "windows" => "windows",
+        "noise" => "noise",
+        "match" => "match",
+        _ => "primaries",
+    };
+    let mut cmds: Vec<(&'static str, Value)> = Vec::new();
+    let mut arm: Option<bool> = None;
+    let armed = app.ui.grade_picker.filter(|a| a.clip == clip.0 && a.node == node_id).map(|a| a.add);
 
     bui.horizontal(|ui| {
-        for (id, label) in [("primaries", "Primaries"), ("curves", "Curves")] {
+        for (id, label) in [
+            ("primaries", tl!("Primaries")),
+            ("curves", tl!("Curves")),
+            ("qualifier", tl!("Qualifier")),
+            ("windows", tl!("Windows")),
+            ("noise", tl!("Noise")),
+            ("match", tl!("Match")),
+        ] {
             let r = ui.selectable_label(tab == id, label);
             autos.push((format!("grade.tab.{id}"), r.rect, label.to_string()));
             if r.clicked() {
@@ -308,6 +325,9 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     };
 
     // the controls scroll when the panel is short (the Color page puts it below the viewer)
+    let mut wview = Some(app_view(&app.session, clip, node_id));
+    let mview = if tab == "match" { Some(match_view(app, bui.ctx(), clip, &grade)) } else { None };
+    let luts = lut_entries(&app.session.project);
     let scroll_rect = Rect::from_min_max(bui.cursor().min, bui.max_rect().max);
     let mut sui = bui.new_child(egui::UiBuilder::new().max_rect(scroll_rect).id_salt("grade-primaries-scroll"));
     egui::ScrollArea::vertical().id_salt(("grade-primaries", tab)).auto_shrink([false, false]).show(&mut sui, |bui| {
@@ -368,6 +388,44 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     }
                 });
             }
+            bui.separator();
+            lut_row(bui, &node, &luts, &t, &mut cmds, &mut autos);
+            if !node.lut.is_empty() {
+                let mut edits = Vec::new();
+                float_rows(bui, &node, mt, &t, &["lut.mix"], true, &mut edits, &mut autos);
+                for (key, v) in edits {
+                    sets.push(match v {
+                        Some(v) => set(key, v, Some(key_of(key))),
+                        None => json!({"reset": key}),
+                    });
+                }
+            }
+        } else if tab == "match" {
+            if let Some(mv) = &mview {
+                match_controls(bui, mv, clip, node_id, &t, &mut cmds, &mut autos);
+            }
+        } else if tab == "windows" {
+            if let Some(wv) = wview.take() {
+                window_controls(bui, wv, &node, mt, &t, &mut cmds, &mut autos);
+            }
+        } else if tab == "noise" {
+            let mut edits = Vec::new();
+            float_rows(bui, &node, mt, &t, &["nr.luma", "nr.chroma", "nr.size"], true, &mut edits, &mut autos);
+            for (key, v) in edits {
+                sets.push(match v {
+                    Some(v) => set(key, v, Some(key_of(key))),
+                    None => json!({"reset": key}),
+                });
+            }
+        } else if tab == "qualifier" {
+            let mut edits = Vec::new();
+            qualifier_controls(bui, &node, mt, &t, armed, &mut arm, &mut edits, &mut autos);
+            for (key, v) in edits {
+                sets.push(match v {
+                    Some(v) => set(key, v, Some(key_of(key))),
+                    None => json!({"reset": key}),
+                });
+            }
         } else {
             let key = egui::Id::new("grade-curve-channel");
             let mut ch: usize = bui.data(|d| d.get_temp(key)).unwrap_or(0);
@@ -398,6 +456,17 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             if r.clicked() {
                 sets.push(json!({"reset": k}));
             }
+            // highlight soft clip (G2.5), like the soft clip beside Resolve's curves
+            bui.separator();
+            bui.label(egui::RichText::new(tl!("Soft clip")).color(t.text_dim));
+            let mut edits = Vec::new();
+            float_rows(bui, &node, mt, &t, &["hl.rolloff", "hl.knee"], true, &mut edits, &mut autos);
+            for (key, v) in edits {
+                sets.push(match v {
+                    Some(v) => set(key, v, Some(key_of(key))),
+                    None => json!({"reset": key}),
+                });
+            }
         }
     });
 
@@ -407,6 +476,46 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         }
     }
     app.ui.grade_tab = tab.to_string();
+    match arm {
+        Some(add) if armed == Some(add) => app.ui.grade_picker = None,
+        Some(add) => {
+            app.ui.grade_picker = Some(crate::state::GradePicker { clip: clip.0, node: node_id, add });
+            // (one armed picker at a time: a click fills one thing)
+            app.ui.eyedropper = None;
+        }
+        None if tab != "qualifier" || armed.is_none() => app.ui.grade_picker = None,
+        None => {}
+    }
+    for (cmd, mut p) in cmds {
+        // (the Match tab's results: kept per clip until the next request, shown in the tab)
+        if let Some(kind) = p.get("show").and_then(Value::as_str).map(str::to_string) {
+            if let Some(o) = p.as_object_mut() {
+                o.remove("show");
+            }
+            if p.get("clip").is_none() {
+                p["clip"] = json!(clip.0);
+            }
+            let overlay = (kind == "overlay").then(|| std::env::temp_dir().join(format!("filmcraft-change-{}-{}.png", std::process::id(), clip.0)));
+            if let Some(path) = &overlay {
+                p["overlay"] = json!(path.to_string_lossy());
+            }
+            let text = match app.session.execute(cmd, p) {
+                Ok(v) => result_text(&kind, &v),
+                Err(e) => e.to_string(),
+            };
+            let tex = overlay.and_then(|path| load_overlay(ui.ctx(), &path, clip));
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-result", clip.0)), MatchResult { text, overlay: tex }));
+            continue;
+        }
+        if p.get("browse").is_some() {
+            let Some(path) = app.hooks.pick_open_file.as_mut().and_then(|f| f(tl!("LUT"), &["cube", "3dl"])) else { continue };
+            p = json!({"node": node_id, "path": path});
+        }
+        if p.get("clip").is_none() {
+            p["clip"] = json!(clip.0);
+        }
+        run(app, cmd, p);
+    }
     for p in sets {
         if let Some(k) = p.get("reset").and_then(Value::as_str) {
             run(app, "grade.resetNode", json!({"clip": clip.0, "node": node_id, "param": k}));
@@ -414,6 +523,387 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             run(app, "grade.setParam", p);
         }
     }
+}
+
+/// The Qualifier tab (G2.1): on / invert, the picker, the HSL ranges, softness, matte blur and
+/// the highlight view. Edits go to `edits` as (key, value), a reset as (key, None).
+#[allow(clippy::too_many_arguments)]
+fn qualifier_controls(
+    ui: &mut egui::Ui,
+    node: &GradeNode,
+    mt: Tick,
+    t: &crate::theme::Tokens,
+    armed: Option<bool>,
+    arm: &mut Option<bool>,
+    edits: &mut Vec<(&'static str, Option<Value>)>,
+    autos: &mut Vec<(String, Rect, String)>,
+) {
+    let on = node.float_at("qual.on", mt) >= 0.5;
+    ui.horizontal(|ui| {
+        let mut v = on;
+        let r = ui.checkbox(&mut v, tl!("Qualifier on"));
+        autos.push(("grade.qual.on".into(), r.rect, tl!("Qualifier on").to_string()));
+        if r.changed() {
+            edits.push(("qual.on", Some(json!(if v { 1.0 } else { 0.0 }))));
+        }
+        let mut inv = node.float_at("qual.invert", mt) >= 0.5;
+        let r = ui.checkbox(&mut inv, tl!("Invert"));
+        autos.push(("grade.qual.invert".into(), r.rect, tl!("Invert").to_string()));
+        if r.changed() {
+            edits.push(("qual.invert", Some(json!(if inv { 1.0 } else { 0.0 }))));
+        }
+    });
+    ui.horizontal(|ui| {
+        for (add, id, label, tip) in [
+            (false, "grade.qual.pick", tl!("Pick"), tl!("Click the picture to select that colour")),
+            (true, "grade.qual.add", tl!("Add"), tl!("Click the picture to widen the selection to that colour")),
+        ] {
+            let r = ui.selectable_label(armed == Some(add), label).on_hover_text(tip);
+            autos.push((id.into(), r.rect, label.to_string()));
+            if r.clicked() {
+                *arm = Some(add);
+            }
+        }
+        if armed.is_some() {
+            ui.label(egui::RichText::new(tl!("click the Program picture · Esc cancels")).color(t.text_faint));
+        }
+    });
+    let show = node.float_at("qual.show", mt).round() as i32;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(tl!("View")).color(t.text_dim));
+        for (v, label) in [(0, tl!("Normal")), (1, tl!("Selection")), (2, tl!("Matte"))] {
+            let r = ui.selectable_label(show == v, label);
+            autos.push((format!("grade.qual.show.{v}"), r.rect, label.to_string()));
+            if r.clicked() {
+                edits.push(("qual.show", Some(json!(v))));
+            }
+        }
+    });
+    ui.separator();
+    float_rows(
+        ui,
+        node,
+        mt,
+        t,
+        &["qual.hue", "qual.hueWidth", "qual.satLow", "qual.satHigh", "qual.lumLow", "qual.lumHigh", "qual.soft", "qual.blur"],
+        on,
+        edits,
+        autos,
+    );
+}
+
+/// Slider rows for number parameters (`enabled`: editable), with a reset button each. Edits go
+/// to `edits` as (key, value), a reset as (key, None).
+#[allow(clippy::too_many_arguments)]
+fn float_rows(
+    ui: &mut egui::Ui,
+    node: &GradeNode,
+    mt: Tick,
+    t: &crate::theme::Tokens,
+    keys: &[&str],
+    enabled: bool,
+    edits: &mut Vec<(&'static str, Option<Value>)>,
+    autos: &mut Vec<(String, Rect, String)>,
+) {
+    for key in keys {
+        let Some(def) = node_param(key) else { continue };
+        let NodeParamKind::Float { min, max, .. } = def.kind else { continue };
+        let mut v = node.float_at(key, mt);
+        ui.horizontal(|ui| {
+            let label = crate::i18n::t(def.label);
+            ui.add_sized(vec2(104.0, 18.0), egui::Label::new(egui::RichText::new(label).color(t.text_dim)));
+            let r = ui.add_enabled(enabled, egui::Slider::new(&mut v, min..=max).max_decimals(3));
+            autos.push((format!("grade.param.{key}"), r.rect, label.to_string()));
+            if r.changed() {
+                edits.push((def.key, Some(json!(v))));
+            }
+            let rs = ui.small_button("↺");
+            autos.push((format!("grade.param.{key}.reset"), rs.rect, format!("Reset {label}")));
+            if rs.clicked() {
+                edits.push((def.key, None));
+            }
+        });
+    }
+}
+
+/// The LUT menu's entries: None, the built-in LUTs, the project's LUT library (reference, name).
+fn lut_entries(project: &filmcraft_project::Project) -> Vec<(String, String)> {
+    let mut v: Vec<(String, String)> = vec![(String::new(), tl!("None").into())];
+    v.extend(filmcraft_render::luts::builtins().iter().map(|b| (format!("builtin:{}", b.id), b.label.clone())));
+    v.extend(project.luts.iter().map(|l| (format!("lib:{}", l.id), l.name.clone())));
+    v
+}
+
+/// The node's LUT menu (G2.6): pick a reference (`grade.setLut`) or Browse… for a file.
+fn lut_row(
+    ui: &mut egui::Ui,
+    node: &GradeNode,
+    entries: &[(String, String)],
+    t: &crate::theme::Tokens,
+    cmds: &mut Vec<(&'static str, Value)>,
+    autos: &mut Vec<(String, Rect, String)>,
+) {
+    let shown = entries.iter().find(|(r, _)| *r == node.lut).map_or_else(|| filmcraft_render::luts::label(None, &node.lut), |(_, n)| n.clone());
+    ui.horizontal(|ui| {
+        ui.add_sized(vec2(84.0, 18.0), egui::Label::new(egui::RichText::new(tl!("LUT")).color(t.text_dim)));
+        let r = egui::ComboBox::from_id_salt(("grade-lut", node.id)).selected_text(shown).truncate().width((ui.available_width() - 20.0).max(80.0)).show_ui(
+            ui,
+            |ui| {
+                for (r, name) in entries {
+                    if ui.selectable_label(*r == node.lut, name).clicked() && *r != node.lut {
+                        cmds.push(("grade.setLut", json!({"node": node.id, "lut": r})));
+                    }
+                }
+                ui.separator();
+                if ui.selectable_label(false, tl!("Browse…")).clicked() {
+                    cmds.push(("grade.setLut", json!({"node": node.id, "browse": true})));
+                }
+            },
+        );
+        autos.push(("grade.lut".into(), r.response.rect, tl!("LUT").to_string()));
+    });
+}
+
+/// The Match tab's view of the sequence: the clips that could be a reference, and the clips
+/// whose grade is identical to this one (`grade_match::same_grade`).
+struct MatchView {
+    others: Vec<(u64, String)>,
+    same: Vec<String>,
+    reference: Option<u64>,
+    result: Option<MatchResult>,
+}
+
+#[derive(Clone)]
+struct MatchResult {
+    text: String,
+    overlay: Option<egui::TextureHandle>,
+}
+
+fn match_view(app: &FilmcraftApp, ctx: &egui::Context, clip: ClipId, grade: &Grade) -> MatchView {
+    // (recomputed only after an edit: the grades are hashed, per clip in the sequence)
+    let cache_id = egui::Id::new(("grade-match-view", clip.0));
+    let rev = app.session.revision;
+    let cached = ctx.data(|d| d.get_temp::<(u64, Vec<(u64, String)>, Vec<String>)>(cache_id)).filter(|c| c.0 == rev);
+    let (others, same) = match cached {
+        Some((_, o, s)) => (o, s),
+        None => {
+            let mut others = Vec::new();
+            let mut same = Vec::new();
+            if let Some(q) = app.session.active_sequence() {
+                for it in q.video_tracks.iter().flat_map(|t| &t.items).filter(|it| it.id != clip) {
+                    others.push((it.id.0, short(&it.name, 32)));
+                    if it.grade.as_ref().is_some_and(|g| !g.nodes.is_empty() && filmcraft_render::grade_match::same_grade(g, grade)) {
+                        same.push(short(&it.name, 24));
+                    }
+                }
+            }
+            ctx.data_mut(|d| d.insert_temp(cache_id, (rev, others.clone(), same.clone())));
+            (others, same)
+        }
+    };
+    let reference = ctx.data(|d| d.get_temp::<u64>(egui::Id::new(("grade-match-ref", clip.0)))).filter(|r| others.iter().any(|(id, _)| id == r));
+    let result = ctx.data(|d| d.get_temp::<MatchResult>(egui::Id::new(("grade-match-result", clip.0))));
+    MatchView { others, same, reference, result }
+}
+
+/// The Match tab (G2.8–G2.10): the "same grade" check, Compare shots / Shot Match against a
+/// reference clip, the scene check over the selected clips, and the node explainer with its
+/// what-changed overlay. Commands go to `cmds` with a `show` key naming how to show the result.
+fn match_controls(
+    ui: &mut egui::Ui,
+    v: &MatchView,
+    clip: ClipId,
+    node: u64,
+    t: &crate::theme::Tokens,
+    cmds: &mut Vec<(&'static str, Value)>,
+    autos: &mut Vec<(String, Rect, String)>,
+) {
+    let text =
+        if v.same.is_empty() { tl!("No other clip has exactly this grade.").to_string() } else { format!("{} {}", tl!("Same grade as:"), v.same.join(", ")) };
+    ui.label(egui::RichText::new(text).color(t.text_dim));
+    ui.separator();
+    let mut reference = v.reference;
+    ui.horizontal(|ui| {
+        ui.add_sized(vec2(84.0, 18.0), egui::Label::new(egui::RichText::new(tl!("Reference")).color(t.text_dim)));
+        let shown = reference.and_then(|r| v.others.iter().find(|(id, _)| *id == r)).map_or_else(|| tl!("(pick a clip)").to_string(), |(_, n)| n.clone());
+        let r = egui::ComboBox::from_id_salt(("grade-match-ref", clip.0))
+            .selected_text(shown)
+            .truncate()
+            .width((ui.available_width() - 10.0).max(80.0))
+            .show_ui(ui, |ui| {
+                for (id, name) in &v.others {
+                    if ui.selectable_label(reference == Some(*id), name).clicked() {
+                        reference = Some(*id);
+                    }
+                }
+            });
+        autos.push(("grade.match.reference".into(), r.response.rect, tl!("Reference").to_string()));
+    });
+    if reference != v.reference
+        && let Some(r) = reference
+    {
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-ref", clip.0)), r));
+    }
+    ui.horizontal_wrapped(|ui| {
+        let with = reference.map(|r| json!({"clip": clip.0, "with": r}));
+        for (id, label, cmd, show) in [
+            ("grade.match.compare", tl!("Compare shots"), "grade.compareShots", "compare"),
+            ("grade.match.shotMatch", tl!("Shot Match"), "grade.shotMatch", "match"),
+        ] {
+            let r = ui.add_enabled(with.is_some(), egui::Button::new(label));
+            autos.push((id.into(), r.rect, label.to_string()));
+            if r.clicked()
+                && let Some(mut p) = with.clone()
+            {
+                p["show"] = json!(show);
+                cmds.push((cmd, p));
+            }
+        }
+        let r = ui.button(tl!("Check scene")).on_hover_text(tl!("Compare the selected clips and find the one that differs most"));
+        autos.push(("grade.match.checkScene".into(), r.rect, tl!("Check scene").to_string()));
+        if r.clicked() {
+            cmds.push(("grade.checkScene", json!({"show": "scene"})));
+        }
+    });
+    ui.separator();
+    ui.horizontal_wrapped(|ui| {
+        for (id, label, cmd, show) in [
+            ("grade.match.explainNode", tl!("Explain node"), "grade.explainNode", "explain"),
+            ("grade.match.explainGrade", tl!("Explain grade"), "grade.explainGrade", "grade"),
+            ("grade.match.changes", tl!("Show what changed"), "grade.explainNode", "overlay"),
+        ] {
+            let r = ui.button(label);
+            autos.push((id.into(), r.rect, label.to_string()));
+            if r.clicked() {
+                cmds.push((cmd, json!({"clip": clip.0, "node": node, "show": show})));
+            }
+        }
+    });
+    if let Some(res) = &v.result {
+        ui.separator();
+        ui.label(egui::RichText::new(&res.text).color(t.text));
+        if let Some(tex) = &res.overlay {
+            let size = tex.size_vec2();
+            let w = ui.available_width().min(size.x).max(1.0);
+            ui.image((tex.id(), vec2(w, w * size.y / size.x.max(1.0))));
+        }
+    }
+}
+
+/// A command's answer as text for the Match tab.
+fn result_text(kind: &str, v: &Value) -> String {
+    let notes = |v: &Value| v["notes"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ")).unwrap_or_default();
+    match kind {
+        "compare" => {
+            let n = notes(v);
+            let score = v["score"].as_f64().unwrap_or(0.0);
+            if n.is_empty() { format!("{} {score:.0} / 100", tl!("Match score")) } else { format!("{} {score:.0} / 100 · {n}", tl!("Match score")) }
+        }
+        "match" => tl!("Added a Shot Match node at the end of the grade.").to_string(),
+        "scene" => {
+            v["shots"].as_array().and_then(|a| a.first()).map(|s| format!("{} {} · {}", tl!("Differs most: clip"), s["clip"], notes(s))).unwrap_or_default()
+        }
+        "grade" => v["text"].as_str().unwrap_or_default().to_string(),
+        _ => v["sentence"].as_str().unwrap_or_default().to_string(),
+    }
+}
+
+/// The what-changed overlay PNG (written by `grade.explainNode`) as a texture; the file is
+/// removed once read.
+fn load_overlay(ctx: &egui::Context, path: &std::path::Path, clip: ClipId) -> Option<egui::TextureHandle> {
+    let img = image::open(path);
+    let _ = std::fs::remove_file(path);
+    let img = img.ok()?.to_rgba8();
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let ci = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
+    Some(ctx.load_texture(format!("grade-change-{}", clip.0), ci, egui::TextureOptions::LINEAR))
+}
+
+/// What the Windows tab needs to know beyond the node: which window is selected and which are
+/// being tracked.
+struct WindowView {
+    clip: ClipId,
+    node: u64,
+    selected: Option<usize>,
+    tracking: Vec<usize>,
+}
+
+fn app_view(session: &filmcraft_engine::Session, clip: ClipId, node: u64) -> WindowView {
+    let selected = session.state.selected_mask.filter(|s| s.clip == clip && s.node == Some(node)).map(|s| s.mask);
+    let tracking = session.mask_jobs.iter().filter(|j| j.target.clip == clip && j.target.node == Some(node)).map(|j| j.target.mask).collect();
+    WindowView { clip, node, selected, tracking }
+}
+
+/// The Windows tab (G2.2 / G2.3): add a window (`masks.add` with `node`), and per window select
+/// (handles on the Program monitor), invert, softness, delete and track backward / forward
+/// (`masks.track`). Commands go to `cmds`.
+fn window_controls(
+    ui: &mut egui::Ui,
+    v: WindowView,
+    node: &GradeNode,
+    mt: Tick,
+    t: &crate::theme::Tokens,
+    cmds: &mut Vec<(&'static str, Value)>,
+    autos: &mut Vec<(String, Rect, String)>,
+) {
+    let base = json!({"clip": v.clip.0, "node": v.node});
+    let with = |extra: Value| {
+        let mut p = base.clone();
+        if let (Some(o), Some(x)) = (p.as_object_mut(), extra.as_object()) {
+            o.extend(x.clone());
+        }
+        p
+    };
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new(tl!("Add window")).color(t.text_dim));
+        for (shape, label) in [("ellipse", tl!("Circle")), ("rectangle", tl!("Rectangle")), ("linear", tl!("Linear"))] {
+            let r = ui.button(label);
+            autos.push((format!("grade.window.add.{shape}"), r.rect, label.to_string()));
+            if r.clicked() {
+                cmds.push(("masks.add", with(json!({"shape": shape}))));
+            }
+        }
+    });
+    if node.windows.is_empty() {
+        ui.label(egui::RichText::new(tl!("No windows: the node acts on the whole picture.")).color(t.text_faint));
+        return;
+    }
+    ui.separator();
+    for (i, w) in node.windows.iter().enumerate().take(filmcraft_project::grade::MAX_WINDOWS) {
+        ui.horizontal(|ui| {
+            let r = ui.selectable_label(v.selected == Some(i), short(&w.name, 20));
+            autos.push((format!("grade.window.{i}"), r.rect, w.name.clone()));
+            if r.clicked() {
+                cmds.push(("masks.select", with(json!({"mask": i}))));
+            }
+            let mut inv = w.inverted;
+            let r = ui.checkbox(&mut inv, tl!("Invert"));
+            autos.push((format!("grade.window.{i}.invert"), r.rect, tl!("Invert").to_string()));
+            if r.changed() {
+                cmds.push(("masks.set", with(json!({"mask": i, "inverted": inv}))));
+            }
+            let mut soft = w.feather.f64_at(mt).max(0.0) as f32;
+            let r = ui.add(egui::DragValue::new(&mut soft).range(0.0..=1000.0).speed(1.0).suffix(" px")).on_hover_text(tl!("Softness"));
+            autos.push((format!("grade.window.{i}.softness"), r.rect, tl!("Softness").to_string()));
+            if r.changed() {
+                cmds.push(("masks.set", with(json!({"mask": i, "feather": soft, "merge": format!("grade-window-{}-{}-{i}", v.clip.0, v.node)}))));
+            }
+            let tracking = v.tracking.contains(&i);
+            for (dir, label, tip) in [("backward", "◀", tl!("Track backward")), ("forward", "▶", tl!("Track forward"))] {
+                let r = ui.add_enabled(!tracking, egui::Button::new(label).small()).on_hover_text(tip);
+                autos.push((format!("grade.window.{i}.track.{dir}"), r.rect, tip.to_string()));
+                if r.clicked() {
+                    cmds.push(("masks.track", with(json!({"mask": i, "direction": dir}))));
+                }
+            }
+            let r = ui.small_button("✕").on_hover_text(tl!("Delete window"));
+            autos.push((format!("grade.window.{i}.delete"), r.rect, tl!("Delete window").to_string()));
+            if r.clicked() {
+                cmds.push(("masks.remove", with(json!({"mask": i}))));
+            }
+        });
+    }
+    ui.label(egui::RichText::new(tl!("Select a window to drag its shape on the Program monitor.")).color(t.text_faint));
 }
 
 #[cfg(test)]
