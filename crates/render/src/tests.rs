@@ -501,3 +501,106 @@ fn anamorphic_clips_are_desqueezed() {
     p.sequence_mut(seq).unwrap().settings.par = (8, 5);
     assert!((crate::clip_par(&p, p.sequence(seq).unwrap(), red) - 1.0).abs() < 1e-9);
 }
+
+/// A one-node grade (fork ADR 0004): lift, gain, contrast, saturation and a curve.
+fn one_node_grade() -> filmcraft_project::grade::Grade {
+    use filmcraft_project::{Param, ParamValue};
+    let mut g = filmcraft_project::grade::Grade::with_node();
+    let n = &mut g.nodes[0].params;
+    n.insert("lift".into(), Param::new(ParamValue::Color([0.04, 0.0, -0.02, 0.0])));
+    n.insert("gain".into(), Param::new(ParamValue::Color([0.0, 0.1, 0.0, 0.05])));
+    n.insert("contrast".into(), Param::new(ParamValue::Float(1.3)));
+    n.insert("saturation".into(), Param::new(ParamValue::Float(0.7)));
+    n.insert("curve.b".into(), Param::new(ParamValue::Curve(vec![[0.0, 0.05], [0.5, 0.45], [1.0, 1.0]])));
+    g
+}
+
+/// The YUV clip on its own, optionally interpreted as F-Log2 in a DWG / DI sequence.
+fn graded_scene(log: bool) -> (Project, ItemId, filmcraft_project::ClipId, SourceMap) {
+    let (mut p, red, _ocean, seq, mut map) = setup();
+    let matte = GeneratorSource::new(Generator::ColorMatte { color: [0.0, 0.0, 0.0, 1.0] }, 320, 180, FrameRate::FPS_24, Tick(10 * TICKS_PER_SECOND));
+    map.0.insert(red, Arc::new(YuvSource(matte)) as SharedSource);
+    if log {
+        if let Some(ItemKind::Media(m)) = p.item_mut(red).map(|i| &mut i.kind) {
+            m.interpret.color_space = Some(filmcraft_color::ColorSpace::FLog2FGamut);
+        }
+        if let Some(q) = p.sequence_mut(seq) {
+            q.settings.color.working = filmcraft_color::WorkingSpace::DaVinciWide;
+            q.settings.working_space = filmcraft_color::WorkingSpace::DaVinciWide.label().into();
+        }
+    }
+    let c = place(&mut p, seq, 0, red, 0, 48);
+    (p, seq, c, map)
+}
+
+/// An identity grade (empty node, identity values, bypassed or disabled nodes) renders bit-exactly
+/// like no grade, in the plan and on the CPU.
+#[test]
+fn identity_grades_render_bit_exactly_like_no_grade() {
+    use filmcraft_project::grade::{Grade, GradeNode};
+    use filmcraft_project::{Param, ParamValue};
+    for log in [false, true] {
+        let (mut p, seq, c, map) = graded_scene(log);
+        let t = FrameRate::FPS_24.tick_of(3);
+        let opts = RenderOptions { scale: 1.0, ..Default::default() };
+        let base_plan = plan::execute_cpu(&plan::plan_frame(&p, seq, t, opts, &map));
+        let base = render_sequence(&p, seq, t, opts, &map);
+        let mut identity = GradeNode::new(2);
+        identity.params.insert("contrast".into(), Param::new(ParamValue::Float(1.0)));
+        identity.params.insert("lift".into(), Param::new(ParamValue::Color([0.0; 4])));
+        let mut bypassed = one_node_grade();
+        bypassed.bypass = true;
+        let mut disabled = one_node_grade();
+        disabled.nodes[0].enabled = false;
+        for g in [Grade::default(), Grade::with_node(), Grade { nodes: vec![identity.clone(), identity], bypass: false }, bypassed, disabled] {
+            p.sequence_mut(seq).unwrap().find_item_mut(c).unwrap().1.grade = Some(g.clone());
+            assert_eq!(plan::execute_cpu(&plan::plan_frame(&p, seq, t, opts, &map)).px, base_plan.px, "plan, log {log}, {g:?}");
+            assert_eq!(render_sequence(&p, seq, t, opts, &map).px, base.px, "cpu, log {log}, {g:?}");
+        }
+    }
+}
+
+/// A one-node grade goes into the layer's GPU effect stage (after the input transform) and the
+/// plan matches the CPU reference render, for plain and converted (F-Log2 → DI) media.
+#[test]
+fn a_graded_clip_plans_a_gpu_stage_matching_the_cpu_render() {
+    for log in [false, true] {
+        let (mut p, seq, c, map) = graded_scene(log);
+        let t = FrameRate::FPS_24.tick_of(3);
+        let opts = RenderOptions { scale: 1.0, ..Default::default() };
+        let ungraded = render_sequence(&p, seq, t, opts, &map);
+        p.sequence_mut(seq).unwrap().find_item_mut(c).unwrap().1.grade = Some(one_node_grade());
+        let plan = plan::plan_frame(&p, seq, t, opts, &map);
+        let plan::FramePlan::Layers { layers, .. } = &plan else { panic!("GPU-drawable") };
+        assert!(layers.iter().any(|l| l.fx.is_some()), "the grade runs in the GPU effect stage (log {log})");
+        let got = plan::execute_cpu(&plan);
+        let reference = render_sequence(&p, seq, t, opts, &map);
+        let max = got.px.iter().zip(&reference.px).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+        assert!(max < 2e-3, "log {log}: max diff {max}");
+        let changed = reference.px.iter().zip(&ungraded.px).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+        assert!(changed > 0.02, "log {log}: the grade changes the picture ({changed})");
+    }
+}
+
+/// The grade runs before the effect stack: a grade followed by Lumetri differs from Lumetri
+/// alone, and its GPU plan still matches the CPU.
+#[test]
+fn the_grade_runs_before_the_effect_stack() {
+    use filmcraft_project::{ParamValue, find_effect};
+    let (mut p, seq, c, map) = graded_scene(true);
+    let t = FrameRate::FPS_24.tick_of(3);
+    let opts = RenderOptions { scale: 1.0, ..Default::default() };
+    let mut lum = find_effect("lumetri").unwrap().instance();
+    lum.param_mut("exposure").unwrap().value = ParamValue::Float(0.5);
+    let it = p.sequence_mut(seq).unwrap().find_item_mut(c).unwrap().1;
+    it.effects.insert(0, lum);
+    // a strong lift is visibly different before and after Lumetri's exposure
+    let mut g = filmcraft_project::grade::Grade::with_node();
+    g.nodes[0].params.insert("lift".into(), filmcraft_project::Param::new(ParamValue::Color([0.0, 0.0, 0.0, 0.2])));
+    it.grade = Some(g);
+    let plan = plan::plan_frame(&p, seq, t, opts, &map);
+    let got = plan::execute_cpu(&plan);
+    let reference = render_sequence(&p, seq, t, opts, &map);
+    let max = got.px.iter().zip(&reference.px).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(max < 2e-3, "max diff {max}");
+}

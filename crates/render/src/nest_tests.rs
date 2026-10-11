@@ -360,3 +360,22 @@ fn a_nest_that_is_not_plain_is_still_drawn_right() {
         assert!(w < 0.01, "{what}: plan and reference differ by {w}");
     }
 }
+
+/// A graded nest (fork ADR 0004) is rendered as one graded layer, and the plan matches the CPU;
+/// an identity grade keeps the plain-nest shortcut (its own layers).
+#[test]
+fn a_graded_nest_is_graded_once_and_an_identity_grade_keeps_the_shortcut() {
+    let mut r = Rig::new();
+    let (_inner, outer, nest) = two_layer_nest(&mut r);
+    let t = FrameRate::FPS_24.tick_of(20);
+    let plain = r.frame(outer, t);
+    r.clip(outer, nest).grade = Some(filmcraft_project::grade::Grade::with_node());
+    assert_eq!(layer_count(&r, outer, t), Some(2), "identity grade: still the nest's own layers");
+    let mut g = filmcraft_project::grade::Grade::with_node();
+    g.nodes[0].params.insert("offset".into(), filmcraft_project::Param::new(ParamValue::Color([0.0, 0.0, 0.0, 0.15])));
+    r.clip(outer, nest).grade = Some(g);
+    assert_eq!(layer_count(&r, outer, t), Some(1), "graded: one layer");
+    let graded = r.frame(outer, t);
+    assert!(worst(&r.planned(outer, t), &graded) < 0.01);
+    assert!(worst(&graded, &plain) > 0.05, "the grade shows");
+}

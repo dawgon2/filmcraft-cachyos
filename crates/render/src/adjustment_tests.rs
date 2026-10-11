@@ -184,3 +184,23 @@ fn nested_adjustment_layers_stay_in_their_sequence() {
     };
     assert_eq!(img.get(5, 5), plain.get(5, 5));
 }
+
+/// An adjustment layer's grade (fork ADR 0004) applies to everything below it; an identity grade
+/// changes nothing.
+#[test]
+fn an_adjustment_layers_grade_applies_below() {
+    let mut s = scene(2);
+    let m = matte(&mut s.p, &mut s.map, [0.2, 0.2, 0.2, 1.0]);
+    place(&mut s.p, s.seq, 0, m);
+    let a = adjustment(&mut s.p, s.seq, 1);
+    let before = render(&s);
+    clip(&mut s, a).grade = Some(filmcraft_project::grade::Grade::with_node());
+    assert_eq!(render(&s).px, before.px);
+    let mut g = filmcraft_project::grade::Grade::with_node();
+    g.nodes[0].params.insert("offset".into(), filmcraft_project::Param::new(filmcraft_project::ParamValue::Color([0.0, 0.0, 0.0, 0.2])));
+    clip(&mut s, a).grade = Some(g);
+    let after = render(&s);
+    let (w, h) = (after.w, after.h);
+    let i = ((h / 2) * w + w / 2) * 4;
+    assert!(after.px[i] > before.px[i] + 0.05, "{} vs {}", after.px[i], before.px[i]);
+}

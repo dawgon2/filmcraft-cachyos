@@ -851,3 +851,37 @@ fn a_cyclic_subclip_chain_has_no_media_duration() {
     *parent = sub;
     assert_eq!(crate::media_duration(&s.project, &s.media, sub), None);
 }
+
+/// `effects.move` reorders standard effects (one undo step), never past the intrinsic ones, and
+/// refuses intrinsic effects and bad indices.
+#[test]
+fn effects_move_reorders_standard_effects_only() {
+    let mut s = demo();
+    let a = v1(&s)[0].id.0;
+    for e in ["gaussian_blur", "lumetri", "tint"] {
+        s.execute("effects.apply", json!({"clips": [a], "effect": e})).unwrap();
+    }
+    let ids = |s: &Session| clip(s, a).effects.iter().map(|e| e.effect.clone()).collect::<Vec<_>>();
+    let before = ids(&s);
+    let first = before.iter().position(|e| e == "gaussian_blur").unwrap();
+    assert_eq!(&before[first..first + 3], ["gaussian_blur", "lumetri", "tint"]);
+    let n = before.len();
+    // last standard effect to the front of the run
+    s.execute("effects.move", json!({"clip": a, "index": first + 2, "to": first})).unwrap();
+    assert_eq!(&ids(&s)[first..first + 3], ["tint", "gaussian_blur", "lumetri"]);
+    // a target past the intrinsic effects is clamped to the end of the standard run
+    s.execute("effects.move", json!({"clip": a, "index": first, "to": 9999})).unwrap();
+    let after = ids(&s);
+    assert_eq!(&after[first..first + 3], ["gaussian_blur", "lumetri", "tint"]);
+    assert_eq!(after.len(), n);
+    assert_eq!(after[first + 3..], before[first + 3..], "intrinsic effects keep their place");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(&ids(&s)[first..first + 3], ["tint", "gaussian_blur", "lumetri"]);
+    // intrinsic effects (after the standard ones) and bad indices are refused, nothing changes
+    let snapshot = ids(&s);
+    assert!(s.execute("effects.move", json!({"clip": a, "index": first + 3, "to": 0})).is_err());
+    assert!(s.execute("effects.move", json!({"clip": a, "index": u64::MAX, "to": 0})).is_err());
+    assert!(s.execute("effects.move", json!({"clip": a, "index": 0})).is_err());
+    assert!(s.execute("effects.move", json!({"clip": 987_654, "index": 0, "to": 1})).is_err());
+    assert_eq!(ids(&s), snapshot);
+}

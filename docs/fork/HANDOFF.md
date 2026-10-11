@@ -1,149 +1,80 @@
 # Handoff: FilmCraft fork (6.2K HEVC on CachyOS + RX 6700 XT)
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**,
-§5 phases, §7 progress log), then this file. Updated 2026-10-10 in session 7 (Phase 5.2c zero-copy done; next 5.2d encode on the Intel media engine).
+§5 phases, §7 progress log), then **all of [`GRADE-PLAN.md`](../../GRADE-PLAN.md)** (§1 audit:
+don't rebuild what exists; §7 subagents), then this file. Rewritten 2026-10-11 in session 9
+(G0 accepted, tagged `grade-0`, built). Phase order (FORK-PLAN §1a.6): 5 (done) → G0 (done) →
+**G1** → 6 → G2 → 7 → 8.
 
 ## Status
 
-- **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` (`bc2771c`), `phase-2` (`baa98f0`),
-  `phase-3` (`0909c2c`), `phase-4` (`476371c`).
-- **Phase 0, 1, 2, 3, 4: done.** Builds in `~/Apps/filmcraft-builds/phase-1` … `phase-4`;
-  `latest` → `phase-4`; launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
-- **Phase 2 in detail (all done):** in-process VA-API HEVC decode (bit-exact on 39 conformance
-  fixtures), zero-copy display through the Vulkan DMA-BUF import, fallback chain in-process →
-  ffmpeg pipe → software, VRAM budget, `FrameServer` drop fix. Acceptance (synthetic, full
-  suite, `docs/fork-benchmarks.md` "Phase 2"): decode 40.9 fps = 95 % of the 43.2 fps ceiling at
-  1.2 ms CPU/frame ✓; play-full 1798/0 at 1.8 ms CPU/frame ✓; **scrub p50 358 / p95 743 ms**
-  (target ≤ 1.1 s) ✓; **fallback with the hardware pulled** (Settings Off, `FILMCRAFT_VAAPI_DEVICE=/dev/null`
-  → software, mid-stream failure → pipe → software, Vulkan import off → read-back) ✓; **2-hour
-  soak** (214 314 shown / 3 dropped, no RAM/VRAM growth) ✓; **`cargo xtask ci`** green ✓;
-  **Phase 2 build** made ✓. Not done: the **independent review of the unsafe / FFI code**
-  (§1a.5: the instruction arrived after tagging) → **done in session 3** (three rounds, ADR 0002).
-- **Phase 3: done** (session 4, tag `phase-3`; acceptance in `docs/fork-benchmarks.md`). 3.1 committed (`cf4b841`): open-GOP seek fix, skipping unshown
-  pictures at cuts, decode priority gate, eviction by request span. **3.2 JKL committed**
-  (session 4, FORK-PLAN §7): skimming grid with an adaptive step, skimming decode, reverse GOP
-  playback, reverse decode pacing. L 2× 299/1, J 1× 296/4 (start-up), L 4× / J 2× steady
-  skipping (warm max gap 268 / 300 ms). Zero drops at cuts and at 2× on originals: Phase 6
-  (owner). Phase 3's remaining acceptance: audio underruns 0 over 10 min, plus the JKL checks
-  in a quick pass.
+- **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` … `phase-5`, `grade-0`.
+  Builds in `~/Apps/filmcraft-builds/phase-1` … `phase-5`, `grade-0`; `latest` → `grade-0`;
+  launcher `~/.local/share/applications/filmcraft-fork.desktop` (valid).
+- **Phases 0–5 done** (history in FORK-PLAN §7 and `docs/fork-benchmarks.md`): in-process VA-API
+  decode + zero-copy display (2), JKL / cuts (3), GPU colour pipeline with DWG / DI working space
+  and all of Lumetri on the GPU (4, ADR 0003), in-process VA-API HEVC encode, zero-copy export
+  (5). Playback plain / graded 6.2K 1798/0 over 60 s; export 4K 24.6 fps, graded 4K 27.5, 6.2K
+  18.7 (synthetic).
+- **G0 done** (session 9, FORK-PLAN §7):
+  - ADR [`0004-grade-model.md`](../adr/0004-grade-model.md): a grade is `TrackItem.grade:
+    Option<Grade>` (schema v13), `Grade { nodes: Vec<GradeNode>, bypass }`, `GradeNode { id,
+    label, enabled, params: BTreeMap<String, Param> }`. Keys + identity + ranges in
+    `filmcraft_project::grade::NODE_PARAMS` (`lift` / `gamma` / `gain` / `offset` as
+    `Color([r, g, b, master])` offsets around 0, `contrast`, `pivot` (DI 0.336), `saturation`,
+    `temperature`, `tint`, `curve.master|r|g|b`). Accessors clamp (`float_at`, `wheel_at`,
+    `curve`); `MAX_NODES` 64 compiled; `next_id()` always unique.
+  - `filmcraft_render::grade::compile(&Grade, t, working) -> Vec<ColorOp>` (encode to the grading
+    signal, nodes, decode; empty = identity), `item_ops`, `changes_picture`. Wired: GPU plan
+    (`plan.rs` `push_item`: `[input transform, grade, effect chain]` fused), CPU `item_layer`,
+    adjustment layers (CPU). Identity grades keep every shortcut (titles vector-sharp, plain nests).
+    Tests: `render/src/grade.rs`, end of `render/src/tests.rs`, `nest_tests.rs`,
+    `adjustment_tests.rs`, `gpu/src/colorops_tests.rs` `gpu_compiled_grades_match_cpu` (AMD /
+    Intel 2.1e-6).
+  - Widgets: `crates/ui-egui/src/widgets/color.rs` (`curve_editor`, `color_wheel` + `WheelChange`).
+    Reviewer's suggestion for G1.2: make the wheel's lightness slider optional / replaceable by a
+    master ring and return the `egui::Response` (for automation ids / tooltips); neither widget
+    registers an automation id yet (pre-existing).
+  - `effects.move {"clip","index","to"}` (engine `commands.rs`, `movable_run`).
+  - G0 acceptance (synthetic, quick pass): play-graded 240/0 at 3.4 ms CPU/frame, play-full 240/0
+    at 1.9 ms (unchanged); `cargo xtask ci` green.
 
-## Exact next step
+## Exact next step: GRADE-PLAN Phase G1 ("Lite")
 
-1. ~~Unsafe / FFI review (§1a.5)~~ **done** in session 3 (rounds 1–3 committed; record in ADR
-   0002 "Review of the unsafe / FFI code" and FORK-PLAN §7). Nothing left from it.
-2. ~~Phase 3.2 JKL~~ **done** (session 4). Possible later polish (not required by §1a.15): J 1×
-   still drops 1–4 frames in the first ~0.5 s (the first GOP and the one before it decode at
-   once); cold 4× climbs the step ladder for ~2 s (a 0.7 s gap); J 2× peaks at 10.4 GB VRAM.
-3. ~~3.3~~ **done** (session 4): `box_decimated` leaves GPU frames alone (draft 1/2: 105.8 →
-   1.9 ms CPU/frame).
-4. ~~3.4 / 3.5~~ **done** (session 4): shuttle audio up to 2× (varispeed), 24-bit LPCM exact,
-   10 min at 1× with 0 underruns, PulseAudio host on PipeWire.
-5. ~~Phase 3 acceptance, CI, tag, build~~ **done** (session 4).
-6. **Phase 4 in progress** (design: `docs/adr/0003-gpu-color-ops.md`; steps in FORK-PLAN §5
-   Phase 4). Done: 4.1 F-Log / F-Log2 (`d79060f`), 4.2a colour ops + fused GPU pass
-   (`33c6c07`), 4.2b input transforms on the GPU (`c4e6aa9`) and the DWG / DI working space with
-   the GPU output stage (`b594e20`), **4.3a** Lumetri Basic + Creative + Vignette + Sharpen on the
-   GPU (session 5; `effects::lumetri_grade`, `lumetri_gpu`; oracle in `lumetri_chain_tests`).
-   **4.3b** Curves, Wheels, Input LUT, Look as `ColorOp`s (`effects::lumetri_ops`). **4.3c**
-   HSL Secondary (`FxOp::HslSecondary`: key / median / blur / masked chain). All of Lumetri is
-   on the GPU: quick pass play-graded 240/0 at 3.4 ms CPU/frame, GPU 87 % (FORK-PLAN §7).
-   **4.3d** effect masks / opacity masks on the GPU (`FxOp::Masked`, `OpacityMask`), ⚡ badge =
-   `filmcraft_project::effect::GPU_EFFECTS`; keys stay CPU (not in the workflow). **4.4**
-   scopes sampled from the Program monitor's composite on the GPU (`filmcraft_gpu::scopes`,
-   `GpuState::poll_scopes`); graded 6.2K with scopes open 241/0, scopes every frame. **4.5**
-   Lanczos-3 for Maximum Render Quality (export, paused Program monitor), sequence presets
-   (`sequence.presets`). **4.6**
-   1.6× anamorphic (desqueeze in `motion_matrix_par`, `PIXEL_ASPECTS`). Fujifilm LUT check done
-   (tone exact; colours differ by design, FORK-PLAN §7). Phase 4 accepted (play-graded
-   1798/0 at 2.4 ms CPU/frame), tagged `phase-4`, built. **Phase 5.1 done:** export frames
-   composited and converted to 4:2:0 on a headless GPU (`platform::gpu_export`,
-   `GpuCompositor::read_yuv420`): 4K 16.5 fps, graded 13.0, 6.2K 8.2 (10-bit; before: 4.9 / 0.6 /
-   4.0 at 8-bit; `bitDepth: "10"` used to be ignored). **5.2a** writer queue sized to overlap
-   render and encode: 4K 19.0 fps, graded 13.6, 6.2K 9.3 (`af5b731`). **5.2b done** (session 6): in-process VA-API
-   HEVC encode (`va_enc.rs`, `filmcraft_hevc::write`, `Backend::VaNative` first), GPU pack pass for
-   the read-back (28 → 11 ms per 4K frame); 4K 23.7 fps, graded 15.4, 6.2K 12.3 (FORK-PLAN §7).
-   **Batch overlap done** (`Exporter::step` renders the next batch on a scoped thread while the
-   current one encodes; native only): **4K 24.8 fps ✓ (≥ 24)**, graded 15.8, 6.2K 14.7.
-   **5.3a done:** converted media graded at the size drawn (graded 4K 15.8 → 21.5 fps,
-   `FILMCRAFT_FULL_SIZE_GRADE=1` = old behaviour). **Next:** export decodes at ~29 fps where the
-   decode bench does 41 (threads wait on decoded frames): find why (1080p export as a probe:
-   GPU/VCN contention vs the decode path), target graded ≥ 30 fps. Probe done: 1080p ~34 fps,
-   4K ~25 with the same decode → output-side cost. **5.4 done** (presets + ffprobe/mpv test).
-   **5.2c zero-copy done** (session 7, `6600295`): render targets over the encoder's surfaces,
-   no wait on the render side (frames in flight; the encoder thread waits per surface), parity
-   AMD + Intel; GOP-cache black-frame race fixed. 60 s: 4K 23.3, graded 22.9, 6.2K 18.2.
-   **The limit is now the one VCN** (decode 6.2K + encode share it; ≈ 31 fps ceiling, AMD encode
-   10.5 → ~54 ms/frame with the decoder flat out; FORK-PLAN §7 session 7).
-   **5.2d measured (session 7, FORK-PLAN §7):** Intel encode while AMD decodes is slower (4K
-   18.5 fps); 6.2K ceiling on one VCN ≈ 18–20 fps; graded 4K ≈ 31. `FILMCRAFT_VAAPI_ENCODE_DEVICE`
-   exists for experiments. Owner (session 7): continue the current plan; a possible later phase
-   for heavy 6.2K optimisation after Phase 8 (FORK-PLAN §1a.16). **Phase 5 acceptance in progress (session 7):** colour vs Program monitor ✓,
-   independent unsafe review ✓ + fixes (`f2f2af9`). **Exact next step:** full xm5 suite (idle,
-   `target/bench/xm5-phase5.json`), then `cargo xtask ci`, tag `phase-5`, build (§1a.9). Earlier plan text kept for reference: encode on the Intel UHD 750 (`/dev/dri/renderD128`, iHD, 4K Main10
-   27 ms/frame incl. upload) while AMD decodes and composites: a separate encode VA display
-   (`Display::get` is the decode one; add an encode display chosen by `FILMCRAFT_VAAPI_ENCODE_DEVICE`
-   or Auto = another render node with HEVC EncSlice when the decode node's engine is shared).
-   Measure first with the read-back path (zero-copy can't cross devices: Intel surfaces are
-   Y-tiled), then consider rendering into a linear DMA-BUF in system memory that the Intel VA
-   imports. Target graded 4K ≥ 30 fps. Then Phase 5 acceptance (full xm5 suite idle, colour vs
-   Program monitor, independent review of the new unsafe in va.rs / interop.rs → ADR 0002,
-   `cargo xtask ci`, tag `phase-5`, build).
-   Bench cases added: `play-flog2`, `play-dwg`, `play-half-draft` (`grade()` now also
-   interprets as F-Log2). Known flaky test (pre-existing): engine
-   `settings_tests::hardware_decoding_setting_drives_the_decoder_switch` (global switch shared
-   by parallel tests); passes alone.
+Steps (GRADE-PLAN §3 G1; acceptance there): 1 node stack + Color workspace, 2 primaries panel
+(LGGO wheels with master rings → the existing node keys), 3 curves per node, 4 copy / paste /
+append grade, 5 stills + wipe / split compare, 6 film grain kernel, 7 scopes follow the grade
+(check only), 8 Settings ▸ Workflow: Premiere / Resolve (pages, Color page layout, Resolve keymap
+preset from the public manual only, node grader as default colour panel).
 
-## Phase 5.2b plan (in-process VA-API HEVC encode), written at the end of session 5
+Suggested order and lanes (GRADE-PLAN §7; scheduled-task prompt §3 for models / limits):
+1. **Main, first:** `grade.*` commands in `crates/engine` (new `grade.rs` module next to
+   `color.rs`): `addNode`, `insertNode`, `removeNode`, `moveNode`, `toggleNode`, `labelNode`,
+   `setParam` (mirror `effects.setParam`'s `json_to_param` + keyframes at the playhead),
+   `resetNode`, `bypass`, each through `Session::edit` (`engine/src/lib.rs:745`), with an engine
+   test per command (undo / hostile ids). Commit; that unblocks the lanes.
+2. **Leaf builder (opus, `crates/gpu` + `crates/render`):** film grain `FxOp` (luma-weighted,
+   size / strength / softness, deterministic seed per frame) with CPU oracle + GPU parity; node
+   key `grain.*` compiled in `render/src/grade.rs` (the grade then emits `FxOp`s, not only
+   `ColorOp`s: change `compile`'s output or add a second list; keep identity empty).
+3. **Main:** Color workspace (`ui-egui/src/dock.rs` `workspace()` :232) with node strip (painter
+   widget) + primaries / curves panels using `widgets/color.rs`; automation ids on every widget.
+4. **Leaf builder (sonnet):** copy / paste / append grade (`clip_ops.rs:1024` copy attributes
+   learns `grade`), then stills (grab frame + grade into the project) and wipe / split in the
+   Program monitor Comparison mode (`panels/monitor.rs`, `monitor_view.rs`).
+5. **Leaf builder (sonnet, engine only):** Resolve keymap preset in `crates/engine/src/keyboard.rs`
+   (next to the Premiere preset), from Resolve's public manual; then the Workflow setting.
+6. Acceptance via MCP / control (3-node grade on a synthetic F-Log2 clip, copy to 5 clips, still
+   + wipe, Workflow switch screenshots), play-graded quick ≥ 95 % of Phase 5's shown frames,
+   `cargo xtask ci`, tag `grade-1`, build `grade-1`, rewrite this file.
 
-Where export time goes now (60 s, 10-bit): ungraded 4K 19 fps = decode 6.2K + composite + 25 MB
-read-back + pipe to ffmpeg, which uploads again and encodes (`hevc_vaapi`, ceiling 29.9 fps);
-graded is GPU-bound by the full-size 6.2K grade (~29 ms/frame). Acceptance needs ungraded 4K
-≥ 24 fps (80 % of the ceiling) and graded faster than real time (≥ 30 fps).
-
-1. **Bindings:** `va_sys.rs` lacks every encode struct (`VAEncSequenceParameterBufferHEVC`,
-   `VAEncPictureParameterBufferHEVC`, `VAEncSliceParameterBufferHEVC`, `VAEncPackedHeader*`,
-   `VACodedBufferSegment`, `VAEncMiscParameter*` for rate control). Regenerate with bindgen 0.73.2
-   adding `va/va_enc_hevc.h`; keep dynamic loading. **Done:** `crates/platform/gen-va-sys.sh`.
-2. **Headers:** write VPS / SPS / PPS / slice headers ourselves as packed headers
-   (`filmcraft_bitstream::BitWriter`; `crates/hevc/src/synth_tests.rs` already writes HEVC
-   parameter sets for tests, `crates/h264enc` is the model for structure). I/P only (no B) first,
-   CTB 64 or what Mesa reports, one slice per picture, Main / Main 10, VUI with the colour tags.
-3. **Encode wrapper** in `crates/platform` (`va_enc.rs`, unsafe confined there with `// SAFETY:`):
-   config (VAProfileHEVCMain10, EncSlice, check `VAConfigAttribRTFormat`, rate-control and
-   packed-header attributes), recon / reference surfaces, coded buffer, per frame the seq / pic /
-   slice / misc (rate control: CQP / VBR / CBR) buffers, `vaBeginPicture` … `vaEndPicture`,
-   `vaSyncSurface`, map the coded buffer segments → Annex B. Implement `VideoEncoder` and put it
-   first in `hevc_export`'s backend order (VA in process → ffmpeg `hevc_vaapi` → `libx265`), with
-   the probe-and-fall-back logic already there. **Independent unsafe review** of the new FFI before
-   tagging Phase 5 (§1a.5 spirit; ADR 0002 gets a section).
-4. **Input:** first upload the GPU path's 4:2:0 planes (`GpuCompositor::read_yuv420`, already
-   done) into the VA surface (`vaDeriveImage` / map / copy P010), removing the ffmpeg pipe and its
-   second upload; then zero-copy: export the encode surface as DMA-BUF and write P010 into it from
-   the compositor (import the two planes as storage images in `crates/gpu/src/interop.rs`), so no
-   frame leaves VRAM.
-5. **Graded speed:** convert log media at the export size instead of the 6.2K source size when
-   downscaling (the plan converts converted layers at full size, `plan.rs` `n = 1`), or run the
-   FX stage on `Rgba16Float` working textures; measure both against parity first.
-6. Then the rest of Phase 5: presets (YouTube 4K HEVC, 6.2K Master, Archive x265, ProRes 422 HQ,
-   Vertical 2160×3840) with ffprobe checks of the colour tags, mpv playback, colour vs monitor;
-   full `xm5` suite; tag; build.
-
-Test / bench notes from 5.1: `bench --section xm5 --only export` (60 s cases, ~8 min);
-`FILMCRAFT_EXPORT_CPU=1` forces the CPU render path; a 3 s graded comparison via
-`filmcraft-cli run` scripts (`file.import` → `clip.interpretFootage {items:[1]}` →
-`file.newSequence {fromItem:1}` → `sequence.settings {width,height}` → `edit.selectAll` →
-`clip.fitToFrame` → `effects.apply` → `file.exportMedia {range:"custom",…,wait:true}`), then
-`ffmpeg … -lavfi psnr` (the CPU path once wrote a black frame; GPU did not).
-
-## Added after the session
-
-- 2026-10-08: owner asked for a **1.6× anamorphic** pixel aspect (8:5) in every pixel-aspect list,
-  where it fits best → FORK-PLAN §1a.13 and Phase 4 item 6 (with reframing / clip interpretation).
-- 2026-10-08 (in `CLAUDE.md`, recorded in session 3): **Phase 4 colour design** — small composable
-  GPU operations, Lumetri as a fixed chain of them (a later node grader reuses them), working space
-  DaVinci Wide Gamut / DaVinci Intermediate, F-Log2 / F-Gamut as input transform → §1a.14.
-  **2× with zero drops on original 6.2K media moves to Phase 6**; Phase 3 accepts a steady,
-  gracefully skipping 2× / 4× → §1a.15.
+**After G1: Phase 6** (FORK-PLAN §5). Start with 6.5: extend `xm5-multicut` with realistic cut
+spacing (2 / 3 / 4 / 5 s, mid-GOP entries), record drops per spacing; first find why multicut
+regressed to 302–338 drops vs 237 at Phase 4 (same with the old GOP cache code; saved binaries
+`target/fork-bench/bench-phase{4,5}`). Then 6.1 4:2:2 software decode + badge, 6.2 auto proxies
+with the in-process encoder (export reads originals), 6.3 render cache (like Resolve's Smart
+Cache), 6.6 L 2× zero drops on 6.2K originals via proxies / cache. Don't start the 6.2K
+optimisation phase (§1a.16) without the owner.
 
 ## Environment and gotchas
 
@@ -244,7 +175,10 @@ Test / bench notes from 5.1: `bench --section xm5 --only export` (60 s cases, ~8
 - 4× on this synthetic stream (51 % reference pictures, open GOP) runs at the decoder's limit
   even at step 12–15: steady skipping at ~8–10 pictures/s, not more.
 - 4:2:2 HEVC does not decode at all (no decoder on Linux) → Phase 6.1.
-- Exports render on the CPU (graded 4K 0.6 fps) → Phase 5. Playback grading is on the GPU.
+- Graded 4K export 27.5 fps (just under real time): one VCN shared by the 6.2K decode and the
+  encode; a possible 6.2K optimisation phase later (FORK-PLAN §1a.16, only with the owner).
 - First play after loading drops frames for ~0.5–1 s (cold start) → Phase 7.
 - Fujifilm's F-Log2 LUT changes gamut on the log signal; built-in is linear light (FORK-PLAN §7).
+- `Grade::with_node()` and an empty grade render nothing (identity); G1 node commands must keep
+  ids unique (`Grade::next_id`).
 - Linux default keymap has shortcut conflicts (Ctrl+9, Ctrl+Shift+M, Ctrl+T) — not fixed.

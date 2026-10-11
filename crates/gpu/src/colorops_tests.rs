@@ -392,3 +392,78 @@ fn output_stage_converts_the_composite_like_the_cpu() {
         assert!(p99 <= 3 && mean < 0.75, "at {at}: p99 {p99}, mean {mean}, max {max}");
     }
 }
+
+/// Colour grades (fork ADR 0004) compiled to colour operations run on the GPU like on the CPU:
+/// three serial nodes (primaries, contrast / saturation / white balance, curves) in a Rec. 709 and
+/// a DWG / DI working space; an identity grade compiles to nothing.
+#[test]
+fn gpu_compiled_grades_match_cpu() {
+    use filmcraft_color::WorkingSpace;
+    use filmcraft_project::grade::{Grade, GradeNode};
+    use filmcraft_project::{Param, ParamValue};
+    use filmcraft_time::Tick;
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let node = |id: u64, params: &[(&str, ParamValue)]| {
+        let mut n = GradeNode::new(id);
+        for (k, v) in params {
+            n.params.insert((*k).into(), Param::new(v.clone()));
+        }
+        n
+    };
+    let grade = Grade {
+        nodes: vec![
+            node(
+                1,
+                &[
+                    ("lift", ParamValue::Color([0.04, 0.0, -0.03, 0.01])),
+                    ("gamma", ParamValue::Color([0.0, 0.2, -0.1, 0.0])),
+                    ("gain", ParamValue::Color([0.1, 0.0, 0.2, -0.05])),
+                    ("offset", ParamValue::Color([0.0, 0.0, 0.0, 0.02])),
+                ],
+            ),
+            node(
+                2,
+                &[
+                    ("contrast", ParamValue::Float(1.25)),
+                    ("pivot", ParamValue::Float(0.4)),
+                    ("saturation", ParamValue::Float(1.3)),
+                    ("temperature", ParamValue::Float(-20.0)),
+                    ("tint", ParamValue::Float(10.0)),
+                ],
+            ),
+            node(
+                3,
+                &[
+                    ("curve.master", ParamValue::Curve(vec![[0.0, 0.03], [0.4, 0.35], [1.0, 0.97]])),
+                    ("curve.r", ParamValue::Curve(vec![[0.0, 0.0], [0.6, 0.65], [1.0, 1.0]])),
+                ],
+            ),
+        ],
+        bypass: false,
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (67u32, 41u32);
+    let px = picture(w, h);
+    let frame = VideoFrame::rgba_f32(w, h, px.clone());
+    let mut failures = Vec::new();
+    for ws in [WorkingSpace::Rec709, WorkingSpace::DaVinciWide] {
+        assert!(filmcraft_render::grade::compile(&Grade::with_node(), Tick(0), ws).is_empty());
+        let ops = filmcraft_render::grade::compile(&grade, Tick(0), ws);
+        assert!(!ops.is_empty());
+        let op = FxOp::ColorChain(Arc::from(ops));
+        assert!(op.gpu_ok(), "{ws:?}");
+        let mut cpu = filmcraft_render::Image { w: w as usize, h: h as usize, px: px.clone() };
+        op.apply(&mut cpu);
+        let fx = LayerFx { size: (w, h), decimation: 1, ops: vec![op] };
+        let (_, _, gpu) = c.effect_image(&frame, &fx).expect("effect image");
+        let (worst, flips) = compare(&cpu.px, &gpu);
+        eprintln!("grade in {ws:?}: max rel diff {worst:.2e}, {:.3}% off by > 2 %", flips * 100.0);
+        if worst > TOL || flips > 0.0 {
+            failures.push(format!("{ws:?}: {worst:.2e}, flips {flips:.4}"));
+        }
+    }
+    assert!(failures.is_empty(), "GPU grades differ from the CPU:\n{}", failures.join("\n"));
+}

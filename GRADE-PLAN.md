@@ -1,0 +1,236 @@
+# GRADE-PLAN.md: a Resolve-style colour page for beginners and intermediates
+
+Written 2026-10-11 (session 8, with the owner). **Approved by the owner 2026-10-11**, including
+the phase order in §4 and the Resolve workflow (G1.8) and shot comparison / Shot Match (G2.8–9)
+features. Recorded in FORK-PLAN §1a.6 and §1a.17; the runner
+(`~/Apps/filmcraft-builds/run-fork-plan.sh`) picks these phases up like any other.
+
+Goal: an editor who knows the basics of DaVinci Resolve's Color page can grade X-M5 F-Log2
+footage in FilmCraft without missing anything they use day to day. Advanced and pro features are
+explicitly deferred (§6). Every FORK-PLAN rule still applies: never crash, exact `Tick` time,
+everything is a command, layering, `cargo xtask ci` green per phase, a build per phase (§1a.9).
+
+---
+
+## 1. What already exists (audited 2026-10-11, don't rebuild it)
+
+| Need | Where it already is | Gap |
+|---|---|---|
+| Working space DWG / DI, F-Log2 / F-Gamut input, Rec.709 output | `crates/color` (`log.rs`, `spaces.rs`, `grade.rs`, `transform.rs`) | none |
+| Highlight roll-off, gamut mapping | `transform.rs` BT.2390 tone map, `GamutCompress`, `DesaturateIntoGamut` | a per-grade "highlight" control (§3 G2.5) |
+| Lift / gamma / gain / offset maths | `ColorOp::Lggo` (`crates/color/src/ops.rs:259`), GPU branch (`crates/gpu/src/colorops.rs:93`), parity test | **no effect or UI uses it** |
+| Shadows / mids / highlights wheels | `ColorOp::Wheels`, Lumetri | no Offset wheel; luma not separated |
+| Curves: RGB, luma, hue vs sat / hue / luma, luma vs sat, sat vs sat | `ColorOp::Curve`, `HslCurves` | none |
+| HSL qualifier (key, soften, blur, denoise, show mask) | `ColorOp::HslKey` / `HslCorrect`, Lumetri HSL Secondary | invert, sat max, picker/eyedropper |
+| Windows: ellipse, polygon, Bézier; feather, invert, combine | `crates/project/src/mask.rs`, `FxOp::Masked` | linear (gradient) window |
+| Window tracking | `crates/render/src/track.rs` (Shi-Tomasi + pyramidal LK + RANSAC), background job `crates/engine/src/masks.rs` | hook to grade-node windows |
+| Scopes: waveform, parade, histogram, vectorscopes | `crates/scopes`, GPU sampling `crates/gpu/src/scopes.rs` | none |
+| Reference / comparison view | Program monitor Comparison mode, Reference Monitor panel | stills gallery, wipe / split slider |
+| Copy / paste attributes | `crates/engine/src/clip_ops.rs:1024` | grade-specific copy / paste, append |
+| Ordered effect stack | `TrackItem.effects: Vec<EffectInstance>` | no reorder command |
+| Colour tests | `colorops_tests.rs`, `lumetri_chain_tests.rs` (oracle), `crates/golden` | node-grader oracle (§5) |
+| Colour wheel / curve widgets | private fns in `crates/ui-egui/src/panels/lumetri.rs` (`curve_editor` :448, `color_wheel` :558) | extract to reusable widgets |
+
+**Truly missing:** the grade / node model and its UI, an Offset wheel wired to `Lggo`, noise
+reduction (none at all), film-like grain (today's "Noise" effect isn't luma-aware), stills
+gallery and wipe, linear window, qualifier extras.
+
+## 2. Design decisions (write them up as ADR 0004 in G0)
+
+1. **A grade is a separate per-clip object, not an `EffectInstance`.** `TrackItem.grade:
+   Option<Grade>` (`#[serde(default)]`, so old projects load unchanged). Effect params are a flat
+   keyframable map, which doesn't fit a node list.
+2. **Serial nodes now, a graph later.** `Grade { nodes: Vec<GradeNode>, bypass }`, where each
+   `GradeNode` has a stable `id`, a label, `enabled`, and one corrector: primaries (LGGO + offset,
+   contrast / pivot, saturation, temperature / tint), curves, an optional qualifier, windows
+   (`Vec<Mask>`, reusing `mask.rs`) and an optional LUT. Ids (not indices) everywhere, so parallel
+   / layer nodes (§6) become a DAG with input lists later without a project-format break.
+3. **Where it runs:** input transform → **grade nodes (DI working space)** → effect stack
+   (Lumetri included) → output transform. ADR 0003 already reserves this spot for the node grader.
+4. **No new grading maths.** Each node compiles to the existing `ColorOp`s / `FxOp`s (windows and
+   qualifier through `FxOp::Masked` / `HslKey`) and runs in the existing fused GPU pass. Only grain
+   and noise reduction add new GPU kernels.
+5. **Everything is a command** (`grade.*`: addNode, insertNode, removeNode, moveNode, toggleNode,
+   setParam, resetNode, copy, paste, append, stills.grab / apply / delete, compare.set), each
+   undoable through `Session::edit`, and every widget gets an automation id.
+6. **Keyframes:** node params reuse the existing keyframable `Param` type.
+
+## 3. Phases
+
+Each phase ends like a FORK-PLAN phase: acceptance checks, `cargo xtask ci`, tag `grade-N`, build
+in `~/Apps/filmcraft-builds/grade-N/` with NOTES.md, `latest` symlink, HANDOFF rewrite.
+Estimates are agent working hours, assuming the pace of Phases 2–5.
+
+### Phase G0: foundations (≈ 4–8 h)
+1. ADR 0004 (the decisions in §2).
+2. `Grade` / `GradeNode` types in `crates/project`, serde round-trip and old-project load tests.
+3. Compile a grade to `ColorOp` / `FxOp` in `crates/render`; wire it between input transform and
+   the effect stack; CPU and GPU paths; an identity grade is bit-exact.
+4. Extract `color_wheel` and `curve_editor` from `lumetri.rs` into reusable widgets (`widgets.rs`
+   or `widgets/color.rs`); Lumetri keeps using them, and its UI tests stay green.
+5. `effects.move` (reorder) command, which was missing.
+
+**Accept:** a project with a one-node grade saves, loads and renders identically on CPU and GPU;
+an old project loads unchanged; play-graded 6.2K quick pass shows no regression.
+
+### Phase G1: "Lite", the everyday grader (≈ 20–35 h)
+1. **Node stack:** add / insert / delete / reorder / enable / bypass-all / label nodes; a
+   horizontal node strip in a new Color workspace (simple painter widget, no graph library).
+2. **Primaries panel:** Lift / Gamma / Gain / **Offset** wheels with master luma rings (wired to
+   `ColorOp::Lggo`), contrast + pivot, saturation, temperature / tint. Defaults are identity.
+3. **Curves panel** per node, reusing the extracted widget and the existing curve ops.
+4. **Copy / paste / append grade** between clips (commands + menu + shortcuts); "apply grade to
+   all selected clips".
+5. **Stills and compare:** grab still (a frame + the grade that made it, stored in the project),
+   gallery strip, apply a still's grade, wipe / split-screen slider in the Program monitor
+   (extends Comparison mode).
+6. **Film grain:** a new GPU kernel: luma-weighted, size / strength / softness, temporally
+   stable seed per frame (deterministic, so golden tests work); offered as a node option.
+7. Scopes follow the grade output (they already sample the composite, so check it only).
+8. **Resolve workflow setting (owner, 2026-10-11):** Settings ▸ **Workflow: Premiere / Resolve**.
+   Resolve switches, in one go:
+   - **Pages:** a page bar at the bottom (Media, Cut / Edit, Color, Fairlight, Deliver) mapped to
+     FilmCraft workspaces (`crates/ui-egui/src/dock.rs` `workspace()`); the **Color page** layout:
+     viewer centre, gallery left, node editor right, clip thumbnail strip, tool tabs below
+     (primaries, curves, qualifier, window, tracker, scopes).
+   - **Shortcuts:** a Resolve keymap preset next to "FilmCraft Default" and the Premiere preset
+     (e.g. add serial node, bypass, grab still, wipe). Key assignments come from Resolve's public
+     manual (functional facts); no Blackmagic assets, icons or code (clean-room).
+   - **Defaults:** the colour panel opens the node grader instead of Lumetri; Resolve terms on
+     the Color page.
+   Switching back restores the Premiere workspaces and keymap; the user's own saved workspaces
+   are kept. ≈ 10–20 h.
+
+**Accept:** grade a synthetic F-Log2 clip with 3 serial nodes (primaries, curves, grain), copy
+it to 5 clips, grab a still and wipe against it, all through MCP / control commands and
+screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page screenshotted); play-graded 6.2K quick pass ≥ 95 % of Phase 5's shown frames; oracle tests (§5).
+
+### Phase G2: "Core", qualifiers, windows, noise reduction (≈ 25–45 h)
+1. **Per-node qualifier:** reuse `HslKey`; add invert, sat max, a picker (click the viewer to set
+   hue / sat / luma ranges), highlight mode (show matte / grey background).
+2. **Per-node windows:** circle, polygon, Bézier from `mask.rs`, plus a new **linear (gradient)
+   window**; on-viewer handles; softness, invert, inside / outside correction.
+3. **Tracking for node windows:** drive the existing `track.rs` job from a node window; forward
+   / backward / frame; results stored as keyframes like effect masks today.
+4. **Spatial noise reduction** (the F-Log2 shadows need it): a GPU edge-preserving filter
+   (bilateral or a small non-local-means), luma / chroma strength separately, as a node option.
+   Then **temporal NR** (motion-compensated, reusing the tracker's optical flow, 1–2 frames each
+   side) if the playback budget allows; otherwise it applies at export and in the render cache only.
+5. **Highlight control:** a per-grade highlight roll-off / "soft clip" knob feeding the existing
+   BT.2390 output stage.
+6. **LUT node** (reuse the existing LUT op).
+8. **"Same grade?" and shot comparison (owner, 2026-10-11):**
+   - **Same grade applied:** compare grade data; clips with identical grades share a marker /
+     badge in the timeline and thumbnail strip, so a pasted grade and an accidental tweak are
+     visible. Command `grade.compareData`.
+   - **Do they look matched:** `grade.compareShots` (and a "Compare shots" button with the
+     current clip and the still / reference clip) measures both *graded* frames with the existing
+     statistics in `crates/render/src/color_match.rs` (Oklab, per-tonal-range L / a / b, chroma,
+     skin-tone protection) and reports a match score plus plain-language differences ("B is ≈ ⅓
+     stop darker, highlights slightly warmer, 8 % less saturated"). A scene check
+     (`grade.checkScene` over selected clips / a range) flags the outlier shot. It is a guide,
+     not a verdict: different framings legitimately differ, so compare overlapping tonal ranges
+     and let the user mark a pair "intended". ≈ 8–16 h.
+9. **Shot Match (moved up from deferred, owner 2026-10-11):** reuse the `color_match::solve`
+   Levenberg–Marquardt solver, solving in a node's primaries (LGGO + saturation) instead of
+   Lumetri's wheels, so "Match to still / reference" adds an editable node. ≈ 4–8 h.
+10. **Resolve comparison (owner-run, optional):** Resolve is installed in `/opt/resolve`. The
+   owner can render a few stills from Resolve with known settings (e.g. Offset +0.1, a qualifier
+   on skin) so we can compare behaviour by eye. Never invent Resolve numbers (FORK-PLAN §6).
+
+**Accept:** a skin-tone qualifier plus a tracked circle window on a moving synthetic subject
+(motion fixture) hold over 5 s; NR visibly lowers noise on the F-Log2 fixture (measured: noise σ
+in a flat patch drops ≥ 40 % without blurring an edge-sharpness patch by more than a set
+threshold); play-graded with NR on is measured and recorded (synthetic); export matches the
+viewer; `grade.compareShots` reports a near-perfect score for a clip against itself and flags a
+deliberately offset copy (+⅓ stop, warm cast) with the right words; Shot Match brings that copy
+back within a set tolerance.
+
+### Phase G3 and later: deferred (§6)
+
+## 4. Order against FORK-PLAN (owner's decision)
+
+Remaining FORK-PLAN phases: 6 (4:2:2, proxies, render cache), 7 (polish, soak), 8 (backup
+backends). **Order (approved by the owner 2026-10-11): G0 → G1 → 6 → G2 → 7 → 8.**
+- G0 / G1 first: they're what you'll use, and graded 6.2K already plays at 1798/0.
+- Phase 6 before G2: temporal NR and heavy multi-node grades are exactly what the render cache is
+  for, and 4:2:2 clips need proxies before grading them is pleasant.
+- Phase 7's soak test then covers the grader too. Phase 8 stays last.
+
+## 5. Testing
+
+- **Oracle:** a CPU per-pixel reference for a node chain (like `lumetri_chain_tests::reference`),
+  checked against the compiled `ColorOp` chain on CPU and GPU over randomised settings; an
+  identity grade is bit-exact.
+- **Golden images** (`crates/golden`, `FILMCRAFT_BLESS=1`) for a handful of fixed grades,
+  grain with a fixed seed, and NR.
+- **Hostile input:** fuzz-ish tests for grades loaded from a project file: absurd values, 10 000
+  nodes (capped), unknown fields, NaN / ∞ params; never crash.
+- **UI:** `crates/ui-egui/tests` for the node strip and panels; screenshots through the
+  `filmcraft` MCP server for each phase's acceptance.
+- **Pictures to look at:** synthetic fixtures remain the benchmark source (§1a.3). For judging
+  grades by eye, real-camera clips in `~/Videos` (e.g. the `MVI_*.MP4` files) can be used
+  read-only, never committed, with results marked as not-X-M5.
+
+## 6. Deferred (advanced / pro)
+
+Parallel, layer, splitter / combiner nodes, key mixer, outside nodes; HDR wheels, colour warper,
+3D qualifier; planar tracking; grade groups (pre / post clip), timeline
+grades; halation, glow; Magic Mask (ML, conflicts with pure Rust); ACES, Dolby Vision; matching
+every control's exact feel to Resolve. The §2 data model keeps all of these possible.
+
+## 7. How the work is run (subagents and sessions)
+
+**Sessions.** Unchanged: the runner starts one fresh `claude -p` session per phase; each session
+reads FORK-PLAN, this file and HANDOFF, finishes the phase, builds, rewrites HANDOFF and stops.
+The runner already waits 30 min and retries after a usage-limit stop.
+
+**Inside a session, the main agent is the integrator.** It owns the plan step, the shared types,
+every commit and the quality gates. Subagents do bounded side work and report back conclusions,
+not file dumps.
+
+| Role | Agent / model | Used for | Builds? |
+|---|---|---|---|
+| Scout | Explore, cheap model (Haiku / Sonnet) | "where is X", call sites, how a subsystem works | no |
+| Test author | general-purpose, Sonnet | writes the oracle / hostile-input tests for a step from its spec, in parallel with the implementation | crate only |
+| Leaf builder | general-purpose, Sonnet or Opus, `isolation: worktree` | self-contained work in one crate: grain kernel, NR kernel, linear window shape, widget extraction | crate only, own `CARGO_TARGET_DIR` |
+| Reviewer | general-purpose, Opus, fresh context | reviews each step's diff before commit: never-crash rules, hostile input, layering, clean-room, missing tests (same idea as §1a.5) | no |
+| UI checker | general-purpose with the `filmcraft` MCP tools | drives the app, takes screenshots, reports what looks wrong | release build |
+
+**Parallel lanes per phase** (start a lane only once the types it uses are committed):
+- G0: main = types + render wiring; leaf builder = widget extraction (ui-egui only); test author =
+  serde / old-project / identity tests.
+- G1: main = node commands + Color workspace; leaf builder = grain kernel (`crates/gpu`); second
+  leaf builder = stills / wipe in the monitor once the commands exist, then the Resolve keymap
+  preset (`crates/engine`, no GPU); test author = node oracle.
+- G2: main = qualifier + windows on nodes; leaf builder = NR kernel; leaf builder = linear window
+  + tracking hook, then shot comparison / Shot Match (`crates/render`); reviewer on every merge.
+
+**Limits that matter more than agent count:**
+- **Disk:** `target/debug` was 114 GB; after deleting `target/debug/incremental` (2026-10-11)
+  `/home` has 95 GB free (20 GB floor, §1a.12). A second full-workspace target dir still doesn't
+  fit comfortably. So leaf builders only build their own crate
+  (`cargo test -p <crate>`, own `CARGO_TARGET_DIR=target/agent-<name>`, `CARGO_INCREMENTAL=0`),
+  at most two at once, and each deletes its target dir when it is merged.
+- **One GPU:** benchmarks and screenshot checks run only in the main session, never while a
+  builder is compiling (results would be skewed).
+- **Usage (Max 5x):** parallel agents finish sooner in wall-clock time but use the 5-hour and
+  weekly limits faster. Cheap models for scouting and tests, Opus for the integrator and reviewer,
+  crate tests per step and one full `cargo xtask ci` per phase (§1a.11). Subagent prompts ask for
+  answers under ~500 words.
+- **Integration:** worktree branches are merged by the main agent only, one at a time, each after
+  the reviewer passes it and the touched crates' tests are green.
+
+## 8. Rough timeline (agent hours → calendar on Max 5x)
+
+| Phase | Agent hours | Calendar estimate |
+|---|---|---|
+| G0 | 4–8 | 1–2 days |
+| G1 (incl. Resolve workflow) | 30–55 | 6–10 days |
+| (FORK-PLAN 6) | as planned | ~2–4 days |
+| G2 (incl. shot compare + Shot Match) | 37–70 | 1.5–2.5 weeks |
+| **Lite + Core** | **≈ 70–130** | **≈ 4–5 weeks** |
+
+The limiting factor is the usage cap, not engineering: when the runner hits a limit it waits
+and resumes, so the calendar stretches but nothing is lost. Without Phase 6 in between, Lite +
+Core is about 3.5–4.5 weeks.

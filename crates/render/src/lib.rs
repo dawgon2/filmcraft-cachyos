@@ -16,6 +16,7 @@ pub mod color_match;
 pub mod colorman;
 pub mod effects;
 pub mod gpufx;
+pub mod grade;
 pub mod graphic_clip;
 pub mod graphics;
 pub mod image;
@@ -162,6 +163,11 @@ pub(crate) fn render_seq_tracks(project: &Project, seq: &Sequence, t: Tick, opts
                 env: None,
                 working: seq.settings.color.working,
             };
+            // the adjustment layer's grade, before its effects (fork ADR 0004)
+            let graded = grade::item_ops(item, mt, seq.settings.color.working);
+            if !graded.is_empty() {
+                adjusted.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(&graded, c, [x as f32, y as f32]));
+            }
             for e in item.effects.iter().filter(|e| e.def().is_some_and(|d| !d.intrinsic)) {
                 mask::apply_effect(&mut adjusted, e, &cx);
             }
@@ -329,7 +335,9 @@ pub(crate) fn item_layer(
     // (Maximum Render Quality decodes at full size: the Lanczos filter does all the scaling)
     let want = if opts.high_quality { 1.0 } else { (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32 };
     let pi = project.item(item.item)?;
-    if matches!(pi.kind, ItemKind::Graphic { .. }) && !(item.has_opacity_masks() || opts.effects && item.has_standard_effects()) {
+    if matches!(pi.kind, ItemKind::Graphic { .. })
+        && !(item.has_opacity_masks() || opts.effects && (item.has_standard_effects() || grade::changes_picture(item, mt, seq.settings.color.working)))
+    {
         // vectors straight to the output: no resampling, crisp at any Motion scale
         let m = Affine::scale(opts.scale as f64, opts.scale as f64).then_apply(&motion);
         let mut canvas = Image::new(w, h);
@@ -353,6 +361,11 @@ pub(crate) fn item_layer(
             env: Some(&env),
             working: seq.settings.color.working,
         };
+        // the colour grade: after the input transform, before the effect stack (fork ADR 0004)
+        let graded = grade::item_ops(item, mt, cx.working);
+        if !graded.is_empty() {
+            layer.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(&graded, c, [x as f32, y as f32]));
+        }
         for e in item.effects.iter().filter(|e| e.def().is_some_and(|d| !d.intrinsic) && !filmcraft_project::graphic::is_layer(e)) {
             if filmcraft_media::cancel::cancelled() {
                 return None;

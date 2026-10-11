@@ -69,6 +69,9 @@ the agent's own recorded interpretations, not the owner's words.
 6. **Phase order:** the phases of §5 in order: 0, 1, 2 (done) → 3 → 4 → 5 → 6 → 7 → 8. Zero
    dropped frames at cuts on original 6.2K media (`xm5-multicut`) was moved from Phases 2–3 to
    **Phase 6** (owner, 2026-10-08), with a task to measure realistic cut spacing (2–5 s).
+   **Order from 2026-10-11 (owner):** 5 (done) → **G0 → G1** ([`GRADE-PLAN.md`](GRADE-PLAN.md))
+   → **6** → **G2** → 7 → 8. Each G phase ends like any phase here (acceptance, `cargo xtask
+   ci`, tag `grade-0` / `grade-1` / `grade-2`, build `~/Apps/filmcraft-builds/grade-N/` per §1a.9).
 7. **Benchmark passes.** Quick passes (the key 6.2K playback and decode scenarios, `--quick`, one
    run each, labelled "quick pass") for phases whose main result is known (Phases 1, 3, 6, 8 and
    in-between steps); **the full `xm5` suite at Phase 2, 4, 5 and 7 acceptance**, and whenever a
@@ -126,6 +129,13 @@ the agent's own recorded interpretations, not the owner's words.
     6.2K export ≥ 24 fps: today ≈ 18–20 fps, the single-VCN ceiling; candidates: splitting the
     encode between the AMD and Intel media engines, FORK-PLAN §7 session 7). Not scheduled yet:
     continue the current plan; don't start it without the owner.
+17. **Resolve-style colour page (owner, 2026-10-11).** Build the beginner / intermediate
+    Resolve-style grader in [`GRADE-PLAN.md`](GRADE-PLAN.md) (G0 foundations, G1 Lite, G2 Core;
+    advanced features deferred, GRADE-PLAN §6), in the order of §1a.6. It includes a **Settings ▸
+    Workflow: Premiere / Resolve** switch (Resolve pages, Color page layout, Resolve keymap
+    preset; GRADE-PLAN G1.8), a **"same grade?" / shot comparison** tool and **Shot Match**
+    (GRADE-PLAN G2.8–9). GRADE-PLAN §7 says how to use subagents; its §1 audit says what already
+    exists (don't rebuild it). Read GRADE-PLAN.md in every session that works on a G phase.
 
 ## 2. The machine and the footage (don't re-research these)
 
@@ -1118,3 +1128,29 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   unsafe review ✓; playback unchanged (play-full / graded 1798 / 0). Multicut 338 / 302 / 310
   drops vs 237 at Phase 4 (same with the old GOP cache code: not this phase's change; Phase 6).
   `cargo xtask ci` ✓. Tagged `phase-5`.
+- **2026-10-10, session 7: Phase 5 build ready.** `~/Apps/filmcraft-builds/phase-5/` (filmcraft,
+  filmcraft-cli, NOTES.md), `latest` → `phase-5`, launcher valid; bench saved as
+  `target/fork-bench/bench-phase5`. Next: Phase 6 (4:2:2, proxies, render cache, cuts, 2×).
+- **2026-10-11, session 8 (with the owner): plan change.** New [`GRADE-PLAN.md`](GRADE-PLAN.md)
+  (Resolve-style colour page: G0 / G1 / G2, Resolve workflow setting, shot comparison and Shot
+  Match, subagent plan); audit of the existing colour code in its §1. Order is now **G0 → G1 →
+  6 → G2 → 7 → 8** (§1a.6, §1a.17). Disk: deleted `target/debug/incremental` (§1a.12),
+  `/home` 74 → 95 GB free. Next: **G0** (GRADE-PLAN §3).
+- **2026-10-11, session 9 (scheduled-task run): G0.1–G0.5 done.** Took over from a run that died
+  (no lock left; desktop app restarted ~01:41): its uncommitted G0.2 / G0.3 work and a leaf
+  builder's worktree (G0.4) were reviewed (fresh reviewer agents) and finished. **G0.1** ADR 0004
+  (`4d71eca`). **G0.2** `TrackItem.grade: Option<Grade>`, schema v13 (no-op migration), node
+  param schema with clamping, v12 fixture `v12-graded.fcproj` (`662e61f`). **G0.3**
+  `filmcraft_render::grade::compile` → existing `ColorOp`s in the layer's fused GPU pass after the
+  input transform, CPU in `item_layer` and adjustment layers; identity grades compile to nothing
+  and keep the title / plain-nest shortcuts (review found the nest shortcut skipped the grade on
+  the GPU plan: fixed, tested); GPU parity AMD 2.1e-6 / Intel 2.1e-6 (`cf857aa`). **G0.4**
+  `widgets/color.rs` (`curve_editor`, `color_wheel`; Lumetri UI tests green). **G0.5**
+  `effects.move` (`8ca59ba`). Agent decision: render doesn't log, so ADR 0004 no longer promises
+  a log line for > 64 nodes (the G1 node strip shows the count). Next: G0 acceptance (play-graded
+  quick pass, `cargo xtask ci`), tag `grade-0`, build.
+- **2026-10-11, session 9: G0 accepted (synthetic, quick pass).** A one-node grade saves / loads
+  (format round-trip test) and renders the same on CPU and GPU (plan-vs-CPU tests: plain,
+  F-Log2 / DWG, nest, adjustment layer; GPU parity AMD and Intel 2.1e-6); the v12 project loads
+  unchanged; play-graded 6.2K 240/0 at 3.4 ms CPU/frame, play-full 240/0 at 1.9 ms (unchanged;
+  `target/bench/xm5-grade0-quick-*.json`). `cargo xtask ci` ✓. Tagged `grade-0`.

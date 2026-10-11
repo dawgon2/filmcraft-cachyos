@@ -2268,6 +2268,25 @@ fn build() -> Vec<CommandSpec> {
             })?;
             Ok(Value::Null)
         }),
+        cmd!("effects.move", "Move Effect", [], None, r#"{"clip":id,"index":n,"to":n}"#, has_seq, |s, p| {
+            let c = clip_p(p, "clip").ok_or_else(|| bad("effects.move", "need `clip`"))?;
+            let idx = u64_p(p, "index").ok_or_else(|| bad("effects.move", "need `index`"))?;
+            let to = u64_p(p, "to").ok_or_else(|| bad("effects.move", "need `to`"))?;
+            s.edit_sequence("Move Effect", |q, _, _| {
+                let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
+                let idx = usize::try_from(idx).ok().filter(|&i| i < it.effects.len()).ok_or_else(|| bad("effects.move", "no such effect on clip"))?;
+                let (lo, hi) = movable_run(&it.effects, idx).ok_or_else(|| EngineError::Other("intrinsic effects cannot be moved".into()))?;
+                // (stays among its own kind: standard effects keep render order before the
+                // intrinsic ones, graphic layers among the layers)
+                let to = usize::try_from(to).unwrap_or(usize::MAX).clamp(lo, hi);
+                if to != idx {
+                    let e = it.effects.remove(idx);
+                    it.effects.insert(to, e);
+                }
+                Ok(())
+            })?;
+            Ok(Value::Null)
+        }),
         cmd!("effects.toggleEnabled", "Toggle Effect", [], None, r#"{"clip":id,"index":n}"#, has_seq, |s, p| {
             let c = clip_p(p, "clip").ok_or_else(|| bad("effects.toggleEnabled", "need `clip`"))?;
             let idx = u64_p(p, "index").unwrap_or(0) as usize;
@@ -3269,4 +3288,24 @@ fn auto_save_dir(s: &Session) -> std::path::PathBuf {
 
 fn auto_save_name(s: &Session) -> String {
     s.path.as_deref().and_then(|p| std::path::Path::new(p).file_stem()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| s.project.name.clone())
+}
+
+/// The index range (inclusive) an effect at `idx` may move within: the contiguous run of effects
+/// of its own kind (standard effects, or graphic layers) around it. `None` for intrinsic effects
+/// and out-of-range indices.
+fn movable_run(effects: &[filmcraft_project::EffectInstance], idx: usize) -> Option<(usize, usize)> {
+    let kind = |e: &filmcraft_project::EffectInstance| {
+        if e.def().is_some_and(|d| d.intrinsic) { None } else { Some(filmcraft_project::graphic::is_layer(e)) }
+    };
+    let k = kind(effects.get(idx)?)?;
+    let same = |i: usize| effects.get(i).and_then(kind) == Some(k);
+    let mut lo = idx;
+    while lo > 0 && same(lo - 1) {
+        lo -= 1;
+    }
+    let mut hi = idx;
+    while same(hi + 1) {
+        hi += 1;
+    }
+    Some((lo, hi))
 }

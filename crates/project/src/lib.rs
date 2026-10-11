@@ -13,6 +13,7 @@ pub mod caption;
 pub mod effect;
 pub mod essential;
 pub mod find;
+pub mod grade;
 pub mod graphic;
 pub mod graphic_design;
 pub mod gtemplate;
@@ -582,6 +583,10 @@ pub struct TrackItem {
     /// ([`GraphicMeta`]). Schema v12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graphic: Option<Box<GraphicMeta>>,
+    /// The clip's colour grade: serial correction nodes between the input transform and the
+    /// effect stack (fork ADR 0004). Schema v13.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grade: Option<grade::Grade>,
 }
 
 /// Time interpolation for speed-changed clips (Clip ▸ Video Options ▸ Time Interpolation).
@@ -1478,6 +1483,7 @@ impl Project {
             field_options: None,
             source_channels,
             graphic: source_graphic.and_then(|sg| sg.meta.map(Box::new)),
+            grade: None,
         })
     }
 

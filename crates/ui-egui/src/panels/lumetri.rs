@@ -8,7 +8,7 @@
 //! `hsl_blur`); Color Match: `lumetri.match.comparisonView` (toggles the Program monitor's
 //! Comparison View, whose reference frame Apply Match then uses).
 
-use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
+use egui::{Align2, Color32, Rect, Sense, Stroke, pos2, vec2};
 use filmcraft_project::{ClipId, EffectInstance, ParamValue};
 use filmcraft_time::Tick;
 use serde_json::{Value, json};
@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use crate::FilmcraftApp;
 use crate::icons::{self, Icon};
 use crate::theme::Tokens;
+use crate::widgets;
 
 type Actions = Vec<Value>;
 
@@ -443,170 +444,29 @@ fn lerp_col(a: Color32, b: Color32, f: f32) -> Color32 {
     Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
 }
 
-/// Curve editor: drag points, click the curve to add, double-click a point to remove.
+/// Curve editor for the effect's curve param `id`; pushes a set-param action when edited.
 #[allow(clippy::too_many_arguments)]
 fn curve_editor(ui: &mut egui::Ui, e: &EffectInstance, id: &str, hue: bool, col: Color32, t: &Tokens, actions: &mut Actions, clip: ClipId, idx: usize) {
     let pts: Vec<[f32; 2]> = e.param(id).and_then(|p| p.value.as_curve().map(|c| c.to_vec())).unwrap_or_default();
-    let w = ui.available_width().min(260.0);
-    let h = if hue { w * 0.45 } else { w };
-    let (area, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click_and_drag());
-    let p = ui.painter();
-    p.rect_filled(area, 2.0, Color32::from_rgb(0x16, 0x16, 0x16));
-    for i in 1..4 {
-        let f = i as f32 / 4.0;
-        p.line_segment(
-            [pos2(area.min.x + area.width() * f, area.min.y), pos2(area.min.x + area.width() * f, area.max.y)],
-            Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2a, 0x2a)),
-        );
-        p.line_segment(
-            [pos2(area.min.x, area.min.y + area.height() * f), pos2(area.max.x, area.min.y + area.height() * f)],
-            Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2a, 0x2a)),
-        );
-    }
-    if hue {
-        let n = 36;
-        for i in 0..n {
-            let f0 = i as f32 / n as f32;
-            let rgb = filmcraft_color::hsl_to_rgb(f0, 0.8, 0.5);
-            let c = Color32::from_rgb((rgb[0] * 255.0) as u8, (rgb[1] * 255.0) as u8, (rgb[2] * 255.0) as u8);
-            p.rect_filled(
-                Rect::from_min_max(
-                    pos2(area.min.x + area.width() * f0, area.max.y - 6.0),
-                    pos2(area.min.x + area.width() * (f0 + 1.0 / n as f32) + 0.5, area.max.y),
-                ),
-                0.0,
-                c,
-            );
-        }
-    }
-    let to_screen = |q: [f32; 2]| pos2(area.min.x + q[0] * area.width(), area.max.y - q[1] * area.height());
-    let from_screen = |s: Pos2| [((s.x - area.min.x) / area.width()).clamp(0.0, 1.0), ((area.max.y - s.y) / area.height()).clamp(0.0, 1.0)];
-    // curve polyline
-    let draw_pts: Vec<[f32; 2]> = if hue && pts.is_empty() { vec![[0.0, 0.5], [1.0, 0.5]] } else { pts.clone() };
-    let lut = if hue && !pts.is_empty() {
-        let mut ext = Vec::new();
-        for off in [-1.0f32, 0.0, 1.0] {
-            for q in &pts {
-                ext.push([(q[0] + off + 1.0) / 3.0, q[1]]);
-            }
-        }
-        let l = filmcraft_render::effects::curve_lut(&ext, 3 * 128);
-        l[128..256].to_vec()
-    } else {
-        filmcraft_render::effects::curve_lut(&draw_pts, 128)
-    };
-    let line: Vec<Pos2> = lut.iter().enumerate().map(|(i, y)| to_screen([i as f32 / 127.0, y.clamp(0.0, 1.0)])).collect();
-    p.add(egui::Shape::line(line, Stroke::new(1.5, col)));
-    let drag_key = egui::Id::new(("curve-drag", clip.0, id));
-    let mut dragging: Option<usize> = ui.data(|d| d.get_temp(drag_key));
-    let mut new_pts = pts.clone();
-    let mut changed = false;
-    for (i, q) in pts.iter().enumerate() {
-        let sp = to_screen(*q);
-        p.circle_filled(sp, 4.0, if dragging == Some(i) { t.hot_text } else { col });
-    }
-    if resp.drag_started()
-        && let Some(pos) = resp.interact_pointer_pos()
-    {
-        let near =
-            pts.iter().enumerate().map(|(i, q)| (i, to_screen(*q).distance(pos))).filter(|(_, d)| *d < 9.0).min_by(|a, b| a.1.total_cmp(&b.1)).map(|x| x.0);
-        dragging = near.or_else(|| {
-            new_pts.push(from_screen(pos));
-            changed = true;
-            Some(new_pts.len() - 1)
-        });
-    }
-    if resp.dragged()
-        && let (Some(i), Some(pos)) = (dragging, resp.interact_pointer_pos())
-        && i < new_pts.len()
-    {
-        new_pts[i] = from_screen(pos);
-        changed = true;
-    }
-    if resp.drag_stopped() {
-        dragging = None;
-    }
-    if resp.double_clicked()
-        && let Some(pos) = resp.interact_pointer_pos()
-        && let Some(i) = pts.iter().position(|q| to_screen(*q).distance(pos) < 9.0)
-    {
-        let endpoint = !hue && (i == 0 || i == pts.len() - 1);
-        if !endpoint {
-            new_pts.remove(i);
-            changed = true;
-        }
-    } else if resp.double_clicked() && !hue {
-        new_pts = vec![[0.0, 0.0], [1.0, 1.0]];
-        changed = true;
-    }
-    ui.data_mut(|d| {
-        if let Some(i) = dragging {
-            d.insert_temp(drag_key, i);
-        } else {
-            d.remove::<usize>(drag_key);
-        }
-    });
-    if changed {
+    let drag_id = egui::Id::new(("curve-drag", clip.0, id));
+    if let Some(new_pts) = widgets::color::curve_editor(ui, &pts, hue, col, t, drag_id) {
         let v: Vec<Value> = new_pts.iter().map(|q| json!([q[0], q[1]])).collect();
         actions.push(json!({"clip": clip.0, "effect": idx, "param": id, "value": v}));
     }
-    ui.add_space(6.0);
 }
 
-/// Colour wheel: hue ring, draggable puck (offset), lightness slider on the left.
+/// Colour wheel for the effect's offset param `id` and lightness param `lid`.
 #[allow(clippy::too_many_arguments)]
 fn color_wheel(ui: &mut egui::Ui, e: &EffectInstance, mt: Tick, id: &str, lid: &str, size: f32, t: &Tokens, actions: &mut Actions, clip: ClipId, idx: usize) {
     let v = e.param(id).map(|p| p.vec2_at(mt)).unwrap_or_default();
-    let (area, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click_and_drag());
-    let c = area.center() + vec2(6.0, 0.0);
-    let r_out = size / 2.0 - 4.0;
-    let r_in = r_out - 10.0;
-    let p = ui.painter();
-    let n = 72;
-    let mut mesh = egui::Mesh::default();
-    for i in 0..n {
-        let a0 = i as f32 / n as f32 * std::f32::consts::TAU;
-        let a1 = (i + 1) as f32 / n as f32 * std::f32::consts::TAU;
-        let rgb = filmcraft_color::hsl_to_rgb(1.0 - (i as f32 / n as f32), 0.75, 0.5);
-        let col = Color32::from_rgb((rgb[0] * 255.0) as u8, (rgb[1] * 255.0) as u8, (rgb[2] * 255.0) as u8);
-        let base = mesh.vertices.len() as u32;
-        for (a, r) in [(a0, r_in), (a0, r_out), (a1, r_out), (a1, r_in)] {
-            mesh.colored_vertex(c + vec2(a.cos(), -a.sin()) * r, col);
-        }
-        mesh.add_triangle(base, base + 1, base + 2);
-        mesh.add_triangle(base, base + 2, base + 3);
-    }
-    p.add(mesh);
-    p.circle_filled(c, r_in - 1.0, Color32::from_rgb(0x16, 0x16, 0x16));
-    p.line_segment([c - vec2(6.0, 0.0), c + vec2(6.0, 0.0)], Stroke::new(1.0, t.text_faint));
-    p.line_segment([c - vec2(0.0, 6.0), c + vec2(0.0, 6.0)], Stroke::new(1.0, t.text_faint));
-    let puck = c + vec2(v.x as f32, -v.y as f32) * (r_in - 4.0);
-    p.circle_stroke(puck, 5.0, Stroke::new(1.5, Color32::WHITE));
-    if (resp.dragged() || resp.clicked())
-        && let Some(pos) = resp.interact_pointer_pos()
-    {
-        let d = (pos - c) / (r_in - 4.0);
-        let len = d.length().min(1.0);
-        let dir = if d.length() > 1e-6 { d / d.length() } else { d };
-        actions.push(json!({"clip": clip.0, "effect": idx, "param": id, "value": [dir.x * len, -dir.y * len]}));
-    }
-    if resp.double_clicked() {
-        actions.push(json!({"clip": clip.0, "effect": idx, "param": id, "value": [0.0, 0.0]}));
-    }
-    // lightness slider (vertical) at the wheel's left edge
     let l = e.param(lid).map(|p| p.f64_at(mt)).unwrap_or(0.0) as f32;
-    let track = Rect::from_min_max(pos2(area.min.x, area.min.y + 8.0), pos2(area.min.x + 4.0, area.max.y - 8.0));
-    p.rect_filled(track, 2.0, Color32::from_rgb(0x4b, 0x4b, 0x4b));
-    let ky = track.center().y - l / 100.0 * track.height() / 2.0;
-    p.circle_stroke(pos2(track.center().x, ky), 4.0, Stroke::new(1.5, Color32::from_rgb(0xb0, 0xb0, 0xb0)));
-    let lr = ui.interact(track.expand2(vec2(6.0, 0.0)), egui::Id::new(("wl", clip.0, lid)), Sense::click_and_drag());
-    if (lr.dragged() || lr.clicked())
-        && let Some(pos) = lr.interact_pointer_pos()
-    {
-        let nv = ((track.center().y - pos.y) / (track.height() / 2.0) * 100.0).clamp(-100.0, 100.0);
+    let ch = widgets::color::color_wheel(ui, [v.x as f32, v.y as f32], l, size, t, egui::Id::new(("wl", clip.0, lid)));
+    if let Some(p) = ch.puck {
+        actions.push(json!({"clip": clip.0, "effect": idx, "param": id, "value": p}));
+    }
+    if let Some(nv) = ch.lightness {
         actions.push(json!({"clip": clip.0, "effect": idx, "param": lid, "value": nv}));
     }
-    let _ = StrokeKind::Inside;
 }
 
 /// Color Match: reference frame (sequence timecode), Face Detection (skin-tone protection),

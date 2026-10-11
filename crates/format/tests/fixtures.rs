@@ -227,3 +227,41 @@ fn v10_minimal_loads_with_m3_11_defaults() {
     assert_eq!(again.schema_version, SCHEMA_VERSION);
     assert_eq!(&again.project, p);
 }
+
+/// Schema 12 (before fork G0): no colour grades. Clips (Lumetri on some, a blur) load with no
+/// grade and save back unchanged; a grade added afterwards round-trips.
+#[test]
+fn v12_graded_loads_without_grades() {
+    let l = decode(&fixture("v12-graded.fcproj")).unwrap();
+    assert_eq!(l.schema_version, 12);
+    assert!(l.migrated());
+    let mut p = l.project;
+    assert_eq!(p.name, "Before Grades");
+    let mut clips = 0;
+    let mut lumetri = 0;
+    for it in p.items.values() {
+        let ItemKind::Sequence(q) = &it.kind else { continue };
+        for t in q.video_tracks.iter().chain(&q.audio_tracks) {
+            for c in &t.items {
+                clips += 1;
+                assert!(c.grade.is_none());
+                lumetri += c.effects.iter().filter(|e| e.effect == "lumetri").count();
+            }
+        }
+    }
+    assert!(clips > 0 && lumetri >= 1, "{clips} clips, {lumetri} Lumetri");
+    let again = decode(&encode(&p, true)).unwrap();
+    assert_eq!(again.schema_version, SCHEMA_VERSION);
+    const { assert!(SCHEMA_VERSION >= 13) };
+    assert_eq!(again.project, p);
+    // no grade field is written for clips without one
+    assert!(!String::from_utf8_lossy(&encode(&p, false)).contains("\"grade\""));
+    // a one-node grade round-trips
+    let seq = p.items.values_mut().find_map(|i| if let ItemKind::Sequence(q) = &mut i.kind { Some(q) } else { None }).unwrap();
+    let clip = seq.video_tracks.iter_mut().flat_map(|t| t.items.iter_mut()).next().unwrap();
+    let mut g = filmcraft_project::grade::Grade::with_node();
+    g.nodes[0].params.insert("lift".into(), filmcraft_project::Param::new(filmcraft_project::ParamValue::Color([0.05, 0.0, -0.05, 0.0])));
+    clip.grade = Some(g);
+    let again = decode(&encode(&p, false)).unwrap();
+    assert_eq!(again.project, p);
+}
