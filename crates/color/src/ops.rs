@@ -310,6 +310,66 @@ pub enum ColorOp {
     /// temperature, tint (`show_mask` 0), or a view of the mask (1: colour over grey, 2: colour
     /// over black, 3: the mask itself; display images, no HDR scaling).
     HslCorrect { hue_shift: f32, sat: f32, temp: f32, tint: f32, show_mask: u32, hdr: bool },
+    /// Film grain (fork G1.6), monochrome, at the pixel's position: `rgb += strength ·
+    /// GRAIN_AMPLITUDE · w(l) · n` with `n` = [`grain_noise`]`(xy, inv_size, softness, seed)` and
+    /// the luma weighting `w(l) = GRAIN_FLOOR + (1 − GRAIN_FLOOR)·4l(1 − l)`,
+    /// `l = clamp(weights · rgb, 0, 1)`: strongest in the mid-tones, faint in deep shadows and
+    /// highlights, like film. The same `seed` always gives the same grain.
+    Grain { strength: f32, inv_size: f32, softness: f32, seed: u32, weights: [f32; 3] },
+}
+
+/// Half-range (not peak-to-peak) of the grain at strength 1 in the mid-tones, on the grading
+/// signal: hard cells offset by at most ±GRAIN_AMPLITUDE (softened cells are renormalised to the
+/// same standard deviation).
+pub const GRAIN_AMPLITUDE: f32 = 0.15;
+
+/// Grain left in pure black and white, relative to the mid-tones.
+pub const GRAIN_FLOOR: f32 = 0.1;
+
+/// The finest and coarsest grain cells (`1 / inv_size`, pixels) the grain draws.
+pub const GRAIN_MIN_SIZE: f32 = 0.25;
+pub const GRAIN_MAX_SIZE: f32 = 4096.0;
+
+/// The integer hash of the grain (lowbias32; wrapping, identical in WGSL).
+#[inline]
+pub fn grain_hash(mut x: u32) -> u32 {
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7feb_352d);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846c_a68b);
+    x ^= x >> 16;
+    x
+}
+
+/// The random value of grain cell (`ix`, `iy`): the sum of two uniform values − 1, a triangular
+/// distribution on −1…1 (computed exactly in `f32`).
+#[inline]
+fn grain_cell(ix: u32, iy: u32, seed: u32) -> f32 {
+    let h = grain_hash(seed ^ grain_hash(iy ^ grain_hash(ix)));
+    let a = (h >> 8) as f32 * (1.0 / 16_777_216.0);
+    let b = (grain_hash(h) >> 8) as f32 * (1.0 / 16_777_216.0);
+    a + b - 1.0
+}
+
+/// Grain noise at pixel `xy` (pixel index): cells of `1 / inv_size` pixels, each with a random
+/// value; `softness` 0 draws the cells hard, 1 interpolates smoothly (smoothstep) between
+/// neighbouring cells. The result is normalised by the interpolation weights so softening keeps
+/// the grain's variance.
+pub fn grain_noise(xy: [f32; 2], inv_size: f32, softness: f32, seed: u32) -> f32 {
+    let inv = if inv_size.is_finite() { inv_size.clamp(1.0 / GRAIN_MAX_SIZE, 1.0 / GRAIN_MIN_SIZE) } else { 1.0 };
+    let soft = if softness.is_finite() { softness.clamp(0.0, 1.0) } else { 0.0 };
+    let p = xy.map(|v| if v.is_finite() { ((v + 0.5) * inv).clamp(-1e7, 1e7) } else { 0.0 });
+    let i = p.map(f32::floor);
+    let s = [p[0] - i[0], p[1] - i[1]].map(|t| soft * (t * t * (3.0 - 2.0 * t)));
+    // (−1e7…1e7 fits i32; the cell index wraps as u32, as WGSL's bitcast does)
+    let (ix, iy) = (i[0] as i32 as u32, i[1] as i32 as u32);
+    let (ix1, iy1) = (ix.wrapping_add(1), iy.wrapping_add(1));
+    let (wx0, wx1, wy0, wy1) = (1.0 - s[0], s[0], 1.0 - s[1], s[1]);
+    let v =
+        wy0 * (wx0 * grain_cell(ix, iy, seed) + wx1 * grain_cell(ix1, iy, seed)) + wy1 * (wx0 * grain_cell(ix, iy1, seed) + wx1 * grain_cell(ix1, iy1, seed));
+    // (√ of a product of two sums ≥ ½ each: at least ½; the max only guards a division by 0)
+    let norm = ((wx0 * wx0 + wx1 * wx1) * (wy0 * wy0 + wy1 * wy1)).sqrt().max(0.25);
+    v / norm
 }
 
 impl ColorOp {
@@ -364,6 +424,7 @@ impl ColorOp {
             ColorOp::Look { intensity, .. } => intensity.is_finite(),
             ColorOp::HslKey { hue, range, sat_min, luma_min, luma_max, soft, .. } => all(&[*hue, *range, *sat_min, *luma_min, *luma_max, *soft]),
             ColorOp::HslCorrect { hue_shift, sat, temp, tint, .. } => all(&[*hue_shift, *sat, *temp, *tint]),
+            ColorOp::Grain { strength, inv_size, softness, weights, .. } => all(&[*strength, *inv_size, *softness]) && all(weights),
         }
     }
 
@@ -537,6 +598,12 @@ impl ColorOp {
                 let lk = if *hdr { within_unit(c, true, |u| apply_look(*look, u)) } else { apply_look(*look, c) };
                 [0, 1, 2].map(|k| c[k] + (lk[k] - c[k]) * intensity)
             }
+            ColorOp::Grain { strength, inv_size, softness, seed, weights } => {
+                let l = (weights[0] * c[0] + weights[1] * c[1] + weights[2] * c[2]).clamp(0.0, 1.0);
+                let wl = GRAIN_FLOOR + (1.0 - GRAIN_FLOOR) * 4.0 * l * (1.0 - l);
+                let d = strength * GRAIN_AMPLITUDE * wl * grain_noise(xy, *inv_size, *softness, *seed);
+                c.map(|v| v + d)
+            }
             // (mask operations: `apply_px`)
             ColorOp::HslKey { .. } | ColorOp::HslCorrect { .. } => {
                 let mut mask = 1.0;
@@ -668,5 +735,72 @@ mod tests {
         let s = ColorOp::Saturation { sat: 0.0, vibrance: 0.0, weights: [0.2126, 0.7152, 0.0722] };
         let grey = s.apply([1.0, 0.0, 0.0]);
         assert!(grey.iter().all(|v| (v - 0.2126).abs() < 1e-6));
+    }
+
+    fn grain(strength: f32, size: f32, softness: f32, seed: u32) -> ColorOp {
+        ColorOp::Grain { strength, inv_size: 1.0 / size, softness, seed, weights: [0.2126, 0.7152, 0.0722] }
+    }
+
+    /// Mean absolute grain offset over a 64×64 patch of `level`.
+    fn grain_mad(op: &ColorOp, level: f32) -> f32 {
+        let mut sum = 0.0;
+        for y in 0..64 {
+            for x in 0..64 {
+                sum += (op.apply_at([level; 3], [x as f32, y as f32])[0] - level).abs();
+            }
+        }
+        sum / 4096.0
+    }
+
+    #[test]
+    fn grain_is_deterministic_per_seed_and_monochrome() {
+        let a = grain(0.8, 1.5, 0.5, 42);
+        let b = grain(0.8, 1.5, 0.5, 43);
+        let mut differs = 0;
+        for y in 0..32 {
+            for x in 0..32 {
+                let xy = [x as f32, y as f32];
+                let (p, q) = (a.apply_at([0.4, 0.3, 0.2], xy), a.apply_at([0.4, 0.3, 0.2], xy));
+                assert_eq!(p, q);
+                // the same offset on every channel (monochrome grain on the luma)
+                assert!(((p[0] - 0.4) - (p[1] - 0.3)).abs() < 1e-6 && ((p[1] - 0.3) - (p[2] - 0.2)).abs() < 1e-6);
+                differs += usize::from(p != b.apply_at([0.4, 0.3, 0.2], xy));
+            }
+        }
+        assert!(differs > 1000, "{differs}");
+    }
+
+    #[test]
+    fn grain_is_strongest_in_the_mid_tones() {
+        let g = grain(1.0, 1.0, 0.0, 7);
+        let (black, mid, white) = (grain_mad(&g, 0.0), grain_mad(&g, 0.5), grain_mad(&g, 1.0));
+        assert!(mid > 0.03, "{mid}");
+        assert!(black < mid * 0.2 && white < mid * 0.2, "{black} {mid} {white}");
+        // softening keeps the grain's strength roughly (normalised interpolation)
+        let soft = grain_mad(&grain(1.0, 1.0, 1.0, 7), 0.5);
+        assert!(soft > mid * 0.6 && soft < mid * 1.4, "{soft} vs {mid}");
+        // strength 0 is the identity
+        assert_eq!(grain(0.0, 2.0, 0.5, 1).apply_at([0.3, 0.5, 0.7], [3.0, 9.0]), [0.3, 0.5, 0.7]);
+    }
+
+    #[test]
+    fn grain_size_sets_the_cell_size() {
+        // hard 4 px cells: the 4×4 pixels of a cell share one value
+        let g = grain(1.0, 4.0, 0.0, 99);
+        let at = |x: f32, y: f32| g.apply_at([0.5; 3], [x, y])[0];
+        assert_eq!(at(0.0, 0.0), at(2.0, 2.0));
+        assert_ne!(at(0.0, 0.0), at(4.0, 0.0));
+    }
+
+    #[test]
+    fn hostile_grain_never_panics_or_poisons_finite_pixels() {
+        for (inv, soft) in [(f32::NAN, f32::NAN), (f32::INFINITY, -1.0), (0.0, 2.0), (-5.0, 0.5), (1e30, 1e30)] {
+            let op = ColorOp::Grain { strength: 1.0, inv_size: inv, softness: soft, seed: u32::MAX, weights: [0.3; 3] };
+            for xy in [[0.0, 0.0], [f32::MAX, -f32::MAX], [f32::NAN, f32::INFINITY], [1e9, 1e9]] {
+                let o = op.apply_at([0.5; 3], xy);
+                assert!(o.iter().all(|v| v.is_finite()), "{inv} {soft} {xy:?}: {o:?}");
+            }
+        }
+        assert!(!ColorOp::Grain { strength: f32::NAN, inv_size: 1.0, softness: 0.5, seed: 0, weights: [0.3; 3] }.is_finite());
     }
 }

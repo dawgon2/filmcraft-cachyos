@@ -265,3 +265,34 @@ fn v12_graded_loads_without_grades() {
     let again = decode(&encode(&p, false)).unwrap();
     assert_eq!(again.project, p);
 }
+
+/// Schema 13 (before stills): no `stills` list. Opens unchanged and writes none; stills added
+/// afterwards round-trip in the current schema.
+#[test]
+fn v13_loads_without_stills_and_v14_round_trips_them() {
+    let l = decode(&fixture("v13-graded.fcproj")).unwrap();
+    assert_eq!(l.schema_version, 13);
+    assert!(l.migrated());
+    let mut p = l.project;
+    assert_eq!(p.name, "Before Stills");
+    assert!(p.stills.is_empty());
+    let again = decode(&encode(&p, true)).unwrap();
+    assert_eq!(again.schema_version, SCHEMA_VERSION);
+    assert_eq!(again.project, p);
+    assert!(!String::from_utf8_lossy(&encode(&p, false)).contains("\"stills\""));
+    const { assert!(SCHEMA_VERSION >= 14) };
+    p.stills.push(filmcraft_project::Still {
+        id: 9,
+        label: "Hero".into(),
+        clip: Some(ClipId(3)),
+        clip_name: "A001".into(),
+        sequence: None,
+        time: Tick(12),
+        grade: Some(Default::default()),
+        width: 640,
+        height: 360,
+        nonce: 77,
+    });
+    let back = decode(&encode(&p, true)).unwrap();
+    assert_eq!((back.schema_version, &back.project), (SCHEMA_VERSION, &p));
+}

@@ -1,0 +1,298 @@
+//! `grade.*` commands: node list edits, parameters, undo, hostile ids and values.
+
+use serde_json::{Value, json};
+
+use crate::Session;
+use filmcraft_project::grade::{Grade, MAX_NODES};
+use filmcraft_project::{ClipId, ParamValue};
+
+fn demo() -> (Session, ClipId) {
+    let mut s = Session::default();
+    s.execute("file.openDemoProject", json!({})).unwrap();
+    let q = s.active_sequence().unwrap();
+    let id = q.video_tracks[0].item_at(s.playhead()).unwrap().id;
+    s.state.selection = vec![id];
+    (s, id)
+}
+
+fn grade(s: &Session, c: ClipId) -> Option<Grade> {
+    s.active_sequence().unwrap().find_item(c).unwrap().1.grade.clone()
+}
+
+fn ids(s: &Session, c: ClipId) -> Vec<u64> {
+    grade(s, c).map(|g| g.nodes.iter().map(|n| n.id).collect()).unwrap_or_default()
+}
+
+fn add(s: &mut Session, p: Value) -> u64 {
+    s.execute("grade.addNode", p).unwrap()["node"].as_u64().unwrap()
+}
+
+#[test]
+fn add_insert_creates_grade_and_orders_nodes() {
+    let (mut s, c) = demo();
+    assert!(grade(&s, c).is_none());
+    let a = add(&mut s, json!({"clip": c.0}));
+    let b = add(&mut s, json!({})); // selected clip
+    let mid = add(&mut s, json!({"after": a, "label": "Mid"}));
+    s.execute("grade.selectNode", json!({})).unwrap(); // no current node: insert goes first
+    let first = s.execute("grade.insertNode", json!({"clip": c.0})).unwrap()["node"].as_u64().unwrap();
+    let before_b = s.execute("grade.insertNode", json!({"before": b})).unwrap()["node"].as_u64().unwrap();
+    assert_eq!(ids(&s, c), vec![first, a, mid, before_b, b]);
+    let g = grade(&s, c).unwrap();
+    assert_eq!(g.node(mid).unwrap().label, "Mid");
+    let mut sorted = ids(&s, c);
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), 5, "ids stay unique");
+}
+
+#[test]
+fn each_edit_is_one_undo_step() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.setParam", json!({"node": a, "param": "saturation", "value": 1.5})).unwrap();
+    s.execute("grade.toggleNode", json!({"node": a})).unwrap();
+    assert!(!grade(&s, c).unwrap().node(a).unwrap().enabled);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(grade(&s, c).unwrap().node(a).unwrap().enabled);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(grade(&s, c).unwrap().node(a).unwrap().params.is_empty());
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(grade(&s, c).is_none(), "undoing the first node removes the grade it created");
+}
+
+#[test]
+fn set_param_clamps_and_types_values() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.setParam", json!({"node": a, "param": "contrast", "value": 99.0})).unwrap();
+    s.execute("grade.setParam", json!({"node": a, "param": "offset", "value": [0.1, 0.0, -0.1]})).unwrap();
+    s.execute("grade.setParam", json!({"node": a, "param": "gain", "value": [1.0, 1.0, 1.0, 50.0]})).unwrap();
+    s.execute("grade.setParam", json!({"node": a, "param": "curve.master", "value": [[1.0, 0.9], [0.0, 0.1], [0.5, 2.0]]})).unwrap();
+    let g = grade(&s, c).unwrap();
+    let n = g.node(a).unwrap();
+    assert_eq!(n.param("contrast").unwrap().value, ParamValue::Float(4.0));
+    assert_eq!(n.param("offset").unwrap().value, ParamValue::Color([0.1, 0.0, -0.1, 0.0]), "a missing master is 0, not 1");
+    assert_eq!(n.param("gain").unwrap().value, ParamValue::Color([1.0, 1.0, 1.0, 4.0]));
+    assert_eq!(n.param("curve.master").unwrap().value, ParamValue::Curve(vec![[0.0, 0.1], [0.5, 1.0], [1.0, 0.9]]), "sorted, clamped");
+}
+
+#[test]
+fn hostile_params_are_refused_without_changes() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    let before = s.project.clone();
+    for p in [
+        json!({"node": a, "param": "nope", "value": 1.0}),
+        json!({"node": a, "param": "contrast", "value": "x"}),
+        json!({"node": a, "param": "contrast"}),
+        json!({"node": a, "param": "lift", "value": [1.0]}),
+        json!({"node": a, "param": "lift", "value": [1.0, 2.0, 3.0, 4.0, 5.0]}),
+        json!({"node": a, "param": "curve.r", "value": [[0.0]]}),
+        json!({"node": a, "param": "curve.r", "value": vec![[0.5, 0.5]; 65]}),
+        json!({"node": u64::MAX, "param": "contrast", "value": 1.0}),
+        json!({"clip": "x", "node": a, "param": "contrast", "value": 1.0}),
+        json!({"clip": 987_654_321u64, "node": a, "param": "contrast", "value": 1.0}),
+    ] {
+        assert!(s.execute("grade.setParam", p.clone()).is_err(), "{p}");
+    }
+    for (cmd, p) in [
+        ("grade.removeNode", json!({"node": 999})),
+        ("grade.moveNode", json!({"node": 999, "to": 0})),
+        ("grade.moveNode", json!({"node": a})),
+        ("grade.toggleNode", json!({"node": -1})),
+        ("grade.labelNode", json!({"node": a})),
+        ("grade.addNode", json!({"after": 999})),
+        ("grade.insertNode", json!({"before": 999})),
+        ("grade.resetNode", json!({"node": a, "param": "nope"})),
+        ("grade.toggleAnimation", json!({"node": a, "param": "curve.r"})),
+    ] {
+        assert!(s.execute(cmd, p.clone()).is_err(), "{cmd} {p}");
+    }
+    assert!(std::sync::Arc::ptr_eq(&before, &s.project), "refused commands change nothing");
+}
+
+#[test]
+fn nan_is_not_representable_but_infinity_like_values_clamp() {
+    // JSON has no NaN / ∞; huge numbers clamp to the range
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.setParam", json!({"node": a, "param": "temperature", "value": -1e308})).unwrap();
+    assert_eq!(grade(&s, c).unwrap().node(a).unwrap().param("temperature").unwrap().value, ParamValue::Float(-100.0));
+}
+
+#[test]
+fn grade_commands_without_a_grade_or_on_audio_are_refused() {
+    let (mut s, c) = demo();
+    assert!(s.execute("grade.removeNode", json!({"clip": c.0, "node": 1})).is_err());
+    assert!(s.execute("grade.bypass", json!({"clip": c.0})).is_err());
+    let q = s.active_sequence().unwrap();
+    if let Some(audio) = q.audio_tracks.iter().flat_map(|t| t.items.iter()).next() {
+        let a = audio.id;
+        assert!(s.execute("grade.addNode", json!({"clip": a.0})).is_err());
+        s.state.selection = vec![a];
+        assert!(s.execute("grade.addNode", json!({})).is_err(), "selection without a video clip");
+    }
+}
+
+#[test]
+fn move_toggle_label_reset_bypass_clear() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    let b = add(&mut s, json!({}));
+    let d = add(&mut s, json!({}));
+    s.execute("grade.moveNode", json!({"node": d, "to": 0})).unwrap();
+    assert_eq!(ids(&s, c), vec![d, a, b]);
+    s.execute("grade.moveNode", json!({"node": d, "to": u64::MAX})).unwrap();
+    assert_eq!(ids(&s, c), vec![a, b, d], "past the end moves to the end");
+    let r = s.execute("grade.toggleNode", json!({"node": b, "on": false})).unwrap();
+    assert_eq!(r["enabled"], json!(false));
+    s.execute("grade.labelNode", json!({"node": b, "label": format!("Skin\u{7}{}", "x".repeat(200))})).unwrap();
+    let label = grade(&s, c).unwrap().node(b).unwrap().label.clone();
+    assert!(label.starts_with("Skinx") && label.chars().count() == 64, "control chars dropped, capped: {label:?}");
+    s.execute("grade.setParam", json!({"node": a, "param": "saturation", "value": 0.5})).unwrap();
+    s.execute("grade.setParam", json!({"node": a, "param": "contrast", "value": 1.2})).unwrap();
+    s.execute("grade.resetNode", json!({"node": a, "param": "saturation"})).unwrap();
+    assert_eq!(grade(&s, c).unwrap().node(a).unwrap().params.len(), 1);
+    s.execute("grade.resetNode", json!({"node": a})).unwrap();
+    assert!(grade(&s, c).unwrap().node(a).unwrap().params.is_empty());
+    assert_eq!(s.execute("grade.bypass", json!({})).unwrap()["bypass"], json!(true));
+    assert_eq!(s.execute("grade.bypass", json!({"on": true})).unwrap()["bypass"], json!(true));
+    s.execute("grade.removeNode", json!({"node": a})).unwrap();
+    assert_eq!(ids(&s, c), vec![b, d]);
+    let got = s.execute("grade.get", json!({})).unwrap();
+    assert_eq!(got["grade"]["nodes"].as_array().unwrap().len(), 2);
+    s.execute("grade.clear", json!({})).unwrap();
+    assert!(grade(&s, c).is_none());
+    assert!(s.execute("grade.get", json!({})).unwrap()["grade"].is_null());
+}
+
+#[test]
+fn node_count_is_capped() {
+    let (mut s, c) = demo();
+    for _ in 0..MAX_NODES {
+        add(&mut s, json!({"clip": c.0}));
+    }
+    assert!(s.execute("grade.addNode", json!({})).is_err());
+    assert_eq!(ids(&s, c).len(), MAX_NODES);
+}
+
+#[test]
+fn keyframes_at_the_playhead_and_merged_drags() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    let r = s.execute("grade.toggleAnimation", json!({"node": a, "param": "saturation"})).unwrap();
+    assert_eq!(r["animated"], json!(true));
+    let (start, end) = {
+        let it = s.active_sequence().unwrap().find_item(c).unwrap().1;
+        (it.start, it.end())
+    };
+    let later = filmcraft_time::Tick(start.0 + (end.0 - start.0) / 2);
+    s.execute("grade.setParam", json!({"node": a, "param": "saturation", "value": 2.0, "time": later.0})).unwrap();
+    let g = grade(&s, c).unwrap();
+    let prm = g.node(a).unwrap().param("saturation").unwrap();
+    assert_eq!(prm.keyframes.len(), 2);
+    // a drag: three merged edits are one undo step
+    let undo = s.history.undo.len();
+    for v in [0.2, 0.4, 0.6] {
+        s.execute("grade.setParam", json!({"node": a, "param": "lift", "value": [v, 0.0, 0.0], "merge": "drag-1"})).unwrap();
+    }
+    assert_eq!(s.history.undo.len(), undo + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(grade(&s, c).unwrap().node(a).unwrap().param("lift").is_none());
+}
+
+#[test]
+fn params_lists_the_schema() {
+    let (mut s, _) = demo();
+    let r = s.execute("grade.params", json!({})).unwrap();
+    let keys: Vec<&str> = r["params"].as_array().unwrap().iter().map(|p| p["key"].as_str().unwrap()).collect();
+    assert!(keys.contains(&"offset") && keys.contains(&"curve.master"));
+    assert_eq!(r["maxNodes"], json!(MAX_NODES));
+}
+
+#[test]
+fn graded_clip_renders_differently() {
+    let (mut s, c) = demo();
+    let plain = s.render_program(0.125).unwrap();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.setParam", json!({"node": a, "param": "offset", "value": [0.1, 0.0, 0.0, 0.0]})).unwrap();
+    let graded = s.render_program(0.125).unwrap();
+    assert_ne!(plain.px, graded.px);
+    s.execute("grade.bypass", json!({})).unwrap();
+    assert_eq!(plain.px, s.render_program(0.125).unwrap().px, "bypass renders like no grade");
+}
+
+#[test]
+fn merged_drags_split_per_clip_and_only_set_param_merges() {
+    let (mut s, c) = demo();
+    let other = s.active_sequence().unwrap().video_tracks[0].items.iter().map(|i| i.id).find(|i| *i != c).unwrap();
+    let a = add(&mut s, json!({"clip": c.0}));
+    let b = add(&mut s, json!({"clip": other.0}));
+    let undo = s.history.undo.len();
+    s.execute("grade.setParam", json!({"clip": c.0, "node": a, "param": "contrast", "value": 1.1, "merge": "k"})).unwrap();
+    s.execute("grade.setParam", json!({"clip": other.0, "node": b, "param": "contrast", "value": 1.1, "merge": "k"})).unwrap();
+    assert_eq!(s.history.undo.len(), undo + 2, "same key on another clip is a new step");
+    s.execute("grade.toggleNode", json!({"clip": other.0, "node": b, "merge": "k"})).unwrap();
+    s.execute("grade.toggleNode", json!({"clip": other.0, "node": b, "merge": "k"})).unwrap();
+    assert_eq!(s.history.undo.len(), undo + 4, "only setParam merges");
+}
+
+#[test]
+fn toggle_animation_off_keeps_the_value_and_clear_undoes() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.toggleAnimation", json!({"node": a, "param": "saturation"})).unwrap();
+    s.execute("grade.setParam", json!({"node": a, "param": "saturation", "value": 1.7})).unwrap();
+    let r = s.execute("grade.toggleAnimation", json!({"node": a, "param": "saturation"})).unwrap();
+    assert_eq!(r["animated"], json!(false));
+    let g = grade(&s, c).unwrap();
+    let prm = g.node(a).unwrap().param("saturation").unwrap();
+    assert!(prm.keyframes.is_empty());
+    assert_eq!(prm.value, ParamValue::Float(1.7));
+    s.execute("grade.clear", json!({})).unwrap();
+    assert!(s.execute("grade.clear", json!({})).is_err(), "no grade left to clear");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(grade(&s, c).is_some());
+    assert!(s.execute("grade.get", json!({"clip": 987_654_321u64})).is_err());
+}
+
+#[test]
+fn negative_positions_and_ids_are_refused() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    add(&mut s, json!({}));
+    assert!(s.execute("grade.moveNode", json!({"node": a, "to": -5})).is_err());
+    assert!(s.execute("grade.addNode", json!({"after": -1})).is_err());
+    assert!(s.execute("grade.removeNode", json!({"node": 1.5})).is_err());
+}
+
+#[test]
+fn keyframes_land_at_clip_time_clamped_into_the_clip() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.toggleAnimation", json!({"node": a, "param": "contrast", "time": 0})).unwrap();
+    let it = s.active_sequence().unwrap().find_item(c).unwrap().1.clone();
+    let far = it.end().0 + 1_000_000_000_000;
+    s.execute("grade.setParam", json!({"node": a, "param": "contrast", "value": 2.0, "time": far})).unwrap();
+    let g = grade(&s, c).unwrap();
+    let k = &g.node(a).unwrap().param("contrast").unwrap().keyframes;
+    let last = it.effect_time_at(it.end() - filmcraft_time::Tick(1));
+    assert!(k.iter().any(|k| k.time == last), "{:?} vs {last:?}", k.iter().map(|k| k.time).collect::<Vec<_>>());
+}
+
+#[test]
+fn graded_clip_survives_save_and_open() {
+    let (mut s, c) = demo();
+    let a = add(&mut s, json!({"clip": c.0}));
+    s.execute("grade.setParam", json!({"node": a, "param": "gain", "value": [0.1, 0.2, 0.3, 0.4]})).unwrap();
+    let before = grade(&s, c).unwrap();
+    let dir = std::env::temp_dir().join(format!("fc-grade-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("g.fcproj").to_string_lossy().to_string();
+    s.execute("file.saveAs", json!({"path": path})).unwrap();
+    let mut t = Session::default();
+    t.execute("file.open", json!({"path": path})).unwrap();
+    assert_eq!(grade(&t, c), Some(before));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -40,7 +40,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 web-time = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 filmcraft-testkit = { workspace = true }
-image = { version = "0.25", default-features = false, features = ["png"] }

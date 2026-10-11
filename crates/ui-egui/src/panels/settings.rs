@@ -424,6 +424,33 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
                 &format!("Programme left → device output {l}, right → device output {r}{dev}. Outputs beyond the device's channels fall back to 1 and 2."),
             );
         }
+        "workflow" => {
+            // applies at once (keymap + page bar), like Premiere's keyboard preset menu
+            let current = app.session.prefs.workflow;
+            let opts = static_opts(&[("premiere", "Premiere Pro"), ("resolve", "DaVinci Resolve")]);
+            let cur = if current == settings::Workflow::Resolve { "resolve" } else { "premiere" };
+            let mut picked = None;
+            ui.horizontal(|ui| {
+                field_label(ui, "Workflow");
+                picked = combo(app, ui, "workflow", cur, &opts, 180.0);
+            });
+            note(
+                ui,
+                &t,
+                "DaVinci Resolve: page bar (Media, Edit, Color, Fairlight, Deliver), the Color page opens the node grader, and the DaVinci Resolve Compatible keyboard shortcuts. Premiere Pro restores your previous shortcuts. Applies at once.",
+            );
+            if let Some(w) = picked.filter(|w| w.as_str() != cur) {
+                match app.session.execute("settings.setWorkflow", json!({ "workflow": w })) {
+                    Ok(_) => {
+                        // keep the draft in step (other edits stay) so OK doesn't write it back
+                        put(&mut d.values, "workflow", json!(w));
+                        put(&mut d.values, "workflowReturnPreset", json!(app.session.prefs.workflow_return_preset));
+                        d.message = format!("Workflow: {}", if w == "resolve" { "DaVinci Resolve" } else { "Premiere Pro" });
+                    }
+                    Err(e) => d.message = e.to_string(),
+                }
+            }
+        }
         "autoSaveStatus" => {
             let status = app.session.execute("file.autoSaveStatus", json!({})).unwrap_or_default();
             if let Some(dir) = status["autoSaveDir"].as_str() {
@@ -571,6 +598,9 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) -> bool {
     if apply {
         let mut changes = Map::new();
         diff("", &app.session.prefs.to_value(), &d.values, &mut changes);
+        // the workflow switches only through settings.setWorkflow (it may change while open)
+        changes.remove("workflow");
+        changes.remove("workflowReturnPreset");
         match if changes.is_empty() { Ok(Value::Null) } else { app.session.execute("prefs.set", json!({ "values": changes })) } {
             Ok(_) => {
                 close = true;

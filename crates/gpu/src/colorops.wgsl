@@ -64,6 +64,7 @@ const CO_LUT: u32 = 20u;
 const CO_LOOK: u32 = 21u;
 const CO_HSL_KEY: u32 = 22u;
 const CO_HSL_CORRECT: u32 = 23u;
+const CO_GRAIN: u32 = 24u;
 
 fn rgb_to_hsl(c: vec3<f32>) -> vec3<f32> {
     let r = c.x; let g = c.y; let b = c.z;
@@ -435,6 +436,45 @@ fn lggo_channel(v: f32, lift: f32, gamma: f32, gain: f32, off: f32) -> f32 {
     return p + off;
 }
 
+// `ops::grain_hash` (lowbias32, wrapping).
+fn grain_hash(x0: u32) -> u32 {
+    var x = x0;
+    x = x ^ (x >> 16u);
+    x = x * 0x7feb352du;
+    x = x ^ (x >> 15u);
+    x = x * 0x846ca68bu;
+    x = x ^ (x >> 16u);
+    return x;
+}
+
+// `ops::grain_cell`: a triangular value on −1…1.
+fn grain_cell(ix: u32, iy: u32, seed: u32) -> f32 {
+    let h = grain_hash(seed ^ grain_hash(iy ^ grain_hash(ix)));
+    let a = f32(h >> 8u) * (1.0 / 16777216.0);
+    let b = f32(grain_hash(h) >> 8u) * (1.0 / 16777216.0);
+    return a + b - 1.0;
+}
+
+// `ops::grain_noise` (the encoder hands over finite values only).
+fn grain_noise(xy: vec2<f32>, inv_size: f32, softness: f32, seed: u32) -> f32 {
+    let inv = clamp(inv_size, 1.0 / 4096.0, 4.0);
+    let soft = clamp(softness, 0.0, 1.0);
+    let p = clamp((xy + vec2(0.5)) * inv, vec2(-1e7), vec2(1e7));
+    let i = floor(p);
+    let t = p - i;
+    let s = soft * (t * t * (vec2(3.0) - 2.0 * t));
+    let ix = bitcast<u32>(i32(i.x));
+    let iy = bitcast<u32>(i32(i.y));
+    let wx0 = 1.0 - s.x;
+    let wx1 = s.x;
+    let wy0 = 1.0 - s.y;
+    let wy1 = s.y;
+    let v = wy0 * (wx0 * grain_cell(ix, iy, seed) + wx1 * grain_cell(ix + 1u, iy, seed))
+        + wy1 * (wx0 * grain_cell(ix, iy + 1u, seed) + wx1 * grain_cell(ix + 1u, iy + 1u, seed));
+    let norm = max(sqrt((wx0 * wx0 + wx1 * wx1) * (wy0 * wy0 + wy1 * wy1)), 0.25);
+    return v / norm;
+}
+
 fn run_chain(c0: vec3<f32>, xy: vec2<f32>) -> vec3<f32> {
     var c = c0;
     var pc: u32 = 0u;
@@ -718,6 +758,15 @@ fn run_chain(c0: vec3<f32>, xy: vec2<f32>) -> vec3<f32> {
                 }
                 c = o;
                 pc = pc + 7u;
+            }
+            case CO_GRAIN: {
+                let seed = u32(at(pc + 4u)) | (u32(at(pc + 5u)) << 16u);
+                let l = clamp(at(pc + 6u) * c.x + at(pc + 7u) * c.y + at(pc + 8u) * c.z, 0.0, 1.0);
+                // GRAIN_FLOOR 0.1, GRAIN_AMPLITUDE 0.15 (`filmcraft_color::ops`)
+                let wl = 0.1 + 0.9 * 4.0 * l * (1.0 - l);
+                let d = at(pc + 1u) * 0.15 * wl * grain_noise(xy, at(pc + 2u), at(pc + 3u), seed);
+                c = c + vec3(d);
+                pc = pc + 9u;
             }
             default: {
                 // unknown code: stop (the encoder never writes one)

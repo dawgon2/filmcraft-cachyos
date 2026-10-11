@@ -36,10 +36,16 @@ pub enum PanelKind {
     Progress,
     ReferenceMonitor,
     Timecode,
+    /// Color grading: the clip's serial node strip (fork GRADE-PLAN G1).
+    ColorNodes,
+    /// Color grading: primaries wheels / curves of the selected node.
+    ColorPrimaries,
+    /// Color grading: the stills gallery (grab, compare, apply a still's grade).
+    Gallery,
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 26] = [
+    pub const ALL: [PanelKind; 29] = [
         PanelKind::Project,
         PanelKind::MediaBrowser,
         PanelKind::Libraries,
@@ -66,6 +72,9 @@ impl PanelKind {
         PanelKind::Progress,
         PanelKind::ReferenceMonitor,
         PanelKind::Timecode,
+        PanelKind::ColorNodes,
+        PanelKind::ColorPrimaries,
+        PanelKind::Gallery,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -95,6 +104,9 @@ impl PanelKind {
             PanelKind::Progress => "Progress",
             PanelKind::ReferenceMonitor => "Reference Monitor",
             PanelKind::Timecode => "Timecode",
+            PanelKind::ColorNodes => "Nodes",
+            PanelKind::ColorPrimaries => "Primaries",
+            PanelKind::Gallery => "Gallery",
         }
     }
     pub fn id(self) -> String {
@@ -159,7 +171,8 @@ fn vsplit(size: SplitSize, a: DockNode, b: DockNode) -> DockNode {
     DockNode::Split { vertical: true, size, a: Box::new(a), b: Box::new(b) }
 }
 
-pub const WORKSPACES: [&str; 9] = ["Editing", "Assembly", "Color", "Effects", "Audio", "Captions and Graphics", "Learning", "Review", "All Panels"];
+pub const WORKSPACES: [&str; 10] =
+    ["Editing", "Assembly", "Color", "Color Grading", "Effects", "Audio", "Captions and Graphics", "Learning", "Review", "All Panels"];
 
 /// The user's workspaces file, beside `preferences.json` in the data directory.
 pub const WORKSPACES_FILE: &str = "workspaces.json";
@@ -252,6 +265,21 @@ pub fn workspace(name: &str) -> DockNode {
             ),
             tabs(&[LumetriColor, Effects], 0),
         ),
+        // fork GRADE-PLAN G1: the node grader, laid out like Resolve's Color page: gallery |
+        // viewer | nodes on top, the timeline as a clip strip, primaries / curves and scopes below
+        "Color Grading" => vsplit(
+            Ratio(0.56),
+            hsplit(
+                FixedA(250.0),
+                tabs(&[Gallery, Project, MediaBrowser], 0),
+                hsplit(FixedB(400.0), tabs(&[Program, Source, ReferenceMonitor], 0), tabs(&[ColorNodes, Info, History], 0)),
+            ),
+            vsplit(
+                FixedA(190.0),
+                bottom_editing(),
+                hsplit(Ratio(0.64), tabs(&[ColorPrimaries, LumetriColor, EffectControls], 0), tabs(&[LumetriScopes, Markers], 0)),
+            ),
+        ),
         "Effects" => hsplit(
             FixedB(320.0),
             vsplit(
@@ -284,7 +312,11 @@ pub fn workspace(name: &str) -> DockNode {
             hsplit(
                 Ratio(0.5),
                 tabs(&[Source, EffectControls, AudioClipMixer, Metadata, LumetriScopes, Text], 0),
-                hsplit(Ratio(0.6), tabs(&[Program], 0), tabs(&[LumetriColor, EssentialGraphics, EssentialSound, Properties, AudioTrackMixer], 0)),
+                hsplit(
+                    Ratio(0.6),
+                    tabs(&[Program], 0),
+                    tabs(&[LumetriColor, ColorPrimaries, ColorNodes, Gallery, EssentialGraphics, EssentialSound, Properties, AudioTrackMixer], 0),
+                ),
             ),
             hsplit(Ratio(0.26), tabs(&[Project, MediaBrowser, Libraries, Info, Effects, Markers, History], 0), bottom_editing()),
         ),

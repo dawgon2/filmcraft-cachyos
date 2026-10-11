@@ -443,3 +443,72 @@ pub const AVID: &[Entry] = &[
     ("view.zoomOut", "Cmd+[", ""),
     ("markers.add", "F5", ""),
 ];
+
+/// DaVinci Resolve's default keys for the equivalent FilmCraft commands (Settings ▸ Workflow ▸
+/// Resolve). Only assignments that are documented in Blackmagic's public keyboard reference are
+/// listed (functional facts); anything uncertain stays on its FilmCraft default. `Cmd` is ⌘ on
+/// macOS and Ctrl elsewhere, as in Resolve itself. Commands that do not exist (yet) are skipped
+/// when the preset is built.
+pub const RESOLVE: &[Entry] = &[
+    // Edit
+    ("edit.undo", "Cmd+Z", ""),
+    ("edit.redo", "Cmd+Shift+Z", ""),
+    ("edit.selectAll", "Cmd+A", ""),
+    ("edit.deselectAll", "Cmd+Shift+A", ""),
+    ("edit.clear", "Delete", ""),
+    ("edit.clear", "Backspace", ""),
+    ("edit.rippleDelete", "Shift+Delete", ""),
+    ("edit.rippleDelete", "Shift+Backspace", ""),
+    // Tools and cutting
+    ("tool.selection", "A", ""),
+    ("tool.razor", "B", ""),
+    ("sequence.addEdit", "Cmd+B", ""),
+    ("sequence.snap", "N", ""),
+    ("sequence.linkedSelection", "Cmd+Shift+L", ""),
+    ("clip.link", "Cmd+Alt+L", ""),
+    ("clip.enable", "D", ""),
+    ("sequence.matchFrame", "F", ""),
+    // Three-point editing
+    ("source.insert", "F9", ""),
+    ("source.overwrite", "F10", ""),
+    // Playback
+    ("playback.toggle", "Space", ""),
+    ("playback.reverse", "J", ""),
+    ("playback.stop", "K", ""),
+    ("playback.forward", "L", ""),
+    ("playback.playAround", "/", ""),
+    ("playback.inToOut", "Alt+/", ""),
+    ("playhead.start", "Home", ""),
+    ("playhead.end", "End", ""),
+    ("playhead.prevEdit", "Up", ""),
+    ("playhead.nextEdit", "Down", ""),
+    ("playhead.stepBack", "Left", ""),
+    ("playhead.stepForward", "Right", ""),
+    // Marks and markers
+    ("markers.markIn", "I", ""),
+    ("markers.markOut", "O", ""),
+    ("markers.markClip", "X", ""),
+    ("markers.clearIn", "Alt+I", ""),
+    ("markers.clearOut", "Alt+O", ""),
+    ("markers.clearInOut", "Alt+X", ""),
+    ("markers.goToIn", "Shift+I", ""),
+    ("markers.goToOut", "Shift+O", ""),
+    ("markers.add", "M", ""),
+    // Timeline zoom
+    ("view.zoomIn", "Cmd+=", ""),
+    ("view.zoomOut", "Cmd+-", ""),
+    ("view.zoomToSequence", "Shift+Z", ""),
+    // Pages (Media, Edit, Color, Fairlight, Deliver; the page bar maps Media to Assembly)
+    ("window.workspace.assembly", "Shift+2", ""),
+    ("window.workspace.editing", "Shift+4", ""),
+    ("window.workspace.color", "Shift+6", ""),
+    ("window.workspace.audio", "Shift+7", ""),
+    ("mode.export", "Shift+8", ""),
+    // Color page: nodes, bypass, stills, wipe
+    ("grade.addNode", "Alt+S", ""),
+    ("grade.insertNode", "Shift+S", ""),
+    ("grade.toggleNode", "Cmd+D", ""),
+    ("grade.bypass", "Shift+D", ""),
+    ("stills.grab", "Cmd+Alt+G", ""),
+    ("compare.set", "Cmd+W", ""),
+];

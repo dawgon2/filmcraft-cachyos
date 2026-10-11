@@ -92,6 +92,13 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("window.workspace.editing", "Editing", ["Window", "Workspaces"], Some("Alt+Shift+1")),
     uic!("window.workspace.assembly", "Assembly", ["Window", "Workspaces"], Some("Alt+Shift+2")),
     uic!("window.workspace.color", "Color", ["Window", "Workspaces"], Some("Alt+Shift+3")),
+    uic!("window.workspace.colorgrading", "Color Grading", ["Window", "Workspaces"], None),
+    // Resolve workflow pages (GRADE-PLAN G1.8; the page bar shows them)
+    uic!("page.media", "Media Page", [], None),
+    uic!("page.edit", "Edit Page", [], None),
+    uic!("page.color", "Color Page", [], None),
+    uic!("page.fairlight", "Fairlight Page", [], None),
+    uic!("page.deliver", "Deliver Page", [], None),
     uic!("window.workspace.effects", "Effects", ["Window", "Workspaces"], Some("Alt+Shift+4")),
     uic!("window.workspace.audio", "Audio", ["Window", "Workspaces"], Some("Alt+Shift+5")),
     uic!("window.workspace.captionsandgraphics", "Captions and Graphics", ["Window", "Workspaces"], Some("Alt+Shift+6")),
@@ -287,6 +294,10 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: Val
         "mode.export" => {
             app.ui.mode = Mode::Export;
             return Ok(Value::Null);
+        }
+        id if id.starts_with("page.") => {
+            let page = id.trim_start_matches("page.");
+            return if crate::panels::pages::open(app, page) { Ok(json!({"page": page})) } else { Err(format!("unknown page `{page}`")) };
         }
         "app.about" => {
             app.dialog = Some(crate::Dialog::About);

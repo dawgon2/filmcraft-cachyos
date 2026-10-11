@@ -84,6 +84,11 @@ pub const NODE_PARAMS: &[NodeParam] = &[
     NodeParam { key: "curve.r", label: "Red curve", kind: NodeParamKind::Curve },
     NodeParam { key: "curve.g", label: "Green curve", kind: NodeParamKind::Curve },
     NodeParam { key: "curve.b", label: "Blue curve", kind: NodeParamKind::Curve },
+    // film grain (G1.6): monochrome, luma weighted, a new pattern every frame
+    NodeParam { key: "grain.strength", label: "Grain strength", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    // (grain cell size in full-resolution pixels: the clip's source pixels; see `filmcraft_render::grade::GradeCtx`)
+    NodeParam { key: "grain.size", label: "Grain size", kind: NodeParamKind::Float { identity: 1.0, min: 1.0, max: 4.0 } },
+    NodeParam { key: "grain.softness", label: "Grain softness", kind: NodeParamKind::Float { identity: 0.5, min: 0.0, max: 1.0 } },
 ];
 
 /// The schema entry for `key`.
@@ -231,6 +236,17 @@ mod tests {
         let many = (0..10_000).map(|i| [i as f32 / 10_000.0, 0.5]).collect();
         n.params.insert("curve.b".into(), Param::new(ParamValue::Curve(many)));
         assert_eq!(n.curve("curve.b").map(|c| c.len()), Some(MAX_CURVE_POINTS));
+    }
+
+    #[test]
+    fn grain_keys_default_to_identity_and_clamp() {
+        let mut n = GradeNode::new(1);
+        let t = Tick(0);
+        assert_eq!([n.float_at("grain.strength", t), n.float_at("grain.size", t), n.float_at("grain.softness", t)], [0.0, 1.0, 0.5]);
+        n.params.insert("grain.strength".into(), Param::new(ParamValue::Float(1e9)));
+        n.params.insert("grain.size".into(), Param::new(ParamValue::Float(-3.0)));
+        n.params.insert("grain.softness".into(), Param::new(ParamValue::Float(f64::NAN)));
+        assert_eq!([n.float_at("grain.strength", t), n.float_at("grain.size", t), n.float_at("grain.softness", t)], [1.0, 1.0, 0.5]);
     }
 
     #[test]

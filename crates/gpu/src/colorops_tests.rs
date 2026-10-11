@@ -67,6 +67,10 @@ fn cases() -> Vec<(&'static str, Vec<ColorOp>)> {
     v.push(("vibrance", vec![ColorOp::Saturation { sat: 1.2, vibrance: 0.6, weights: luma }]));
     v.push(("vignette dark", vec![ColorOp::Vignette { amount: -3.0, midpoint: 0.45, feather: 0.27, sx: 1.3, size: [67.0, 41.0] }]));
     v.push(("vignette light", vec![ColorOp::Vignette { amount: 2.0, midpoint: 0.27, feather: 0.45, sx: 1.0, size: [67.0, 41.0] }]));
+    // film grain (G1.6): hard per-pixel, soft 2.5 px, smooth 4 px cells; seeds using all 32 bits
+    v.push(("grain hard", vec![ColorOp::Grain { strength: 1.0, inv_size: 1.0, softness: 0.0, seed: 0xdead_beef, weights: luma }]));
+    v.push(("grain soft", vec![ColorOp::Grain { strength: 0.7, inv_size: 1.0 / 2.5, softness: 0.6, seed: 7, weights: luma }]));
+    v.push(("grain smooth", vec![ColorOp::Grain { strength: 0.4, inv_size: 0.25, softness: 1.0, seed: u32::MAX, weights: luma }]));
     // Curves, Wheels, Looks, LUTs (4.3b)
     let curve = Table::sample(0.0, 1.0, 1024, |x| x + 0.15 * (std::f64::consts::TAU * x).sin() * x * (1.0 - x));
     v.push(("curve (luma)", vec![ColorOp::Curve { table: curve.clone(), channels: [true; 3], hdr: false }]));
@@ -432,6 +436,10 @@ fn gpu_compiled_grades_match_cpu() {
                     ("saturation", ParamValue::Float(1.3)),
                     ("temperature", ParamValue::Float(-20.0)),
                     ("tint", ParamValue::Float(10.0)),
+                    // film grain at this node's place (G1.6)
+                    ("grain.strength", ParamValue::Float(0.6)),
+                    ("grain.size", ParamValue::Float(1.5)),
+                    ("grain.softness", ParamValue::Float(0.4)),
                 ],
             ),
             node(
@@ -451,8 +459,8 @@ fn gpu_compiled_grades_match_cpu() {
     let mut failures = Vec::new();
     for ws in [WorkingSpace::Rec709, WorkingSpace::DaVinciWide] {
         assert!(filmcraft_render::grade::compile(&Grade::with_node(), Tick(0), ws).is_empty());
-        let ops = filmcraft_render::grade::compile(&grade, Tick(0), ws);
-        assert!(!ops.is_empty());
+        let ops = filmcraft_render::grade::compile(&grade, Tick(123_456_789), ws);
+        assert!(ops.iter().any(|o| matches!(o, ColorOp::Grain { .. })));
         let op = FxOp::ColorChain(Arc::from(ops));
         assert!(op.gpu_ok(), "{ws:?}");
         let mut cpu = filmcraft_render::Image { w: w as usize, h: h as usize, px: px.clone() };

@@ -27,6 +27,7 @@ const CO_LUT: f32 = 20.0;
 const CO_LOOK: f32 = 21.0;
 const CO_HSL_KEY: f32 = 22.0;
 const CO_HSL_CORRECT: f32 = 23.0;
+const CO_GRAIN: f32 = 24.0;
 
 /// Values a program may hold (tables of a few thousand samples each; a chain is a handful of ops).
 pub const MAX_PROGRAM: usize = filmcraft_color::ops::MAX_GPU_PROGRAM;
@@ -161,6 +162,11 @@ pub fn program(ops: &[ColorOp]) -> Option<Vec<f32>> {
                 p.extend([CO_HSL_CORRECT, *hue_shift, *sat, *temp, *tint, (*show_mask).min(16) as f32, flag(*hdr)]);
             }
             ColorOp::Look { look, intensity, hdr } => p.extend([CO_LOOK, (*look).min(1 << 20) as f32, *intensity, flag(*hdr)]),
+            ColorOp::Grain { strength, inv_size, softness, seed, weights } => {
+                // (the seed as two exact 16-bit halves)
+                p.extend([CO_GRAIN, *strength, *inv_size, *softness, (seed & 0xffff) as f32, (seed >> 16) as f32]);
+                p.extend(weights);
+            }
         }
         if p.len() > MAX_PROGRAM {
             return None;

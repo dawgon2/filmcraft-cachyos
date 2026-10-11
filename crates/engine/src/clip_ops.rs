@@ -85,7 +85,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             "Paste Attributes…",
             &["Edit"],
             Some("Cmd+Alt+V"),
-            r#"{"clips":[id]?,"motion":bool=true,"opacity":bool=true,"timeRemapping":bool=true,"volume":bool=true,"channelVolume":bool=true,"panner":bool=true,"effects":bool|[effectId]=true,"scaleTimes":bool=true}"#,
+            r#"{"clips":[id]?,"motion":bool=true,"opacity":bool=true,"timeRemapping":bool=true,"volume":bool=true,"channelVolume":bool=true,"panner":bool=true,"effects":bool|[effectId]=true,"grade":bool=true,"scaleTimes":bool=true}"#,
             can_paste_attributes,
             paste_attributes,
         ),
@@ -812,6 +812,7 @@ fn close_project(s: &mut Session, p: &Value) -> Result<Value> {
     if s.is_dirty() && !bool_p(p, "force").unwrap_or(false) {
         return Err(EngineError::Other("the project has unsaved changes: save it first, or pass {\"force\": true} to discard them".into()));
     }
+    s.stills_discard_temp();
     s.project = std::sync::Arc::new(Project::new("Untitled"));
     s.history = Default::default();
     s.history.limit = 200;
@@ -1024,6 +1025,7 @@ fn wants_effect(sel: &AttrSel, e: &filmcraft_project::EffectInstance) -> bool {
 fn paste_attributes(s: &mut Session, p: &Value) -> Result<Value> {
     let sel = attr_sel(p);
     let scale = bool_p(p, "scaleTimes").unwrap_or(true);
+    let want_grade = bool_p(p, "grade").unwrap_or(true);
     let src_v = s.state.clipboard.iter().find(|c| c.0 == TrackKind::Video).map(|c| c.2.clone());
     let src_a = s.state.clipboard.iter().find(|c| c.0 == TrackKind::Audio).map(|c| c.2.clone());
     let targets = with_links(s, &clips_p(s, p));
@@ -1048,6 +1050,9 @@ fn paste_attributes(s: &mut Session, p: &Value) -> Result<Value> {
                 let mut e = e.clone();
                 retime_effect(&mut e, src, &before, scale);
                 dst.effects.push(e);
+            }
+            if want_grade && kind == TrackKind::Video && src.grade.is_some() {
+                dst.grade = src.grade.clone();
             }
             if *dst != before {
                 n += 1;

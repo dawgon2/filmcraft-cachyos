@@ -60,7 +60,8 @@ pub const DEFAULT_PRESET: &str = "FilmCraft Default";
 pub const PREMIERE_PRESET: &str = "Premiere Pro Compatible";
 pub const FCP_PRESET: &str = "Final Cut Pro Compatible";
 pub const AVID_PRESET: &str = "Avid Media Composer Compatible";
-pub const BUILTIN_PRESETS: [&str; 4] = [DEFAULT_PRESET, PREMIERE_PRESET, FCP_PRESET, AVID_PRESET];
+pub const RESOLVE_PRESET: &str = "DaVinci Resolve Compatible";
+pub const BUILTIN_PRESETS: [&str; 5] = [DEFAULT_PRESET, PREMIERE_PRESET, FCP_PRESET, AVID_PRESET, RESOLVE_PRESET];
 
 const FILE_FORMAT: &str = "filmcraft-keyboard-shortcuts";
 const DIR_NAME: &str = "Keyboard Shortcuts";
@@ -590,6 +591,7 @@ impl Shortcuts {
             PREMIERE_PRESET => presets::premiere(),
             FCP_PRESET => presets::FINAL_CUT.to_vec(),
             AVID_PRESET => presets::AVID.to_vec(),
+            RESOLVE_PRESET => presets::RESOLVE.to_vec(),
             _ => return None,
         };
         self.apply_table(&mut b, &table);
@@ -628,6 +630,16 @@ impl Shortcuts {
         v.sort();
         v.dedup();
         v
+    }
+
+    /// `base`, or `base 2`, `base 3`… : the first name that is neither a built-in preset nor an
+    /// existing custom preset file.
+    pub(crate) fn free_preset_name(&self, base: &str) -> String {
+        let taken = |n: &str| BUILTIN_PRESETS.iter().any(|b| b.eq_ignore_ascii_case(n)) || self.preset_path(n).is_some_and(|p| p.exists());
+        if !taken(base) {
+            return base.to_string();
+        }
+        (2..1000).map(|i| format!("{base} {i}")).find(|n| !taken(n)).unwrap_or_else(|| format!("{base} {}", std::process::id()))
     }
 
     fn preset_path(&self, name: &str) -> Option<PathBuf> {

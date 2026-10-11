@@ -14,6 +14,7 @@ use crate::FilmcraftApp;
 use crate::frames::{FrameKey, Target};
 use crate::icons::{self, Icon};
 use crate::panels::monitor_view;
+use crate::panels::stills;
 use crate::state::{DisplayMode, PlaybackRes};
 use crate::theme::Tokens;
 
@@ -202,6 +203,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
         if let Some(tex) = shown {
             ui.painter().image(tex, pic, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         }
+        if which == Which::Program && !compare {
+            stills::compare_overlay(app, ui, pic, shown);
+        }
         if let Some(ra) = ref_area {
             // the reference frame (CPU path)
             let rf = rate.frame_at(Tick(mv.compare_ref.unwrap_or(time.0)));
@@ -247,6 +251,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
     }
     if show_picture {
         monitor_view::guides(app, ui, which, video_area, pic, frame_size);
+    }
+    if which == Which::Program && show_picture && !compare {
+        stills::compare_divider(app, ui, pic);
     }
     ui.set_clip_rect(saved_clip);
     if let Some((top, left)) = ruler_rects {

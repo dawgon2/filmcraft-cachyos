@@ -164,7 +164,7 @@ pub(crate) fn render_seq_tracks(project: &Project, seq: &Sequence, t: Tick, opts
                 working: seq.settings.color.working,
             };
             // the adjustment layer's grade, before its effects (fork ADR 0004)
-            let graded = grade::item_ops(item, mt, seq.settings.color.working);
+            let graded = grade::item_ops(item, mt, t, seq.settings.color.working, opts.scale);
             if !graded.is_empty() {
                 adjusted.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(&graded, c, [x as f32, y as f32]));
             }
@@ -336,7 +336,7 @@ pub(crate) fn item_layer(
     let want = if opts.high_quality { 1.0 } else { (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32 };
     let pi = project.item(item.item)?;
     if matches!(pi.kind, ItemKind::Graphic { .. })
-        && !(item.has_opacity_masks() || opts.effects && (item.has_standard_effects() || grade::changes_picture(item, mt, seq.settings.color.working)))
+        && !(item.has_opacity_masks() || opts.effects && (item.has_standard_effects() || grade::changes_picture(item, mt)))
     {
         // vectors straight to the output: no resampling, crisp at any Motion scale
         let m = Affine::scale(opts.scale as f64, opts.scale as f64).then_apply(&motion);
@@ -362,7 +362,7 @@ pub(crate) fn item_layer(
             working: seq.settings.color.working,
         };
         // the colour grade: after the input transform, before the effect stack (fork ADR 0004)
-        let graded = grade::item_ops(item, mt, cx.working);
+        let graded = grade::item_ops(item, mt, t, cx.working, px_scale);
         if !graded.is_empty() {
             layer.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(&graded, c, [x as f32, y as f32]));
         }

@@ -1,0 +1,550 @@
+//! Colour grade commands (`grade.*`, fork ADR 0004, GRADE-PLAN G1): edit a clip's serial node
+//! grade. Every edit is one undo step through [`Session::edit_sequence`].
+//!
+//! Commands address a clip by `clip` (default: the first selected video clip) and a node by its
+//! stable `node` id (never an index). `grade.addNode` creates the grade when the clip has none.
+//!
+//! The *current node* (`EditorState::grade_node`: a clip and a node, set by `grade.selectNode`,
+//! by adding a node and by the UI) is what a command falls back to when `node` is omitted, so
+//! keyboard shortcuts work without parameters. It only applies to its own clip, and only while
+//! that clip's grade still holds the node. With no current node, a grade with exactly one node
+//! uses that node; otherwise the command is refused.
+
+use filmcraft_project::grade::{Grade, GradeNode, MAX_NODES, NodeParamKind, node_param};
+use filmcraft_project::{ClipId, Param, ParamValue, Sequence};
+
+use filmcraft_time::Tick;
+use serde_json::{Value, json};
+
+use crate::commands::{CommandSpec, always, bad, bool_p, clip_p, has_seq, str_p, time_p};
+use crate::{EngineError, Result, Session};
+
+type Run = fn(&mut Session, &Value) -> Result<Value>;
+
+fn spec(id: &'static str, label: &'static str, params: &'static str, run: Run) -> CommandSpec {
+    CommandSpec { id, label, menu: &[], shortcut: None, params, enabled: has_seq, run, journal: true }
+}
+fn query(id: &'static str, label: &'static str, params: &'static str, run: Run) -> CommandSpec {
+    CommandSpec { id, label, menu: &[], shortcut: None, params, enabled: always, run, journal: false }
+}
+
+/// A command in the Clip > Grade menu.
+fn menu_spec(id: &'static str, label: &'static str, params: &'static str, run: Run, journal: bool) -> CommandSpec {
+    CommandSpec { id, label, menu: &["Clip", "Grade"], shortcut: None, params, enabled: has_seq, run, journal }
+}
+
+/// The most characters a node label keeps.
+const MAX_LABEL: usize = 64;
+
+pub(crate) fn commands() -> Vec<CommandSpec> {
+    vec![
+        query("grade.get", "Get Grade", r#"{"clip":id?}"#, get),
+        query("grade.params", "List Grade Node Parameters", "{}", params),
+        spec("grade.addNode", "Add Serial Node", r#"{"clip":id?,"after":node?,"label":str?}"#, |s, p| add(s, p, false)),
+        spec("grade.insertNode", "Insert Node Before", r#"{"clip":id?,"before":node?,"label":str?}"#, |s, p| add(s, p, true)),
+        query("grade.selectNode", "Select Node", r#"{"clip":id?,"node":id?}"#, select),
+        spec("grade.removeNode", "Delete Node", r#"{"clip":id?,"node":id?}"#, remove),
+        spec("grade.moveNode", "Move Node", r#"{"clip":id?,"node":id,"to":n}"#, move_node),
+        spec("grade.toggleNode", "Enable / Disable Node", r#"{"clip":id?,"node":id?,"on":bool?}"#, toggle),
+        spec("grade.labelNode", "Label Node", r#"{"clip":id?,"node":id?,"label":str}"#, label),
+        spec(
+            "grade.setParam",
+            "Set Node Parameter",
+            r#"{"clip":id?,"node":id?,"param":str,"value":num|[r,g,b,master?]|[[x,y]],"time":ticks?,"merge":str?}"#,
+            set_param,
+        ),
+        spec("grade.toggleAnimation", "Toggle Node Parameter Animation", r#"{"clip":id?,"node":id?,"param":str,"time":ticks?}"#, toggle_animation),
+        spec("grade.resetNode", "Reset Node", r#"{"clip":id?,"node":id?,"param":str?}"#, reset),
+        spec("grade.bypass", "Bypass Grade", r#"{"clip":id?,"on":bool?}"#, bypass),
+        spec("grade.clear", "Remove Grade", r#"{"clip":id?}"#, clear),
+        menu_spec("grade.copy", "Copy Grade", r#"{"clip":id?}"#, copy, true),
+        menu_spec("grade.paste", "Paste Grade", r#"{"clips":[id]?}"#, paste, true),
+        menu_spec("grade.append", "Append Grade", r#"{"clips":[id]?}"#, append, true),
+        menu_spec("grade.applyFrom", "Apply Grade From Clip", r#"{"from":id,"clips":[id]?}"#, apply_from, true),
+    ]
+}
+
+/// The clip a command addresses: `clip`, else the first selected clip on a video track.
+fn target(s: &Session, p: &Value, cmd: &str) -> Result<ClipId> {
+    if p.get("clip").is_some() {
+        return clip_p(p, "clip").ok_or_else(|| bad(cmd, "`clip` must be a clip id"));
+    }
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    s.state.selection.iter().copied().find(|c| is_video(q, *c)).ok_or_else(|| bad(cmd, "need `clip` (or a selected video clip)"))
+}
+
+fn is_video(q: &Sequence, c: ClipId) -> bool {
+    q.video_tracks.iter().any(|t| t.item(c).is_some())
+}
+
+/// A non-negative integer parameter (negative or fractional values are refused, not wrapped).
+fn uint(p: &Value, k: &str) -> Option<u64> {
+    p.get(k).and_then(Value::as_u64)
+}
+
+fn node_id(p: &Value, k: &str, cmd: &str) -> Result<u64> {
+    uint(p, k).ok_or_else(|| bad(cmd, format!("need `{k}` (a node id)")))
+}
+
+/// The explicit `node` argument: None when absent, an error when present but not a node id.
+fn node_arg(p: &Value, cmd: &str) -> Result<Option<u64>> {
+    match p.get("node") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_u64().map(Some).ok_or_else(|| bad(cmd, "`node` must be a node id")),
+    }
+}
+
+/// The node a command acts on: the explicit one, else the current node (already checked to be on
+/// this clip), else the grade's only node.
+fn pick(g: &Grade, want: Option<u64>, current: Option<u64>, cmd: &str) -> Result<u64> {
+    if let Some(w) = want {
+        return Ok(w);
+    }
+    if let Some(c) = current.filter(|c| g.nodes.iter().any(|n| n.id == *c)) {
+        return Ok(c);
+    }
+    match g.nodes.as_slice() {
+        [only] => Ok(only.id),
+        _ => Err(bad(cmd, "no current node: pass `node` or call grade.selectNode")),
+    }
+}
+
+/// The addressed clip and the current node when it belongs to that clip.
+fn current_for(s: &Session, p: &Value, cmd: &str) -> Result<(ClipId, Option<u64>)> {
+    let c = target(s, p, cmd)?;
+    Ok((c, s.state.grade_node.filter(|sel| sel.clip == c).map(|sel| sel.node)))
+}
+
+fn select(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.selectNode";
+    let Some(node) = node_arg(p, CMD)? else {
+        s.state.grade_node = None;
+        return Ok(json!({ "clip": Value::Null, "node": Value::Null }));
+    };
+    let c = target(s, p, CMD)?;
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let (_, it) = q.find_item(c).ok_or_else(|| bad(CMD, "no such clip"))?;
+    if !it.grade.as_ref().is_some_and(|g| g.nodes.iter().any(|n| n.id == node)) {
+        return Err(bad(CMD, format!("the clip's grade has no node {node}")));
+    }
+    s.state.grade_node = Some(crate::GradeSel { clip: c, node });
+    Ok(json!({ "clip": c.0, "node": node }))
+}
+
+/// Run `f` on the clip's grade (created empty when missing and `create`) as one undo step.
+fn edit_grade<R>(s: &mut Session, p: &Value, cmd: &'static str, label: &str, create: bool, f: impl FnOnce(&mut Grade) -> Result<R>) -> Result<R> {
+    edit_grade_merged(s, p, cmd, label, create, None, f)
+}
+
+/// [`edit_grade`] that merges consecutive edits with the same `merge` key into one undo step.
+fn edit_grade_merged<R>(
+    s: &mut Session,
+    p: &Value,
+    cmd: &'static str,
+    label: &str,
+    create: bool,
+    merge: Option<&str>,
+    f: impl FnOnce(&mut Grade) -> Result<R>,
+) -> Result<R> {
+    let c = target(s, p, cmd)?;
+    let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
+    let body = move |pr: &mut filmcraft_project::Project, _: &mut crate::EditorState| -> Result<R> {
+        let q = pr.sequence_mut(seq_id).ok_or(EngineError::NoSequence)?;
+        if !is_video(q, c) {
+            return Err(bad(cmd, "a grade needs a clip on a video track"));
+        }
+        let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
+        if it.grade.is_none() && create {
+            it.grade = Some(Grade::default());
+        }
+        let g = it.grade.as_mut().ok_or_else(|| bad(cmd, "the clip has no grade"))?;
+        f(g)
+    };
+    match merge {
+        Some(k) => s.edit_merged(label, &format!("grade:{}:{k}", c.0), body),
+        None => s.edit(label, body),
+    }
+}
+
+fn node_mut<'a>(g: &'a mut Grade, id: u64, cmd: &str) -> Result<&'a mut GradeNode> {
+    g.node_mut(id).ok_or_else(|| bad(cmd, format!("no node {id}")))
+}
+
+fn clean_label(p: &Value) -> String {
+    str_p(p, "label").unwrap_or_default().chars().filter(|c| !c.is_control()).take(MAX_LABEL).collect()
+}
+
+fn get(s: &mut Session, p: &Value) -> Result<Value> {
+    let c = target(s, p, "grade.get")?;
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let (_, it) = q.find_item(c).ok_or_else(|| bad("grade.get", "no such clip"))?;
+    Ok(json!({ "clip": c.0, "grade": it.grade }))
+}
+
+fn params(_: &mut Session, _: &Value) -> Result<Value> {
+    let list: Vec<Value> = filmcraft_project::grade::NODE_PARAMS
+        .iter()
+        .map(|p| match p.kind {
+            NodeParamKind::Float { identity, min, max } => {
+                json!({"key": p.key, "label": p.label, "kind": "float", "identity": identity, "min": min, "max": max})
+            }
+            NodeParamKind::Wheel { range } => json!({"key": p.key, "label": p.label, "kind": "wheel", "range": range}),
+            NodeParamKind::Curve => json!({"key": p.key, "label": p.label, "kind": "curve"}),
+        })
+        .collect();
+    Ok(json!({ "params": list, "maxNodes": MAX_NODES }))
+}
+
+fn add(s: &mut Session, p: &Value, before: bool) -> Result<Value> {
+    let cmd = if before { "grade.insertNode" } else { "grade.addNode" };
+    let key = if before { "before" } else { "after" };
+    if p.get(key).is_some_and(|v| v.as_u64().is_none()) {
+        return Err(bad(cmd, format!("`{key}` must be a node id")));
+    }
+    let anchor = uint(p, key);
+    let (clip, current) = current_for(s, p, cmd)?;
+    let label = clean_label(p);
+    let id = edit_grade(s, p, cmd, if before { "Insert Node" } else { "Add Serial Node" }, true, |g| {
+        if g.nodes.len() >= MAX_NODES {
+            return Err(bad(cmd, format!("a grade holds at most {MAX_NODES} nodes")));
+        }
+        // no explicit anchor: the current node when this grade holds it
+        let anchor = anchor.or_else(|| current.filter(|c| g.nodes.iter().any(|n| n.id == *c)));
+        let at = match anchor {
+            Some(a) => {
+                let i = g.nodes.iter().position(|n| n.id == a).ok_or_else(|| bad(cmd, format!("no node {a}")))?;
+                if before { i } else { i + 1 }
+            }
+            None if before => 0,
+            None => g.nodes.len(),
+        };
+        let id = g.next_id();
+        if id == 0 {
+            return Err(bad(cmd, "no free node id"));
+        }
+        let mut n = GradeNode::new(id);
+        n.label = label;
+        g.nodes.insert(at.min(g.nodes.len()), n);
+        Ok(id)
+    })?;
+    s.state.grade_node = Some(crate::GradeSel { clip, node: id });
+    Ok(json!({ "node": id }))
+}
+
+fn remove(s: &mut Session, p: &Value) -> Result<Value> {
+    let want = node_arg(p, "grade.removeNode")?;
+    let (clip, current) = current_for(s, p, "grade.removeNode")?;
+    let (id, neighbour) = edit_grade(s, p, "grade.removeNode", "Delete Node", false, |g| {
+        let id = pick(g, want, current, "grade.removeNode")?;
+        let i = g.nodes.iter().position(|n| n.id == id).ok_or_else(|| bad("grade.removeNode", format!("no node {id}")))?;
+        g.nodes.remove(i);
+        // the previous node, else the next one
+        let neighbour = g.nodes.get(i.wrapping_sub(1)).or_else(|| g.nodes.get(i)).map(|n| n.id);
+        Ok((id, neighbour))
+    })?;
+    if current == Some(id) {
+        s.state.grade_node = neighbour.map(|node| crate::GradeSel { clip, node });
+    }
+    Ok(Value::Null)
+}
+
+fn move_node(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = node_id(p, "node", "grade.moveNode")?;
+    let to = uint(p, "to").ok_or_else(|| bad("grade.moveNode", "need `to` (a position)"))?;
+    edit_grade(s, p, "grade.moveNode", "Move Node", false, |g| {
+        let i = g.nodes.iter().position(|n| n.id == id).ok_or_else(|| bad("grade.moveNode", format!("no node {id}")))?;
+        let to = usize::try_from(to).unwrap_or(usize::MAX).min(g.nodes.len().saturating_sub(1));
+        if to != i {
+            let n = g.nodes.remove(i);
+            g.nodes.insert(to, n);
+        }
+        Ok(())
+    })?;
+    Ok(Value::Null)
+}
+
+fn toggle(s: &mut Session, p: &Value) -> Result<Value> {
+    let want = node_arg(p, "grade.toggleNode")?;
+    let current = current_for(s, p, "grade.toggleNode")?.1;
+    let on = bool_p(p, "on");
+    let now = edit_grade(s, p, "grade.toggleNode", "Enable / Disable Node", false, |g| {
+        let id = pick(g, want, current, "grade.toggleNode")?;
+        let n = node_mut(g, id, "grade.toggleNode")?;
+        n.enabled = on.unwrap_or(!n.enabled);
+        Ok(n.enabled)
+    })?;
+    Ok(json!({ "enabled": now }))
+}
+
+fn label(s: &mut Session, p: &Value) -> Result<Value> {
+    let want = node_arg(p, "grade.labelNode")?;
+    let current = current_for(s, p, "grade.labelNode")?.1;
+    if str_p(p, "label").is_none() {
+        return Err(bad("grade.labelNode", "need `label`"));
+    }
+    let text = clean_label(p);
+    edit_grade(s, p, "grade.labelNode", "Label Node", false, |g| {
+        let id = pick(g, want, current, "grade.labelNode")?;
+        node_mut(g, id, "grade.labelNode")?.label = text;
+        Ok(())
+    })?;
+    Ok(Value::Null)
+}
+
+/// A JSON value as the node parameter `kind` holds it, with every number finite and in range.
+fn value_for(kind: NodeParamKind, v: &Value) -> Option<ParamValue> {
+    let finite = |x: &Value| x.as_f64().filter(|f| f.is_finite());
+    Some(match kind {
+        NodeParamKind::Float { min, max, .. } => ParamValue::Float(finite(v)?.clamp(f64::from(min), f64::from(max))),
+        NodeParamKind::Wheel { range } => {
+            let a = v.as_array().filter(|a| (3..=4).contains(&a.len()))?;
+            let mut c = [0.0f32; 4];
+            for (slot, x) in c.iter_mut().zip(a) {
+                *slot = (finite(x)? as f32).clamp(-range, range);
+            }
+            ParamValue::Color(c)
+        }
+        NodeParamKind::Curve => {
+            let a = v.as_array()?;
+            if a.len() > filmcraft_project::grade::MAX_CURVE_POINTS {
+                return None;
+            }
+            let mut pts = Vec::with_capacity(a.len());
+            for pt in a {
+                let xy = pt.as_array().filter(|xy| xy.len() == 2)?;
+                pts.push([(finite(xy.first()?)? as f32).clamp(0.0, 1.0), (finite(xy.get(1)?)? as f32).clamp(0.0, 1.0)]);
+            }
+            pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
+            ParamValue::Curve(pts)
+        }
+    })
+}
+
+/// The identity value of a node parameter.
+fn identity(kind: NodeParamKind) -> ParamValue {
+    match kind {
+        NodeParamKind::Float { identity, .. } => ParamValue::Float(f64::from(identity)),
+        NodeParamKind::Wheel { .. } => ParamValue::Color([0.0; 4]),
+        NodeParamKind::Curve => ParamValue::Curve(vec![[0.0, 0.0], [1.0, 1.0]]),
+    }
+}
+
+/// The clip time of sequence time `tl` (clamped into the clip) at which the renderer evaluates
+/// the grade (`effect_time_at`, so frame holds match), where keyframes live.
+fn media_time(s: &Session, p: &Value, c: ClipId) -> Tick {
+    let tl = time_p(s, p, "").unwrap_or_else(|| s.playhead());
+    s.active_sequence()
+        .and_then(|q| q.find_item(c))
+        .map(|(_, it)| it.effect_time_at(tl.clamp(it.start, (it.end() - Tick(1)).max(it.start))))
+        .unwrap_or(Tick::ZERO)
+}
+
+fn set_param(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.setParam";
+    let want = node_arg(p, CMD)?;
+    let current = current_for(s, p, CMD)?.1;
+    let key = str_p(p, "param").ok_or_else(|| bad(CMD, "need `param`"))?;
+    let def = node_param(key).ok_or_else(|| bad(CMD, format!("no node parameter `{key}` (see grade.params)")))?;
+    let raw = p.get("value").ok_or_else(|| bad(CMD, "need `value`"))?;
+    let v = value_for(def.kind, raw).ok_or_else(|| bad(CMD, format!("`{key}` wants {}", kind_hint(def.kind))))?;
+    let c = target(s, p, CMD)?;
+    let mt = media_time(s, p, c);
+    let merge = str_p(p, "merge").map(str::to_string);
+    edit_grade_merged(s, p, CMD, "Change Node Parameter", false, merge.as_deref(), |g| {
+        let id = pick(g, want, current, CMD)?;
+        let n = node_mut(g, id, CMD)?;
+        match n.params.get_mut(def.key) {
+            // curves are not keyframed (their points are the static value)
+            Some(prm) if !matches!(def.kind, NodeParamKind::Curve) => prm.set_at(mt, v),
+            _ => {
+                n.params.insert(def.key.to_string(), Param::new(v));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(Value::Null)
+}
+
+fn kind_hint(kind: NodeParamKind) -> &'static str {
+    match kind {
+        NodeParamKind::Float { .. } => "a finite number",
+        NodeParamKind::Wheel { .. } => "[r, g, b] or [r, g, b, master] (finite numbers)",
+        NodeParamKind::Curve => "a list of [x, y] points in 0…1 (at most 64)",
+    }
+}
+
+fn toggle_animation(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.toggleAnimation";
+    let want = node_arg(p, CMD)?;
+    let current = current_for(s, p, CMD)?.1;
+    let key = str_p(p, "param").ok_or_else(|| bad(CMD, "need `param`"))?;
+    let def = node_param(key).ok_or_else(|| bad(CMD, format!("no node parameter `{key}`")))?;
+    if matches!(def.kind, NodeParamKind::Curve) {
+        return Err(bad(CMD, "curves are not keyframed"));
+    }
+    let c = target(s, p, CMD)?;
+    let mt = media_time(s, p, c);
+    let animated = edit_grade(s, p, CMD, "Toggle Animation", false, |g| {
+        let id = pick(g, want, current, CMD)?;
+        let n = node_mut(g, id, CMD)?;
+        let prm = n.params.entry(def.key.to_string()).or_insert_with(|| Param::new(identity(def.kind)));
+        prm.toggle_animation(mt);
+        Ok(prm.is_animated())
+    })?;
+    Ok(json!({ "animated": animated }))
+}
+
+fn reset(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.resetNode";
+    let want = node_arg(p, CMD)?;
+    let current = current_for(s, p, CMD)?.1;
+    let key = match str_p(p, "param") {
+        Some(k) => Some(node_param(k).ok_or_else(|| bad(CMD, format!("no node parameter `{k}`")))?.key),
+        None => None,
+    };
+    edit_grade(s, p, CMD, "Reset Node", false, |g| {
+        let id = pick(g, want, current, CMD)?;
+        let n = node_mut(g, id, CMD)?;
+        match key {
+            Some(k) => {
+                n.params.remove(k);
+            }
+            None => n.params.clear(),
+        }
+        Ok(())
+    })?;
+    Ok(Value::Null)
+}
+
+fn bypass(s: &mut Session, p: &Value) -> Result<Value> {
+    let on = bool_p(p, "on");
+    let now = edit_grade(s, p, "grade.bypass", "Bypass Grade", false, |g| {
+        g.bypass = on.unwrap_or(!g.bypass);
+        Ok(g.bypass)
+    })?;
+    Ok(json!({ "bypass": now }))
+}
+
+fn clear(s: &mut Session, p: &Value) -> Result<Value> {
+    let c = target(s, p, "grade.clear")?;
+    s.edit_sequence("Remove Grade", |q, _, _| {
+        let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
+        if it.grade.take().is_none() {
+            return Err(bad("grade.clear", "the clip has no grade"));
+        }
+        Ok(())
+    })?;
+    Ok(Value::Null)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Copy / paste / append / apply (GRADE-PLAN G1.4)
+// ---------------------------------------------------------------------------------------------
+
+/// The most clips one grade command touches.
+const MAX_TARGETS: usize = 10_000;
+
+/// The video clips `clips` names (every one must be a clip on a video track), else the selected
+/// video clips; `skip` is left out. Empty is an error.
+pub(crate) fn grade_targets(s: &Session, p: &Value, cmd: &str, skip: Option<ClipId>) -> Result<Vec<ClipId>> {
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let mut out: Vec<ClipId> = Vec::new();
+    let mut push = |c: ClipId| {
+        if Some(c) != skip && !out.contains(&c) && out.len() < MAX_TARGETS {
+            out.push(c);
+        }
+    };
+    match p.get("clips") {
+        None | Some(Value::Null) => s.state.selection.iter().copied().filter(|c| is_video(q, *c)).for_each(&mut push),
+        Some(Value::Array(a)) => {
+            for v in a {
+                let c = v.as_u64().map(ClipId).ok_or_else(|| bad(cmd, "`clips` must be clip ids"))?;
+                if !is_video(q, c) {
+                    return Err(bad(cmd, format!("clip {} is not a clip on a video track", c.0)));
+                }
+                push(c);
+            }
+        }
+        Some(_) => return Err(bad(cmd, "`clips` must be a list of clip ids")),
+    }
+    if out.is_empty() {
+        return Err(bad(cmd, "need `clips` (or selected video clips)"));
+    }
+    Ok(out)
+}
+
+/// Run `f` on the grade slot of every target as one undo step; returns how many clips changed.
+pub(crate) fn edit_grades(s: &mut Session, targets: &[ClipId], label: &str, f: impl Fn(&mut Option<Grade>)) -> Result<usize> {
+    s.edit_sequence(label, |q, _, _| {
+        let mut n = 0;
+        for c in targets {
+            let (_, it) = q.find_item_mut(*c).ok_or(filmcraft_edit::EditError::NoItem(*c))?;
+            let before = it.grade.clone();
+            f(&mut it.grade);
+            if it.grade != before {
+                n += 1;
+            }
+        }
+        Ok(n)
+    })
+}
+
+fn copy(s: &mut Session, p: &Value) -> Result<Value> {
+    let c = target(s, p, "grade.copy")?;
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let (_, it) = q.find_item(c).ok_or_else(|| bad("grade.copy", "no such clip"))?;
+    let g = it.grade.clone().ok_or_else(|| bad("grade.copy", "the clip has no grade"))?;
+    let nodes = g.nodes.len();
+    s.state.grade_clipboard = Some(g);
+    Ok(json!({ "clip": c.0, "nodes": nodes }))
+}
+
+fn paste(s: &mut Session, p: &Value) -> Result<Value> {
+    let g = s.state.grade_clipboard.clone().ok_or_else(|| bad("grade.paste", "copy a grade first (grade.copy)"))?;
+    let targets = grade_targets(s, p, "grade.paste", None)?;
+    let n = edit_grades(s, &targets, "Paste Grade", |slot| *slot = Some(g.clone()))?;
+    Ok(json!({ "clips": n }))
+}
+
+/// Append `src`'s nodes after `dst`'s with fresh ids; nodes beyond [`MAX_NODES`] are dropped.
+fn append_nodes(dst: &mut Grade, src: &Grade) {
+    for node in &src.nodes {
+        if dst.nodes.len() >= MAX_NODES {
+            break;
+        }
+        let id = dst.next_id();
+        if id == 0 {
+            break;
+        }
+        let mut copy = node.clone();
+        copy.id = id;
+        dst.nodes.push(copy);
+    }
+}
+
+fn append(s: &mut Session, p: &Value) -> Result<Value> {
+    let g = s.state.grade_clipboard.clone().ok_or_else(|| bad("grade.append", "copy a grade first (grade.copy)"))?;
+    let targets = grade_targets(s, p, "grade.append", None)?;
+    let full = s
+        .active_sequence()
+        .is_some_and(|q| targets.iter().all(|c| q.find_item(*c).and_then(|(_, it)| it.grade.as_ref()).is_some_and(|d| d.nodes.len() >= MAX_NODES)));
+    if full && !g.nodes.is_empty() {
+        return Err(bad("grade.append", format!("a grade holds at most {MAX_NODES} nodes")));
+    }
+    let n = edit_grades(s, &targets, "Append Grade", |slot| append_nodes(slot.get_or_insert_with(Grade::default), &g))?;
+    Ok(json!({ "clips": n }))
+}
+
+fn apply_from(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.applyFrom";
+    let from = p.get("from").and_then(Value::as_u64).map(ClipId).ok_or_else(|| bad(CMD, "need `from` (a clip id)"))?;
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let (_, it) = q.find_item(from).ok_or_else(|| bad(CMD, "no such clip"))?;
+    if !is_video(q, from) {
+        return Err(bad(CMD, "`from` must be a clip on a video track"));
+    }
+    let g = it.grade.clone().ok_or_else(|| bad(CMD, "the source clip has no grade"))?;
+    let targets = grade_targets(s, p, CMD, Some(from))?;
+    let n = edit_grades(s, &targets, "Apply Grade", |slot| *slot = Some(g.clone()))?;
+    Ok(json!({ "clips": n }))
+}

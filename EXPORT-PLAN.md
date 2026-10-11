@@ -2,7 +2,7 @@
 
 Written 2026-10-11 (session 8). This is the "6.2K optimisation phase" of FORK-PLAN §1a.16; the owner
 approved it on 2026-10-11 and placed it **after Phase 6 and Y1** (order: G0 → G1 → 6 → Y1 →
-**6E** → G2 → Y3 → 7 → 8 → Y2 → H264-PLAN). All FORK-PLAN rules apply. Analysis by a Fable subagent, from session 7's
+**6E** → G2 → Y3 → 7 → 8 → Y2 → C1 → H264-PLAN). All FORK-PLAN rules apply. Analysis by a Fable subagent, from session 7's
 measurements (FORK-PLAN §7) and `vainfo` on 2026-10-11.
 
 ## Why export stops at ~19 fps today (measured, synthetic)

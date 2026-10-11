@@ -8,7 +8,7 @@ there are **no third-party plugins or Fusion-style compositing**. Every FORK-PLA
 and `crates/gpu/src/interop.rs`, `cargo xtask ci` per phase, a build per phase per §1a.9).
 
 **Order (owner, 2026-10-11):** G0 → G1 → 6 → **Y1** → **6E** ([`EXPORT-PLAN.md`](EXPORT-PLAN.md)) → G2 → **Y3**
-→ 7 (with the **real-edit check, Y4**) → 8 → **Y2** → H264-PLAN (H1–H3). Y2 moved after Phase 8
+→ 7 (with the **real-edit check, Y4**) → 8 → **Y2** → C1 ([`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md)) → H264-PLAN (H1–H3). Y2 moved after Phase 8
 (owner): the owner's current clips are constant frame rate; VFR matters for phone footage.
 The owner's clips checked 2026-10-11: OBS records HEVC 1080p30 (already on the fast path); the
 Canon camera records **4K23.976 H.264 High**; all three were constant frame rate. Y1 moved after
@@ -85,11 +85,10 @@ bigger and partly conflict with the fork's rules, so they're scoped separately (
    examples (glitch, chromatic aberration, VHS, light leak).
 5. **Look and template packs:** import / export of effect presets, LUT folders and graphic
    templates (`crates/engine/src/graphic_templates.rs`) as one shareable pack file.
-6. **Deferred (needs the owner):** (a) a node-based compositor (Fusion-style) built on the grade
-   node graph once parallel / layer nodes exist (GRADE-PLAN §6); (b) **OpenFX plugins**: native
-   C plugins break the pure-Rust and never-crash rules unless hosted in a **separate process**
-   with shared-memory frames, so a plugin crash can't take FilmCraft down. That's a large,
-   `unsafe`-heavy project; don't start it without the owner.
+6. **Moved to their own plans:** the node compositor is
+   [`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md) (a simplified C1 after Y2; C2+ deferred), and a
+   safe Rust / WASM plugin system with an optional OpenFX bridge is
+   [`PLUGIN-PLAN.md`](PLUGIN-PLAN.md) (deferred, needs the owner).
 
 **Accept:** a green-screen 4K clip keys in real time at Full on the GPU; text attached to a
 tracked point follows it over 5 s; a tracked face blur holds; a screen replacement holds;

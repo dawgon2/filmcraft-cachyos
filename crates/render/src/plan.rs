@@ -265,6 +265,8 @@ fn push_item(
     // frame time (`ft`) vs. effect time (`mt`): they differ inside a frame hold without Hold Filters
     let ft = item.source_time_at(t);
     let mt = item.effect_time_at(t);
+    // (cheap: no operations built; the grade is compiled once, below, when it renders)
+    let graded_item = crate::grade::changes_picture(item, mt);
     let (op, own) = crate::opacity_blend(item, mt);
     let bl = blend.unwrap_or(own);
     // A multi-camera clip that only shows its angle (no effects, untransformed, same frame size)
@@ -272,7 +274,7 @@ fn push_item(
     if let Some(ItemKind::Sequence(nested)) = project.item(item.item).map(|p| &p.kind)
         && nest < crate::MAX_NEST_DEPTH
         && let Some(angle) = item.multicam_angle(nested)
-        && !(opts.effects && (item.has_standard_effects() || crate::grade::changes_picture(item, mt, seq.settings.color.working)))
+        && !(opts.effects && (item.has_standard_effects() || graded_item))
         && (nested.settings.width, nested.settings.height) == (seq.settings.width, seq.settings.height)
         && near_identity(&motion_matrix(seq, item, (nested.settings.width, nested.settings.height), mt))
         && let Some(tr) = nested.angle_video_track_index(angle).and_then(|i| nested.video_tracks.get(i))
@@ -292,7 +294,7 @@ fn push_item(
     if let Some(ItemKind::Sequence(nested)) = project.item(item.item).map(|p| &p.kind)
         && nest < crate::MAX_NEST_DEPTH
         && item.multicam_angle(nested).is_none()
-        && !(opts.effects && (item.has_standard_effects() || crate::grade::changes_picture(item, mt, seq.settings.color.working)))
+        && !(opts.effects && (item.has_standard_effects() || graded_item))
         && !item.has_opacity_masks()
         && bl == Blend::Normal
         && extra_opacity * op >= 1.0 - 1e-6
@@ -313,7 +315,7 @@ fn push_item(
     }
     // Graphic clips without standard effects: the layers are rasterised (cached) into one tight
     // image the GPU places as a layer.
-    if !(opts.effects && (item.has_standard_effects() || crate::grade::changes_picture(item, mt, seq.settings.color.working)))
+    if !(opts.effects && (item.has_standard_effects() || graded_item))
         && !item.has_opacity_masks()
         && project.item(item.item).is_some_and(|p| matches!(p.kind, ItemKind::Graphic { .. }))
     {
@@ -350,8 +352,8 @@ fn push_item(
         let plain = single && !managed;
         let opacity_masked = item.has_opacity_masks();
         // the colour grade: after the input transform, before the effect stack (fork ADR 0004)
-        let graded = if opts.effects { crate::grade::item_ops(item, mt, seq.settings.color.working) } else { Vec::new() };
-        if plain && (!chain.is_empty() || opacity_masked || !graded.is_empty()) || input.is_some() {
+        let grades = opts.effects && graded_item;
+        if plain && (!chain.is_empty() || opacity_masked || grades) || input.is_some() {
             // GPU effect stage: the working image the CPU would decode (`base_layer`), the
             // effects evaluated for it, placed as `item_layer` places it
             // (a converted frame is decoded at full size: averaging its signal before the
@@ -381,6 +383,8 @@ fn push_item(
                 working: seq.settings.color.working,
             };
             let mut ops: Option<Vec<FxOp>> = Some(input.clone().into_iter().collect());
+            // (grain sizes scale with the working image: `px_scale`)
+            let graded = if grades { crate::grade::item_ops(item, mt, t, seq.settings.color.working, px_scale) } else { Vec::new() };
             if !graded.is_empty() {
                 let g = FxOp::ColorChain(graded.into());
                 match ops.as_mut() {

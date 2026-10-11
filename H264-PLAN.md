@@ -1,7 +1,7 @@
 # H264-PLAN.md: complete H.264 decode without ffmpeg or proxies
 
 Written 2026-10-11 (session 8). **A separate plan, run after the primary plan is finished**
-(order: … → 7 → 8 → Y2 → **H1 → H2 → H3**). The owner wants H.264 fully supported, with hardware decode
+(order: … → 7 → 8 → Y2 → C1 → **H1 → H2 → H3**). The owner wants H.264 fully supported, with hardware decode
 wherever the GPU can do it and **no dependence on ffmpeg** (not everyone has it) **or on proxies**,
 but nothing beyond what that needs. YOUTUBE-PLAN Y1 (≤ 8 h) already adds in-process VA-API decode
 for progressive 8-bit 4:2:0; this plan covers the rest. All FORK-PLAN rules apply.

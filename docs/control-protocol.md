@@ -129,6 +129,17 @@ params the menu entries open dialogs (ids `colorDialog.space.<id>`, `colorDialog
 `lumetri.match.*`; HDR scopes: `scopes.hdrWaveform`. `file.exportMedia {sdr: true}` exports an HDR
 sequence as tone-mapped SDR.
 
+**Colour grades** (fork, `crates/engine/src/grade.rs`, ADR 0004): a clip's serial node grade.
+Commands take `clip?` (default: the first selected video clip) and nodes by stable id `node`:
+`grade.get`, `grade.params` (node parameter schema), `grade.addNode {after?, label?}` /
+`grade.insertNode {before?, label?}` (return `{node}`; the first creates the grade),
+`grade.removeNode`, `grade.moveNode {node, to}`, `grade.toggleNode {node, on?}`, `grade.labelNode
+{node, label}`, `grade.setParam {node, param, value, time?, merge?}` (numbers, wheels `[r, g, b,
+master?]`, curves `[[x, y]…]`; clamped; animated params get a keyframe at the playhead;
+consecutive calls with the same `merge` key are one undo step, for drags),
+`grade.toggleAnimation {node, param}`, `grade.resetNode {node, param?}`, `grade.bypass {on?}`,
+`grade.clear`.
+
 **Keyboard shortcuts** (`crates/engine/src/shortcuts.rs`): `shortcuts.list {query?, panel?}`,
 `shortcuts.get`, `shortcuts.set {command, keys, panel?, add?, keepConflicts?}`, `shortcuts.clear`,
 `shortcuts.undo` / `shortcuts.redo`, `shortcuts.conflicts {platform?}`, `shortcuts.forKey {key}`,

@@ -19,6 +19,7 @@ pub mod commands;
 pub mod demo;
 pub mod essential_sound;
 pub mod export_tools;
+pub mod grade;
 pub mod graphic_templates;
 pub mod graphics;
 pub mod interchange;
@@ -45,6 +46,7 @@ pub mod sequence_tools;
 pub mod settings;
 pub mod shortcut_presets;
 pub mod shortcuts;
+pub mod stills;
 pub mod sync;
 pub mod transcript;
 pub mod trim;
@@ -300,6 +302,31 @@ pub struct EditorState {
     /// The last Edit ▸ Find… (Find Next continues it).
     #[serde(default)]
     pub find: Option<project_tools::FindState>,
+    /// Grade ▸ Copy: the copied clip grade (`grade.copy`; Paste / Append / Apply use it).
+    #[serde(skip)]
+    pub grade_clipboard: Option<filmcraft_project::grade::Grade>,
+    /// The Program monitor's still comparison (`compare.set`): wipe or split against a still.
+    #[serde(default)]
+    pub compare: stills::CompareState,
+    /// Where an unsaved project keeps its stills' pictures (made on the first grab).
+    #[serde(skip)]
+    pub stills_tmp: Option<std::path::PathBuf>,
+    /// The folder pictures were last written to (moved along with the project).
+    #[serde(skip)]
+    pub stills_at: Option<std::path::PathBuf>,
+    /// The grade node selected in the Color page (`grade.selectNode`): the node the `grade.*`
+    /// commands act on when `node` is omitted (only on its own clip). Not project data; without a
+    /// valid current node those commands need `node`, unless the grade has exactly one node.
+    #[serde(default)]
+    pub grade_node: Option<GradeSel>,
+}
+
+/// A selected grade node: node ids are only unique within one clip's grade, so the clip is part
+/// of the selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GradeSel {
+    pub clip: ClipId,
+    pub node: u64,
 }
 
 /// Events for frontends (drained each frame).
@@ -1000,6 +1027,8 @@ mod export_tests;
 #[cfg(test)]
 mod file_tests;
 #[cfg(test)]
+mod grade_tests;
+#[cfg(test)]
 mod image_sequence_tests;
 #[cfg(test)]
 mod interchange_auto_points_tests;
@@ -1056,6 +1085,8 @@ mod shortcuts_tests;
 #[cfg(test)]
 mod split_edit_ripple_trim_tests;
 #[cfg(test)]
+mod stills_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod timeline_move_tests;
@@ -1069,3 +1100,5 @@ mod trim_tests;
 mod vfx_tests;
 #[cfg(test)]
 mod voiceover_tests;
+#[cfg(test)]
+mod workflow_tests;

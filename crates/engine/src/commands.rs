@@ -634,6 +634,7 @@ fn build() -> Vec<CommandSpec> {
             s.project = std::sync::Arc::new(filmcraft_project::Project::new(&name));
             s.history = Default::default();
             s.history.limit = 200;
+            s.stills_discard_temp();
             s.state = crate::Session::default().state;
             if s.path.take().is_some() {
                 s.previews.reset_temp();
@@ -648,6 +649,7 @@ fn build() -> Vec<CommandSpec> {
             s.project = std::sync::Arc::new(p);
             s.history = Default::default();
             s.history.limit = 200;
+            s.stills_discard_temp();
             s.state = crate::Session::default().state;
             s.state.active_sequence = Some(seq);
             s.state.open_sequences = vec![seq];
@@ -1049,6 +1051,9 @@ fn build() -> Vec<CommandSpec> {
                     next.set(k, v.clone()).map_err(|e| bad("prefs.set", e))?;
                 }
             }
+            if next.workflow != s.prefs.workflow || next.workflow_return_preset != s.prefs.workflow_return_preset {
+                return Err(bad("prefs.set", "the workflow changes the keyboard preset too: use settings.setWorkflow"));
+            }
             s.set_prefs(next).map_err(|e| EngineError::Other(format!("saving preferences: {e}")))?;
             Ok(s.prefs.to_value())
         }),
@@ -1059,7 +1064,14 @@ fn build() -> Vec<CommandSpec> {
                     n.reset_category(c).map_err(|e| bad("prefs.reset", e))?;
                     n
                 }
-                None => Default::default(),
+                None => {
+                    // the workflow follows the keyboard preset: reset it with settings.setWorkflow
+                    crate::autosave::Preferences {
+                        workflow: s.prefs.workflow,
+                        workflow_return_preset: s.prefs.workflow_return_preset.clone(),
+                        ..Default::default()
+                    }
+                }
             };
             s.set_prefs(next).map_err(|e| EngineError::Other(format!("saving preferences: {e}")))?;
             Ok(s.prefs.to_value())
@@ -2499,6 +2511,8 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::multicam::commands());
     v.extend(crate::essential_sound::commands());
     v.extend(crate::color::commands());
+    v.extend(crate::grade::commands());
+    v.extend(crate::stills::commands());
     v.extend(crate::graphics::commands());
     v.extend(crate::graphic_templates::commands());
     v.extend(crate::shortcuts::commands());
@@ -3189,6 +3203,7 @@ fn write_project(s: &mut Session, path: &str, adopt: bool) -> Result<Value> {
     if adopt {
         s.path = Some(path.to_string());
         s.previews_follow_path();
+        s.stills_follow_path();
         s.note_recent_project();
         s.saved_revision = s.revision;
         s.loaded_schema = filmcraft_format::SCHEMA_VERSION;
@@ -3211,6 +3226,7 @@ fn install_project(s: &mut Session, proj: filmcraft_project::Project, path: Opti
     s.project = std::sync::Arc::new(proj);
     s.history = Default::default();
     s.history.limit = 200;
+    s.stills_discard_temp();
     s.state = crate::Session::default().state;
     s.state.active_sequence = first;
     s.state.open_sequences = first.into_iter().collect();

@@ -29,6 +29,26 @@ pub const PREFS_VERSION: u32 = 2;
 
 // ------------------------------------------------------------------ category values
 
+/// Settings ▸ Workflow: the editor whose conventions the keyboard follows. Premiere is the
+/// FilmCraft default; Resolve loads the "DaVinci Resolve Compatible" keyboard preset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Workflow {
+    #[default]
+    Premiere,
+    Resolve,
+}
+
+impl Workflow {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "premiere" => Some(Self::Premiere),
+            "resolve" => Some(Self::Resolve),
+            _ => None,
+        }
+    }
+}
+
 /// Settings ▸ General.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -677,6 +697,8 @@ static CATEGORIES: &[Category] = &[
         id: "general",
         title: "General",
         rows: &[
+            // fork GRADE-PLAN G1.8: switched at once through `settings.setWorkflow`, not OK
+            Row::Custom("workflow"),
             f("general.atStartup", "At Startup", Kind::Choice(STARTUP), true),
             f("general.whenOpeningProject", "When Opening a Project", Kind::Choice(OPENING), false),
             Row::Group(
@@ -1075,6 +1097,16 @@ pub fn is_unit_key(key: &str) -> bool {
 /// Repair a preferences value in place against the schema: unknown choices and bad colours go back
 /// to their defaults, numbers are clamped to their ranges.
 pub fn sanitize(v: &mut Value, defaults: &Value) {
+    // Workflow (top level, outside the dialog's schema): garbage falls back to the default instead
+    // of failing the whole file.
+    if let Some(m) = v.as_object_mut() {
+        if m.get("workflow").is_some_and(|w| !matches!(w.as_str(), Some("premiere" | "resolve"))) {
+            m.remove("workflow");
+        }
+        if m.get("workflowReturnPreset").is_some_and(|w| !w.is_string()) {
+            m.remove("workflowReturnPreset");
+        }
+    }
     for (_, f) in fields() {
         if let Kind::Duration { unit_key } = f.kind {
             let ptr = format!("/{}", unit_key.replace('.', "/"));
@@ -1451,8 +1483,74 @@ fn cache_clean(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"files": files, "bytes": bytes, "location": dir.to_string_lossy()}))
 }
 
+fn workflow_json(s: &Session) -> Value {
+    json!({"workflow": s.prefs.workflow, "keyboardPreset": s.shortcuts.preset, "returnPreset": s.prefs.workflow_return_preset})
+}
+
+impl Session {
+    /// Settings ▸ Workflow: switch the keyboard between Premiere conventions and Resolve's.
+    ///
+    /// To Resolve: remembers the active keyboard preset (an edited set is first saved under a free
+    /// name "<name> (before Resolve)" so no edit is lost; if that save fails nothing changes), then
+    /// loads "DaVinci Resolve Compatible". Back to Premiere: if the user loaded another preset
+    /// while in Resolve, that one stays; otherwise an edited Resolve set is saved as "DaVinci
+    /// Resolve Compatible (edited)" (free name; failure refuses the switch) and the remembered
+    /// preset is restored (FilmCraft Default when there is none or it was deleted). Saved presets
+    /// are never overwritten. The choice persists in the preferences.
+    pub fn set_workflow(&mut self, w: Workflow) -> Result<()> {
+        use crate::shortcuts::{DEFAULT_PRESET, RESOLVE_PRESET};
+        const CMD: &str = "settings.setWorkflow";
+        if self.prefs.workflow == w {
+            return Ok(());
+        }
+        let mut next = self.prefs.clone();
+        match w {
+            Workflow::Resolve => {
+                if self.shortcuts.preset != RESOLVE_PRESET {
+                    let mut back = self.shortcuts.preset.clone();
+                    if self.shortcuts.modified {
+                        let name = self.shortcuts.free_preset_name(&format!("{back} (before Resolve)"));
+                        self.shortcuts.save_preset(&name).map_err(|e| bad(CMD, format!("could not keep your edited shortcuts as `{name}`: {e}")))?;
+                        back = name;
+                    }
+                    next.workflow_return_preset = back;
+                }
+                self.shortcuts.load_preset(RESOLVE_PRESET).map_err(|e| bad(CMD, e))?;
+            }
+            Workflow::Premiere => {
+                let want = std::mem::take(&mut next.workflow_return_preset);
+                // another preset chosen by hand while in Resolve stays
+                if self.shortcuts.preset == RESOLVE_PRESET {
+                    if self.shortcuts.modified {
+                        let name = self.shortcuts.free_preset_name(&format!("{RESOLVE_PRESET} (edited)"));
+                        self.shortcuts.save_preset(&name).map_err(|e| bad(CMD, format!("could not keep your edited shortcuts as `{name}`: {e}")))?;
+                    }
+                    let want = if want.is_empty() || want == RESOLVE_PRESET { DEFAULT_PRESET.to_string() } else { want };
+                    if self.shortcuts.load_preset(&want).is_err() {
+                        self.shortcuts.load_preset(DEFAULT_PRESET).map_err(|e| bad(CMD, e))?;
+                    }
+                }
+            }
+        }
+        next.workflow = w;
+        self.set_prefs(next).map_err(|e| EngineError::Other(format!("saving preferences: {e}")))
+    }
+}
+
 pub fn commands() -> Vec<CommandSpec> {
     vec![
+        spec("settings.getWorkflow", "Get Workflow", "{}", |s, _| Ok(workflow_json(s)), false),
+        spec(
+            "settings.setWorkflow",
+            "Set Workflow",
+            r#"{"workflow":"premiere|resolve"}"#,
+            |s, p| {
+                let w = str_p(p, "workflow").and_then(Workflow::parse).ok_or_else(|| bad("settings.setWorkflow", "`workflow` must be premiere or resolve"))?;
+                s.set_workflow(w)?;
+                Ok(workflow_json(s))
+            },
+            false,
+        ),
         spec("prefs.schema", "Settings Schema", r#"{"category":str?}"#, schema, false),
         spec("mediaCache.info", "Media Cache Info", "{}", cache_info, false),
         spec("mediaCache.clean", "Delete Media Cache Files", r#"{"all":bool?}"#, cache_clean, true),

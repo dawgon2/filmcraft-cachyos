@@ -41,6 +41,11 @@ don't rebuild what exists; §7 subagents), then this file. Rewritten 2026-10-11 
 
 ## Exact next step: GRADE-PLAN Phase G1 ("Lite")
 
+**Progress (session 10):** every G1 step is done and merged (see FORK-PLAN §7, session 10);
+no lanes in flight. Remaining: G1 acceptance (control script on a synthetic F-Log2 clip: 3 nodes,
+copy to 5 clips, still + wipe, Workflow switch screenshots; play-graded quick ≥ 95 % of Phase 5's
+shown frames; `cargo xtask ci`), tag `grade-1`, build `grade-1`, rewrite this file for Phase 6.
+
 Steps (GRADE-PLAN §3 G1; acceptance there): 1 node stack + Color workspace, 2 primaries panel
 (LGGO wheels with master rings → the existing node keys), 3 curves per node, 4 copy / paste /
 append grade, 5 stills + wipe / split compare, 6 film grain kernel, 7 scopes follow the grade

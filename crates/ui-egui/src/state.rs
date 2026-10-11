@@ -377,6 +377,10 @@ pub struct UiState {
     /// Effects panel: the Lumetri Presets folder shown as a thumbnail grid (wide panel).
     #[serde(default)]
     pub lumetri_grid_folder: Option<String>,
+    /// Color grading: the Primaries panel's tab ("primaries" or "curves"); the selected node is
+    /// the engine's `EditorState::grade_node`.
+    #[serde(default)]
+    pub grade_tab: String,
     /// Collapsed effect sections in Effect Controls ("clip:index").
     pub collapsed_fx: Vec<String>,
     pub show_menu_bar: bool,
@@ -786,6 +790,7 @@ impl Default for UiState {
             expanded_bins: vec![],
             expanded_fx: vec!["Video Transitions".into(), "Video Transitions/Dissolve".into()],
             lumetri_grid_folder: None,
+            grade_tab: String::new(),
             collapsed_fx: vec![],
             show_menu_bar: true,
             dark: true,

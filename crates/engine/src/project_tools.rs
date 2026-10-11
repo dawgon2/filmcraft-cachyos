@@ -681,6 +681,7 @@ fn new_from_template(s: &mut Session, p: &Value) -> Result<Value> {
     s.project = std::sync::Arc::new(proj);
     s.history = Default::default();
     s.history.limit = 200;
+    s.stills_discard_temp();
     s.state = Session::default().state;
     s.state.active_sequence = s.project.sequences().next().map(|i| i.id);
     s.state.open_sequences = s.state.active_sequence.into_iter().collect();
@@ -935,6 +936,16 @@ pub fn previews_dir_for(project: &Project, path: &str) -> std::path::PathBuf {
     }
 }
 
+/// Where the stills' pictures of a project saved at `path` go: Scratch Disks > Video Previews
+/// / `Stills` / `<project name>`, else `FilmCraft Stills/<project name>` next to the project.
+pub fn stills_dir_for(project: &Project, path: &str) -> std::path::PathBuf {
+    let stem = std::path::Path::new(path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "Untitled".into());
+    match &project.settings.scratch.video_previews {
+        Some(d) if !d.is_empty() => std::path::Path::new(d).join("Stills").join(stem),
+        _ => std::path::Path::new(path).parent().unwrap_or(std::path::Path::new(".")).join("FilmCraft Stills").join(stem),
+    }
+}
+
 fn project_settings_scratch(s: &mut Session, p: &Value) -> Result<Value> {
     let mut sc = s.project.settings.scratch.clone();
     for (k, slot) in
@@ -954,6 +965,7 @@ fn project_settings_scratch(s: &mut Session, p: &Value) -> Result<Value> {
             Ok(())
         })?;
         s.previews_follow_path();
+        s.stills_follow_path();
     }
     Ok(scratch_paths(s))
 }

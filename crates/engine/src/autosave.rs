@@ -168,6 +168,11 @@ pub struct Preferences {
     pub project_panel: crate::project_panel::ProjectPanelPrefs,
     /// Media Browser: Favorites, recent directories, file types, view, columns.
     pub media_browser: crate::media_browser::MediaBrowserPrefs,
+    /// Settings ▸ Workflow: which editor's conventions the keyboard follows.
+    pub workflow: settings::Workflow,
+    /// The keyboard preset to return to when the workflow goes back to Premiere ("" = FilmCraft
+    /// Default). Set when switching to Resolve; not shown in the dialog.
+    pub workflow_return_preset: String,
 }
 
 impl Default for Preferences {
@@ -195,6 +200,8 @@ impl Default for Preferences {
             voice_over: Default::default(),
             project_panel: Default::default(),
             media_browser: Default::default(),
+            workflow: Default::default(),
+            workflow_return_preset: String::new(),
         }
     }
 }

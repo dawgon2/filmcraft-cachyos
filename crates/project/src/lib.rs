@@ -21,6 +21,7 @@ pub mod keyframe;
 pub mod mask;
 pub mod mixer;
 pub mod multicam;
+pub mod still;
 pub mod transcript;
 pub mod vtransition;
 
@@ -40,6 +41,7 @@ pub use keyframe::{Interpolation, Keyframe, Param, ParamValue};
 pub use mask::{Mask, MaskMode, MaskPath, MaskVertex, TrackMethod};
 pub use mixer::{AutomationMode, InputMap, MixerStrip, TrackSend};
 pub use multicam::{Camera, MergedClip, MulticamAudio, MulticamSel, MulticamSource};
+pub use still::Still;
 pub use transcript::{Speaker, Transcript, Word};
 
 macro_rules! id_type {
@@ -1143,6 +1145,9 @@ pub struct Project {
     /// project item. Schema v12.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub source_graphics: BTreeMap<ItemId, SourceGraphic>,
+    /// The colour stills gallery (GRADE-PLAN G1.5): grabbed frames with the grade that made them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stills: Vec<Still>,
 }
 
 /// How a sequence is shown in the Timeline panel: its zoom, scroll position and track heights.
@@ -1226,6 +1231,7 @@ impl Project {
             transcripts: BTreeMap::new(),
             search_bins: Vec::new(),
             source_graphics: BTreeMap::new(),
+            stills: Vec::new(),
         }
     }
 
@@ -1642,6 +1648,34 @@ mod tests {
         let q = Project::from_json(&s).unwrap();
         assert_eq!(p, q);
         assert!(q.sequence(seq).unwrap().check().is_ok());
+    }
+
+    #[test]
+    fn stills_roundtrip_and_old_projects_load_without_them() {
+        let (mut p, _, seq) = demo_project();
+        // a project saved before stills existed has no `stills` key
+        let mut v: serde_json::Value = serde_json::from_str(&p.to_json()).unwrap();
+        assert!(v.as_object_mut().unwrap().remove("stills").is_none());
+        let old = Project::from_json(&v.to_string()).unwrap();
+        assert!(old.stills.is_empty());
+        p.stills.push(Still {
+            id: 7,
+            label: "Hero".into(),
+            clip: Some(ClipId(3)),
+            clip_name: "A001".into(),
+            sequence: Some(seq),
+            time: Tick(5),
+            grade: Some(crate::grade::Grade::default()),
+            width: 640,
+            height: 360,
+            nonce: 5,
+        });
+        assert_eq!(Project::from_json(&p.to_json()).unwrap(), p);
+        // a damaged entry keeps its defaults
+        v["stills"] = serde_json::json!([{"id": 1}]);
+        let q = Project::from_json(&v.to_string()).unwrap();
+        assert_eq!(q.stills.len(), 1);
+        assert_eq!(q.stills[0].width, 0);
     }
 
     #[test]

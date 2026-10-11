@@ -105,7 +105,7 @@ an old project loads unchanged; play-graded 6.2K quick pass shows no regression.
 it to 5 clips, grab a still and wipe against it, all through MCP / control commands and
 screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page screenshotted); play-graded 6.2K quick pass ≥ 95 % of Phase 5's shown frames; oracle tests (§5).
 
-### Phase G2: "Core", qualifiers, windows, noise reduction (≈ 25–45 h)
+### Phase G2: "Core", qualifiers, windows, noise reduction, node explainer, Grading Coach (≈ 63–117 h)
 1. **Per-node qualifier:** reuse `HslKey`; add invert, sat max, a picker (click the viewer to set
    hue / sat / luma ranges), highlight mode (show matte / grey background).
 2. **Per-node windows:** circle, polygon, Bézier from `mask.rs`, plus a new **linear (gradient)
@@ -134,7 +134,65 @@ screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page sc
 9. **Shot Match (moved up from deferred, owner 2026-10-11):** reuse the `color_match::solve`
    Levenberg–Marquardt solver, solving in a node's primaries (LGGO + saturation) instead of
    Lumetri's wheels, so "Match to still / reference" adds an editable node. ≈ 4–8 h.
-10. **Resolve comparison (owner-run, optional):** Resolve is installed in `/opt/resolve`. The
+10. **Node explainer (owner, 2026-10-11), measured facts first:** `grade.explainNode` /
+    `grade.explainGrade` measure each node's input and output frame with the `color_match.rs`
+    statistics (Oklab per tonal range, chroma, skin protection), read its controls (which wheels
+    moved and where, curve bends, qualifier / window coverage as % of the frame) and produce
+    structured facts plus a plain template sentence ("Node 2 'Skin': affects 18 % of the frame;
+    inside it, midtones +⅙ stop, slightly less magenta, saturation −6 %; shadows and highlights
+    untouched"). A "what changed" overlay shows where and how strongly the node acted. A one-line
+    summary in the node strip, the full text in an Explain panel; cached per node state.
+    ≈ 6–12 h.
+11. **Local AI explanations (owner, 2026-10-11):** an **optional, offline, quantized small
+    language model** rewrites 10's facts in layman's terms ("this node warms up the skin a little
+    and calms down the reds, without touching the sky").
+    - Pure Rust inference on the CPU with **candle**, which `crates/speech` already uses for
+      Whisper; reuse its model catalogue / verified downloader pattern (`crates/speech/src/models.rs`:
+      source pinned to a revision, SHA-256, licence, per-user data dir). **Weights are never
+      bundled or committed**: downloaded on first use after the user opts in (Settings ▸ Color ▸
+      AI explanations), ≈ 0.4–1.2 GB.
+    - Model: a small instruct model with an open licence, quantized to 4 bits (candidates to
+      evaluate: Qwen2.5-0.5B / 1.5B-Instruct, Apache-2.0; SmolLM2-360M / 1.7B-Instruct, Apache-2.0).
+      Pick by quality on a fixed set of 30 graded test cases and speed on this CPU (target: a
+      short explanation within ~5 s, generated in the background).
+    - **Grounded, never guessing:** the model only receives 10's structured facts and a fixed
+      prompt; its output is checked (every number and direction it states must match the facts,
+      length capped); on any mismatch, failure, timeout or missing model, the template sentence
+      from 10 is shown instead. Inference runs under `catch_unwind` with memory and time caps
+      (never crash). No network use other than the opt-in download.
+    - Crate placement: a new L-level crate beside `crates/speech` (no UI deps, layering), behind a
+      cargo feature that's off in wasm builds.
+    ≈ 10–20 h.
+12. **Grading Coach: step-by-step guidance for beginners (owner, 2026-10-11):** so a beginner
+    isn't lost in the node system. Three parts, all offline:
+    - **Guided lessons (no AI needed):** a lesson engine that walks through a task one step at a
+      time on the user's own clip (or a bundled sample frame from openly licensed footage, with
+      attribution). Each step says what to do and **why**, **highlights the exact control** using
+      the automation registry (`crates/ui-egui/src/automation.rs`: every widget's id and screen
+      rect), and **waits until the step is actually done** by watching the engine commands
+      (e.g. `grade.addNode`, `grade.setParam`), then moves on; Back / Skip / Exit at any time,
+      progress remembered per user. Lessons are data files (`assets/lessons/*.toml`: steps,
+      target automation id, expected command and param condition, text), so adding one needs no
+      code. First set: *What a node is and how the chain flows*; *Your first grade* (balance →
+      exposure → contrast → saturation → look, in that order and why); *Which node for what*
+      (one job per node; a sensible starter tree for F-Log2: input CST → balance → exposure /
+      contrast → secondaries → look → output); *Match two shots with stills and wipe*; *Fix skin
+      with a qualifier*; *Brighten a face with a tracked window*; *Clean up noise in log shadows*.
+    - **Ask the coach (uses G2.11's local model if installed):** a question box ("how do I make
+      the sky bluer without changing skin?", "why did my skin go grey?"). It retrieves the
+      relevant sections of FilmCraft's own colour guide (`docs/color-guide/`, written for this
+      project, clean-room: never copied from Resolve's or anyone's manual) with a small pure-Rust
+      keyword / BM25 index, adds the current grade's facts (G2.10), and answers with numbered
+      steps naming the real buttons. **Every control or command it names is checked against the
+      live command list and automation ids**; anything unknown is removed, and if the answer
+      fails the check (or there's no model) it offers the closest lesson instead. Steps in an
+      answer can be clicked to highlight that control.
+    - **Context hints:** the first time someone adds a node type, opens a panel or does something
+      that usually confuses (e.g. a qualifier on a node after a heavy look), a small dismissible
+      card says what it is, when to use it and links its lesson. Off with one switch.
+    - Pure-Rust, never-crash rules as in G2.11; text is translatable via the existing i18n.
+    ≈ 22–40 h (engine 8–15, lessons + guide text 6–10, coach 8–15).
+13. **Resolve comparison (owner-run, optional):** Resolve is installed in `/opt/resolve`. The
    owner can render a few stills from Resolve with known settings (e.g. Offset +0.1, a qualifier
    on skin) so we can compare behaviour by eye. Never invent Resolve numbers (FORK-PLAN §6).
 
@@ -144,7 +202,11 @@ in a flat patch drops ≥ 40 % without blurring an edge-sharpness patch by more 
 threshold); play-graded with NR on is measured and recorded (synthetic); export matches the
 viewer; `grade.compareShots` reports a near-perfect score for a clip against itself and flags a
 deliberately offset copy (+⅓ stop, warm cast) with the right words; Shot Match brings that copy
-back within a set tolerance.
+back within a set tolerance; the node explainer's facts match known test grades exactly, and with
+the AI model installed its text passes the fact check on the 30-case set (and falls back cleanly
+with the model removed); every lesson can be completed end to end through the control channel
+(each step's highlight hits a real widget and its completion condition fires), and the coach's
+answers on a fixed set of 30 beginner questions pass the control-name check.
 
 ### Phase G3 and later: deferred (§6)
 
@@ -174,7 +236,7 @@ backends). **Order (approved by the owner 2026-10-11): G0 → G1 → 6 → G2 �
 
 ## 6. Deferred (advanced / pro)
 
-Parallel, layer, splitter / combiner nodes, key mixer, outside nodes; HDR wheels, colour warper,
+Parallel, layer, splitter / combiner nodes, key mixer, outside nodes (now scheduled: COMPOSITOR-PLAN C2, after C1); HDR wheels, colour warper,
 3D qualifier; planar tracking; grade groups (pre / post clip), timeline
 grades; halation, glow; Magic Mask (ML, conflicts with pure Rust); ACES, Dolby Vision; matching
 every control's exact feel to Resolve. The §2 data model keeps all of these possible.

@@ -11,6 +11,7 @@ pub mod essential_sound;
 pub mod events;
 pub mod export_mode;
 pub mod file_dialogs;
+pub mod grade;
 pub mod graphics;
 pub mod graphics_templates;
 pub mod import_mode;
@@ -28,6 +29,7 @@ pub mod mixer;
 pub mod monitor;
 pub mod monitor_view;
 pub mod multicam;
+pub mod pages;
 pub mod panel_state;
 pub mod presets;
 pub mod project;
@@ -38,6 +40,7 @@ pub mod remix;
 pub mod scopes;
 pub mod settings;
 pub mod shortcuts_dialog;
+pub mod stills;
 pub mod text;
 pub mod timecode;
 pub mod timeline;
@@ -79,6 +82,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, p: PanelKind, rect: Rect)
         PanelKind::LumetriScopes => scopes::show(app, ui, rect),
         PanelKind::Metadata => metadata::show(app, ui, rect),
         PanelKind::Timecode => timecode::show(app, ui, rect),
+        PanelKind::ColorNodes => grade::show_nodes(app, ui, rect),
+        PanelKind::ColorPrimaries => grade::show_primaries(app, ui, rect),
+        PanelKind::Gallery => stills::show(app, ui, rect),
         PanelKind::Events => events::events(app, ui, rect),
         PanelKind::Progress => events::progress(app, ui, rect),
         PanelKind::ReferenceMonitor => reference::show(app, ui, rect),

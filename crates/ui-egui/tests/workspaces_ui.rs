@@ -167,6 +167,7 @@ fn save_switch_reset_rename_delete_and_restart() {
             "Audio",
             "Captions and Graphics",
             "Color",
+            "Color Grading",
             "Cutting",
             "Editing",
             "Effects",

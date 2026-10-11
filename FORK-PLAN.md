@@ -72,6 +72,12 @@ the agent's own recorded interpretations, not the owner's words.
    **Order from 2026-10-11 (owner):** 5 (done) → **G0 → G1** ([`GRADE-PLAN.md`](GRADE-PLAN.md))
    → **6** → **G2** → 7 → 8. Each G phase ends like any phase here (acceptance, `cargo xtask
    ci`, tag `grade-0` / `grade-1` / `grade-2`, build `~/Apps/filmcraft-builds/grade-N/` per §1a.9).
+   **Order from 2026-10-11, later (owner, replaces the line above):** 5 (done) → G0 (done) →
+   **G1 → 6 → Y1 → 6E → G2 → Y3 → 7** (its acceptance includes **Y4**) **→ 8 → Y2**, then the
+   separate [`H264-PLAN.md`](H264-PLAN.md) (**H1 → H2 → H3**). Y phases:
+   [`YOUTUBE-PLAN.md`](YOUTUBE-PLAN.md); 6E: [`EXPORT-PLAN.md`](EXPORT-PLAN.md). Tags `yt-1`,
+   `phase-6e`, `yt-3`, `yt-2`, `h264-1/2/3`; builds per §1a.9. Everything is complete only when
+   H3 is done.
 7. **Benchmark passes.** Quick passes (the key 6.2K playback and decode scenarios, `--quick`, one
    run each, labelled "quick pass") for phases whose main result is known (Phases 1, 3, 6, 8 and
    in-between steps); **the full `xm5` suite at Phase 2, 4, 5 and 7 acceptance**, and whenever a
@@ -127,8 +133,9 @@ the agent's own recorded interpretations, not the owner's words.
 16. **6.2K optimisation phase (owner, 2026-10-10).** The owner may add a whole phase, after the
     current plan (Phases 5–8) is complete, dedicated to heavily optimising 6.2K footage (e.g.
     6.2K export ≥ 24 fps: today ≈ 18–20 fps, the single-VCN ceiling; candidates: splitting the
-    encode between the AMD and Intel media engines, FORK-PLAN §7 session 7). Not scheduled yet:
-    continue the current plan; don't start it without the owner.
+    encode between the AMD and Intel media engines, FORK-PLAN §7 session 7). **Approved by the
+    owner 2026-10-11 as Phase 6E** ([`EXPORT-PLAN.md`](EXPORT-PLAN.md)), run after Y1 in the
+    order of §1a.6.
 17. **Resolve-style colour page (owner, 2026-10-11).** Build the beginner / intermediate
     Resolve-style grader in [`GRADE-PLAN.md`](GRADE-PLAN.md) (G0 foundations, G1 Lite, G2 Core;
     advanced features deferred, GRADE-PLAN §6), in the order of §1a.6. It includes a **Settings ▸
@@ -136,6 +143,11 @@ the agent's own recorded interpretations, not the owner's words.
     preset; GRADE-PLAN G1.8), a **"same grade?" / shot comparison** tool and **Shot Match**
     (GRADE-PLAN G2.8–9). GRADE-PLAN §7 says how to use subagents; its §1 audit says what already
     exists (don't rebuild it). Read GRADE-PLAN.md in every session that works on a G phase.
+18. **YouTube gaps (owner, 2026-10-11): [`YOUTUBE-PLAN.md`](YOUTUBE-PLAN.md).** Y1 hardware
+    H.264 decode, 8-bit 4:2:0 progressive, **max 8 agent hours**; the rest of complete H.264
+    support is [`H264-PLAN.md`](H264-PLAN.md) after Phase 8; Y2 variable frame rate; Y3
+    compositing / extensibility; Y4 the real-edit check in Phase 7. **Y3.6 (node compositor and
+    OpenFX) is deferred and needs the owner.**
 
 ## 2. The machine and the footage (don't re-research these)
 
@@ -1154,3 +1166,59 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   F-Log2 / DWG, nest, adjustment layer; GPU parity AMD and Intel 2.1e-6); the v12 project loads
   unchanged; play-graded 6.2K 240/0 at 3.4 ms CPU/frame, play-full 240/0 at 1.9 ms (unchanged;
   `target/bench/xm5-grade0-quick-*.json`). `cargo xtask ci` ✓. Tagged `grade-0`.
+- **2026-10-11, session 9: G0 build ready.** `~/Apps/filmcraft-builds/grade-0/` (filmcraft,
+  filmcraft-cli, NOTES.md), `latest` → `grade-0`, launcher valid; bench saved as
+  `target/fork-bench/bench-grade0`. Next: **G1** (HANDOFF "Exact next step").
+- **2026-10-11, session 10 (scheduled-task run): phase order recorded; G1.1 done.** §1a.6 now has
+  the owner's order with Y1 / 6E / Y3 / Y2 / H264-PLAN, §1a.18 added, §1a.16 marked approved as
+  6E (`6a310e7`). **G1.1** `grade.*` commands (`crates/engine/src/grade.rs`): add / insert /
+  remove / move / toggle / label nodes, `setParam` (clamped, keyframes at the playhead in effect
+  time so frame holds match the render, `merge` drags), `toggleAnimation`, `resetNode`, `bypass`,
+  `clear`, `get`, `params`; 16 engine tests; Fable review (nothing blocking; its fixes applied;
+  note: `effects.setParam` keyframes at `source_time_at`, not `effect_time_at` — pre-existing,
+  differs from the render on frame holds without Hold Filters; not fixed here) (`3531f9f`).
+  Lanes started: film grain (G1.6), copy / paste / stills / wipe (G1.4–5), Resolve keymap +
+  Workflow preference (G1.8 engine half). Main: Color Grading workspace (G1.2–3).
+- **2026-10-11, session 10: G1.2–3 done.** "Color Grading" workspace (Window ▸ Workspaces):
+  Nodes strip (select, + Serial / + Before, delete, disable, reset, bypass; scrolls; capped at
+  64 drawn) and Primaries panel (Lift / Gamma / Gain / Offset wheels: puck = zero-sum RGB offset,
+  side slider = master; contrast / pivot / saturation / temperature / tint with reset buttons;
+  Y / R / G / B curves per node), all through `grade.*`; one undo step per gesture; UI tests
+  `tests/grade_ui.rs`; Fable review fixes applied (`2eaba8f`). Synthetic demo project only.
+- **2026-10-11, session 10: G1.6 and G1.7 done.** Film grain = `ColorOp::Grain` (monochrome,
+  luma weighted 10 % at black / white → 100 % mid-tones, cell size 1–4 source px, softness,
+  seed from clip time, sequence time, clip id and node id; reduced previews attenuate sub-pixel
+  cells so they match a downscaled full render) in the fused colour pass, CPU + WGSL bit-mirrored
+  hash; node keys `grain.strength / size / softness`; the grade compiles once per item per frame
+  (table-free `changes_picture`). GPU parity AMD ≤ 1.8e-6 / Intel ≤ 2.1e-6 (grain ≤ 8e-8). Two
+  Fable reviews, fixes applied (merges `fd9da4a`, `5ad4b9e`; `652f335` Primaries grain sliders;
+  `08e302a` size ≥ 1 px). **G1.7** scopes follow the grade: `scopes_follow_the_clip_grade`
+  (`0121103`). In flight: G1.4–5 stills lane, G1.8 keymap lane (review fixes).
+- **2026-10-11, session 10: G1.8 done except the Color page layout.** Engine (lane, 2 Fable
+  reviews): "DaVinci Resolve Compatible" keymap (public-manual defaults only: JKL, I/O/X, B /
+  Ctrl+B, N, Shift+2/4/6/7/8 pages, Alt+S / Shift+S nodes, Ctrl+D node, Shift+D bypass,
+  Ctrl+Alt+G still, Ctrl+W wipe; reset-node and trim keys left on defaults, not known for
+  sure), `Preferences.workflow` + `settings.setWorkflow` (remembers / saves the previous keymap,
+  never overwrites a preset), clip-scoped current node `grade.selectNode` (merge `e88d8b3`).
+  UI: Settings ▸ General ▸ Workflow, Resolve page bar (Media → Assembly, Edit → Editing, Color →
+  Color Grading, Fairlight → Audio, Deliver → Export), Color workspace → node grader in Resolve
+  (`0434abc`, `14251ae9`). Next: merge the stills lane (gallery panel), Color page layout, G1
+  acceptance.
+- **2026-10-11, session 10: G1.4–5 merged, all G1 steps done.** Copy / paste / append grade,
+  `grade.applyFrom`, Paste Attributes carries the grade; stills (`Project.stills`, schema v14
+  no-op migration, PNG ≤ 1920 px under Scratch Disks ▸ video previews or `FilmCraft Stills/`
+  beside the project, temp folder for unsaved projects moved on save and discarded on project
+  switch, per-grab nonce), `stills.*`, `compare.set / get`, Gallery panel, wipe / split overlay
+  with a draggable divider in the Program monitor (lane + 2 Fable reviews; merge `61bb8b82`,
+  fixes `f182fe45`). Color Grading workspace laid out like Resolve's Color page (`a29e4527`).
+  Next: G1 acceptance (control-channel script on a synthetic F-Log2 clip, play-graded quick,
+  `cargo xtask ci`), tag `grade-1`, build.
+- **2026-10-11, session 10: G1 accepted (synthetic, quick pass).** Control-channel script on the
+  synthetic `xm5_420_2997_30s_b.mov` interpreted as F-Log2 / F-Gamut, cut into 6 clips: 3 serial
+  nodes (primaries, curves, grain) on clip 1, copied to the other 5 (identical grades ✓), still
+  grabbed (picture ✓), wipe and split against a desaturated clip 2 ✓, Workflow → Resolve (keymap
+  "DaVinci Resolve Compatible", page bar, Color page) and back (page bar gone, keymap restored)
+  ✓; screenshots in `~/Apps/filmcraft-builds/grade-1/screenshots/`. play-graded quick 240/0 at
+  3.8 ms CPU/frame (≥ 95 % of Phase 5's shown frames ✓), play-full 240/0 at 2.0 ms
+  (`target/bench/xm5-grade1-quick-*.json`). Oracle / parity tests: grade + grain AMD ≤ 1.8e-6,
+  Intel ≤ 2.1e-6. `cargo xtask ci` ✓. Tagged `grade-1`.

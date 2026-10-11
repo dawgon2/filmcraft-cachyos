@@ -61,3 +61,19 @@ fn scopes_read_finds_the_colour_bar_targets() {
         assert!(cells.contains(&(x as u64, y as u64)), "{} target ({x}, {y}) not among {cells:?}", t.name);
     }
 }
+
+/// GRADE-PLAN G1.7: the scopes read the graded picture (they sample the composite), and a
+/// bypassed grade reads like none.
+#[test]
+fn scopes_follow_the_clip_grade() {
+    let mut s = matte_sequence("#808080");
+    let clip = s.active_sequence().unwrap().video_tracks[0].items[0].id;
+    let mean = |s: &mut Session, k: &str| s.execute("scopes.read", json!({"columns": 4})).unwrap()["stats"][k]["mean"].as_f64().unwrap();
+    let (r0, g0) = (mean(&mut s, "r"), mean(&mut s, "g"));
+    let node = s.execute("grade.addNode", json!({"clip": clip.0})).unwrap()["node"].as_u64().unwrap();
+    s.execute("grade.setParam", json!({"clip": clip.0, "node": node, "param": "offset", "value": [0.1, 0.0, -0.1]})).unwrap();
+    let (r1, b1) = (mean(&mut s, "r"), mean(&mut s, "b"));
+    assert!(r1 > r0 + 3.0 && b1 < r0 - 3.0, "graded: r {r0} → {r1}, b → {b1}");
+    s.execute("grade.bypass", json!({"clip": clip.0})).unwrap();
+    assert_eq!((mean(&mut s, "r"), mean(&mut s, "g")), (r0, g0));
+}

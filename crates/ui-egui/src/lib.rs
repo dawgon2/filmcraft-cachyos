@@ -653,7 +653,14 @@ impl FilmcraftApp {
         }
     }
 
+    /// Settings ▸ General ▸ Workflow is DaVinci Resolve.
+    pub fn resolve_workflow(&self) -> bool {
+        self.session.prefs.workflow == filmcraft_engine::settings::Workflow::Resolve
+    }
+
     pub fn set_workspace(&mut self, name: &str) {
+        // Resolve workflow: the Color workspace is the node grader (GRADE-PLAN G1.8)
+        let name = if name == "Color" && self.resolve_workflow() { "Color Grading" } else { name };
         self.ui.workspace = name.to_string();
         self.ui.dock = dock::saved_layout(&self.workspaces, name);
         if self.workspaces.current != name {
@@ -663,7 +670,7 @@ impl FilmcraftApp {
                 self.ui.status = e;
             }
         }
-        if name == "Color" {
+        if name == "Color" || name == "Color Grading" {
             self.ui.show_scopes = false;
         }
     }
@@ -674,7 +681,9 @@ impl FilmcraftApp {
         }
         if !self.ui.dock.contains(p) {
             let near = match p {
-                PanelKind::LumetriColor | PanelKind::EssentialGraphics | PanelKind::EssentialSound | PanelKind::Properties => PanelKind::Program,
+                PanelKind::LumetriColor | PanelKind::ColorPrimaries | PanelKind::EssentialGraphics | PanelKind::EssentialSound | PanelKind::Properties => {
+                    PanelKind::Program
+                }
                 PanelKind::Source
                 | PanelKind::EffectControls
                 | PanelKind::AudioClipMixer
@@ -684,6 +693,7 @@ impl FilmcraftApp {
                 | PanelKind::Text
                 | PanelKind::ReferenceMonitor
                 | PanelKind::Timecode => PanelKind::Source,
+                PanelKind::ColorNodes | PanelKind::Gallery => PanelKind::Timeline,
                 _ => PanelKind::Project,
             };
             self.ui.dock.open_near(p, near);
@@ -1289,11 +1299,18 @@ impl FilmcraftApp {
         let header = egui::Rect::from_min_size(full.min, egui::vec2(full.width(), header_h));
         header::show(self, ui, header);
         let status_h = 20.0;
-        let body = egui::Rect::from_min_max(egui::pos2(full.min.x + 1.0, header.max.y + 1.0), egui::pos2(full.max.x - 1.0, full.max.y - status_h - 2.0));
+        // Resolve workflow: the page bar sits above the status bar (GRADE-PLAN G1.8)
+        let pages_h = if self.resolve_workflow() { panels::pages::HEIGHT } else { 0.0 };
+        let body =
+            egui::Rect::from_min_max(egui::pos2(full.min.x + 1.0, header.max.y + 1.0), egui::pos2(full.max.x - 1.0, full.max.y - status_h - pages_h - 2.0));
         match self.ui.mode {
             state::Mode::Edit => self.dock_area(ui, body),
             state::Mode::Import => panels::import_mode::show(self, ui, body),
             state::Mode::Export => panels::export_mode::show(self, ui, body),
+        }
+        if pages_h > 0.0 {
+            let bar = egui::Rect::from_min_max(egui::pos2(full.min.x, full.max.y - status_h - pages_h), egui::pos2(full.max.x, full.max.y - status_h));
+            panels::pages::show(self, ui, bar);
         }
         panels::dialogs::show(self, &ctx);
         // Status / hint bar
