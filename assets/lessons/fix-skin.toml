@@ -1,0 +1,83 @@
+# Grading Coach lesson (fork GRADE-PLAN G2.12). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "fix-skin"
+title = "Fix skin with a qualifier"
+summary = "Select skin by its colour and adjust only that part of the picture."
+provenance = ["resolve-style"]
+order = 5
+
+[[step]]
+text = "A qualifier selects part of the picture by colour, such as skin, sky or grass. Changes in that node then only affect the selection."
+why = "Skin often needs a different touch from the rest of the frame. A qualifier lets you fix it without shifting everything else."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Color Grading workspace (Workspaces button, then Color Grading)."
+why = "You need the Primaries panel and the picture to pick colours from."
+target = "header.workspaces"
+expect = { element = "panel.ColorPrimaries" }
+
+[[step]]
+text = "Select a clip with a face in the timeline."
+why = "The qualifier works on the selected clip."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+
+[[step]]
+text = "Add a node just for skin: click + Serial."
+why = "A separate node keeps the skin fix apart from the overall grade, so you can switch it off to compare."
+target = ["grade.addNode", "grade.addFirst"]
+expect = { command = ["grade.addNode", "grade.insertNode"] }
+
+[[step]]
+text = "Open the Qualifier tab."
+why = "The selection tools live here."
+target = "grade.tab.qualifier"
+expect = { element = "grade.qual.pick" }
+
+[[step]]
+text = "Click Pick, then click on a well-lit part of the skin in the Program picture."
+why = "The picker reads that colour and selects everything similar. Pick mid-tone skin, not a highlight or a shadow."
+target = "grade.qual.pick"
+expect = { command = "grade.pickQualifier" }
+
+[[step]]
+text = "Click Selection under View to see what is selected: the selected area keeps its colour, the rest turns grey."
+why = "You can't judge a selection you can't see. Look for holes in the face or bits of background that got picked up."
+target = "grade.qual.show.1"
+expect = { command = "grade.setParam", params = { param = "qual.show", value = { gt = 0.0 } } }
+
+[[step]]
+text = "Tidy the selection: raise Qualifier softness for gentler edges, or Matte blur if it looks speckled. Use Add and click more skin if parts are missing."
+why = "A soft, clean selection hides the fact that only part of the picture was changed."
+target = "grade.param.qual.soft"
+expect = { command = "grade.setParam", params = { param = { in = ["qual.soft", "qual.blur", "qual.hue", "qual.hueWidth", "qual.satLow", "qual.satHigh", "qual.lumLow", "qual.lumHigh"] } } }
+
+[[step]]
+text = "Set View back to Normal."
+why = "Always judge the actual picture before you change the colour."
+target = "grade.qual.show.0"
+expect = { command = "grade.setParam", params = { param = "qual.show", value = 0 } }
+
+[[step]]
+text = "Open the Primaries tab."
+why = "The wheels and sliders here now only change the selected skin."
+target = "grade.tab.primaries"
+expect = { element = "grade.wheel.gamma" }
+
+[[step]]
+text = "Fix the skin: if it looks grey, raise Saturation a little; if it looks too red or too green, nudge Tint or Temperature; to brighten it, lift the Gamma wheel."
+why = "Healthy skin sits between red and yellow. Small changes look natural; big ones look painted."
+target = "grade.param.saturation"
+expect = { command = "grade.setParam", params = { param = { in = ["saturation", "tint", "temperature", "gamma", "gain", "offset", "lift"] } } }
+
+[[step]]
+text = "Click Disable to compare with and without the skin node, then click it again to keep the fix."
+why = "If you can't see the difference at normal viewing, the fix is either done or not needed."
+target = "grade.toggleNode"
+expect = { command = "grade.toggleNode" }
+
+[[step]]
+text = "Done. Make sure the skin node is enabled. The same steps work for sky, grass or any object with its own colour."
+why = "Qualifiers are the main tool for changing one thing in a shot without touching everything else."
+expect = { manual = true }

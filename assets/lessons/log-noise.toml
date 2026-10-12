@@ -1,0 +1,83 @@
+# Grading Coach lesson (fork GRADE-PLAN G2.12). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "log-noise"
+title = "Clean up noise in log shadows"
+summary = "Reduce noise first, then brighten the shadows, so you don't lift the noise along with them."
+provenance = ["resolve-style", "fork"]
+order = 7
+
+[[step]]
+text = "Log footage such as F-Log2 keeps a lot of detail in the shadows, but it also keeps their noise. Brightening dark areas makes that noise easy to see."
+why = "Noise reduction works best on the picture before you brighten it, so we clean first and lift afterwards."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Color Grading workspace (Workspaces button, then Color Grading)."
+why = "Noise reduction is a tab in the Primaries panel of this workspace."
+target = "header.workspaces"
+expect = { element = "panel.ColorPrimaries" }
+
+[[step]]
+text = "Select the noisy clip in the timeline."
+why = "Noise reduction is set per clip, on a node."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+
+[[step]]
+text = "Add a node for noise reduction: click Add Node (or + Serial). If the clip already has nodes, this one ideally sits first: select node 01 and use + Before instead."
+why = "Early in the chain the noise has not been boosted yet, so it is easier to remove cleanly."
+target = ["grade.addFirst", "grade.insertNode"]
+expect = { command = ["grade.addNode", "grade.insertNode"] }
+
+[[step]]
+text = "Open the Noise tab."
+why = "The noise controls are here."
+target = "grade.tab.noise"
+expect = { element = "grade.param.nr.luma" }
+
+[[step]]
+text = "Raise NR luma slowly until the grainy speckle in the shadows calms down. Stop before faces start to look waxy."
+why = "Luma noise is the grainy brightness flicker. Too much reduction smears fine detail like skin and hair."
+target = "grade.param.nr.luma"
+expect = { command = "grade.setParam", params = { param = "nr.luma", value = { gt = 0.0 } } }
+
+[[step]]
+text = "Raise NR chroma until the coloured blotches in the dark areas disappear."
+why = "Colour noise is usually the ugliest part and can be removed strongly without losing detail."
+target = "grade.param.nr.chroma"
+expect = { command = "grade.setParam", params = { param = "nr.chroma", value = { gt = 0.0 } } }
+
+[[step]]
+text = "NR radius sets how large the smoothing is. Leave it alone unless the noise looks blotchy rather than fine. Press Next to continue."
+why = "A larger radius removes coarse noise but also softens more of the picture."
+target = "grade.param.nr.size"
+expect = { manual = true }
+
+[[step]]
+text = "Now add a second node after it to brighten the shadows: click + Serial."
+why = "The lift goes after the clean-up, so it brightens a cleaner picture."
+target = "grade.addNode"
+expect = { command = "grade.addNode" }
+
+[[step]]
+text = "Open the Primaries tab."
+why = "The Lift wheel controls the darkest parts of the picture."
+target = "grade.tab.primaries"
+expect = { element = "grade.wheel.lift" }
+
+[[step]]
+text = "Raise the Lift wheel's level a little (or the Gamma wheel) to open up the shadows."
+why = "Because the noise was reduced first, the shadows come up cleaner than they would have."
+target = "grade.wheel.lift"
+expect = { command = "grade.setParam", params = { param = { in = ["lift", "gamma"] } } }
+
+[[step]]
+text = "Compare: select the noise node in the strip and click Disable, then click it again. Look closely at the dark areas."
+why = "Switching the node off shows how much noise it removed, and whether it removed detail too."
+target = "grade.toggleNode"
+expect = { command = "grade.toggleNode" }
+
+[[step]]
+text = "Done. Make sure the noise node is enabled. Noise reduction is heavy to play back; if playback stutters, that is expected."
+why = "Clean shadows let you brighten a log picture without it falling apart."
+expect = { manual = true }

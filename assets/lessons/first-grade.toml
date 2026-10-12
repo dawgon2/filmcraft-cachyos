@@ -1,0 +1,78 @@
+# Grading Coach lesson (fork GRADE-PLAN G2.12). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "first-grade"
+title = "Your first grade"
+summary = "Balance, exposure, contrast, saturation, then a look: the usual order, and why it works."
+provenance = ["resolve-style"]
+order = 2
+
+[[step]]
+text = "We will grade one shot in five steps: balance, exposure, contrast, saturation, and finally a look."
+why = "Each step depends on the one before. Colour is easier to judge once the picture is neutral and bright enough, and a look is easier to build on a clean base."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Color Grading workspace: click the Workspaces button at the top and choose Color Grading."
+why = "The Primaries panel (wheels and sliders) is part of this workspace."
+target = "header.workspaces"
+expect = { element = "panel.ColorPrimaries" }
+
+[[step]]
+text = "Click the clip you want to grade in the timeline."
+why = "The controls always work on the selected clip."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+already = "clipSelected"
+
+[[step]]
+text = "Click Add Node to give the clip its first node. If it already has a grade, click + Serial instead."
+why = "The technical fixes (balance, exposure, contrast, saturation) go in this node; the look gets its own node later."
+target = ["grade.addFirst", "grade.addNode"]
+expect = { command = ["grade.addNode", "grade.insertNode"] }
+
+[[step]]
+text = "Balance: find something that should be white or grey. Drag Temperature (blue to orange) and Tint (green to magenta) until it looks neutral."
+why = "A colour cast tints everything else you do. Removing it first means later changes start from a true picture."
+target = "grade.param.temperature"
+expect = { command = "grade.setParam", params = { param = { in = ["temperature", "tint", "offset"] } } }
+
+[[step]]
+text = "Exposure: use the Offset wheel to make the whole picture brighter or darker, or the Gain wheel for just the bright parts, until faces and the main subject look right."
+why = "Brightness sets where everything sits. Judging contrast or colour on a picture that is too dark or too bright is guesswork."
+target = "grade.wheel.offset"
+expect = { command = "grade.setParam", params = { param = { in = ["offset", "gain", "gamma"] } } }
+
+[[step]]
+text = "Contrast: drag Contrast up a little for more punch, or down for a softer picture."
+why = "Contrast stretches the gap between dark and bright around the Pivot. Doing it after exposure keeps the middle tones where you put them."
+target = "grade.param.contrast"
+expect = { command = "grade.setParam", params = { param = "contrast", value = { ne = 1.0 } } }
+
+[[step]]
+text = "Saturation: now set how strong the colours are. Small moves go a long way."
+why = "Contrast also changes how colourful a picture looks, so saturation comes after it. Skin goes orange quickly when pushed too far."
+target = "grade.param.saturation"
+expect = { command = "grade.setParam", params = { param = "saturation", value = { ne = 1.0 } } }
+
+[[step]]
+text = "Look: click + Serial to add a new node for your creative look."
+why = "Keeping the look in its own node means you can change or remove it without undoing the clean base you just built."
+target = "grade.addNode"
+expect = { command = "grade.addNode" }
+
+[[step]]
+text = "Give the look a direction: for example, nudge the Gamma wheel towards teal or warm, or move Temperature. Keep it subtle."
+why = "A look is a choice about mood. Because the base underneath is neutral, the look reads the same way on every shot."
+target = "grade.wheel.gamma"
+expect = { command = "grade.setParam", params = { param = { in = ["lift", "gamma", "gain", "offset", "temperature", "tint", "saturation", "contrast"] } } }
+
+[[step]]
+text = "Click Bypass to compare with the ungraded clip, then click it again to bring your grade back."
+why = "Looking at the before and after side by side in time keeps your eyes honest."
+target = "grade.bypass"
+expect = { command = "grade.bypass" }
+
+[[step]]
+text = "Done: you built a clean base and a separate look. Make sure Bypass is off so your grade shows."
+why = "This order (balance, exposure, contrast, saturation, look) works for almost every shot."
+expect = { manual = true }

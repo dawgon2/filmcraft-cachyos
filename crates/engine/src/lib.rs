@@ -11,9 +11,13 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
 pub mod aaf_omf;
+pub mod ai_explain;
 pub mod autosave;
 pub mod captions;
 pub mod clip_ops;
+pub mod coach;
+pub mod coach_ask;
+pub mod coach_hints;
 pub mod color;
 pub mod commands;
 pub mod demo;
@@ -440,6 +444,13 @@ pub struct Session {
     pub media_stamps: std::collections::HashMap<String, media_watch::Stamp>,
     /// The stamps being taken on a worker thread ([`Session::start_media_scan`]).
     pub media_scan: Option<media_watch::MediaScan>,
+    /// The Grading Coach's guided lesson in progress (`coach.*`, fork GRADE-PLAN G2.12).
+    pub coach: coach::Coach,
+    /// The frontend's automation-id check for "Ask the coach" (`coach.ask`); None without a UI.
+    pub coach_ids: Option<Arc<dyn coach_ask::UiIdCheck>>,
+    /// Local AI explanations of grade nodes (`ai.*`, fork GRADE-PLAN G2.11): the answer cache,
+    /// an injected backend (tests) and the running model download.
+    pub ai: ai_explain::AiExplain,
 }
 
 /// An export advanced a batch at a time on the host's thread ([`Session::pump_jobs`]).
@@ -529,6 +540,9 @@ impl Session {
             log: Default::default(),
             browser: Default::default(),
             exec_depth: 0,
+            coach: Default::default(),
+            coach_ids: None,
+            ai: Default::default(),
             media_stamps: Default::default(),
             media_scan: None,
         }
@@ -639,7 +653,17 @@ impl Session {
     /// Replace preferences (persisting them and updating the worker).
     pub fn set_prefs(&mut self, p: autosave::Preferences) -> std::io::Result<()> {
         let cache_changed = self.prefs.media_cache != p.media_cache;
+        let (old_ai, new_ai) = (&self.prefs.color.ai, &p.color.ai);
+        // AI explanations switched off (or another model chosen), e.g. by the Settings dialog's
+        // OK: free the model's memory as `ai.setEnabled` does (never waits)
+        let release_ai = (old_ai.enabled && !new_ai.enabled) || old_ai.model != new_ai.model;
         self.prefs = p;
+        if release_ai {
+            self.ai.release();
+        }
+        if !self.prefs.color.coach.hints && self.coach.hint.take().is_some() {
+            self.coach.revision = self.coach.revision.wrapping_add(1);
+        }
         self.prefs.apply_hardware_decoding();
         if cache_changed {
             self.apply_media_cache();
@@ -715,6 +739,11 @@ impl Session {
         self.sync_persistence();
         // playback reads the newest snapshot (mixer moves, mutes… are heard while playing)
         self.previews.live.publish_project(self.project.clone());
+        // a guided lesson (or, outside one, the coach's context hints) watches what the user
+        // does (UI, control channel, MCP alike)
+        if self.exec_depth == 0 && r.is_ok() && !id.starts_with("coach.") {
+            coach::observe_command(self, id, &params);
+        }
         if r.is_ok() && spec.journal {
             self.journal.push((id.to_string(), params));
             if self.journal.len() > 10_000 {
@@ -1118,6 +1147,8 @@ const MAX_SUBCLIP_CHAIN: usize = 16;
 #[cfg(test)]
 mod aaf_omf_tests;
 #[cfg(test)]
+mod ai_explain_tests;
+#[cfg(test)]
 mod audio_effects_tests;
 #[cfg(test)]
 mod audio_placement_tests;
@@ -1125,6 +1156,12 @@ mod audio_placement_tests;
 mod autosave_tests;
 #[cfg(test)]
 mod clip_ops_tests;
+#[cfg(test)]
+mod coach_ask_tests;
+#[cfg(test)]
+mod coach_hints_tests;
+#[cfg(test)]
+mod coach_tests;
 #[cfg(test)]
 mod color_tests;
 #[cfg(test)]

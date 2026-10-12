@@ -3671,3 +3671,57 @@
 	Explain Node	Explicar nodo
 	Explain Grade	Explicar corrección
 	Pick Qualifier Colour	Seleccionar color del cualificador
+	Back	Atrás
+	Skip	Omitir
+	Exit	Salir
+	Next	Siguiente
+	Why	Por qué
+	Lesson complete	Lección terminada
+	Step {n} of {total}	Paso {n} de {total}
+	The highlighted control isn't on screen yet.	El control resaltado aún no está en pantalla.
+	Grading Coach	Asistente de etalonaje
+	Show Grading Coach hints	Mostrar consejos del asistente de etalonaje
+	Ask the coach	Preguntar al asistente
+	Ask	Preguntar
+	e.g. how do I make the sky bluer?	p. ej., ¿cómo hago el cielo más azul?
+	The guide has no step-by-step answer for this yet.	La guía aún no tiene pasos para esto.
+	Ask about a grading task.	Pregunta sobre una tarea de etalonaje.
+	Click to highlight this control.	Haz clic para resaltar este control.
+	Try the lesson “{title}”	Prueba la lección «{title}»
+	Lesson: {title}	Lección: {title}
+	From the guide: {heading}	De la guía: {heading}
+	{n} steps left out: they name controls that aren't available here.	Se omitieron {n} pasos: nombran controles que aquí no están disponibles.
+	This step runs the command {cmd}.	Este paso ejecuta el comando {cmd}.
+	The guide doesn't cover this yet.	La guía aún no trata este tema.
+	{n} steps left out: they name commands that aren't available here.	Se omitieron {n} pasos: nombran comandos que aquí no están disponibles.
+	{n} steps left out: they name controls or commands that aren't available here.	Se omitieron {n} pasos: nombran controles o comandos que aquí no están disponibles.
+# Local AI explanations (fork G2.11)
+	AI explanations	Explicaciones con IA
+	Explain nodes in plain words with a local AI model	Explicar los nodos con palabras sencillas mediante un modelo de IA local
+	installed	instalado
+	{name}: {size}, licence {licence}, downloaded from {source}	{name}: {size}, licencia {licence}, se descarga de {source}
+	Download progress	Progreso de la descarga
+	Cancel download	Cancelar descarga
+	Download	Descargar
+	Removed the model ({size} freed).	Modelo eliminado (se liberaron {size}).
+	The last download failed: {err}	La última descarga falló: {err}
+	This build can't run AI models (built without the `llm` feature): the plain template is shown.	Esta compilación no puede ejecutar modelos de IA (compilada sin la función `llm`): se muestra la plantilla sencilla.
+	This build isn't optimised for AVX2: an explanation takes 15–30 s instead of about 5 s.	Esta compilación no está optimizada para AVX2: una explicación tarda 15–30 s en lugar de unos 5 s.
+	Model downloads are not available in this build.	Las descargas de modelos no están disponibles en esta compilación.
+	Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead.	Opcional y sin conexión: un pequeño modelo de lenguaje en este ordenador reescribe con palabras sencillas los datos medidos por el explicador de nodos. Nunca se incluye con FilmCraft y solo se descarga de su editor cuando pulsas Descargar. Cada texto se comprueba con los datos medidos; si no pasa la comprobación, se muestra la frase de plantilla sencilla.
+	Most stock models fail the strict check. The FilmCraft-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used.	La mayoría de los modelos de serie no superan la comprobación estricta. Los explicadores ajustados para FilmCraft la superan casi siempre; por ahora se crean en este ordenador y podrán descargarse cuando se publiquen. Mientras no elijas un modelo, se usa el mejor explicador ajustado instalado.
+	{name}: {size}, licence {licence}. Built on this computer (FilmCraft fine-tune of {base}); not downloadable yet.	{name}: {size}, licencia {licence}. Creado en este ordenador (ajuste de FilmCraft sobre {base}); aún no se puede descargar.
+	checked	comprobado
+	Written by the local AI model and checked against the measured facts.	Escrito por el modelo de IA local y comprobado con los datos medidos.
+	Writing a plain-language version…	Escribiendo una versión en lenguaje sencillo…
+	plain template	plantilla sencilla
+	The AI text wasn't shown: {why}. This is the plain template sentence.	No se mostró el texto de la IA: {why}. Esta es la frase de plantilla sencilla.
+# Grading Coach hints and lesson list (fork G2.12)
+	Lessons	Lecciones
+	Completed	Completada
+	Again	Repetir
+	Start	Empezar
+	Tip	Consejo
+	Got it	Entendido
+	Turn hints off	Desactivar consejos
+	Grading Lessons…	Lecciones de etalonaje…

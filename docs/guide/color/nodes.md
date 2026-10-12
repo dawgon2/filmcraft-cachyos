@@ -51,6 +51,19 @@ rendered)".
    that node's work. Press **Enable** to restore it.
 6. Press **Bypass** {ui:grade.bypass}: the clip looks ungraded. Press it again.
 
+## Delete a node
+
+**[Resolve-style]**
+
+A node you no longer need only makes the grade harder to read. Deleting (removing) it takes its
+work out of the picture; the nodes after it move up and keep their settings. To keep its
+settings for later, use **Disable** {ui:grade.toggleNode} instead.
+
+1. Select the clip, then click the node's box in the Nodes panel (`grade.selectNode`).
+2. Press **Delete** {ui:grade.removeNode} (`grade.removeNode`). The box disappears and the
+   picture changes by that node's work.
+3. Changed your mind? **Ctrl+Z** brings the node back with its settings.
+
 ## Reorder and name nodes
 
 **[Fork]**

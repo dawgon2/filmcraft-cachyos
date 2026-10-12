@@ -399,6 +399,7 @@ impl Preferences {
         self.playback.postroll_seconds = secs(self.playback.postroll_seconds);
         self.trim.large_trim_offset = self.trim.large_trim_offset.clamp(1, 1000);
         self.labels.sanitize_labels();
+        self.color.coach.clamp();
         self.appearance.sync_color_theme();
         self.version = settings::PREFS_VERSION;
     }

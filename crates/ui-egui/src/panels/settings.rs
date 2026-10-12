@@ -9,6 +9,7 @@
 //! preference key, e.g. `settings.timeline.stillImageDuration`), `settings.<key>.<value>` for the
 //! items of an open dropdown, `settings.<key>.browse` (folder fields), `settings.<key>.hex`
 //! (colour fields), `settings.labels.colors.<label>.name|color`, `settings.mediaCache.clean`,
+//! `settings.color.ai.model|download|remove|cancel|progress` (AI explanations),
 //! `settings.help`, `settings.reset`, `settings.cancel`, `settings.ok`.
 
 use egui::{Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, vec2};
@@ -33,6 +34,11 @@ const LABEL_W: f32 = 250.0;
 pub struct SettingsDraft {
     pub page: String,
     pub values: Value,
+    /// The preferences when the dialog opened: OK sends only what was edited since (a command
+    /// that changed a preference while the dialog was open, such as a finished lesson or
+    /// `ai.setEnabled`, is kept). Null (a draft set from outside): the current preferences.
+    #[serde(skip)]
+    pub base: Value,
     /// Result of the last button (Delete… media cache) or an error from OK.
     #[serde(default)]
     pub message: String,
@@ -47,7 +53,8 @@ pub struct SettingsDraft {
 /// Open the dialog on a category page.
 pub fn open(app: &mut FilmcraftApp, page: &str) -> Result<Value, String> {
     let cat = settings::category(page).ok_or_else(|| format!("unknown settings category `{page}`"))?;
-    app.ui.settings = Some(SettingsDraft { page: cat.id.into(), values: app.session.prefs.to_value(), ..Default::default() });
+    let values = app.session.prefs.to_value();
+    app.ui.settings = Some(SettingsDraft { page: cat.id.into(), base: values.clone(), values, ..Default::default() });
     app.dialog = Some(Dialog::Preferences);
     Ok(json!({"dialog": "settings", "page": cat.id}))
 }
@@ -295,6 +302,9 @@ fn put(v: &mut Value, key: &str, x: Value) {
 }
 
 /// Leaf values of `new` that differ from `old`, as dotted keys.
+/// Keys Reset… leaves alone: things the app records, not settings.
+const RESET_KEEPS: &[&str] = &["general.recentProjects", "color.coach.completed", "color.coach.hintsSeen"];
+
 fn diff(prefix: &str, old: &Value, new: &Value, out: &mut Map<String, Value>) {
     match (old, new) {
         (Value::Object(a), Value::Object(b)) => {
@@ -657,6 +667,7 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
             }
         }
         "appearanceModes" => appearance_modes(app, ui, d),
+        "aiExplanations" => ai_explanations(app, ui, d),
         "autoSaveStatus" => {
             let status = app.session.execute("file.autoSaveStatus", json!({})).unwrap_or_default();
             if let Some(dir) = status["autoSaveDir"].as_str() {
@@ -677,6 +688,131 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
         }
         _ => {}
     }
+}
+
+/// Settings ▸ Color ▸ AI explanations (fork GRADE-PLAN G2.11): which catalogue model to use, its
+/// Download / Remove buttons with progress, and what the feature does. Like the workflow, these
+/// act at once (`ai.select`, `ai.download`, `ai.remove`, `ai.cancelDownload`); the on/off switch is
+/// an ordinary field applied with OK. Ids: `settings.color.ai.model[.<id>]`,
+/// `settings.color.ai.download|remove|cancel|progress`.
+fn ai_explanations(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
+    let t = app.tokens;
+    let info = app.session.execute("ai.models", json!({})).unwrap_or_default();
+    let selected = info["selected"].as_str().unwrap_or_default().to_string();
+    let models = info["models"].as_array().cloned().unwrap_or_default();
+    let opts: Vec<(String, String)> = models
+        .iter()
+        .map(|m| {
+            let mut l =
+                format!("{} · {} · {}", m["name"].as_str().unwrap_or_default(), mb(m["size"].as_u64().unwrap_or(0)), m["license"].as_str().unwrap_or_default());
+            if m["installed"] == true {
+                l.push_str(" · ");
+                l.push_str(tl!("installed"));
+            }
+            (m["id"].as_str().unwrap_or_default().to_string(), l)
+        })
+        .collect();
+    let mut picked = None;
+    ui.horizontal(|ui| {
+        field_label(ui, tl!("Model"));
+        picked = combo(app, ui, "color.ai.model", &selected, &opts, 380.0);
+    });
+    if let Some(m) = picked.filter(|m| *m != selected) {
+        match app.session.execute("ai.select", json!({ "model": m })) {
+            Ok(_) => put(&mut d.values, "color.ai.model", json!(m)),
+            Err(e) => d.message = e.to_string(),
+        }
+    }
+    let current = models.iter().find(|m| m["id"] == selected.as_str());
+    if let Some(m) = current {
+        let (name, size, licence, source) = (
+            m["name"].as_str().unwrap_or_default(),
+            mb(m["size"].as_u64().unwrap_or(0)),
+            m["license"].as_str().unwrap_or_default(),
+            m["source"].as_str().unwrap_or_default(),
+        );
+        if m["local"] == true {
+            // (a fork fine-tune: no download until the owner publishes it; the base is the
+            // source repository's last path segment)
+            let base = source.trim_end_matches('/').rsplit('/').next().unwrap_or_default();
+            note(
+                ui,
+                &t,
+                &tlf!(
+                    "{name}: {size}, licence {licence}. Built on this computer (FilmCraft fine-tune of {base}); not downloadable yet.",
+                    name,
+                    size,
+                    licence,
+                    base
+                ),
+            );
+        } else {
+            note(ui, &t, &tlf!("{name}: {size}, licence {licence}, downloaded from {source}", name, size, licence, source));
+        }
+    }
+    // download / remove, or the running download's progress
+    let installed = current.is_some_and(|m| m["installed"] == true);
+    let local = current.is_some_and(|m| m["local"] == true);
+    let can_download = info["canDownload"] == true;
+    let job = app.session.ai.download.as_ref().and_then(|(_, id)| app.session.jobs.iter().find(|j| j.id == *id)).map(|j| j.to_json());
+    let running = info["downloading"].is_object();
+    ui.horizontal(|ui| {
+        field_label(ui, "");
+        if running {
+            let frac = job.as_ref().and_then(|j| j["progress"].as_f64()).unwrap_or(0.0) as f32;
+            let status = job.as_ref().and_then(|j| j["status"].as_str()).unwrap_or_default().to_string();
+            let r = ui.add(egui::ProgressBar::new(frac.clamp(0.0, 1.0)).desired_width(260.0).show_percentage().text(status));
+            app.auto.add("settings.color.ai.progress", r.rect, tl!("Download progress"));
+            let c = ui.button(tl!("Cancel download"));
+            app.auto.add("settings.color.ai.cancel", c.rect, tl!("Cancel download"));
+            if c.clicked() {
+                let _ = app.session.execute("ai.cancelDownload", json!({}));
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        } else {
+            let b = ui.add_enabled(can_download && !installed && !local && current.is_some(), egui::Button::new(tl!("Download")));
+            app.auto.add("settings.color.ai.download", b.rect, tl!("Download"));
+            if b.clicked() {
+                d.message = match app.session.execute("ai.download", json!({ "model": selected })) {
+                    Ok(_) => String::new(),
+                    Err(e) => e.to_string(),
+                };
+            }
+            let r = ui.add_enabled(installed, egui::Button::new(tl!("Remove")));
+            app.auto.add("settings.color.ai.remove", r.rect, tl!("Remove"));
+            if r.clicked() {
+                d.message = match app.session.execute("ai.remove", json!({ "model": selected })) {
+                    Ok(v) => tlf!("Removed the model ({size} freed).", size = mb(v["freed"].as_u64().unwrap_or(0))),
+                    Err(e) => e.to_string(),
+                };
+            }
+        }
+    });
+    if !running && let Some(err) = job.as_ref().and_then(|j| j["result"]["error"].as_str()) {
+        note(ui, &t, &tlf!("The last download failed: {err}", err));
+    }
+    if info["inference"] != true {
+        note(ui, &t, tl!("This build can't run AI models (built without the `llm` feature): the plain template is shown."));
+    } else if info["slowBuild"] == true {
+        note(ui, &t, tl!("This build isn't optimised for AVX2: an explanation takes 15–30 s instead of about 5 s."));
+    }
+    if !can_download {
+        note(ui, &t, tl!("Model downloads are not available in this build."));
+    }
+    note(
+        ui,
+        &t,
+        tl!(
+            "Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead."
+        ),
+    );
+    note(
+        ui,
+        &t,
+        tl!(
+            "Most stock models fail the strict check. The FilmCraft-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used."
+        ),
+    );
 }
 
 fn rows(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, list: &[Row]) {
@@ -792,9 +928,13 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) -> bool {
             if button(app, ui, "settings.reset", tl!("Reset…"), false) {
                 // this category back to its defaults (OK applies it)
                 let defaults = filmcraft_engine::autosave::Preferences::default().to_value();
-                let keep = get(&d.values, "general.recentProjects").clone();
+                // (what the app records rather than settings: recent projects, finished lessons,
+                // hints already shown)
+                let kept: Vec<(&str, Value)> = RESET_KEEPS.iter().map(|k| (*k, get(&d.values, k).clone())).collect();
                 d.values[d.page.as_str()] = defaults[d.page.as_str()].clone();
-                put(&mut d.values, "general.recentProjects", keep);
+                for (k, v) in kept {
+                    put(&mut d.values, k, v);
+                }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(20.0);
@@ -810,7 +950,8 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) -> bool {
     });
     if apply {
         let mut changes = Map::new();
-        diff("", &app.session.prefs.to_value(), &d.values, &mut changes);
+        let base = if d.base.is_null() { app.session.prefs.to_value() } else { d.base.clone() };
+        diff("", &base, &d.values, &mut changes);
         // the workflow switches only through settings.setWorkflow (it may change while open)
         changes.remove("workflow");
         changes.remove("workflowReturnPreset");

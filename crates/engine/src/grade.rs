@@ -203,7 +203,8 @@ fn params(_: &mut Session, _: &Value) -> Result<Value> {
 fn add(s: &mut Session, p: &Value, before: bool) -> Result<Value> {
     let cmd = if before { "grade.insertNode" } else { "grade.addNode" };
     let key = if before { "before" } else { "after" };
-    if p.get(key).is_some_and(|v| v.as_u64().is_none()) {
+    // (null = no anchor: the node strip's "+ Serial" sends the current node, null when none)
+    if p.get(key).is_some_and(|v| !v.is_null() && v.as_u64().is_none()) {
         return Err(bad(cmd, format!("`{key}` must be a node id")));
     }
     let anchor = uint(p, key);

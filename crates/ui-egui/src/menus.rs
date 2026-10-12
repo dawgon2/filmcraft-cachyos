@@ -147,6 +147,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("help.reportIssue", "Report an Issue…", ["Help"], None),
     uic!("help.revealLogFiles", "Reveal Log Files…", ["Help"], None),
     uic!("help.systemCompatibilityReport", "System Compatibility Report…", ["Help"], None),
+    uic!("coach.showLessons", "Grading Lessons…", ["Help"], None),
     uic!("app.about", "About FilmCraft", ["Help"], None),
     uic!("app.keyboardShortcuts", "Keyboard Shortcuts…", ["Edit"], Some("Cmd+Alt+K")),
     uic!("app.settings.general", "General…", ["Edit", "Preferences"], Some("Cmd+,")),
@@ -425,6 +426,11 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
         id if id.starts_with("page.") => {
             let page = id.trim_start_matches("page.");
             return if crate::panels::pages::open(app, page) { Ok(json!({"page": page})) } else { Err(format!("unknown page `{page}`")) };
+        }
+        "coach.showLessons" => {
+            app.ui.coach_ask.lessons = true;
+            app.ui.coach_ask.open = false;
+            return Ok(Value::Null);
         }
         "app.about" => {
             app.dialog = Some(crate::Dialog::About);

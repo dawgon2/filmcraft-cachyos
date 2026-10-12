@@ -32,6 +32,7 @@ macro_rules! tlf {
 pub mod automation;
 pub mod brand;
 mod cjk;
+pub mod coach_ids;
 pub mod control;
 pub mod crash;
 pub mod credits;
@@ -608,6 +609,9 @@ impl FilmcraftApp {
         let workspaces =
             session.prefs_path.as_ref().and_then(|p| p.parent()).map(|d| dock::WorkspacePrefs::load(&d.join(dock::WORKSPACES_FILE))).unwrap_or_default();
         let language = i18n::Language::parse(&session.prefs.general.interface_language).unwrap_or_default();
+        // "Ask the coach" checks the controls it names against what this UI has shown
+        let auto = automation::Registry::default();
+        session.coach_ids = Some(Arc::new(coach_ids::UiIds(auto.seen.clone())));
         Self {
             session,
             ui: UiState { language, ..UiState::default() },
@@ -621,7 +625,7 @@ impl FilmcraftApp {
             // Unsaved changes left by a session that died are offered first thing.
             dialog: recovery.then_some(Dialog::Recovery),
             file_dialogs: Default::default(),
-            auto: Default::default(),
+            auto,
             textures: HashMap::new(),
             control_rx: None,
             pending_panel_raise: None,
@@ -892,6 +896,12 @@ impl FilmcraftApp {
     }
 
     /// Settings ▸ General ▸ Workflow is DaVinci Resolve.
+    /// Whether an automation id exists: shown this session, or built at run time by a known
+    /// pattern ("Ask the coach" drops steps naming any other).
+    pub fn known_ui_id(&self, id: &str) -> bool {
+        self.auto.known_ui_id(id)
+    }
+
     pub fn resolve_workflow(&self) -> bool {
         self.session.prefs.workflow == filmcraft_engine::settings::Workflow::Resolve
     }
@@ -1808,6 +1818,8 @@ impl FilmcraftApp {
         // the Timeline has had its chance to place a file drop this frame; anything left stays a bin import
         self.pending_timeline_drop = None;
         panels::dialogs::show(self, &ctx);
+        // Grading Coach: the lesson card and the spotlight on the control it is about
+        panels::coach::show(self, &ctx);
         if !self.ui.show_status_bar {
             // no bar to draw the job in, but a finished preview render still plays
             self.watch_jobs(ui.ctx());

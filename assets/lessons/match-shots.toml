@@ -1,0 +1,83 @@
+# Grading Coach lesson (fork GRADE-PLAN G2.12). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "match-shots"
+title = "Match two shots with stills and wipe"
+summary = "Save a still of the shot you like, wipe it against the next shot, and grade until they look like one scene."
+provenance = ["resolve-style", "fork"]
+order = 4
+
+[[step]]
+text = "When two shots of the same scene look different, cutting between them jumps. You will save a picture of the shot you like (a still) and compare the other shot against it."
+why = "Eyes adapt quickly. Comparing against a fixed reference stops you drifting."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Color Grading workspace (Workspaces button, then Color Grading). The Gallery on the left holds your stills."
+why = "The Gallery, the picture and the node controls are all on one screen there."
+target = "header.workspaces"
+expect = { element = "panel.Gallery" }
+
+[[step]]
+text = "Select the reference shot (the one that already looks right) in the timeline, and park the playhead on a good frame."
+why = "The still is taken from the selected clip at the playhead."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+
+[[step]]
+text = "Click Grab Still."
+why = "The still remembers both the picture and that clip's grade."
+target = "stills.grab"
+expect = { command = "stills.grab" }
+
+[[step]]
+text = "Now select the shot you want to match in the timeline."
+why = "This is the clip you will change. The reference stays as it is."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+
+[[step]]
+text = "Click your new still in the Gallery to choose it as the reference."
+why = "The comparison buttons work with the still you have chosen."
+target = "panel.Gallery"
+expect = { command = "compare.set", params = { still = { any = true } } }
+
+[[step]]
+text = "Click Wipe in the Gallery. The picture now shows the still on one side and the current shot on the other."
+why = "Seeing both halves at once makes small differences in brightness and colour obvious."
+target = "stills.mode.wipe"
+expect = { command = "compare.set", params = { mode = "wipe" } }
+
+[[step]]
+text = "Add a node to the shot you are matching: click + Serial."
+why = "Matching changes get their own node, so they stay separate from the rest of the grade."
+target = ["grade.addNode", "grade.addFirst"]
+expect = { command = ["grade.addNode", "grade.insertNode"] }
+
+[[step]]
+text = "Match brightness first, then colour: use the Offset wheel (or Gain) until the two halves sit at the same level, then Temperature or Tint until the colours agree."
+why = "Brightness differences make colours look different too, so fixing brightness first often fixes half the colour problem."
+target = "grade.wheel.offset"
+expect = { command = "grade.setParam", params = { param = { in = ["offset", "gain", "gamma", "lift", "temperature", "tint", "contrast", "saturation"] } } }
+
+[[step]]
+text = "Open the Match tab in the Primaries panel."
+why = "It holds tools that measure shots for you: compare, Shot Match and the node explainer."
+target = "grade.tab.match"
+expect = { element = "grade.match.shotMatch" }
+
+[[step]]
+text = "Optional help: click Shot Match, which measures both shots and sets the node for you. Skip this step if you are happy already."
+why = "Shot Match is a starting point, not the final word. Check the wipe after it runs."
+target = "grade.match.shotMatch"
+expect = { command = "grade.shotMatch" }
+
+[[step]]
+text = "Turn the comparison off: click Off in the Gallery."
+why = "Judge the result as the audience will see it, by playing across the cut."
+target = "stills.mode.off"
+expect = { command = "compare.set", params = { mode = "off" } }
+
+[[step]]
+text = "Play across the cut between the two shots. If it still jumps, go back to the node and adjust a little more."
+why = "Matching is done when the cut stops drawing attention to itself."
+expect = { manual = true }

@@ -215,13 +215,19 @@ fn summary(n: &GradeNode) -> String {
 
 /// One wheel: node key, title, colour scale (at the rim the spread between the hue and its
 /// opposite equals it), full-scale master offset.
-const WHEELS: [(&str, &str, f32, f32); 4] =
+pub(crate) const WHEELS: [(&str, &str, f32, f32); 4] =
     [("lift", "Lift", 0.25, 0.5), ("gamma", "Gamma", 0.25, 0.5), ("gain", "Gain", 0.5, 1.0), ("offset", "Offset", 0.25, 0.5)];
 
 /// Number sliders below the wheels; `""` draws a separator (the film grain group follows).
 const SLIDERS: [&str; 9] = ["contrast", "pivot", "saturation", "temperature", "tint", "", "grain.strength", "grain.size", "grain.softness"];
 
-const CURVES: [(&str, &str); 4] = [("curve.master", "Y"), ("curve.r", "R"), ("curve.g", "G"), ("curve.b", "B")];
+/// The tabs of the grade panel (`grade.tab.{id}`).
+pub(crate) const TABS: [&str; 6] = ["primaries", "curves", "qualifier", "windows", "noise", "match"];
+
+/// The window shapes the Windows tab adds (`grade.window.add.{shape}`).
+pub(crate) const WINDOW_SHAPES: [&str; 3] = ["ellipse", "rectangle", "linear"];
+
+pub(crate) const CURVES: [(&str, &str); 4] = [("curve.master", "Y"), ("curve.r", "R"), ("curve.g", "G"), ("curve.b", "B")];
 
 /// Hue-ring angles of red, green and blue on [`widgets::color::color_wheel`] (hue = 1 − angle / τ,
 /// counter-clockwise from +x): red 0°, green 240°, blue 120°.
@@ -293,14 +299,8 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let armed = app.ui.grade_picker.filter(|a| a.clip == clip.0 && a.node == node_id).map(|a| a.add);
 
     bui.horizontal(|ui| {
-        for (id, label) in [
-            ("primaries", tl!("Primaries")),
-            ("curves", tl!("Curves")),
-            ("qualifier", tl!("Qualifier")),
-            ("windows", tl!("Windows")),
-            ("noise", tl!("Noise")),
-            ("match", tl!("Match")),
-        ] {
+        let labels = [tl!("Primaries"), tl!("Curves"), tl!("Qualifier"), tl!("Windows"), tl!("Noise"), tl!("Match")];
+        for (id, label) in TABS.into_iter().zip(labels) {
             let r = ui.selectable_label(tab == id, label);
             autos.push((format!("grade.tab.{id}"), r.rect, label.to_string()));
             if r.clicked() {
@@ -330,6 +330,9 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let luts = lut_entries(&app.session.project);
     let scroll_rect = Rect::from_min_max(bui.cursor().min, bui.max_rect().max);
     let mut sui = bui.new_child(egui::UiBuilder::new().max_rect(scroll_rect).id_salt("grade-primaries-scroll"));
+    // a Grading Coach step about one of these controls scrolls it into view (once per step)
+    let coach_scroll = super::coach::scroll_request(app, bui.ctx());
+    let mut coach_scrolled = false;
     egui::ScrollArea::vertical().id_salt(("grade-primaries", tab)).auto_shrink([false, false]).show(&mut sui, |bui| {
         if tab == "primaries" {
             // four wheels in a row when the panel is wide (Resolve's Color page), else two by two
@@ -468,7 +471,16 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 });
             }
         }
+        if let Some(want) = &coach_scroll
+            && let Some((_, r, _)) = autos.iter().find(|(id, ..)| want.contains(id))
+        {
+            bui.scroll_to_rect(*r, None);
+            coach_scrolled = true;
+        }
     });
+    if coach_scrolled {
+        super::coach::scrolled(app, bui.ctx());
+    }
 
     for (id, r, label) in autos {
         if r.is_positive() {
@@ -499,12 +511,12 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             if let Some(path) = &overlay {
                 p["overlay"] = json!(path.to_string_lossy());
             }
-            let text = match app.session.execute(cmd, p) {
-                Ok(v) => result_text(&kind, &v),
-                Err(e) => e.to_string(),
+            let (text, ai) = match app.session.execute(cmd, p) {
+                Ok(v) => (result_text(&kind, &v), if cmd == "grade.explainNode" { AiView::from_json(&v) } else { None }),
+                Err(e) => (e.to_string(), None),
             };
             let tex = overlay.and_then(|path| load_overlay(ui.ctx(), &path, clip));
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-result", clip.0)), MatchResult { text, overlay: tex }));
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-result", clip.0)), MatchResult { text, overlay: tex, ai }));
             continue;
         }
         if p.get("browse").is_some() {
@@ -677,6 +689,51 @@ struct MatchView {
 struct MatchResult {
     text: String,
     overlay: Option<egui::TextureHandle>,
+    /// The node explainer's AI state (G2.11), None for the other results.
+    ai: Option<AiView>,
+}
+
+/// Where an explanation came from: a checked local-AI text, the template (with the reason when
+/// the model was asked and its text couldn't be used), or still being written (`key`).
+#[derive(Clone, Debug, PartialEq)]
+struct AiView {
+    key: Option<String>,
+    source: String,
+    reason: Option<String>,
+    attempted: bool,
+}
+
+impl AiView {
+    fn from_outcome(o: &filmcraft_engine::ai_explain::Outcome) -> Self {
+        AiView { key: None, source: o.source.to_string(), reason: o.reason.clone(), attempted: o.code.is_some_and(|c| c.attempted()) }
+    }
+
+    /// From `grade.explainNode`'s answer.
+    fn from_json(v: &Value) -> Option<Self> {
+        let source = v["source"].as_str()?.to_string();
+        let attempted = matches!(v["reasonCode"].as_str(), Some("rejected" | "timeout" | "error"));
+        Some(AiView { key: v["aiKey"].as_str().map(str::to_string), source, reason: v["reason"].as_str().map(str::to_string), attempted })
+    }
+}
+
+/// Replace a pending explanation with the model's answer once it is ready (polled each frame
+/// while the Match tab shows it; never blocks).
+fn poll_ai(app: &FilmcraftApp, ctx: &egui::Context, clip: ClipId, result: &mut MatchResult) {
+    let Some(key) = result.ai.as_ref().and_then(|a| a.key.clone()) else { return };
+    match app.session.ai.poll(&key) {
+        Some(filmcraft_engine::ai_explain::Answer::Ready(o)) => {
+            result.text = o.text.clone();
+            result.ai = Some(AiView::from_outcome(&o));
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-result", clip.0)), result.clone()));
+        }
+        Some(filmcraft_engine::ai_explain::Answer::Pending { .. }) => ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+        None => {
+            if let Some(a) = result.ai.as_mut() {
+                a.key = None;
+            }
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-result", clip.0)), result.clone()));
+        }
+    }
 }
 
 fn match_view(app: &FilmcraftApp, ctx: &egui::Context, clip: ClipId, grade: &Grade) -> MatchView {
@@ -702,7 +759,10 @@ fn match_view(app: &FilmcraftApp, ctx: &egui::Context, clip: ClipId, grade: &Gra
         }
     };
     let reference = ctx.data(|d| d.get_temp::<u64>(egui::Id::new(("grade-match-ref", clip.0)))).filter(|r| others.iter().any(|(id, _)| id == r));
-    let result = ctx.data(|d| d.get_temp::<MatchResult>(egui::Id::new(("grade-match-result", clip.0))));
+    let mut result = ctx.data(|d| d.get_temp::<MatchResult>(egui::Id::new(("grade-match-result", clip.0))));
+    if let Some(r) = result.as_mut() {
+        poll_ai(app, ctx, clip, r);
+    }
     MatchView { others, same, reference, result }
 }
 
@@ -782,6 +842,26 @@ fn match_controls(
     if let Some(res) = &v.result {
         ui.separator();
         ui.label(egui::RichText::new(&res.text).color(t.text));
+        if let Some(ai) = &res.ai {
+            if ai.source == "ai" {
+                let label = tl!("checked");
+                let r = ui
+                    .label(egui::RichText::new(format!("✔ {label}")).small().color(t.accent))
+                    .on_hover_text(tl!("Written by the local AI model and checked against the measured facts."));
+                autos.push(("grade.match.aiChecked".into(), r.rect, label.to_string()));
+            } else if ai.key.is_some() {
+                let label = tl!("Writing a plain-language version…");
+                let r = ui.label(egui::RichText::new(label).small().color(t.text_faint));
+                autos.push(("grade.match.aiPending".into(), r.rect, label.to_string()));
+            } else if ai.attempted {
+                let label = tl!("plain template");
+                let why = ai.reason.clone().unwrap_or_default();
+                let r = ui
+                    .label(egui::RichText::new(format!("⚠ {label}")).small().color(t.text_faint))
+                    .on_hover_text(tlf!("The AI text wasn't shown: {why}. This is the plain template sentence.", why));
+                autos.push(("grade.match.aiFallback".into(), r.rect, label.to_string()));
+            }
+        }
         if let Some(tex) = &res.overlay {
             let size = tex.size_vec2();
             let w = ui.available_width().min(size.x).max(1.0);
@@ -804,7 +884,8 @@ fn result_text(kind: &str, v: &Value) -> String {
             v["shots"].as_array().and_then(|a| a.first()).map(|s| format!("{} {} · {}", tl!("Differs most: clip"), s["clip"], notes(s))).unwrap_or_default()
         }
         "grade" => v["text"].as_str().unwrap_or_default().to_string(),
-        _ => v["sentence"].as_str().unwrap_or_default().to_string(),
+        // (the node explainer: `text` is the checked AI version or the template sentence)
+        _ => v["text"].as_str().or(v["sentence"].as_str()).unwrap_or_default().to_string(),
     }
 }
 
@@ -856,7 +937,7 @@ fn window_controls(
     };
     ui.horizontal_wrapped(|ui| {
         ui.label(egui::RichText::new(tl!("Add window")).color(t.text_dim));
-        for (shape, label) in [("ellipse", tl!("Circle")), ("rectangle", tl!("Rectangle")), ("linear", tl!("Linear"))] {
+        for (shape, label) in WINDOW_SHAPES.into_iter().zip([tl!("Circle"), tl!("Rectangle"), tl!("Linear")]) {
             let r = ui.button(label);
             autos.push((format!("grade.window.add.{shape}"), r.rect, label.to_string()));
             if r.clicked() {

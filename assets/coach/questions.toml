@@ -1,0 +1,183 @@
+# Beginner questions for "Ask the coach" (fork GRADE-PLAN G2.12).
+#
+# [[question]]: thirty grading questions, each with the guide section (page relative to
+# docs/guide/, and its `##` heading) that should be the best match. The engine test asks each
+# one and requires that section first for at least 28 of the 30, and every answer to pass the
+# command check; the UI test checks every remaining automation id.
+#
+# [[offtopic]]: questions the guide doesn't cover (editing, audio, export…). Each must fall back:
+# no steps, no sources, and the message says the guide doesn't cover it yet.
+
+[[question]]
+q = "how do I make the sky bluer without changing skin?"
+page = "color/recipes.md"
+heading = "3. Make the sky bluer without touching skin"
+
+[[question]]
+q = "why did my skin go grey?"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+
+[[question]]
+q = "how do I match two cameras?"
+page = "color/recipes.md"
+heading = "5. Match a wide shot and a close-up"
+
+[[question]]
+q = "my log footage looks flat"
+page = "color/color-management.md"
+heading = "Tell FilmCraft what the clip is (input)"
+
+[[question]]
+q = "how do I add grain"
+page = "color/recipes.md"
+heading = "7. Finish with film grain"
+
+[[question]]
+q = "how do I undo a node"
+page = "color/nodes.md"
+heading = "Undo"
+
+[[question]]
+q = "what is a node"
+page = "glossary.md"
+heading = "Node"
+
+[[question]]
+q = "how do I compare before and after"
+page = "color/README.md"
+heading = "First grade in six steps"
+
+[[question]]
+q = "copy my grade to other clips"
+page = "color/matching.md"
+heading = "Copy, paste and append grades"
+
+[[question]]
+q = "brighten a face"
+page = "color/recipes.md"
+heading = "4. Brighten a face"
+
+[[question]]
+q = "clean up noisy shadows"
+page = "color/noise.md"
+heading = "Why"
+
+[[question]]
+q = "how do I warm up a shot that looks too cold?"
+page = "color/recipes.md"
+heading = "2. Warm a shot up"
+
+[[question]]
+q = "what does the offset wheel do?"
+page = "glossary.md"
+heading = "Wheel"
+
+[[question]]
+q = "how do I put a LUT on a clip?"
+page = "color/finishing.md"
+heading = "A LUT on a node"
+
+[[question]]
+q = "how do I make a window follow a moving person?"
+page = "color/secondaries.md"
+heading = "Tracking a window"
+
+[[question]]
+q = "how do I change only one colour in the picture?"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+
+[[question]]
+q = "what is DaVinci Wide Gamut?"
+page = "color/color-management.md"
+heading = "Why"
+
+[[question]]
+q = "how do I tell FilmCraft my clip is F-Log2?"
+page = "color/color-management.md"
+heading = "Tell FilmCraft what the clip is (input)"
+
+[[question]]
+q = "how do I add more contrast?"
+page = "color/primaries.md"
+heading = "The panel"
+
+[[question]]
+q = "how do I use the curves?"
+page = "color/curves.md"
+heading = "Steps"
+
+[[question]]
+q = "how do I switch a node off for a moment?"
+page = "color/nodes.md"
+heading = "The Nodes panel"
+
+[[question]]
+q = "how do I delete a node?"
+page = "color/nodes.md"
+heading = "Delete a node"
+
+[[question]]
+q = "what does the matte view of the qualifier show?"
+page = "glossary.md"
+heading = "Matte"
+
+[[question]]
+q = "can I use DaVinci Resolve keyboard shortcuts?"
+page = "getting-started.md"
+heading = "Choose your workflow: Premiere or Resolve"
+
+[[question]]
+q = "playback stutters and is slow"
+page = "hardware.md"
+heading = "When something is slow"
+
+[[question]]
+q = "how do I save a still of a shot?"
+page = "glossary.md"
+heading = "Still"
+
+[[question]]
+q = "how do I start a lesson?"
+page = "color/coach.md"
+heading = "Start a lesson"
+
+[[question]]
+q = "which clip in my scene doesn't match the others?"
+page = "color/recipes.md"
+heading = "6. Give one grade to a whole scene"
+
+[[question]]
+q = "the highlights are blown out and clipping"
+page = "color/finishing.md"
+heading = "Highlight soft clip"
+
+[[question]]
+q = "explain what each node in my grade does"
+page = "color/matching.md"
+heading = "The node explainer"
+
+[[offtopic]]
+ask = "how do I add music"
+
+[[offtopic]]
+ask = "export a video for youtube"
+
+[[offtopic]]
+ask = "cut a clip in half"
+
+[[offtopic]]
+ask = "how do I add subtitles to my video?"
+
+[[offtopic]]
+ask = "record a voiceover"
+
+[[offtopic]]
+ask = "make the audio louder"
+
+[[offtopic]]
+ask = "how do I speed up a clip?"
+
+[[offtopic]]
+ask = "add a title with my name"

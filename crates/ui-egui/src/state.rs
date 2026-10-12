@@ -427,6 +427,24 @@ pub struct KeyframeRef {
     pub time: filmcraft_time::Tick,
 }
 
+/// "Ask the coach" (fork GRADE-PLAN G2.12): the box's state.
+#[derive(Clone, Debug, Default)]
+pub struct CoachAsk {
+    /// The box is open (closed: a small "Ask the coach" button).
+    pub open: bool,
+    /// The question being typed.
+    pub input: String,
+    /// The last answer (`coach.ask`'s result).
+    pub answer: Option<serde_json::Value>,
+    /// The automation id of the step clicked last: the spotlight outlines it (while no lesson
+    /// step has one).
+    pub spotlight: Option<String>,
+    /// Bumped on every step click (a scrolling panel brings the control into view once per click).
+    pub clicks: u64,
+    /// The lesson list is open (Lessons button, Help ▸ Grading Lessons…, `coach.showLessons`).
+    pub lessons: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UiState {
     #[serde(default)]
@@ -481,6 +499,9 @@ pub struct UiState {
     /// Qualifier ▸ Pick / Add; Esc disarms). Never saved.
     #[serde(skip)]
     pub grade_picker: Option<GradePicker>,
+    /// The Grading Coach's "Ask the coach" box (question, answer, highlighted step). Never saved.
+    #[serde(skip)]
+    pub coach_ask: CoachAsk,
     /// Effect Controls: the selected keyframes, highlighted in the keyframe lane (a click selects one).
     #[serde(default)]
     pub keyframe_selection: Vec<KeyframeRef>,
@@ -992,6 +1013,7 @@ impl Default for UiState {
             status: String::new(),
             eyedropper: None,
             grade_picker: None,
+            coach_ask: CoachAsk::default(),
             keyframe_selection: Vec::new(),
             essential_sound_tab: "Edit".into(),
             tts: Default::default(),

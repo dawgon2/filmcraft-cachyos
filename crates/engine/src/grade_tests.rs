@@ -77,6 +77,21 @@ fn set_param_clamps_and_types_values() {
     assert_eq!(n.param("curve.master").unwrap().value, ParamValue::Curve(vec![[0.0, 0.1], [0.5, 1.0], [1.0, 0.9]]), "sorted, clamped");
 }
 
+/// The node strip's "+ Serial" / "+ Before" send the current node as the anchor, `null` when the
+/// clip has no grade yet; that used to be refused ("`after` must be a node id"), so the strip's
+/// buttons did nothing on an ungraded clip (found by the Grading Coach lessons, G2.12).
+#[test]
+fn a_null_anchor_adds_like_no_anchor() {
+    let (mut s, c) = demo();
+    let a = s.execute("grade.addNode", json!({"clip": c.0, "after": null})).unwrap()["node"].as_u64().unwrap();
+    let b = s.execute("grade.insertNode", json!({"clip": c.0, "before": null})).unwrap()["node"].as_u64().unwrap();
+    assert_eq!(ids(&s, c).len(), 2);
+    assert!(ids(&s, c).contains(&a) && ids(&s, c).contains(&b));
+    // a non-id anchor is still refused
+    assert!(s.execute("grade.addNode", json!({"clip": c.0, "after": "x"})).is_err());
+    assert!(s.execute("grade.addNode", json!({"clip": c.0, "after": -1})).is_err());
+}
+
 #[test]
 fn hostile_params_are_refused_without_changes() {
     let (mut s, c) = demo();

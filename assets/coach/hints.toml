@@ -1,0 +1,118 @@
+# Grading Coach context hints (fork GRADE-PLAN G2.12, part 3).
+#
+# Each [[hint]] shows once, in a small card, the first time its trigger happens outside a
+# lesson (Settings ▸ Color ▸ Grading Coach ▸ Show Grading Coach hints turns them all off).
+# The full format is in crates/engine/src/coach_hints.rs; in short:
+#
+#   id     lower case, digits, `.`, `_`, `-` (remembered in `color.coach.hintsSeen`)
+#   title  a few words
+#   why    why it matters: shown first
+#   text   what it is and when to use it
+#   lesson the lesson the card links to (optional; a lesson id from assets/lessons/)
+#   when   a list of triggers, any of which shows the hint:
+#            { command = "id" | ["id", …], params = { … } }   a command that succeeded, with
+#                                                            parameters matching the pattern
+#                                                            (the lesson matcher's patterns)
+#            { element = "automation.id" }                   a control shown on screen
+#            { rule = "qualifierAfterHeavyLook" }            a state rule the engine checks
+#                                                            on the grade after grade.* commands
+#
+# Write in your own words, plain language, why before what.
+
+[[hint]]
+id = "first-node"
+title = "Nodes"
+why = "A grade is far easier to fix later when every change has its own place."
+text = "You just added a node. A node is one step of the grade: it takes the picture from the node before it, changes it, and hands it on. Give each node one job (balance, exposure, a look) so you can switch a single step off to see what it does."
+lesson = "nodes-and-flow"
+when = [{ command = ["grade.addNode", "grade.insertNode"] }]
+
+[[hint]]
+id = "first-qualifier"
+title = "The qualifier"
+why = "Often only one colour needs work, such as skin or the sky, while the rest of the picture is fine."
+text = "The qualifier selects pixels by their hue, saturation and brightness, and limits this node's correction to them. Pick the colour in the picture, check the selection with Highlight, and soften its edges before you change anything."
+lesson = "fix-skin"
+when = [{ element = "grade.qual.pick" }]
+
+[[hint]]
+id = "first-window"
+title = "Windows"
+why = "When the area to change has no colour of its own, like a face in shade or a bright corner, a shape works better than a colour pick."
+text = "A window is a shape (a circle, a rectangle, a line or one you draw) that limits this node's correction to part of the frame. Keep its edge soft so the change blends in."
+lesson = "tracked-window"
+when = [{ element = "grade.window.add.ellipse" }]
+
+[[hint]]
+id = "first-tracking"
+title = "Tracking a window"
+why = "A window that stays put while the subject moves gives the correction away."
+text = "Tracking follows what is under the window from frame to frame and moves the window with it. Start on a frame where the subject is clear. If the track drifts, stop, put the window back in place and track again from there."
+lesson = "tracked-window"
+when = [{ command = "masks.track", params = { node = { any = true } } }]
+
+[[hint]]
+id = "first-noise-reduction"
+title = "Noise reduction"
+why = "Log footage hides noise in its shadows, and lifting them later makes that noise much easier to see."
+text = "Noise reduction smooths the noise before the node's other corrections. Use it on its own node, early in the chain, and only as much as you need: too much makes skin and fabric look waxy. Coloured specks (chroma) usually take more than grain in the brightness (luma)."
+lesson = "log-noise"
+when = [{ element = "grade.param.nr.luma" }]
+
+[[hint]]
+id = "first-lut"
+title = "LUTs"
+why = "A LUT is a quick way to apply a finished look or a camera conversion, but it was made for one kind of picture going in."
+text = "A LUT maps every input colour to an output colour. It only looks right when the picture it receives is what it expects, so put it after your balance and exposure nodes, and use LUT Mix to blend it in when it is too strong."
+lesson = "which-node"
+when = [{ command = "grade.setLut" }]
+
+[[hint]]
+id = "first-grain"
+title = "Film grain"
+why = "Grain hides banding and makes a very clean digital picture feel less flat, but it also covers fine detail."
+text = "Grain adds a fine texture that changes every frame. Add it last, on its own node, and judge it at full size: grain that looks strong in a small viewer is often right on a big screen."
+when = [{ command = "grade.setParam", params = { param = "grain.strength", value = { gt = 0.0 } } }]
+
+[[hint]]
+id = "first-still"
+title = "Stills"
+why = "Matching shots from memory is hard; a frozen reference makes every difference easy to see."
+text = "A still is a saved frame of a graded shot, kept in the Gallery. Choose it as the reference, then wipe or split it against another shot to compare the two side by side."
+lesson = "match-shots"
+when = [{ command = "stills.grab" }]
+
+[[hint]]
+id = "first-wipe"
+title = "Wipe and split"
+why = "Two shots that each look fine on their own can still jump when they are cut together."
+text = "The wipe shows the reference still on one side of a line and the current shot on the other; move the line across a face or a sky. Match brightness first, then colour, and set the mode back to Off before you judge the whole picture."
+lesson = "match-shots"
+when = [{ command = "compare.set", params = { mode = { in = ["wipe", "split"] } } }]
+
+[[hint]]
+id = "first-shot-match"
+title = "Shot Match"
+why = "Bringing two shots close by hand takes a while; a measured starting point saves most of that time."
+text = "Shot Match measures the reference still and the current shot and sets a correction that brings them close. Treat it as a start: check it with the wipe and finish by eye, since it can't know which differences you meant to keep."
+lesson = "match-shots"
+when = [{ element = "grade.match.shotMatch" }]
+
+[[hint]]
+id = "qualifier-after-look"
+title = "Qualifier after a strong look"
+why = "A qualifier picks colours from the picture that reaches its node. After a strong look (a LUT, heavy contrast or saturation), skin and sky have already moved, so the pick is harder and breaks when you change the look."
+text = "This node selects a colour after a node with a strong look. Move the qualifier's node earlier in the chain, before the look, so it picks from the cleaner picture and keeps working when you adjust the look."
+lesson = "fix-skin"
+when = [{ rule = "qualifierAfterHeavyLook" }]
+
+[[hint]]
+id = "ai-explanations-on"
+title = "AI explanations"
+why = "The node explainer's plain sentences are exact but stiff; a local model can say the same thing in friendlier words."
+text = "A small model on this computer now rewrites each node explanation, and every text is checked against the measured facts before you see it. When a text fails the check, or the model isn't downloaded yet, the plain sentence is shown instead. Nothing leaves your computer."
+when = [
+    { command = "ai.setEnabled", params = { on = true } },
+    { command = "prefs.set", params = { values = { "color.ai.enabled" = true } } },
+    { command = "prefs.set", params = { key = "color.ai.enabled", value = true } },
+]

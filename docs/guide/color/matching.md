@@ -158,6 +158,61 @@ highlights untouched".
 Numbers are measured on the frame at the playhead (or the clip's middle frame), rounded to ⅙ of
 a stop and whole percentages; anything below a just-noticeable change is called "untouched".
 
+## AI explanations
+
+**[Fork]**
+
+### Why
+
+The explainer's template sentence is exact but terse ("midtones +⅙ stop, slightly less
+magenta"). A small language model running on your own computer can say the same thing in plainer
+words for a beginner ("this node brightens the middle tones a little"). It is optional and
+offline, and it never decides anything: it only rewrites the measured facts, and FilmCraft checks
+every word it writes against them before showing it.
+
+### Steps
+
+1. Open **Settings ▸ Color** (`app.settings.color`) and find **AI explanations**.
+2. Pick a model in **Model** {ui:settings.color.ai.model} (`ai.select`). Each entry shows its
+   size, licence and whether it is installed; all are small, openly licensed instruct models.
+3. Click **Download** {ui:settings.color.ai.download} (`ai.download`). The model comes from its
+   publisher, checked against its pinned SHA-256; the bar shows progress and **Cancel download**
+   stops it. **Remove** {ui:settings.color.ai.remove} (`ai.remove`) deletes it again.
+4. Tick **Explain nodes in plain words with a local AI model** {ui:settings.color.ai.enabled}
+   (`color.ai.enabled`, or `ai.setEnabled`) and click OK.
+5. In the **Match** tab click **Explain node** {ui:grade.match.explainNode}. The template sentence
+   appears at once; when the model's text is ready and passes the check it replaces it, with a
+   small **checked** badge.
+
+### What "checked" means
+
+Every number, direction ("warmer", "brighter"), tonal range and strength word in the model's
+text must agree with the node's measured facts, in a small fixed grammar, and the text may be at
+most two short sentences. If it doesn't pass, or the model is missing or fails, you see the plain
+template sentence instead. The model gets 15 s to write; a text cut off at that point usually
+fails the check ("rejected"), while "timeout" means no answer at all within 60 s (loading the
+model included). A timeout or failure is tried again the next time you click; a rejection is
+remembered for that node until it changes. When the model was asked, a small **plain template**
+hint under the sentence says why. Most stock models fail this strict check, so with them expect
+the template often.
+
+### The FilmCraft-tuned explainer
+
+FilmCraft has its own explainer models: small models trained to describe a node in exactly the
+words the check accepts. In tests the best one passed 35 of 36 sample nodes and answered in about
+2.5 seconds. For now they are built on the owner's computer and can't be downloaded: in the
+**Model** list they say "Built on this computer" and **Download** stays greyed out. Once they are
+published, they download like any other model. If you haven't picked a model yourself, FilmCraft
+uses the best tuned explainer that is installed, and the standard default model otherwise.
+
+### Privacy
+
+Nothing leaves your computer. The only network use is the download you start; the model is
+never bundled with FilmCraft and runs on the CPU. Agents can do the same with `ai.models`,
+`ai.download`, `ai.select`, `ai.setEnabled` and `grade.explainNode` with `"wait": true` (which
+blocks at most 20 s; still writing then, it returns the template with an `aiKey` to poll with
+`ai.explanation`).
+
 ## If you know Resolve
 
 **[Resolve-style]**

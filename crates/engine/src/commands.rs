@@ -3018,7 +3018,11 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::color::commands());
     v.extend(crate::grade::commands());
     v.extend(crate::grade_tools::commands());
+    v.extend(crate::ai_explain::commands());
     v.extend(crate::stills::commands());
+    v.extend(crate::coach::commands());
+    v.extend(crate::coach_ask::commands());
+    v.extend(crate::coach_hints::commands());
     v.extend(crate::graphics::commands());
     v.extend(crate::graphic_templates::commands());
     v.extend(crate::shortcuts::commands());

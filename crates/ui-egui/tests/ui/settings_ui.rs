@@ -426,3 +426,49 @@ fn playhead_drag_snaps_to_cuts() {
     let ph = d.harness.state().session.playhead();
     assert!(ph > cut, "moves off the cut freely: {ph:?} vs {cut:?}");
 }
+
+/// Preferences a command changes while the dialog is open (a lesson finished, hints turned off
+/// on a hint card, AI explanations switched or another model chosen) survive OK: it sends only
+/// what was edited in the dialog.
+#[test]
+fn ok_keeps_preferences_changed_while_the_dialog_is_open() {
+    let mut d = Driver::demo();
+    let models = d.exec("ai.models", json!({}));
+    let other = models["models"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).find(|id| *id != models["selected"]).map(str::to_string);
+    d.menu("app.settings.trim");
+    d.click("settings.trim.selectionToolRollRipple");
+    // meanwhile, through the engine
+    d.exec("coach.start", json!({"lesson": "first-grade"}));
+    for _ in 0..40 {
+        if d.exec("coach.skip", json!({}))["active"] == json!(false) {
+            break;
+        }
+    }
+    d.exec("coach.dismissHint", json!({"off": true}));
+    d.exec("ai.setEnabled", json!({"on": true}));
+    if let Some(m) = &other {
+        d.exec("ai.select", json!({"model": m}));
+    }
+    d.click("settings.ok");
+    assert!(d.draft().is_null(), "OK closes");
+    assert_eq!(d.pref("trim.selectionToolRollRipple"), true, "the edit applies");
+    assert_eq!(d.pref("color.coach.completed"), json!(["first-grade"]), "the finished lesson stays");
+    assert_eq!(d.pref("color.coach.hints"), false, "hints stay off");
+    assert_eq!(d.pref("color.ai.enabled"), true, "AI explanations stay on");
+    if let Some(m) = other {
+        assert_eq!(d.pref("color.ai.model"), json!(m), "the chosen model stays");
+    }
+}
+
+/// Reset… on the Color page puts its settings back but keeps what the coach recorded.
+#[test]
+fn reset_on_the_color_page_keeps_the_coach_records() {
+    let mut d = Driver::demo();
+    d.exec("prefs.set", json!({"values": {"color.coach.completed": ["first-grade"], "color.coach.hintsSeen": ["first-node"], "color.coach.hints": false}}));
+    d.menu("app.settings.color");
+    d.click("settings.reset");
+    d.click("settings.ok");
+    assert_eq!(d.pref("color.coach.hints"), true, "the switch is a setting: reset");
+    assert_eq!(d.pref("color.coach.completed"), json!(["first-grade"]));
+    assert_eq!(d.pref("color.coach.hintsSeen"), json!(["first-node"]));
+}

@@ -551,6 +551,17 @@ impl Shortcuts {
         crate::commands::find(id).is_some() || self.external.iter().any(|c| c.id == id)
     }
 
+    /// A registered command id, the engine's or one the frontend registered.
+    pub fn is_known_command(&self, id: &str) -> bool {
+        self.known(id)
+    }
+
+    /// Some registered command id starts with `ns.` (`grade` for `grade.addNode`).
+    pub fn is_command_namespace(&self, ns: &str) -> bool {
+        let starts = |id: &str| id.strip_prefix(ns).is_some_and(|r| r.starts_with('.'));
+        !ns.is_empty() && (crate::commands::command_specs().iter().any(|c| starts(c.id)) || self.external.iter().any(|c| starts(&c.id)))
+    }
+
     /// Commands owned by the frontend (tools, transport, panels…). Rebuilds the active set when it
     /// is an unmodified built-in preset, so their defaults appear.
     pub fn register_external(&mut self, cmds: Vec<CommandInfo>) {

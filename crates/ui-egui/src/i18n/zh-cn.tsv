@@ -3612,3 +3612,110 @@
 	Explain Node	解释节点
 	Explain Grade	解释调色
 	Pick Qualifier Colour	拾取限定器颜色
+# fork (cloud I18N-1): entries that had es but no zh-cn
+	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	硬件解码：“自动”对系统支持的流使用系统的视频解码器（macOS 上为 VideoToolbox，Windows 上为 Media Foundation，Linux 上 H.264 和 HEVC 使用 VA-API 或 NVDEC），其余情况或硬件出错时使用 FilmCraft 自己的解码器。已打开的媒体在重新打开前保持原来的解码器。
+	Ripple Trim In	波纹修剪入点
+	Ripple Trim Out	波纹修剪出点
+	Roll Edit	滚动编辑
+	Trim In	修剪入点
+	Trim Out	修剪出点
+	Dark Theme	深色主题
+	Light Theme	浅色主题
+	Fill Type	填充类型
+	Gradient Angle	渐变角度
+	Linear Gradient	线性渐变
+	Solid	纯色
+	Dock Panel	停靠面板
+	Docking Action	停靠操作
+	Use Effect Shutter Angle	使用效果的快门角度
+	6.2K Master HEVC	6.2K 母版 HEVC
+	Add Serial Node	添加串行节点
+	Anamorphic 1.6x (1.6)	变形宽银幕 1.6x（1.6）
+	Archive HEVC (x265, quality)	存档 HEVC（x265，质量优先）
+	Bypass Grade	旁路调色
+	Color Page	调色页面
+	Decoded frames in GPU memory (0 = Auto)	GPU 显存中的已解码帧（0 = 自动）
+	Decoded source frames (0 = Auto)	已解码的源帧（0 = 自动）
+	Delete Node	删除节点
+	Deliver Page	交付页面
+	Edit Page	剪辑页面
+	Enable / Disable Node	启用 / 停用节点
+	Fairlight Page	Fairlight 页面
+	Grab Still	抓取静帧
+	H.265 / HEVC	H.265 / HEVC
+	H.265 / HEVC (MP4)	H.265 / HEVC (MP4)
+	H.265 / HEVC (MP4) 10-bit	H.265 / HEVC (MP4) 10 位
+	H.265 / HEVC 2160p 4K	H.265 / HEVC 2160p 4K
+	H.265 / HEVC 2160p 4K 10-bit	H.265 / HEVC 2160p 4K 10 位
+	H.265 / HEVC Constant Quality	H.265 / HEVC 恒定质量
+	HEVC Main 10 3840×2160 for video sharing sites, Rec. 709, VBR 80 Mbps target, 100 Mbps max, AAC 320 kbps; GPU (VA-API) when available	HEVC Main 10 3840×2160，适用于视频分享网站，Rec. 709，VBR 目标 80 Mbps、最高 100 Mbps，AAC 320 kbps；可用时使用 GPU（VA-API）
+	HEVC Main 10 3840×2160, VBR 50 Mbps target, 60 Mbps max, AAC 320 kbps	HEVC Main 10 3840×2160，VBR 目标 50 Mbps、最高 60 Mbps，AAC 320 kbps
+	HEVC Main 10 6240×4160 master in QuickTime, VBR 200 Mbps target, 240 Mbps max, 24-bit 48 kHz PCM	HEVC Main 10 6240×4160 QuickTime 母版，VBR 目标 200 Mbps、最高 240 Mbps，24 位 48 kHz PCM
+	HEVC Main 10 9:16 portrait 2160×3840, scaled to fill, VBR 60 Mbps target, 75 Mbps max, AAC 320 kbps	HEVC Main 10 9:16 竖屏 2160×3840，缩放填充，VBR 目标 60 Mbps、最高 75 Mbps，AAC 320 kbps
+	HEVC Main 10 at the sequence's frame size and rate with x265's slow preset, constant quality 18, QuickTime with 24-bit 48 kHz PCM; for when time doesn't matter	HEVC Main 10，使用序列的帧大小和帧速率，x265 slow 预设，恒定质量 18，QuickTime 搭配 24 位 48 kHz PCM；适合不在乎耗时的场合
+	HEVC Main 10 at the sequence's frame size and rate, VBR 0.12 bits per pixel, AAC 320 kbps	HEVC Main 10，使用序列的帧大小和帧速率，VBR 每像素 0.12 位，AAC 320 kbps
+	HEVC Main 3840×2160, VBR 40 Mbps target, 50 Mbps max, AAC 320 kbps	HEVC Main 3840×2160，VBR 目标 40 Mbps、最高 50 Mbps，AAC 320 kbps
+	HEVC Main at the sequence's frame size and rate, VBR adapting to the frame size (0.1 bits per pixel), AAC 320 kbps; GPU (VA-API) when available, else x265	HEVC Main，使用序列的帧大小和帧速率，VBR 随帧大小调整（每像素 0.1 位），AAC 320 kbps；可用时使用 GPU（VA-API），否则使用 x265
+	HEVC Main at the sequence's frame size and rate, constant quality 22 (CRF with x265, QP with VA-API), AAC 320 kbps	HEVC Main，使用序列的帧大小和帧速率，恒定质量 22（x265 使用 CRF，VA-API 使用 QP），AAC 320 kbps
+	Insert Node Before	在前面插入节点
+	Media Page	媒体页面
+	Page	页面
+	Remove Grade	移除调色
+	Reset Node	重置节点
+	Stills	静帧
+	Vertical 2160×3840 HEVC	竖屏 2160×3840 HEVC
+	YouTube 4K HEVC	YouTube 4K HEVC
+	Back	上一步
+	Skip	跳过
+	Exit	退出
+	Next	下一步
+	Why	原因
+	Lesson complete	课程完成
+	Step {n} of {total}	第 {n} 步，共 {total} 步
+	The highlighted control isn't on screen yet.	高亮的控件尚未显示在屏幕上。
+	Grading Coach	调色教练
+	Show Grading Coach hints	显示调色教练提示
+	Ask the coach	询问调色教练
+	Ask	提问
+	e.g. how do I make the sky bluer?	例如：怎样让天空更蓝？
+	The guide has no step-by-step answer for this yet.	指南中还没有这方面的分步说明。
+	Ask about a grading task.	请询问一项调色任务。
+	Click to highlight this control.	点击以高亮此控件。
+	Try the lesson “{title}”	试试课程“{title}”
+	Lesson: {title}	课程：{title}
+	From the guide: {heading}	出自指南：{heading}
+	{n} steps left out: they name controls that aren't available here.	省略了 {n} 个步骤：它们提到的控件在此不可用。
+	This step runs the command {cmd}.	此步骤运行命令 {cmd}。
+	The guide doesn't cover this yet.	指南中还没有涉及这个主题。
+	{n} steps left out: they name commands that aren't available here.	省略了 {n} 个步骤：它们提到的命令在此不可用。
+	{n} steps left out: they name controls or commands that aren't available here.	省略了 {n} 个步骤：它们提到的控件或命令在此不可用。
+# Local AI explanations (fork G2.11)
+	AI explanations	AI 解释
+	Explain nodes in plain words with a local AI model	使用本地 AI 模型以通俗语言解释节点
+	installed	已安装
+	{name}: {size}, licence {licence}, downloaded from {source}	{name}：{size}，许可证 {licence}，从 {source} 下载
+	Download progress	下载进度
+	Cancel download	取消下载
+	Download	下载
+	Removed the model ({size} freed).	已移除模型（释放了 {size}）。
+	The last download failed: {err}	上次下载失败：{err}
+	This build can't run AI models (built without the `llm` feature): the plain template is shown.	此版本无法运行 AI 模型（构建时未启用 `llm` 功能）：将显示普通模板。
+	This build isn't optimised for AVX2: an explanation takes 15–30 s instead of about 5 s.	此版本未针对 AVX2 优化：一次解释需要 15–30 秒，而不是约 5 秒。
+	Model downloads are not available in this build.	此版本不支持下载模型。
+	Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead.	可选且离线：本机上的小型语言模型会用通俗的语言改写节点解释器测得的事实。它从不随 FilmCraft 一起提供，只有在你点击“下载”时才会从发布者处下载。每段文字都会与测得的事实进行核对；未通过核对时，将改为显示普通的模板句子。
+	Most stock models fail the strict check. The FilmCraft-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used.	大多数现成模型无法通过严格核对。专为 FilmCraft 调优的解说模型几乎每次都能通过；目前它们在这台电脑上构建，发布后即可下载。在你选择模型之前，会使用已安装的最佳调优解说模型。
+	{name}: {size}, licence {licence}. Built on this computer (FilmCraft fine-tune of {base}); not downloadable yet.	{name}：{size}，许可证 {licence}。在这台电脑上构建（基于 {base} 的 FilmCraft 微调）；暂不可下载。
+	checked	已核对
+	Written by the local AI model and checked against the measured facts.	由本地 AI 模型撰写，并已与测得的事实核对。
+	Writing a plain-language version…	正在撰写通俗版本…
+	plain template	普通模板
+	The AI text wasn't shown: {why}. This is the plain template sentence.	未显示 AI 文本：{why}。这是普通的模板句子。
+# Grading Coach hints and lesson list (fork G2.12)
+	Lessons	课程
+	Completed	已完成
+	Again	再学一次
+	Start	开始
+	Tip	提示
+	Got it	知道了
+	Turn hints off	关闭提示
+	Grading Lessons…	调色课程…

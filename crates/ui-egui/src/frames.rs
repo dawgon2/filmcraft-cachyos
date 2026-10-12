@@ -123,6 +123,8 @@ struct Shared {
     /// The server was dropped: workers exit (else they would keep the caches, and the decoded
     /// frames and GPU surfaces in them, alive for the life of the process).
     stop: AtomicBool,
+    /// Fault injection (`FrameServer::inject_job_panics`): the next n jobs of this server panic.
+    inject_panics: std::sync::atomic::AtomicU32,
     /// Which frames playback faster than real time shows ([`FrameServer::playback_frame`]).
     skim: Mutex<HashMap<Target, SkimControl>>,
 }
@@ -659,6 +661,7 @@ impl FrameServer {
             workers: workers.max(1),
             stats: Mutex::new(FrameStats::default()),
             stop: AtomicBool::new(false),
+            inject_panics: std::sync::atomic::AtomicU32::new(0),
         });
         let repaint: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>> = Arc::new(Mutex::new(None));
         #[cfg(not(target_arch = "wasm32"))]
@@ -955,6 +958,14 @@ impl FrameServer {
         }
     }
 
+    /// Fault injection for robustness tests (and agents checking recovery): the next `n` frame
+    /// jobs of this server panic as if a decoder had hit a bug. Per server, so tests running in
+    /// parallel in one process don't consume each other's faults.
+    #[doc(hidden)]
+    pub fn inject_job_panics(&self, n: u32) {
+        self.shared.inject_panics.store(n, Ordering::Relaxed);
+    }
+
     pub fn queue_len(&self) -> usize {
         self.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
@@ -1151,17 +1162,10 @@ impl Drop for FrameServer {
 
 /// Run one job and cache its result. Returns false when the job's media was still loading (an
 /// asynchronous web read): nothing was cached and the job should be retried.
-/// Fault injection for robustness tests (and agents checking recovery): the next `n` frame jobs
-/// panic as if a decoder had hit a bug.
-#[doc(hidden)]
-pub fn inject_job_panics(n: u32) {
-    INJECT_PANICS.store(n, Ordering::Relaxed);
-}
-static INJECT_PANICS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
 fn run_job(sh: &Shared, job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>, previews: &PreviewStore) -> bool {
     sh.in_flight.lock().unwrap_or_else(|e| e.into_inner()).push((job.key, job.cancel.clone(), job.prefetch));
-    if INJECT_PANICS.load(Ordering::Relaxed) > 0 && INJECT_PANICS.fetch_sub(1, Ordering::Relaxed) > 0 {
+    let inject = &sh.inject_panics;
+    if inject.load(Ordering::Relaxed) > 0 && inject.fetch_sub(1, Ordering::Relaxed) > 0 {
         crate::crash::injected_fault("injected frame-job fault");
     }
     let profiling = sh.profiling.load(Ordering::Relaxed);

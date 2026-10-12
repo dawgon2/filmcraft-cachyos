@@ -84,4 +84,6 @@ project and one undo history. The keymap is a convenience, not a copy of Resolve
 
 **[Fork]**
 
-*To write.*
+Decoding, display, the grade and H.265 export run on the AMD graphics card and its video
+engine, with automatic fallbacks; 4:2:2 clips can't use the video engine. The whole story, and
+the switches, are in [hardware.md](hardware.md).

@@ -1,2 +1,9 @@
 [alias]
 xtask = "run --quiet --package xtask --"
+
+# Fork (G2.11, provisional: docs/fork/OWNER-QUESTIONS.md Q8): build x86-64 Linux for x86-64-v3
+# (AVX2 / FMA / BMI2, Haswell 2013 and newer). candle's quantized LLM kernels only use SIMD when
+# AVX2 is enabled at compile time (4–5× faster local AI explanations). Rust never contracts or
+# reorders float maths on its own, so results are unchanged. Remove this block to undo.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=x86-64-v3"]

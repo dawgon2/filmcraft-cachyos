@@ -2,97 +2,92 @@
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**
 incl. §1a.6 order, §1a.16 6E, §1a.17 grader, §1a.18 YouTube gaps, §1a.19–24; §5 phases; §7
-progress log), then [`GRADE-PLAN.md`](../../GRADE-PLAN.md) (all of it; §1 audit, §3 Phase G2, §7
-lanes), [`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md), [`EXPORT-PLAN.md`](../../EXPORT-PLAN.md),
+progress log), then [`GRADE-PLAN.md`](../../GRADE-PLAN.md) (all of it; §3 items 11–12 and
+"Phase G2b", §7 lanes), [`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md), [`EXPORT-PLAN.md`](../../EXPORT-PLAN.md),
 [`H264-PLAN.md`](../../H264-PLAN.md), [`COMPOSITOR-PLAN.md`](../../COMPOSITOR-PLAN.md),
 [`UPSTREAM-PLAN.md`](../../UPSTREAM-PLAN.md), [`DECODER-PLAN.md`](../../DECODER-PLAN.md),
 [`docs/guide/README.md`](../guide/README.md), `docs/fork/OWNER-QUESTIONS.md`, then this file.
-Rewritten 2026-10-11 in session 12 (U0 merged, tagged `upstream-sync-1`, built). Phase order
-(FORK-PLAN §1a.6, owner): G0 ✓ → G1 ✓ → U0 ✓ → **G2** (GRADE-PLAN items 1–10, tag `grade-2`) →
-G2b (G2.11 + G2.12, tag `grade-2b`) → 6 (incl. 6.1) → Y1 → 6E → U0.2 → Y3 → C1 → C2 → 7 (+ Y4) →
-D → 8 → Y2 → H1 → H2 → H3. From G2b on, each phase boundary has a contribution slot (FORK-PLAN
-§1a.25: up to two small upstream contributions pushed to `cachyos`, never a PR without the owner).
+Rewritten 2026-10-11 in session 13 (G2 done, tagged `grade-2`, built). Phase order (FORK-PLAN
+§1a.6, owner): G0 ✓ → G1 ✓ → U0 ✓ → G2 ✓ → **G2b** (G2.11 + G2.12, tag `grade-2b`) → 6 (incl.
+6.1; temporal NR is Phase 6 item 7) → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → U0.2 → 8 → Y2 →
+H1 → H2 → H3.
 
 ## Status
 
 - **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` … `phase-5`, `grade-0`,
-  `grade-1`, `upstream-sync-1`. Builds in `~/Apps/filmcraft-builds/` (`phase-1` … `phase-5`,
-  `grade-0`, `grade-1`, `upstream-sync-1`); `latest` → `upstream-sync-1`; launcher
-  `~/.local/share/applications/filmcraft-fork.desktop`. Bench binaries
-  `target/fork-bench/bench-{phase0,1,2,4,5,grade0,grade1,u0}`.
-- **Phases 0–5, G0, G1 done** (FORK-PLAN §7, `docs/fork-benchmarks.md`): in-process VA-API
-  decode / encode with zero-copy display and export, GPU colour pipeline (DWG / DI, ADR 0003),
-  per-clip serial node grade (ADR 0004, `crates/render/src/grade.rs`, `crates/engine/src/grade.rs`,
-  `stills.rs`), Color page (`ui-egui/src/panels/grade.rs`, `stills.rs`, `pages.rs`), Workflow
-  Premiere / Resolve switch.
-- **U0 done** (session 11–12): upstream `storytold/filmcraft` `4e2d0bc2` (806 commits) merged as
-  one merge commit; summary, resolutions and numbers in
-  [`docs/fork/UPSTREAM-SYNC.md`](UPSTREAM-SYNC.md); ADR 0005. **Schema is now v16** (upstream's
-  v13–v15 + the fork's grades / stills). Both VA-API stacks are compiled in (fork HEVC zero-copy →
-  upstream `vaapi/` → `vaapi_pipe`); one stack is U0.2. Lumetri now runs as the ColorOps chain
-  (upstream's `OP_LUMETRI` retired). Upstream added Spanish / Chinese UI: **new user-visible
-  strings need es + zh-cn entries** (ui-egui i18n completeness tests fail otherwise).
-- Later syncs: ordinary `git merge upstream/main` (no graft), weekly, per UPSTREAM-PLAN
-  (ask-first rules there). The local replace ref `refs/replace/<master>` is no longer needed.
-- Follow-ups noted, not done (small): `effects.setParam` keyframes at `source_time_at` instead of
-  `effect_time_at`; the stills gallery re-renders missing pictures on the UI thread; grade keys
-  are app-wide; the Gallery's empty-state text is clipped in a narrow column; `cropped()` on GPU
-  frames reads back (`crates/frame/src/lib.rs`); two VA displays opened at startup (U0.2); the
-  export dialog doesn't say HDR H.265 is promoted to Main 10; zh-cn lacks a few HEVC preset /
-  node-command labels.
+  `grade-1`, `upstream-sync-1`, `grade-2`. Builds in `~/Apps/filmcraft-builds/` (… `grade-2`);
+  `latest` → `grade-2`; launcher `~/.local/share/applications/filmcraft-fork.desktop`. Bench
+  binaries `target/fork-bench/bench-{phase0,1,2,4,5,grade0,grade1,u0,grade2}`.
+- **G2 done** (session 13, FORK-PLAN §7): per-node HSL qualifier (`qual.*`, `ColorOp::Stash` /
+  `MixStash`, picker `grade.pickQualifier`), windows (`GradeNode.windows`; the `masks.*`
+  commands, monitor handles and tracker take `"node"`, `engine::masks::Owner`), linear mask shape
+  (all masks), spatial NR (`FxOp::Denoise`, `nr.*`), highlight soft clip (`hl.*`), node LUT
+  (`GradeNode.lut`, `grade.setLut`), same-grade / compare / scene check / Shot Match / node
+  explainer (`crates/render/src/grade_match.rs`, `grade_explain.rs`,
+  `crates/engine/src/grade_tools.rs`). The grade compiles to FX steps
+  (`render::grade::compile_fx` / `item_fx`): fused colour chain, `HslSecondary` for a blurred
+  matte, `Masked` for windows, `Denoise`. Color page tabs: Primaries, Curves, Qualifier, Windows,
+  Noise, Match. Guide: `color/secondaries.md`, `noise.md`, `finishing.md`, `matching.md`.
+- Schema unchanged (v16): every new field is serde-default (old projects load unchanged).
+- New user-visible strings need es + zh-cn entries (ui-egui i18n tests).
+- Follow-ups noted, not done: Match tab requests render on the UI thread (background job); node
+  strip doesn't show the explainer's summary (cache by `grade_explain::node_state_key`); no
+  "mark pair intended"; no timeline badge for identical grades; preview cost model ignores the
+  grade (`render/src/preview.rs` `item_fx_cost`); linear masks re-saved by an older build lose
+  their shape; mask tracking keys at source time, edits at effect time (differ only under holds);
+  earlier list (effects.setParam keyframe time, stills gallery UI-thread renders, app-wide grade
+  keys, Gallery empty-state clipping, `cropped()` read-back, two VA displays, HDR→Main 10 note).
 
-## Progress in G2 (session 13)
+- Cloud work merged 2026-10-11 16:22 (GUIDE-1 glossary, GUIDE-2 hardware page) and 16:30
+  (GUIDE-3 colour recipes, I18N-1 zh-cn entries); ids checked, i18n tests green, no GPU owed. The cloud may still be pushing to `cloud-work`: merge it first.
 
-- **Done:** G2.1 qualifier (`ColorOp::Stash` / `MixStash`, `grade::compile_fx` → FX steps),
-  G2.2 windows (`GradeNode.windows`, `FxOp::Masked`; `masks.*` with `"node"`, `masks::Owner`),
-  linear mask shape for all masks, G2.3 tracking (the mask tracker on node windows), G2.4 spatial
-  NR (`FxOp::Denoise`, node params `nr.*`), G2.5 soft clip (`hl.*`), G2.6 node LUT
-  (`GradeNode.lut`, `grade.setLut`). Guide: `color/secondaries.md`, `color/noise.md`,
-  `color/finishing.md`.
-- **Done too:** G2.8 / G2.9 / G2.10 (`grade_match.rs`, `grade_explain.rs`, engine
-  `grade_tools.rs`: `grade.compareData`, `compareShots`, `checkScene`, `shotMatch`,
-  `explainNode`, `explainGrade`; Color page Match tab; guide `matching.md`).
-- Follow-ups (G2): the Match tab's requests render on the UI thread (move to a background job);
-  the node strip doesn't show the explainer's one-line summary yet (needs a cache keyed by
-  `grade_explain::node_state_key` + the input frame); "mark a pair intended" for shot comparison
-  isn't built; no timeline badge for identical grades (the Match tab lists them).
-- Temporal NR deferred to FORK-PLAN Phase 6 item 7 (owner, 2026-10-11).
-- Follow-ups: the preview cost model (`crates/render/src/preview.rs` `item_fx_cost`) ignores the
-  grade (NR is expensive); linear masks in a project re-saved by an older build lose their shape
-  (render as a 2-point path = no effect); mask tracking writes keyframes at source time while
-  edits now use the effect time (same unless a frame hold is involved).
+## G2b progress (live session 2026-10-11)
 
-## Exact next step: G2 acceptance (G2.1–G2.10 done)
+- Done and merged: G2.11 `crates/llm` (filmcraft-llm) + speed fix (x86-64-v3, compact prompt,
+  `llm_eval`); G2.11 fact checker (strict controlled grammar, 36 cases); G2.12 lesson engine + 7
+  lessons + coach card; G2.12 ask the coach (BM25 over docs/guide, checked ids).
+- In flight at 17:40: fact checker as a strict controlled grammar (worktree
+  `agent-a3ee12ea903e9078f`, two review rounds of false accepts → redesign); LLM speed + stock
+  eval runner (lane D). Stock models are slow (14–47 s, target ≤ 5 s): suspected compile-time
+  AVX2/FMA in candle's k-quants + long prompts.
+- Still to do in G2b: model choice on the 36-case set; G2.11b test-training (both small bases,
+  PyTorch ROCm + candle fallback, generator/eval/quantize in Rust, `docs/fork/TRAINING.md`);
+  engine wiring (explain with model → checker → template fallback, background, Settings ▸ Color
+  ▸ AI explanations with a choosable model download); ask-the-coach (BM25 over docs/guide, the
+  control-name check, closest-lesson fallback); context hints; lesson picker UI; select-step on
+  an already selected clip; lesson text i18n.
 
-GRADE-PLAN G2 "Accept" (synthetic, quick passes): qualifier + tracked circle window on the moving
-synthetic subject held over 5 s (extend `masks_tests::grade_node_windows_are_masks_and_track` or a
-control-channel script), NR σ drop ≥ 40 % with edge kept (`denoise.rs` tests) on an F-Log2-like
-fixture, play-graded quick with NR on (record ms / drops), export matches the viewer, compare /
-Shot Match / explainer (render tests). Then `cargo xtask ci`, tag `grade-2`, build
-`~/Apps/filmcraft-builds/grade-2/` per §1a.9, rewrite this file for G2b.
+## Exact next step: Phase G2b, step G2.11 (local AI explanations)
 
-GRADE-PLAN §3 "Phase G2" items 1–10, in order, one commit per item (task ids `G2.1` … `G2.10`;
-item 7 doesn't exist). Start by sending a Sonnet scout to map what exists for each item (GRADE-PLAN
-§1 is the audit: `HslKey`, `mask.rs` shapes, `track.rs`, the LUT op, BT.2390 output stage,
-`color_match.rs` statistics and `solve`), then:
-1. **G2.1 qualifier per node** (main session): `GradeNode` gains an optional qualifier (reuse
-   `HslKey`; invert, sat max, highlight mode), compiled in `crates/render/src/grade.rs`; picker on
-   the viewer; `grade.*` commands; serde + old-project (v16 without the field) tests; CPU / GPU
-   parity on AMD and Intel.
-2. **G2.2 windows** (main) + **linear window** shape (leaf builder in `crates/render` / `mask.rs`).
-3. **G2.3 tracking** of node windows through `track.rs` (keyframes like effect masks).
-4. **G2.4 spatial NR** (leaf builder, GPU kernel in `crates/gpu`, Opus for the WGSL).
-5. **G2.5 highlight roll-off**, **G2.6 LUT node**.
-6. **G2.8 compare** (`grade.compareData`, `grade.compareShots`, `grade.checkScene`),
-   **G2.9 Shot Match** on node primaries, **G2.10 node explainer** (leaf builder in
-   `crates/render` once the node types are committed).
-7. Guide pages (FORK-PLAN §1a.21) for every visible feature, in the same or next commit.
-8. Acceptance (GRADE-PLAN G2 "Accept", synthetic quick passes), `cargo xtask ci`, tag `grade-2`,
-   build per §1a.9, rewrite this file for **G2b**.
+GRADE-PLAN §3 items 11 and 12 ("Phase G2b"). Suggested lanes (prompt §3, mode permitting):
+1. **G2.11 model crate** (leaf builder, Opus): a new L-level crate beside `crates/speech` (no UI
+   deps; behind a cargo feature off in wasm), candle inference of a quantized open-licence small
+   instruct model, the catalogue / verified downloader pattern of `crates/speech/src/models.rs`
+   (pinned revision, SHA-256, licence, per-user data dir), opt-in download only (Settings ▸ Color ▸
+   AI explanations), never bundled. Input: `grade_explain::NodeFacts` (serde) + a fixed prompt;
+   output fact-checked (every number / direction must match the facts; length cap) with the
+   G2.10 template as fallback; `catch_unwind`, memory and time caps. Pick the model on a fixed
+   30-case set (quality, ≤ ~5 s on this CPU). Downloads are allowed only after the user opts in:
+   in tests use a tiny local fixture or skip when the model is absent; the owner downloads.
+2. **G2.12 lesson engine** (main): `assets/lessons/*.toml` (steps, target automation id, expected
+   command + param condition, text), highlight via `crates/ui-egui/src/automation.rs`, wait for
+   the real command, Back / Skip / Exit, progress per user; the seven lessons listed in GRADE-PLAN.
+3. **G2.12 ask the coach** (leaf builder): BM25 over `docs/guide/` (the only knowledge source),
+   the current grade's facts, numbered steps; every named control / command checked against the
+   live command list and automation ids; fallback to the closest lesson.
+4. Context hints (dismissible cards, one switch off).
+5. A guide check (README "Keeping it true"): `cargo xtask guide` or a test that every
+   `{ui:…}` / command id in `docs/guide/` exists and every section has a provenance tag — the
+   coach depends on it.
+Acceptance (GRADE-PLAN "Phase G2b"): 30-case fact check with the model + clean fallback without
+it; every lesson completable through the control channel; 30 beginner questions pass the
+control-name check. Then `cargo xtask ci`, tag `grade-2b`, build, rewrite this file for Phase 6.
+If the model download needs the owner (size / licence), ask in OWNER-QUESTIONS.md with a
+provisional choice (§2b) and keep building against the fallback.
 
-## After G2: G2b (G2.11 + G2.12), then FORK-PLAN Phase 6 (owner, 2026-10-11)
+## After G2b: FORK-PLAN Phase 6 (owner, 2026-10-11)
 
-Phase 6 notes, for after G2:
+Phase 6 notes, for after G2b (temporal NR is Phase 6 item 7, after the render cache 6.3):
 
 Order (scheduled-task prompt §2, FORK-PLAN §5 Phase 6):
 1. **6.5 first: the multicut regression.** `xm5-multicut` regressed to 302–338 drops vs 237 at
@@ -127,6 +122,15 @@ builder compiling.
   `target/release/filmcraft-cli`); can't stay above 20 GB → reason in `.fork-plan-blocked`, stop.
   2026-10-08 after cleanup: 182 GB free (`target/debug` deleted; `target/` 31 GB).
 
+- **AI explainer models (G2.11, owner-approved downloads 2026-10-11):** GGUF candidates +
+  tokenizers in `~/.local/share/filmcraft-fork/models/llm/` (qwen2.5-0.5b q4_k_m, qwen2.5-1.5b
+  q4_k_m, smollm2-360m q8_0, smollm2-1.7b q4_k_m; SHA-256 checked); full-precision bases for
+  training in `~/.local/share/filmcraft-fork/models/llm-base/{SmolLM2-360M-Instruct,
+  Qwen2.5-0.5B-Instruct}/` (pinned revision in `REVISION`). Trainer venv
+  `~/Apps/filmcraft-train/.venv` (Python 3.12, torch 2.5.1+rocm6.2, transformers, peft; 18 GB);
+  run it with `HSA_OVERRIDE_GFX_VERSION=10.3.0` (RX 6700 XT = gfx1031; ~6 TFLOPS bf16, 12 GB).
+  Tuned models are published as releases on the public dawgon2/filmcraft-cachyos only after the
+  owner says "publish" (OWNER-QUESTIONS Q7).
 - **Rust** 1.99 via rustup in `~/.cargo` (not pacman): `export PATH="$HOME/.cargo/bin:$PATH"`.
   `bindgen-cli` 0.73.2 is installed there (user-level) for regenerating `va_sys.rs`.
 - **Bench `--only`:** the export section is gated by `wants("export")` (substring of the case
@@ -177,7 +181,7 @@ builder compiling.
   60 s run covers 20 cuts deeper into the clips (much worse); bench plays used to leak a
   `FrameServer` each (fixed) — results of a case can depend on the cases before it in one process;
   the synthetic clips are x265 `ultrafast` open-GOP (CRA + RASL), keyint 30, ~49 % disposable.
-- **CI:** `cargo xtask ci` ≈ 40 min; run idle — `mixer_tests::perf_24_tracks_3_effects_realtime_factor`
+- **CI:** `cargo xtask ci` ≈ 22 min since session 13 (nextest, `[profile.ci]`, one UI test binary `crates/ui-egui/tests/ui/main.rs`: a new UI test file needs a `mod` line there; prints per-stage times); run idle — `mixer_tests::perf_24_tracks_3_effects_realtime_factor`
   needs ≥ 2.5× real time on one core (4.7× idle). `cargo test --workspace --release --no-fail-fast`
   shows every failure.
 - **App smoke test:** `filmcraft --data-dir <scratch> --control <port> --empty`, JSON lines

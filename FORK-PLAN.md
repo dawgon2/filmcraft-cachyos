@@ -1444,3 +1444,139 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   binaries were most of the old time (each re-optimised and linked the UI crate). G2 ci: **green
   in 21.7 min** (was 40–65), 3,095 tests + 7 timed tests passed, 52 skipped (GPU / oracle gates).
   OWNER-QUESTIONS Q5 resolved.
+- **2026-10-11, session 13: G2 accepted, tagged `grade-2`, build ready.** `cargo xtask ci` green
+  (21.7 min); tag `grade-2` (`13a43a33`); `~/Apps/filmcraft-builds/grade-2/` (filmcraft,
+  filmcraft-cli, NOTES.md), `latest` → `grade-2`, launcher valid; bench saved as
+  `target/fork-bench/bench-grade2`. HANDOFF rewritten for **G2b** (G2.11 local AI explanations,
+  G2.12 Grading Coach). Cloud queue: GUIDE-CHECK (`cargo xtask guide`) added on top.
+- **2026-10-11 16:22, scheduled run: cloud work integrated, no plan step (cloud still active).**
+  Mode FULL (weekly all-models U 31 % vs line L 35.8 %; Fable 35 %; 5-hour window 4 %).
+  origin/cloud-heartbeat was 1 min old, so per the runner rules no G2b work started. Merged
+  origin/cloud-work (`b757673e` GUIDE-1 `docs/guide/glossary.md`, `1e0c9626` GUIDE-2
+  `docs/guide/hardware.md`, README / getting-started status lines; docs only). Reviewed on the PC:
+  command ids and automation ids cited exist in source (`settings.{key}`, `{prefix}.resolution`,
+  `grade.tab.{id}` are built with `format!`); the env vars exist. GPU owed: none. CLOUD-LOG had no
+  owner questions. CLOUD-QUEUE: GUIDE-1/2 marked done; GUIDE-CHECK, GUIDE-3, REVIEW-1, I18N-1,
+  EXPORT-UI-1, GUIDE-4 still queued.
+- **2026-10-11 16:30, scheduled run: cloud GUIDE-3 integrated, no plan step (cloud still active).**
+  Mode FULL (U 31 % vs L 35.9 %; Fable 35 %; 5-hour window 6 %). origin/cloud-heartbeat 1 min
+  old, so no G2b work started. Merged origin/cloud-work `f012c4e9` GUIDE-3
+  (`docs/guide/color/recipes.md`, 7 recipes; README status). Reviewed on the PC: every `{ui:…}` id
+  resolves (dynamic `grade.param.{key}`, `grade.window.{i}.softness`, `grade.qual.show.{v}`,
+  `stills.mode.{key}`), every command id exists, labels match `crates/project/src/grade.rs`, pivot
+  0.336 = `DI_MID_GREY`. GPU owed: none. CLOUD-LOG not yet updated by the cloud for GUIDE-3; no
+  owner questions. Queue: GUIDE-3 marked done.
+- **2026-10-11 16:38, owner resumed the session live: cloud I18N-1 integrated, G2b starts.**
+  Merged origin/cloud-work `2b869442` I18N-1 (53 zh-cn entries in
+  `crates/ui-egui/src/i18n/zh-cn.tsv`: fork HEVC presets, node commands, Resolve page names).
+  Reviewed on the PC (format = empty context column as documented, translations read correctly);
+  `cargo test -p filmcraft-ui-egui --lib i18n` 21/21 green. GPU owed: none. The owner asked to
+  carry on here although origin/cloud-heartbeat was ~10 min old; G2b does not overlap the cloud
+  queue (REVIEW-1, EXPORT-UI-1, GUIDE-4, GUIDE-CHECK).
+- **2026-10-11 16:45, G2b started (live session).** Mode FULL (U 31 % vs L ≈ 36 %; Fable 35 %;
+  5-hour 7 %). Three worktree lanes: A `crates/llm` (filmcraft-llm, L2: candle GGUF inference,
+  catalogue of 4 Apache-2.0 candidates, guarded generate, no weights downloaded), B fact checker +
+  30-case set in `render::grade_explain`, C lesson engine (`engine::coach`, 7 lessons in
+  `assets/lessons/`, coach card + spotlight). Model download asked as OWNER-QUESTIONS Q6.
+- **2026-10-11 17:25, G2.11 lane A merged: `crates/llm` (filmcraft-llm, L2).** Candle 0.9 quantized
+  qwen2 / llama from GGUF, ChatML, catalogue of 4 Apache-2.0 models pinned by commit + SHA-256
+  (reuses speech's downloader, same-layer edge llm→speech), GGUF pre-validator (caps on tensor
+  elements 2^28, head_dim ≤ 512, non-overlapping tensors, candle's alignment rules), `generate`
+  under catch_unwind with a deadline (first ≤ 512 prompt tokens batched, then per token: candle's
+  quantized models can't do offset multi-token steps), `Model::verify` re-hash, `explain_prompt`.
+  Fable review: no blockers; its 7 findings fixed. Tests 15 (no features) / 20 (infer) green;
+  real-model test on this PC: all 4 load (0.2–1.1 s) and answer, but generation is slow under
+  load (14–47 s for 13–48 tokens; target ≤ 5 s) → measure idle + compile-time AVX2/FMA next.
+  Model files moved to the app layout `~/.local/share/filmcraft-fork/models/<id>/`. Lane B
+  (fact checker) blocked by its Opus review (easy false accepts) → being redone as a closed
+  vocabulary (unknown word ⇒ template fallback).
+- **2026-10-11 17:40, G2.12 lane C merged: lesson engine.** `crates/engine/src/coach.rs` (TOML
+  lessons from `assets/lessons/`, hostile-input caps, `target` / `expect.command` take one id or
+  up to 8 alternatives, subset param matcher with gt/ge/lt/le/ne/any/nonzero/in), runner hooked
+  into `Session::execute` (top-level successful non-coach commands), commands `coach.lessons /
+  start / state / next / back / skip / exit / seen`, prefs `color.coach.{completed,hints}`
+  (lenient per field, capped on load), coach card + spotlight (`panels/coach.rs`; hidden under
+  modals, clipped to the panel, scrolls Primaries targets into view), seven lessons, guide page
+  `docs/guide/color/coach.md`. Fixed on the way: "+ Serial" / "+ Before" did nothing on an
+  ungraded clip (`after: null`). Fable review: no blockers, findings fixed. Tests on the merge:
+  engine 618, UI coach/grade/settings 33, layers, assets green. Open: re-clicking an already
+  selected clip doesn't send `timeline.select` (select step needs Skip); lesson text English only;
+  no lesson-picker UI yet; context hints (G2.12 part 3) not started.
+- **2026-10-11 18:00, G2.11 lane B merged: fact checker as a strict controlled grammar.**
+  `crates/render/src/grade_explain/{check.rs,grammar.ebnf,cases.rs}`: AI text is parsed with a
+  small documented grammar (`GRAMMAR_DOC`, 235-word `VOCABULARY`) into explicit claims (scope,
+  dimension, sign, intensity, amount + unit); anything unparsed is rejected, then every claim is
+  verified against `NodeFacts` (touched / untouched ranges, whole-picture needs all ranges and no
+  matte, units bound to dimensions, strength bands weak < 0.5 / strong ≥ 0.8, selections and
+  inversion, skin / sky / face only via a fitting qualifier, every change ≥ half the largest
+  must be mentioned, exact node label via `check_explanation_labeled`). `check_grammar` checks
+  text without facts (for training data). 36 cases (`eval_cases`, dumpable as JSON lines), 101
+  must-fail adversarial rows. Three Opus review rounds (blacklist → closed vocabulary →
+  grammar); the third found no crash risks and its 7 findings are fixed. render lib 297 green.
+- **2026-10-11 18:15, G2.11 lane D merged: LLM speed + eval runner.** Root cause of 14–47 s per
+  explanation: candle 0.9 only uses SIMD for k-quant matmuls with compile-time AVX2; prefill is
+  row-by-row (~70 % of time). Measured on this PC (first 4 cases, noisy load): default x86-64
+  0.5B 18.7 s / 360M 17.2 s → x86-64-v3 4.7 s / 5.3 s → native 4.2 s / 3.9 s. Fix:
+  `.cargo/config.toml` builds x86-64 Linux for x86-64-v3 (owner question Q8, provisional).
+  `compact_facts` prompt: Qwen 489 → 237 mean tokens (none past the 512 batch). Stock eval on
+  36 cases × 4 models done (native, mean 4.9 / 5.7 / 6.4 / 12.0 s for 0.5B / 360M / 1.5B /
+  1.7B); stock models write free prose, so they fail the grammar checker → fine-tuning is the
+  path (G2.11b). Possible later speed-up: own quantized forward pass with gemm prefill (≈ 2 s).
+
+- **2026-10-11 19:00, G2.12 lane E merged: ask the coach (no model).** `crates/engine/src/
+  coach_ask.rs`: docs/guide embedded (`GUIDE_PAGES`, test keeps it equal to the folder), `##`
+  sections with provenance, stemming + beginner synonyms, hand-written BM25, `coach.ask`
+  (steps / sources / lesson / confidence / removed ids); out-of-guide words lower confidence and
+  ≥ 75 % of content words must match, else "The guide doesn't cover this yet." Every command id
+  is checked against registered commands; UI ids via the UI hook (`ui-egui/src/coach_ids.rs`:
+  ids seen this session or dynamic patterns checked against real key sets); headless callers get
+  no `ui` ids; unknown ids stripped from step and summary text. Tests: 30 beginner questions
+  29/30 top-1 (miss: "why did my skin go grey?" → sky recipe tip; GUIDE-5 recipe queued for the
+  cloud), 8 off-topic questions fall back, every guide `{ui:}` id literally seen on a UI walk.
+  Guide: "Delete a node" (nodes.md), grey-skin tip (secondaries.md), "Ask the coach" (coach.md).
+  Opus review: 11 findings fixed. Merge tests: engine 632, ui-egui lib 139, UI coach/grade/
+  settings 36, layers green.
+- **2026-10-11 20:30, G2.11 lane G merged: AI explanations wired.** `crates/engine/src/
+  ai_explain.rs`: `ExplainBackend` seam, process-wide cached `LlmBackend` (lazy load on a
+  worker, SHA-256 verify once, free-memory check, catch_unwind, 15 s generation / 60 s overall,
+  one generating job at a time, live-job cap with drop guard), every model text checked with
+  `check_explanation_labeled`; failures show the template with a fixed reason code (no model
+  text ever echoed). Commands `ai.models / download / cancelDownload / remove / select /
+  setEnabled / explanation`; `grade.explainNode` returns the template at once + `aiKey`
+  (`"wait"` ≤ 20 s). Prefs `color.ai.{enabled (off), model}`; Settings ▸ Color ▸ AI
+  explanations (switch, model chooser for every catalogue entry, download / remove / cancel);
+  "✔ checked" badge / "⚠ plain template" hint in the node explainer; guide section in
+  matching.md. Engine features `llm` / `llm-download`; apps default to `llm` (download stays
+  explicit). Real-model test: stock Qwen 0.5B text rejected → template (expected). Opus review:
+  7 findings fixed. Merge tests: engine 643, UI coach/grade/settings 37, app clippy, layers green.
+  Follow-up: Settings OK switching AI off doesn't unload the model (only `ai.setEnabled` does).
+- **2026-10-11 21:15, G2.12 lane H merged: context hints, lesson list, follow-ups.**
+  `crates/engine/src/coach_hints.rs` + `assets/coach/hints.toml` (12 first-time hints for the
+  Color page: command / element / `qualifierAfterHeavyLook` triggers, never during a lesson, once
+  each, `color.coach.hintsSeen`, the existing switch), commands `coach.hint / dismissHint /
+  resetHints`, hint card; lesson list (Help ▸ Grading Lessons…, `coach.showLessons`); lesson
+  steps `already = "clipSelected"` (first-grade, nodes-and-flow, which-node only); Settings OK
+  now writes only the fields edited in the dialog (runtime changes such as finished lessons or
+  `ai.select` survive; Reset keeps coach records); AI model released when switched off via prefs
+  (deferred until a running generation ends). Opus review: 2 medium + 5 low fixed. Merge tests:
+  engine 654, full UI binary 349/350: the one failure,
+  `robustness_ui::frame_worker_survives_a_panicking_job_and_keeps_rendering`, is a test-isolation
+  issue (process-wide `inject_job_panics` counter consumed by other tests' frame workers since
+  the single UI test binary, `13a43a33`); it passes alone and under nextest (ci). Follow-up: make
+  the injection per FrameServer.
+- **2026-10-11 21:45, G2.11b lane F merged: training pipeline + test training (owner Q7).**
+  Pure-Rust converter `crates/llm/examples/llm_quantize.rs` (safetensors → GGUF; SmolLM2 Q8_0
+  tensors byte-identical to the official file; F16 greedy answers match a PyTorch reference
+  8/8), training-data generator `crates/render/examples/explain_traindata.rs` (2600 grades → 4755
+  train / 236 val examples, every target passes the checker, held-out cases excluded), scorer
+  `explain_score.rs`, trainer `tools/explainer-train/` (own small Qwen2/Llama decoder + LoRA in
+  plain torch on the RX 6700 XT; the venv's transformers can't import), `docs/fork/TRAINING.md`.
+  Test training (2 epochs LoRA r16, ~50 min each): val loss SmolLM2-360M 2.08 → 0.51, Qwen 0.5B
+  2.03 → 0.48. Eval on the 36 held-out cases (idle, greedy, repeat penalty 1.0): best stock
+  (SmolLM2-1.7B Q4KM) 5/36 at 8.3 s; tuned SmolLM2-360M Q8_0 34/36 at 3.0 s; **tuned Qwen 0.5B
+  Q8_0 35/36 (97 %) at 2.4 s → the pick**; tuned Qwen Q4K 35/36 at 6.3 s (candle's Q4K prefill
+  slower). Held-out integrity (review): 12/36 references also appear as training targets (trivial
+  cases); on the other 24 the tune scored 23/24. Catalogue: two local tuned entries (no URL until
+  the owner says "publish"; host dawgon2/filmcraft-cachyos). Opus review: approve; follow-ups in
+  lane I. Note for the owner: `~/Apps/filmcraft-train/runs/convcheck/` holds ~2.5 GB of
+  converter check files that can be deleted (outside the repo, so the agent leaves them).

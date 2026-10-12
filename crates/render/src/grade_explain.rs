@@ -25,7 +25,15 @@ use filmcraft_project::keyframe::ParamValue;
 use filmcraft_project::mask::{MASK_PARAMS, Mask, MaskMode};
 use filmcraft_time::Tick;
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
+
+#[doc(hidden)]
+pub mod cases;
+mod check;
+
+pub use check::{
+    FactMismatch, GRAMMAR_DOC, NOOP_PHRASES, VOCABULARY, check_explanation, check_explanation_labeled, check_grammar, check_shape, check_vocabulary,
+};
 
 use crate::Image;
 use crate::color_match::tonal_weights;
@@ -109,7 +117,7 @@ impl Space {
 // ---- facts ----------------------------------------------------------------------------------
 
 /// A colour wheel that moved.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WheelFact {
     /// `lift`, `gamma`, `gain` or `offset`.
@@ -123,7 +131,7 @@ pub struct WheelFact {
 }
 
 /// A tone curve that bends.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CurveFact {
     /// `curve.master`, `curve.r`, …
@@ -133,7 +141,7 @@ pub struct CurveFact {
 }
 
 /// A switched-on qualifier, in numbers and words.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualifierFact {
     pub hue: f32,
@@ -146,7 +154,7 @@ pub struct QualifierFact {
 }
 
 /// The node's LUT.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LutFact {
     /// The LUT reference (`builtin:<id>`, `lib:<id>`).
@@ -155,7 +163,7 @@ pub struct LutFact {
 }
 
 /// The controls of a node that differ from identity.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ControlFacts {
     pub wheels: Vec<WheelFact>,
@@ -198,6 +206,79 @@ pub struct RangeFacts {
     pub saturation: Option<f32>,
 }
 
+/// The owned form `RangeFacts` is read from (its `range` is a `&'static str`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RangeFactsRaw {
+    range: String,
+    touched: bool,
+    share: f32,
+    stops: f32,
+    warmth: f32,
+    tint: f32,
+    saturation: Option<f32>,
+}
+
+impl<'de> Deserialize<'de> for RangeFacts {
+    /// Reads the range name back as one of [`RANGE_NAMES`] (anything else is an error).
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let r = RangeFactsRaw::deserialize(d)?;
+        let range =
+            RANGE_NAMES.iter().copied().find(|n| *n == r.range).ok_or_else(|| serde::de::Error::custom(format!("unknown tonal range '{}'", r.range)))?;
+        let facts = Self { range, touched: r.touched, share: r.share, stops: r.stops, warmth: r.warmth, tint: r.tint, saturation: r.saturation };
+        if ![facts.share, facts.stops, facts.warmth, facts.tint].iter().chain(facts.saturation.iter()).all(|v| v.is_finite()) {
+            return Err(serde::de::Error::custom("non-finite number in the range facts"));
+        }
+        Ok(facts)
+    }
+}
+
+/// [`NodeFacts`] as read from JSON, validated by [`NodeFacts`]'s `TryFrom`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeFactsRaw {
+    enabled: bool,
+    showing_matte: bool,
+    measured: bool,
+    controls: ControlFacts,
+    coverage: f32,
+    matte_coverage: Option<f32>,
+    ranges: [RangeFacts; 3],
+}
+
+impl TryFrom<NodeFactsRaw> for NodeFacts {
+    type Error = String;
+
+    /// Ranges must be shadows, midtones, highlights in order and every number finite.
+    fn try_from(r: NodeFactsRaw) -> Result<Self, String> {
+        if r.ranges.iter().zip(RANGE_NAMES).any(|(f, n)| f.range != n) {
+            return Err("ranges must be shadows, midtones, highlights in that order".into());
+        }
+        let c = &r.controls;
+        let nums = [c.contrast.map(|v| v[0]), c.contrast.map(|v| v[1]), c.saturation, c.temperature, c.tint, c.grain, c.lut.as_ref().map(|l| l.mix)]
+            .into_iter()
+            .flatten()
+            .chain(c.highlight_rolloff.iter().flatten().copied())
+            .chain(c.noise_reduction.iter().flatten().copied())
+            .chain(c.wheels.iter().flat_map(|w| [w.master, w.color_amount]))
+            .chain(c.qualifier.iter().flat_map(|q| [q.hue, q.hue_width].into_iter().chain(q.sat).chain(q.lum)))
+            .chain([r.coverage])
+            .chain(r.matte_coverage);
+        if !nums.into_iter().all(f32::is_finite) {
+            return Err("non-finite number in the node facts".into());
+        }
+        Ok(Self {
+            enabled: r.enabled,
+            showing_matte: r.showing_matte,
+            measured: r.measured,
+            controls: r.controls,
+            coverage: r.coverage,
+            matte_coverage: r.matte_coverage,
+            ranges: r.ranges,
+        })
+    }
+}
+
 impl RangeFacts {
     fn untouched(range: &'static str) -> Self {
         Self { range, touched: false, share: 0.0, stops: 0.0, warmth: 0.0, tint: 0.0, saturation: None }
@@ -205,8 +286,8 @@ impl RangeFacts {
 }
 
 /// What a node does: its controls and the measured change.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", try_from = "NodeFactsRaw")]
 pub struct NodeFacts {
     pub enabled: bool,
     /// The node shows its qualifier selection (Highlight / Matte view) instead of grading: nothing

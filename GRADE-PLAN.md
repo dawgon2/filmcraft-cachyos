@@ -166,6 +166,22 @@ screenshotted; switch Workflow to Resolve and back (pages, keymap, Color page sc
     - Crate placement: a new L-level crate beside `crates/speech` (no UI deps, layering), behind a
       cargo feature that's off in wasm builds.
     ≈ 10–20 h.
+11b. **Fine-tuned explainer (owner, 2026-10-11: "train them for use on our filmcraft fork").**
+    After G2b's core (11, 12) works with a stock model: build a training set of facts →
+    explanation pairs from G2.10's facts on many generated grades, keep only pairs that pass the
+    G2.11 fact checker, LoRA-fine-tune the chosen base (SmolLM2 leaned, fully open data; decided
+    by the stock 30-case evaluation), quantize to GGUF, and re-run the 30-case set (must beat the
+    stock model, no fact-check regressions). Trainer, base-weight download and hosting of the
+    tuned file: docs/fork/OWNER-QUESTIONS.md Q7. Training is offline tooling, never in the
+    product; the tuned weights are never bundled or committed (opt-in download as in 11).
+    **Owner, 2026-10-11 (Q7):** part of G2b now, as a test: test-train the two small bases
+    (SmolLM2-360M-Instruct, Qwen2.5-0.5B-Instruct), pick the better one, and leave a repeatable
+    training session (`docs/fork/TRAINING.md`: one command per stage: generate → train → quantize
+    → evaluate). Trainer = mix: PyTorch + ROCm on the RX 6700 XT for LoRA (venv outside the repo)
+    and candle on the CPU as the fallback; generator, evaluation and quantization in Rust.
+    Settings lets the user choose which catalogue model to download. Host: a GitHub release on the public
+    repo dawgon2/filmcraft-cachyos (owner, 2026-10-11; releases only, never git pushes there),
+    published on the owner's "publish"; a local path until then.
 12. **(Moved to Phase G2b, right after G2: owner, 2026-10-11.)** **Grading Coach: step-by-step guidance for beginners (owner, 2026-10-11):** so a beginner
     isn't lost in the node system. Three parts, all offline:
     - **Guided lessons (no AI needed):** a lesson engine that walks through a task one step at a

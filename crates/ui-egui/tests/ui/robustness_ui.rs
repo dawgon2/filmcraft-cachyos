@@ -10,8 +10,8 @@ use filmcraft_ui_egui::FilmcraftApp;
 use filmcraft_ui_egui::control::ControlRequest;
 use serde_json::{Value, json};
 
-/// The tests run one at a time: fault injection (`inject_job_panics`) is process-wide, so frame
-/// workers of a parallel test would consume the injected panics.
+/// The tests here run one at a time; fault injection is per frame server
+/// (`FrameServer::inject_job_panics`), so other test files running in parallel can't consume it.
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn serial() -> std::sync::MutexGuard<'static, ()> {
@@ -88,7 +88,7 @@ fn frame_worker_survives_a_panicking_job_and_keeps_rendering() {
     let jobs_before = d.frame_stats()["jobs"].as_u64().unwrap_or(0);
     let workers = d.harness.state().frames.workers() as u32;
     // more faults than there are workers: before the fix every worker died and nothing rendered
-    filmcraft_ui_egui::frames::inject_job_panics(workers + 2);
+    d.harness.state().frames.inject_job_panics(workers + 2);
     for t in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0] {
         d.ok("engine.execute", json!({"command": "playhead.set", "params": {"seconds": t}}));
         d.settle();

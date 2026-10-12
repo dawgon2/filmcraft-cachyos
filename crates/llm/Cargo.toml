@@ -1,0 +1,35 @@
+[package]
+name = "filmcraft-llm"
+description = "FilmCraft local language model: the catalogue of small instruct models (pinned, checksummed, never bundled), the checked GGUF loader and guarded offline text generation on candle (pure Rust, CPU)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Quantized (GGUF) inference on the CPU via candle (pure Rust). Off by default and in wasm builds.
+infer = ["dep:candle-core", "dep:candle-transformers", "dep:tokenizers"]
+# Model downloads over HTTPS, through filmcraft-speech's verified downloader.
+download = ["filmcraft-speech/download"]
+
+[dependencies]
+filmcraft-speech = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+candle-core = { version = "0.9", default-features = false, optional = true }
+candle-transformers = { version = "0.9", default-features = false, optional = true }
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"], optional = true }
+
+[[example]]
+name = "llm_eval"
+required-features = ["infer"]
+
+[[example]]
+name = "llm_quantize"
+required-features = ["infer"]

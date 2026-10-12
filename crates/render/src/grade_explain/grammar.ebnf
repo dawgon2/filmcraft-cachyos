@@ -1,0 +1,138 @@
+(* FilmCraft node-explanation grammar (GRADE-PLAN G2.11). An AI-written explanation of a colour
+   grade node is shown only if it parses with these rules AND every claim it makes agrees with
+   the node's measured facts; anything else falls back to the template sentence.
+   Before parsing, text is lower-cased, British spellings are normalised (colour, mid-tones,
+   grey, centre) and a quoted node name after node N is dropped. Terminals are in double
+   quotes. NUMBER is digits (12, 0.5, 1/3) or a vulgar fraction (⅓, 1⅓); SIGNED is a NUMBER
+   with a leading + or − (or -). At most 2 sentences and 300 characters. *)
+
+text            = [ label ] , sentence , [ sentence ] ;
+label           = "node" , NUMBER , [ QUOTED_NAME ] , ":" ;
+                  (* only this node's real index and exact name; otherwise no label, no quotes *)
+sentence        = ( body | noop_body ) , [ "." | "!" ] ;
+
+(* ---- a node that changes the picture: a list of clauses, each ONE claim group ---- *)
+body            = clause , { joiner , clause } ;
+joiner          = ";" | [ "," ] , ( "and" | "while" | "but" ) | "," ;
+clause          = [ region_lead ] , ( coverage | also_clause | verb_clause | scoped_clause
+                                    | quantity_clause | predicates ) ;
+also_clause     = "also" , texture ;                 (* only right after ; *)
+
+(* where in the frame; a region lead applies to the rest of its sentence *)
+region_lead     = region , [ region ] , [ "," ] ;
+region          = "inside" , "it"                  (* only after a coverage clause *)
+                | ( "inside" | "in" | "outside" ) , region_np ;
+region_np       = "the" , ( "window" | "selection" | "qualifier" , "selection"
+                          | [ "selected" ] , subject ) ;
+subject         = "skin" , [ "tones" ] | "sky" | "face" | "faces" ;
+
+(* the share of the frame *)
+coverage        = [ agent ] , ( "affects" | "affect" ) ,
+                  ( "the" , ( "whole" | "entire" ) , frame | percent , "of" , "the" , frame ) ;
+frame           = "frame" | "picture" | "image" ;
+
+(* the node (or one of its tools) does something; the subject may be left out *)
+verb_clause     = [ agent ] , [ strength ] , verb_phrase ;
+agent           = "it" | "this" , "node"
+                | "the" , ( "node" | "grade" | "curve" | "lut" | "window" | "selection"
+                          | "qualifier" , [ "selection" ] ) ;
+verb_phrase     = dim_verb , [ scope ] , tail
+                | ( up_verb | down_verb ) , ( scope | quantity , [ "in" , scope ] ) , tail
+                | add_verb , ( quantity , [ "in" , scope ] , tail
+                             | "a" , [ tint_strength ] , hue , ( "tint" | "cast" ) , [ ( "to" | "in" ) , scope ]
+                             | amount , "to" , scope )
+                | texture
+                | leave_verb , ranges , still ;
+tail            = [ strength ] , [ "by" , amount ] ;  (* one strength word per claim *)
+texture         = add_verb , "grain" , [ ( "to" | "in" ) , scope ]
+                | ( "reduces" | "reduce" | "reducing" | "removes" | "remove" | "removing" ) , "noise" ,
+                  [ ( "to" | "in" ) , scope ] ;
+
+(* a tonal range, the picture or a selected area, then what happens to it *)
+scoped_clause   = scope , ( "by" , amount     (* ellipsis after , or and: repeats the verb before *)
+                          | [ be ] , still                 (* scope must be named ranges *)
+                          | [ strength ] , intransitive , tail
+                          | ( "change" | "changes" ) , weak
+                          | [ copula ] , predicates ) ;
+quantity_clause = quantity , [ "in" , scope ] , quantity_verb , tail ;
+predicates      = predicate , { ( "," | "and" | "," , "and" ) , predicate } ,
+                  [ "in" , scope ] ;                       (* only when no scope came before *)
+predicate       = amount , adjective
+                | [ strength ] , adjective , [ "by" , amount ]
+                | SIGNED , ( "stop" | "stops" )
+                | "saturation" , SIGNED , ( "%" | "percent" )
+                | "changed" , "slightly"
+                | ( "more" | "less" ) , "contrast" ;
+
+scope           = ( ranges | whole | region_np | "it" | [ "the" ] , "colors" ) , [ region ] ;
+ranges          = range , { ( "," | "and" | "," , "and" ) , range } ;
+                  (* each range once; a bare comma joins only when an and follows in the list *)
+range           = [ "the" ] , ( "shadows" | "midtones" | "highlights" ) ;
+whole           = "everything" | "all" , [ "the" ] , ( "tones" | "ranges" )
+                | "the" , ( "picture" | "image" | "frame" )
+                | "the" , ( "whole" | "entire" ) , frame ;            (* the whole frame *)
+still           = "untouched" | "unchanged" | "alone" | "the" , "same" ;
+be              = "is" | "are" | "stay" | "stays" | "remain" | "remains" ;
+copula          = "get" | "gets" | "become" | "becomes" | "turn" | "turns" | "go" | "goes"
+                | "is" | "are" | "look" | "looks" ;
+quantity        = [ "the" ] , ( "saturation" | "contrast" | "warmth" | "brightness" | "exposure" ) ;
+
+(* words with a direction: dimension and sign *)
+adjective       = "brighter" | "darker"                               (* brightness + − *)
+                | "warmer" | "yellower" | "cooler" | "bluer"          (* warmth + + − − *)
+                | "greener" | "more" , "magenta"                      (* tint − + *)
+                | ( "more" | "less" ) , ( "saturated" | "colorful" | "vivid" )
+                | "muted" | "desaturated" ;                           (* saturation − *)
+dim_verb        = "brightens" | "brighten" | "brightening" | "darkens" | "darken" | "darkening"
+                | "warms" | "warm" | "warming" | "cools" | "cool" | "cooling"
+                | "saturates" | "saturate" | "saturating"
+                | "desaturates" | "desaturate" | "desaturating" ;
+intransitive    = "brightens" | "brighten" | "darkens" | "darken"
+                | "warms" | "warm" | "cools" | "cool" ;
+up_verb         = "lifts" | "lift" | "lifting" | "raises" | "raise" | "raising"
+                | "boosts" | "boost" | "boosting" | "increases" | "increase" | "increasing" ;
+down_verb       = "lowers" | "lower" | "lowering" | "reduces" | "reduce" | "reducing"
+                | "cuts" | "cut" | "cutting" | "decreases" | "decrease" | "decreasing"
+                | "pulls" | "pull" | "pulling" ;
+add_verb        = "adds" | "add" | "adding" ;
+leave_verb      = "leaves" | "leave" | "leaving" ;
+quantity_verb   = "rises" | "rise" | "increases" | "increase"
+                | "drops" | "drop" | "falls" | "fall" | "decreases" | "decrease" ;
+hue             = "warm" | "orange" | "yellow" | "cool" | "blue"      (* warmth + + + − − *)
+                | "green" | "magenta" ;                               (* tint − + *)
+
+(* how strong *)
+strength        = weak | strong ;
+weak            = "slightly" | "a" , "little" | "a" , "bit" | "gently" | "barely" | "subtly" ;
+strong          = "much" | "a" , "lot" | "strongly" | "dramatically" | "significantly" | "heavily" ;
+tint_strength   = "slight" | "subtle" | "gentle" | "strong" ;
+
+(* how much: stops (brightness) or percent (saturation, contrast, share of the frame) *)
+amount          = [ "about" | "roughly" | "around" ] , ( stops | percent ) ;
+stops           = NUMBER , ( "stop" | "stops" | "of" , "a" , "stop" )
+                | number_words , ( "stop" | "stops" )
+                | "a" , "stop" | "half" , "a" , "stop" | "a" , "half" , "stop"
+                | ( "a" | number_word ) , fraction , "of" , "a" , "stop" ;
+percent         = [ "<" ] , NUMBER , ( "%" | "percent" ) | number_words , ( "%" | "percent" ) ;
+number_words    = number_word , [ "-" , number_word ] , [ "point" , number_word ]
+                | "point" , number_word ;
+number_word     = "zero" | "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight"
+                | "nine" | "ten" | "eleven" | "twelve" | "thirteen" | "fourteen" | "fifteen"
+                | "sixteen" | "seventeen" | "eighteen" | "nineteen" | "twenty" | "thirty"
+                | "forty" | "fifty" | "sixty" | "seventy" | "eighty" | "ninety" | "hundred" ;
+fraction        = "half" | "third" | "thirds" | "quarter" | "quarters" | "fifth" | "fifths"
+                | "sixth" | "sixths" | "eighth" | "eighths" ;
+
+(* ---- a node that is disabled, shows its matte or changes nothing ---- *)
+noop_body       = noop_phrase , { ( "," | ";" | ":" | "(" | ")" ) , noop_phrase } ;
+noop_phrase     = filler* , noop_core , filler* ;
+filler          = "the" | "a" | "an" | "it" | "its" | "this" | "is" | "are" | "node" | "so"
+                | "and" | "picture" | "image" | "frame" | "in" ;
+noop_core       = "disabled" | "bypassed" | "inactive" | "switched" , "off" | "turned" , "off"
+                | "off"                                            (* disabled nodes only *)
+                | "no" , "visible" , "change" | "no" , "change" | "nothing" , "changes"
+                | "unchanged" | "untouched"                        (* no visible change *)
+                | "showing" , "qualifier" , ( "selection" | "matte" ) | "showing" , "matte"
+                | "showing" , "selection" | "highlight" , "/" , "matte" , "view" | "matte" , "view"
+                | "not" , ( "grade" | "grading" ) | "rather" , "than" , ( "grade" | "grading" ) ;
+                                                                   (* matte view only *)

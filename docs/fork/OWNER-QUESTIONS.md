@@ -91,3 +91,90 @@ non-incremental, ~135 test binaries run one by one, `CARGO_BUILD_JOBS=6` and `ni
   and the 68 `crates/ui-egui/tests/*.rs` binaries merged into one (`tests/ui/main.rs`). First run
   on the new setup: **21.7 min** (tests 21 min incl. ~19 min compiling, 3,095 + 7 passed; test
   execution 2 min 21 s) vs 40–65 min before. Resolved.
+
+## Q6 (2026-10-11, G2b step G2.11): may the agent download the candidate AI models?
+
+To pick the explainer model (GRADE-PLAN G2.11: quality on the 30-case set, ≤ ~5 s on this CPU)
+the run needs the candidate weights locally. Candidates (all Apache-2.0, official publisher repos
+on Hugging Face, sizes from HEAD requests): `qwen2.5-0.5b-instruct-q4_k_m.gguf` 491 MB,
+`qwen2.5-1.5b-instruct-q4_k_m.gguf` 1.12 GB, `smollm2-360m-instruct-q8_0.gguf` 386 MB,
+`smollm2-1.7b-instruct-q4_k_m.gguf` 1.06 GB, plus two `tokenizer.json` (7 MB + 2 MB): ≈ 3.1 GB,
+into FilmCraft's per-user models folder (never in the repo, never bundled). The losers can be
+deleted after the evaluation.
+- (a) The agent downloads them (owner says yes, here or in chat). Fast; the evaluation runs in G2b.
+- (b) The owner downloads them by hand (or via Settings ▸ Color ▸ AI explanations once wired).
+**Provisional choice:** build and test everything against the template fallback (no model needed);
+Qwen2.5-0.5B is the provisional default in the catalogue until the evaluation. Asked live in the
+session on 2026-10-11 16:45; waiting for the answer.
+
+**Follow-up (owner, live 2026-10-11): "pick a model we can alter to best fit our needs".** Answer
+given: the inference code (`crates/llm`) is ours; behaviour is changed by fine-tuning the weights
+(LoRA on facts → explanation pairs we generate and filter with the G2.11 fact checker). All four
+candidates are Apache-2.0 (modification and redistribution allowed). SmolLM2 is the most open
+(training data and recipes published), Qwen2.5 is weights-only. Recommendation (provisional):
+evaluate stock models first; prefer SmolLM2 as the base; fine-tune only if the 30-case pass rate
+is low, as a step after G2b's core. Fine-tuning would need training tooling (offline, not in the
+product; e.g. PyTorch + ROCm on the RX 6700 XT: more downloads, owner OK) and a place to host the
+tuned weights for the opt-in download (owner's HF account or a fork release). Waiting for the
+owner on: download yes/no, SmolLM2 vs Qwen base, fine-tune yes/no.
+
+**Owner's answer (2026-10-11, live): "yes I'd like to train them for use on our filmcraft fork."**
+Applied: the four candidate GGUF files + tokenizers were downloaded by the agent into
+`~/.local/share/filmcraft-fork/models/llm/` (SHA-256 checked against the publishers' LFS hashes);
+fine-tuning is approved and planned as GRADE-PLAN G2.11b (after G2b's core). Base model: still
+open (provisional lean SmolLM2, fully open data); decided by the stock evaluation. Open
+follow-ups in Q7. Resolved for the download and the fine-tune decision.
+
+## Q7 (2026-10-11, G2.11b): how to train, and where the tuned weights live
+
+Fine-tuning needs the full-precision base weights (GGUF 4-bit files can't be trained), a trainer,
+and a host for the tuned file that the app's opt-in download fetches.
+1. **Trainer.** (a) Pure Rust with candle (LoRA, CPU; fits the project, no new toolchain; slower,
+   hours per run for a ~0.4B model, and we write more of it ourselves). (b) Python + PyTorch
+   with ROCm on the RX 6700 XT (standard tooling, fast; several GB of downloads and a Python
+   environment outside the repo; offline tooling only, never in the product).
+   **Provisional:** (a) candle, because it needs no new toolchain and keeps the project pure Rust.
+2. **Base weights** (needed for either trainer): the safetensors of the chosen base, e.g.
+   SmolLM2-360M-Instruct ≈ 0.72 GB or Qwen2.5-0.5B-Instruct ≈ 1 GB. Needs an owner OK to download.
+3. **Hosting the tuned model** (Apache-2.0 allows redistribution with the licence + a change
+   note): (a) the owner's Hugging Face account, (b) a GitHub release on dawgon2/filmcraft-fork.
+   Only the owner can create either. **Provisional:** keep the tuned file local and point the
+   catalogue at a local path until the owner sets up a host.
+
+**Owner's answers (2026-10-11, live):**
+1. Trainer: **"a mix of both"**. Applied as: Rust (candle) for the training-set generator, the
+   evaluation, GGUF quantization and a CPU LoRA fallback; Python + PyTorch on the RX 6700 XT
+   (ROCm, a venv outside the repo, offline tooling only) for the fast LoRA runs.
+2. Base weights: **yes**, and **quantize them afterwards** (to GGUF Q4_K_M / Q8_0, in Rust).
+3. Hosting: **a release on the GitHub fork.** Caveat recorded by the agent: dawgon2/filmcraft-fork
+   is private, so release assets need a login and the app's anonymous opt-in download can't fetch
+   them. Provisional: the catalogue entry for the tuned model reads a local file until there is
+   a public URL (the repo or a release made public, or a separate public models repo, owner's
+   call whenever convenient; no run waits for it).
+4. Scope now: **test-train the candidates, pick the better one, and leave a repeatable training
+   session the owner can start any time.** Settings ▸ Color ▸ AI explanations lets the user
+   **choose which model to download** (every catalogue entry, not one fixed default).
+5. **Don't ask the owner to decide things to finish work** (even live): decide, record here,
+   continue (§2b). Resolved.
+
+**Owner (2026-10-11, live): host the tuned model on https://github.com/dawgon2/filmcraft-cachyos
+(public).** Applied: the tuned explainer is published as a GitHub *release asset* there (tag
+e.g. `explainer-<base>-v1`, GGUF + tokenizer + LICENSE (Apache-2.0) + a NOTICE saying it is a
+fine-tune of the named base, what changed, and the training-set provenance); the catalogue entry
+gets that URL pinned by SHA-256. The standing rule "never push to the `cachyos` remote" still
+holds for git branches and code; a release (and the tag `gh release create` makes for it) is the
+only thing created there. Publishing is public content, so the agent prepares the release and
+publishes it when the owner says "publish" in chat; nothing waits for that (the app reads the
+local file until then).
+
+## Q8 (2026-10-11, G2.11): build the fork for x86-64-v3 (AVX2)?
+
+candle (the AI explainer's inference library) only uses SIMD for 4-bit models when AVX2 is
+enabled at compile time; the default x86-64 build runs it scalar (~17–30 s per explanation vs
+~4 s with AVX2, measured on this PC). Options: (a) `.cargo/config.toml` builds x86-64 Linux for
+`x86-64-v3` (any CPU since 2013; one-time full rebuild; float results unchanged because Rust
+doesn't fuse or reorder float maths by itself); (b) flag only for the phase builds (cache
+thrash between flagged and unflagged release builds); (c) our own copy of candle's quantized
+forward pass (MIT/Apache, ~860 lines) with gemm-based prefill (≈ 2 s per explanation even
+without the flag; more code to own). **Provisional: (a)**, committed with a comment block
+in `.cargo/config.toml` (delete it to undo); (c) stays a possible later speed-up.

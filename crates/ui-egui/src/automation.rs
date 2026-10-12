@@ -26,6 +26,8 @@ pub struct Registry {
     pub elements: Vec<Element>,
     /// Last frame's elements (for lookups from control handlers between frames).
     pub previous: Vec<Element>,
+    /// Every id shown this session ("Ask the coach" checks the controls it names against it).
+    pub seen: crate::coach_ids::SeenIds,
 }
 
 impl Registry {
@@ -51,10 +53,16 @@ impl Registry {
         }
     }
     pub fn begin_frame(&mut self) {
+        self.seen.record(self.elements.iter().map(|e| e.id.as_str()));
         self.previous = std::mem::take(&mut self.elements);
     }
     pub fn find(&self, id: &str) -> Option<&Element> {
         self.previous.iter().chain(self.elements.iter()).find(|e| e.id == id)
+    }
+    /// An id this session has shown, or one the UI builds at run time
+    /// ([`crate::coach_ids::DYNAMIC_ID_PATTERNS`]).
+    pub fn known_ui_id(&self, id: &str) -> bool {
+        self.seen.contains(id) || self.elements.iter().any(|e| e.id == id) || crate::coach_ids::matches_dynamic(id)
     }
     /// Elements whose id starts with a prefix.
     pub fn query(&self, prefix: &str) -> Vec<&Element> {

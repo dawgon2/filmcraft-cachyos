@@ -8,7 +8,8 @@
 //! - `grade.checkScene`: the shot that differs most from the rest of a scene.
 //! - `grade.shotMatch`: append a node whose primaries match the clip to a reference (one undo
 //!   step).
-//! - `grade.explainNode` / `grade.explainGrade`: measured facts and a template sentence per node.
+//! - `grade.explainNode` / `grade.explainGrade`: measured facts and a template sentence per node;
+//!   `grade.explainNode` also routes through the optional local AI (`crate::ai_explain`, G2.11).
 //!
 //! Frames are rendered at ¼ size in working linear light; the qualifier's highlight / matte view
 //! is switched off for every measurement.
@@ -48,7 +49,12 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             run: shot_match,
             journal: true,
         },
-        query("grade.explainNode", "Explain Node", r#"{"clip":id?,"node":id?,"time":ticks?,"overlay":path?}"#, explain_node),
+        query(
+            "grade.explainNode",
+            "Explain Node",
+            r#"{"clip":id?,"node":id?,"time":ticks?,"overlay":path?,"wait":bool? (AI text: blocks at most 20 s)}"#,
+            explain_node,
+        ),
         query("grade.explainGrade", "Explain Grade", r#"{"clip":id?,"time":ticks?}"#, explain_grade),
     ]
 }
@@ -298,13 +304,20 @@ fn explain_node(s: &mut Session, p: &Value) -> Result<Value> {
     let mt = media_time(s, &json!({"time": t.0}), clip);
     let (facts, input, output) = node_facts(s, clip, t, mt, pos, &node, CMD)?;
     let label = node_label(&node, pos);
+    let sentence = facts.sentence(&label);
+    // (G2.11: the text to show: a checked local-AI rewrite when enabled and ready, else the
+    // template; `aiKey` while the model is still writing, poll `ai.explanation`)
+    let ai = crate::ai_explain::explain_fields(s, &facts, &node.label, pos + 1, &label, &sentence, bool_p(p, "wait").unwrap_or(false));
     let mut v = json!({
         "clip": clip.0,
         "node": id,
-        "sentence": facts.sentence(&label),
+        "sentence": sentence,
         "summary": facts.summary(),
         "facts": serde_json::to_value(&facts).unwrap_or(Value::Null),
     });
+    if let (Some(o), Value::Object(extra)) = (v.as_object_mut(), ai) {
+        o.extend(extra);
+    }
     if let Some(path) = p.get("overlay").and_then(Value::as_str) {
         let ov = filmcraft_render::grade_explain::change_overlay(&input, &output, working(s)?);
         write_png(&ov, path).map_err(|e| bad(CMD, format!("{path}: {e}")))?;

@@ -23,6 +23,10 @@ impl Driver {
     fn demo() -> Self {
         let mut session = Session::default();
         session.execute("file.openDemoProject", json!({})).expect("demo project");
+        Self::from_session(session)
+    }
+
+    fn from_session(session: Session) -> Self {
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(session).with_control(rx);
         let snapshots = std::env::var_os("FILMCRAFT_UI_SNAPSHOT_DIR").map(std::path::PathBuf::from);
@@ -264,4 +268,92 @@ fn resolve_workflow_shows_pages_and_color_opens_the_node_grader() {
     d.exec("settings.setWorkflow", json!({"workflow": "premiere"}));
     d.frames(3);
     assert!(d.ids("page.").is_empty(), "back to Premiere: no page bar");
+}
+
+/// A local-AI stand-in (G2.11): answers with `f(prompt)`.
+struct FakeAi(fn(&str) -> Result<String, String>);
+
+impl filmcraft_engine::ai_explain::ExplainBackend for FakeAi {
+    fn ready(&self, _: &filmcraft_engine::ai_explain::ModelInfo) -> Result<(), (filmcraft_engine::ai_explain::Fallback, String)> {
+        Ok(())
+    }
+    fn generate(
+        &self,
+        _: &filmcraft_engine::ai_explain::ModelInfo,
+        _: &str,
+        user: &str,
+        _: filmcraft_engine::ai_explain::GenOptions,
+    ) -> Result<String, String> {
+        (self.0)(user)
+    }
+}
+
+/// The template body from the prompt: a text that passes the fact check.
+fn echo_template(user: &str) -> Result<String, String> {
+    Ok(user.split("Reference sentence:\n").nth(1).and_then(|r| r.split("\n\n").next()).unwrap_or_default().to_string())
+}
+
+fn wait_for(d: &mut Driver, id: &str) -> bool {
+    for _ in 0..300 {
+        if d.ids(id).iter().any(|i| i == id) {
+            return true;
+        }
+        d.frames(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    false
+}
+
+#[test]
+fn ai_explanations_setting_and_checked_badge() {
+    let mut session = Session::default();
+    session.execute("file.openDemoProject", json!({})).expect("demo project");
+    session.ai.set_backend(std::sync::Arc::new(FakeAi(echo_template)));
+    let mut d = Driver::from_session(session);
+    // Settings ▸ Color ▸ AI explanations: off by default; the switch applies on OK
+    d.ok("ui.menu.invoke", json!({"id": "app.settings.color"}));
+    d.frames(3);
+    for id in ["settings.color.ai.enabled", "settings.color.ai.model", "settings.color.ai.download", "settings.color.ai.remove"] {
+        assert!(d.element(id).is_some(), "{id} missing: {:?}", d.ids("settings.color"));
+    }
+    assert_eq!(d.exec("prefs.get", json!({"key": "color.ai.enabled"})), json!(false));
+    d.click("settings.color.ai.enabled");
+    d.click("settings.ok");
+    assert_eq!(d.exec("prefs.get", json!({"key": "color.ai.enabled"})), json!(true));
+    // the node explainer shows the checked AI text with its badge
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    let clip = select_first_clip(&mut d);
+    let node = d.exec("grade.addNode", json!({"clip": clip}))["node"].as_u64().unwrap();
+    d.exec("grade.setParam", json!({"clip": clip, "node": node, "param": "gain", "value": [0.0, 0.0, 0.0, 0.3]}));
+    d.exec("grade.selectNode", json!({"clip": clip, "node": node}));
+    d.frames(2);
+    d.click("grade.tab.match");
+    d.click("grade.match.explainNode");
+    assert!(wait_for(&mut d, "grade.match.aiChecked"), "badge: {:?}", d.ids("grade.match"));
+    assert!(!d.ids("grade.match").iter().any(|i| i == "grade.match.aiFallback"));
+    d.snapshot("grade-ai-checked", Some("grade.match"));
+    // a text that fails the check: the template, with the reason behind a hint
+    d.harness.state_mut().session.ai.set_backend(std::sync::Arc::new(FakeAi(|_| Ok("It makes the picture much darker.".into()))));
+    d.click("grade.match.explainNode");
+    assert!(wait_for(&mut d, "grade.match.aiFallback"), "fallback hint: {:?}", d.ids("grade.match"));
+    assert!(!d.ids("grade.match").iter().any(|i| i == "grade.match.aiChecked"));
+}
+
+/// A fine-tuned explainer built on this computer: selectable like any model, its Download stays
+/// off and the note says where it comes from instead of a download source.
+#[test]
+fn ai_settings_show_local_tuned_models_without_download() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let mut d = Driver::demo();
+    let models = d.exec("ai.models", json!({}));
+    let local = models["models"].as_array().unwrap().iter().find(|m| m["local"] == true).expect("a local entry")["id"].as_str().unwrap().to_string();
+    d.ok("ui.menu.invoke", json!({"id": "app.settings.color"}));
+    d.frames(3);
+    d.exec("ai.select", json!({"model": local}));
+    d.frames(3);
+    assert_eq!(d.exec("ai.models", json!({}))["selected"], json!(local));
+    assert!(d.harness.get_by_label("Download").accesskit_node().is_disabled(), "no download for a local model");
+    assert!(d.harness.query_by_label_contains("Built on this computer (FilmCraft fine-tune of").is_some());
+    assert!(d.harness.query_by_label_contains("downloaded from https://").is_none());
 }

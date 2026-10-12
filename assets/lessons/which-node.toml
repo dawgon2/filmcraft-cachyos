@@ -1,0 +1,84 @@
+# Grading Coach lesson (fork GRADE-PLAN G2.12). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "which-node"
+title = "Which node for what"
+summary = "One job per node, and a starter tree for F-Log2 footage: balance, exposure and contrast, saturation, then the look."
+provenance = ["resolve-style", "fork"]
+order = 3
+
+[[step]]
+text = "Good grades are easy to read: each node does one job, and the jobs come in a sensible order. We will build a four-node starter tree."
+why = "When something looks wrong later, you can switch nodes off one at a time and find the culprit in seconds."
+expect = { manual = true }
+
+[[step]]
+text = "About F-Log2: the conversion from the camera's flat log picture into the working space happens automatically before node 01, and the conversion to your display happens after the last node. You do not need a node for either."
+why = "If an F-Log2 clip still looks grey and flat, set its colour space once in Clip > Modify > Interpret Footage. Your nodes then always start from a natural-looking picture."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Color Grading workspace (Workspaces button at the top, then Color Grading)."
+why = "You need the node strip and the Primaries panel for this lesson."
+target = "header.workspaces"
+expect = { element = "panel.ColorNodes" }
+
+[[step]]
+text = "Select a clip in the timeline."
+why = "The tree is built on the selected clip."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+already = "clipSelected"
+
+[[step]]
+text = "Node 01, Balance: add a node (Add Node or + Serial) and set Temperature or Tint so neutral things look neutral."
+why = "Balance comes first because every later node judges colour on its result."
+target = ["grade.addFirst", "grade.addNode"]
+expect = { command = ["grade.addNode", "grade.insertNode"] }
+
+[[step]]
+text = "Now balance: drag Temperature or Tint on this node."
+why = "This node's only job is removing colour casts."
+target = "grade.param.temperature"
+expect = { command = "grade.setParam", params = { param = { in = ["temperature", "tint", "offset"] } } }
+
+[[step]]
+text = "Node 02, Exposure and contrast: click + Serial, then set Contrast (and the Gain or Gamma wheel if the brightness needs it)."
+why = "Brightness and contrast shape the whole picture, so they come before colour choices."
+target = "grade.addNode"
+expect = { command = "grade.addNode" }
+
+[[step]]
+text = "Set Contrast on node 02."
+why = "Keeping contrast apart from balance lets you change one without upsetting the other."
+target = "grade.param.contrast"
+expect = { command = "grade.setParam", params = { param = { in = ["contrast", "pivot", "gain", "gamma", "lift"] } } }
+
+[[step]]
+text = "Node 03, Saturation: click + Serial and set Saturation."
+why = "Saturation after contrast, because contrast changes how colourful the picture looks. Fixes for skin or sky (qualifiers) also belong here, after the base and before the look."
+target = "grade.addNode"
+expect = { command = "grade.addNode" }
+
+[[step]]
+text = "Move Saturation on node 03."
+why = "One slider, one node: easy to find later."
+target = "grade.param.saturation"
+expect = { command = "grade.setParam", params = { param = "saturation" } }
+
+[[step]]
+text = "Node 04, Look: click + Serial. This is where creative colour and film grain go."
+why = "A look at the end of the chain can be copied to other shots or swapped without touching their technical fixes."
+target = "grade.addNode"
+expect = { command = "grade.addNode" }
+
+[[step]]
+text = "Give node 04 a look, for example a little film grain or a nudge of the Gamma wheel."
+why = "Grain and looks go last so nothing after them changes their character."
+target = "grade.param.grain.strength"
+expect = { command = "grade.setParam", params = { param = { in = ["grain.strength", "lift", "gamma", "gain", "temperature", "tint", "saturation"] } } }
+
+[[step]]
+text = "Your starter tree: 01 Balance, 02 Exposure and contrast, 03 Saturation, 04 Look. Click each node in the strip and press Disable to see what it adds."
+why = "Reading the tree from left to right tells the story of the grade."
+target = "grade.toggleNode"
+expect = { manual = true }

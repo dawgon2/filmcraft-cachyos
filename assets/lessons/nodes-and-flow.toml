@@ -1,0 +1,60 @@
+# Grading Coach lesson (fork GRADE-PLAN G2.12). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "nodes-and-flow"
+title = "What a node is and how the chain flows"
+summary = "A grade is a row of small steps called nodes. Build two and see how the second one works on what the first one made."
+provenance = ["resolve-style"]
+order = 1
+
+[[step]]
+text = "A grade here is a chain of nodes. Each node is one small change to the picture: warmer, brighter, more colourful. The picture enters on the left, passes through every node in order, and leaves on the right."
+why = "Splitting a grade into small steps means you can switch one off, change it or delete it without touching the others."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Color Grading workspace: click the Workspaces button at the top of the window and choose Color Grading."
+why = "This workspace puts the node strip, the controls and the picture side by side."
+target = "header.workspaces"
+expect = { element = "panel.ColorNodes" }
+
+[[step]]
+text = "Click a clip in the timeline to choose the shot you will grade."
+why = "Every grade belongs to one clip. Nothing can be graded until a clip is selected."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+already = "clipSelected"
+
+[[step]]
+text = "Add your first node: click Add Node (or + Serial in the node strip)."
+why = "A clip starts with no grade. The first node is where your first change goes."
+target = ["grade.addFirst", "grade.addNode"]
+expect = { command = ["grade.addNode", "grade.insertNode"] }
+
+[[step]]
+text = "Give this node one job: drag Saturation a little to the right."
+why = "A node that does one easy-to-name thing is easy to find and fix later."
+target = "grade.param.saturation"
+expect = { command = "grade.setParam", params = { param = "saturation", value = { gt = 1.0 } } }
+
+[[step]]
+text = "Add a second node after it: click + Serial in the node strip."
+why = "A serial node takes the picture coming out of the node before it. You will see its box appear to the right of node 01."
+target = "grade.addNode"
+expect = { command = "grade.addNode" }
+
+[[step]]
+text = "On the new node, move Contrast away from 1. Watch the picture: this node works on the already more colourful picture from node 01."
+why = "This is the chain flowing left to right. Order matters: the same change can look different before or after another node."
+target = "grade.param.contrast"
+expect = { command = "grade.setParam", params = { param = "contrast", value = { ne = 1.0 } } }
+
+[[step]]
+text = "Click Disable to switch the selected node off, and look at the picture. Click it again to switch it back on."
+why = "Switching a node off shows exactly what that one node does. It is the quickest way to check your work."
+target = "grade.toggleNode"
+expect = { command = "grade.toggleNode" }
+
+[[step]]
+text = "That is the whole idea: small nodes, one job each, read from left to right. Next, try the lesson Your first grade."
+why = "Every other grading tool in this app (qualifiers, windows, noise reduction) lives inside a node, so this picture of the chain carries through."
+expect = { manual = true }

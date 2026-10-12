@@ -1,0 +1,77 @@
+# Grading Coach lesson (fork GRADE-PLAN G2.12). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "tracked-window"
+title = "Brighten a face with a tracked window"
+summary = "Draw a soft circle around a face, let it follow the face, and lift the light inside it."
+provenance = ["resolve-style"]
+order = 6
+
+[[step]]
+text = "A window is a shape (circle, rectangle or gradient) that limits a node to one area of the frame. Tracking makes the shape follow something as it moves."
+why = "Brightening a face slightly is one of the most common touches in grading: it guides the viewer's eye without anyone noticing."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Color Grading workspace (Workspaces button, then Color Grading)."
+why = "The window tools are in the Primaries panel of this workspace."
+target = "header.workspaces"
+expect = { element = "panel.ColorPrimaries" }
+
+[[step]]
+text = "Select the clip with the face in the timeline, and put the playhead on a frame where the face is clear."
+why = "Tracking starts from the frame under the playhead."
+target = "timeline.tracks"
+expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
+
+[[step]]
+text = "Add a node for the face: click + Serial."
+why = "The window belongs to a node, so it only limits that node's changes."
+target = ["grade.addNode", "grade.addFirst"]
+expect = { command = ["grade.addNode", "grade.insertNode"] }
+
+[[step]]
+text = "Open the Windows tab."
+why = "This is where shapes are added and tracked."
+target = "grade.tab.windows"
+expect = { element = "grade.window.add.ellipse" }
+
+[[step]]
+text = "Click Circle to add a round window."
+why = "Faces are roughly round; a soft circle is the least noticeable shape."
+target = "grade.window.add.ellipse"
+expect = { command = "masks.add", params = { shape = "ellipse" } }
+
+[[step]]
+text = "In the Program picture, drag the circle over the face and size it so it covers the face with a little room around it. Press Next when it sits well."
+why = "A window slightly bigger than the face avoids a visible edge when the person moves."
+target = "panel.Program"
+expect = { manual = true }
+
+[[step]]
+text = "Raise the window's Softness so its edge fades out gradually."
+why = "A hard edge gives the trick away. A wide, soft edge makes the extra light look natural."
+target = "grade.window.0.softness"
+expect = { command = "masks.set", params = { feather = { gt = 0.0 } } }
+
+[[step]]
+text = "Click the forward track button so the window follows the face through the shot."
+why = "Without tracking, the face would move out of the window and the brighter patch would stay behind."
+target = "grade.window.0.track.forward"
+expect = { command = "masks.track" }
+
+[[step]]
+text = "Open the Primaries tab."
+why = "Changes here now only apply inside the window."
+target = "grade.tab.primaries"
+expect = { element = "grade.wheel.gamma" }
+
+[[step]]
+text = "Lift the face a little with the Gamma wheel (or Gain for the brightest parts)."
+why = "A small lift (a fraction of a stop) is enough to draw the eye. Too much looks like a spotlight."
+target = "grade.wheel.gamma"
+expect = { command = "grade.setParam", params = { param = { in = ["gamma", "gain", "offset", "lift"] } } }
+
+[[step]]
+text = "Play the shot and watch the face. If the window slips, go back to the Windows tab, fix its position on that frame and track again."
+why = "Trackers can lose a face when it turns away or something passes in front."
+expect = { manual = true }

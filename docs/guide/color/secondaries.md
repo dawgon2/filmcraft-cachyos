@@ -47,6 +47,10 @@ grain) then apply only inside that matte.
   after the image is normalised.
 - A selection that flickers or crawls usually needs more **Qualifier softness** or a little
   **Matte blur**, not a wider range.
+- Skin gone grey or blotchy after a secondary (on the sky, say) means the node's selection
+  reaches into the face. Set **View** to **Matte** {ui:grade.qual.show.2}: the face should be
+  black. Narrow **Hue width** {ui:grade.param.qual.hueWidth} or raise **Qualifier softness**
+  until it is.
 
 ### Parameters (for scripts)
 
@@ -131,7 +135,7 @@ Windows are masks: every `masks.*` command takes `"node": <node id>` instead of 
 
 ### Why
 
-When the subject moves, a window has to follow it. The tracker follows the detail inside the
+When the subject moves (a person walking, a car passing), a window has to follow it. The tracker follows the detail inside the
 window from frame to frame and keyframes the window's shape.
 
 ### Steps

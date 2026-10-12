@@ -236,11 +236,21 @@ pub struct ColorPrefs {
     pub extended_dynamic_range: bool,
     /// HDR Graphics White (nits): `100` | `203` | `300`.
     pub hdr_graphics_white: String,
+    /// The Grading Coach (fork GRADE-PLAN G2.12): the hints switch and the finished lessons.
+    pub coach: crate::coach::CoachPrefs,
+    /// Local AI explanations (fork GRADE-PLAN G2.11): the opt-in switch and the chosen model.
+    pub ai: crate::ai_explain::AiPrefs,
 }
 
 impl Default for ColorPrefs {
     fn default() -> Self {
-        Self { display_color_management: false, extended_dynamic_range: false, hdr_graphics_white: "203".into() }
+        Self {
+            display_color_management: false,
+            extended_dynamic_range: false,
+            hdr_graphics_white: "203".into(),
+            coach: Default::default(),
+            ai: Default::default(),
+        }
     }
 }
 
@@ -936,6 +946,8 @@ static CATEGORIES: &[Category] = &[
                 ],
             ),
             Row::Note("For color management parameters, go to the Settings tab in the Lumetri Color panel."),
+            Row::Group("Grading Coach", &[b("color.coach.hints", "Show Grading Coach hints", false)]),
+            Row::Group("AI explanations", &[b("color.ai.enabled", "Explain nodes in plain words with a local AI model", true), Row::Custom("aiExplanations")]),
         ],
     },
     Category {
