@@ -23,6 +23,8 @@ struct Driver {
 impl Driver {
     fn demo() -> Self {
         let mut session = Session::default();
+        // the lessons are written for the Premiere workflow (the fork build defaults to Resolve)
+        session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         session.execute("file.openDemoProject", json!({})).expect("demo project");
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(session).with_control(rx);
@@ -609,6 +611,8 @@ const NOT_WALKED: &[(&str, &str)] = &[
     ("export.video.hevcProfile", "Export page: the walk stays in Edit / Color"),
     ("lumetri.match.comparisonView", "Lumetri Color: the walk uses the node grader"),
     ("lumetri.match.apply", "Lumetri Color: the walk uses the node grader"),
+    ("lumetri.wb.pick", "Lumetri Color: the walk uses the node grader (the engine commands are tested in wb_tests)"),
+    ("lumetri.wb.auto", "Lumetri Color: the walk uses the node grader (the engine commands are tested in wb_tests)"),
 ];
 
 fn ui_source() -> String {

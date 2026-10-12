@@ -53,6 +53,10 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             r#"{"clip":id?,"node":id?,"param":str,"value":num|[r,g,b,master?]|[[x,y]],"time":ticks?,"merge":str?}"#,
             set_param,
         ),
+        spec("grade.wb.pick", "Pick White Balance", r#"{"clip":id?,"node":id?,"x":0..1,"y":0..1,"x2":0..1?,"y2":0..1?,"time":ticks?}"#, |s, p| {
+            pick_white_balance(s, p, false)
+        }),
+        spec("grade.wb.auto", "Auto White Balance", r#"{"clip":id?,"node":id?,"time":ticks?}"#, |s, p| pick_white_balance(s, p, true)),
         spec("grade.pickQualifier", "Pick Qualifier Colour", r#"{"clip":id?,"node":id?,"x":0..1,"y":0..1,"mode":"set"|"add"?,"time":ticks?}"#, pick_qualifier),
         spec("grade.setLut", "Set Node LUT", r#"{"clip":id?,"node":id?,"lut":"builtin:<id>"|"lib:<id>"|""?,"path":str?}"#, set_lut),
         spec("grade.toggleAnimation", "Toggle Node Parameter Animation", r#"{"clip":id?,"node":id?,"param":str,"time":ticks?}"#, toggle_animation),
@@ -375,30 +379,23 @@ fn set_param(s: &mut Session, p: &Value) -> Result<Value> {
 /// set the node's qualifier around it (`mode` "set", the default), or widen it to include the
 /// sample ("add"). The input is the clip through its input transform and the nodes before this
 /// one (no effects). One undo step.
-fn pick_qualifier(s: &mut Session, p: &Value) -> Result<Value> {
-    const CMD: &str = "grade.pickQualifier";
-    let want = node_arg(p, CMD)?;
-    let (c, current) = current_for(s, p, CMD)?;
-    let coord = |k: &str| p.get(k).and_then(Value::as_f64).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0) as f32);
-    let (Some(x), Some(y)) = (coord("x"), coord("y")) else {
-        return Err(bad(CMD, "need `x` and `y` (0…1 of the frame)"));
-    };
-    let add = match str_p(p, "mode") {
-        None | Some("set") => false,
-        Some("add") => true,
-        Some(m) => return Err(bad(CMD, format!("unknown mode `{m}` (set or add)"))),
-    };
+/// The picture at node `id`'s input (`p`'s `node`, else the current one) of the target clip at
+/// `p`'s `time` (else the playhead): the nodes before it, no effects after the grade, as working
+/// linear light at a quarter size. Returns the clip, the node id and the working space.
+fn node_input(s: &mut Session, p: &Value, cmd: &'static str) -> Result<(ClipId, u64, filmcraft_render::Image, filmcraft_color::WorkingSpace)> {
+    let want = node_arg(p, cmd)?;
+    let (c, current) = current_for(s, p, cmd)?;
     let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
     let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let working = q.settings.color.working;
-    let (_, it) = q.find_item(c).ok_or_else(|| bad(CMD, "no such clip"))?;
+    let (_, it) = q.find_item(c).ok_or_else(|| bad(cmd, "no such clip"))?;
     if s.project.item(it.item).is_some_and(|pi| matches!(pi.kind, filmcraft_project::ItemKind::AdjustmentLayer { .. })) {
         // (its input is the composite below it, which `render_clip` doesn't draw)
-        return Err(bad(CMD, "the picker doesn't work on adjustment layers yet: set the qualifier's ranges by hand"));
+        return Err(bad(cmd, "the pickers don't work on adjustment layers yet: set the values by hand"));
     }
-    let g = it.grade.as_ref().ok_or_else(|| bad(CMD, "the clip has no grade"))?;
-    let id = pick(g, want, current, CMD)?;
-    let pos = g.nodes.iter().position(|n| n.id == id).ok_or_else(|| bad(CMD, format!("no node {id}")))?;
+    let g = it.grade.as_ref().ok_or_else(|| bad(cmd, "the clip has no grade"))?;
+    let id = pick(g, want, current, cmd)?;
+    let pos = g.nodes.iter().position(|n| n.id == id).ok_or_else(|| bad(cmd, format!("no node {id}")))?;
     let tl = time_p(s, p, "").unwrap_or_else(|| s.playhead()).clamp(it.start, (it.end() - Tick(1)).max(it.start));
     // the node's input: the nodes before it, no effects after the grade
     let mut probe = (*s.project).clone();
@@ -412,7 +409,111 @@ fn pick_qualifier(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let provider = s.media.provider(s.project.clone(), s.services.clone());
     let opts = filmcraft_render::RenderOptions { scale: 0.25, working_output: true, ..Default::default() };
-    let img = filmcraft_render::render_clip(&probe, seq_id, c, tl, opts, &provider).ok_or_else(|| bad(CMD, "the clip has no picture"))?;
+    let img = filmcraft_render::render_clip(&probe, seq_id, c, tl, opts, &provider).ok_or_else(|| bad(cmd, "the clip has no picture"))?;
+    Ok((c, id, img, working))
+}
+
+/// The white-balance sample of `img` for `p`'s point (`x`, `y`; a 5 × 5 px box at full size) or
+/// box (to `x2`, `y2`), or Auto balance's neutral estimate, in working linear light.
+pub(crate) fn wb_sample(img: &filmcraft_render::Image, working: filmcraft_color::WorkingSpace, p: &Value, auto: bool, cmd: &str) -> Result<[f32; 3]> {
+    use filmcraft_color::wb;
+    let clip = wb_clip_level(working);
+    if auto {
+        let luma = filmcraft_color::ColorPipeline { working, ..Default::default() }.working_gamut().luma().map(|v| v as f32);
+        return wb::auto_neutral(&img.px, img.w, img.h, luma, clip)
+            .ok_or_else(|| bad(cmd, "not enough of the frame is grey or near-grey for Auto balance: pick something neutral instead"));
+    }
+    let coord = |k: &str| p.get(k).and_then(Value::as_f64).map(|v| v as f32);
+    let (Some(x), Some(y)) = (coord("x"), coord("y")) else {
+        return Err(bad(cmd, "need `x` and `y` (0…1 of the frame)"));
+    };
+    let (x2, y2) = (coord("x2").unwrap_or(x), coord("y2").unwrap_or(y));
+    // (the picture is a quarter size: 5 px of the frame are 2 here)
+    wb::box_average(&img.px, img.w, img.h, [x, y], [x2, y2], 2).ok_or_else(|| bad(cmd, wb::WbReject::Invalid.message()))
+}
+
+/// The clip level of working linear light: 1.0 in a display-referred SDR space, none in
+/// scene-referred or HDR spaces (values above 1 are real there). Known gap: a blown highlight in
+/// a DaVinci Wide Gamut or HDR sequence isn't recognised as clipped (the guide says so).
+pub(crate) fn wb_clip_level(working: filmcraft_color::WorkingSpace) -> f32 {
+    if working.is_hdr() || working.is_scene_referred() { f32::INFINITY } else { 1.0 }
+}
+
+/// `grade.wb.pick` / `grade.wb.auto`: solve the node's Temperature and Tint so the picked spot
+/// (or the frame's neutral estimate) becomes neutral, as one undo step. Sampling the node's input
+/// makes picking twice give the same values.
+fn pick_white_balance(s: &mut Session, p: &Value, auto: bool) -> Result<Value> {
+    let cmd = if auto { "grade.wb.auto" } else { "grade.wb.pick" };
+    // (the point is checked before rendering)
+    if !auto {
+        wb_point_check(p, cmd)?;
+    }
+    let (c, id, img, working) = node_input(s, p, cmd)?;
+    let rgb = wb_sample(&img, working, p, auto, cmd)?;
+    let sol = filmcraft_color::wb::solve(rgb, wb_clip_level(working)).map_err(|e| bad(cmd, e.message()))?;
+    let mt = media_time(s, p, c);
+    let mut q = p.clone();
+    if let Some(o) = q.as_object_mut() {
+        o.insert("clip".into(), json!(c.0));
+    }
+    edit_grade(s, &q, cmd, if auto { "Auto White Balance" } else { "Pick White Balance" }, false, |g| {
+        let n = node_mut(g, id, cmd)?;
+        for (k, v) in [("temperature", sol.temperature), ("tint", sol.tint)] {
+            let v = ParamValue::Float(f64::from(v));
+            match n.params.get_mut(k) {
+                Some(prm) => prm.set_at(mt, v),
+                None => {
+                    n.params.insert(k.to_string(), Param::new(v));
+                }
+            }
+        }
+        Ok(())
+    })?;
+    Ok(wb_result(json!({"clip": c.0, "node": id}), sol))
+}
+
+/// Refuse a missing, non-numeric or out-of-frame point (or box corner) before anything is
+/// rendered.
+pub(crate) fn wb_point_check(p: &Value, cmd: &str) -> Result<()> {
+    let v = |k: &str| p.get(k).filter(|v| !v.is_null()).map(Value::as_f64);
+    let (Some(Some(_)), Some(Some(_))) = (v("x"), v("y")) else {
+        return Err(bad(cmd, "need `x` and `y` (0…1 of the frame)"));
+    };
+    for k in ["x", "y", "x2", "y2"] {
+        match v(k) {
+            None => {}
+            Some(Some(c)) if (0.0..=1.0).contains(&c) => {}
+            Some(_) => return Err(bad(cmd, format!("`{k}` is outside the frame: pick a point inside the picture (0…1)"))),
+        }
+    }
+    Ok(())
+}
+
+/// The command result: the solved values, and a note when the cast was beyond the sliders.
+pub(crate) fn wb_result(mut base: Value, sol: filmcraft_color::wb::WbSolve) -> Value {
+    if let Some(o) = base.as_object_mut() {
+        o.insert("temperature".into(), json!(sol.temperature));
+        o.insert("tint".into(), json!(sol.tint));
+        o.insert("clamped".into(), json!(sol.clamped));
+        if sol.clamped {
+            o.insert("message".into(), json!("the colour cast is stronger than Temperature / Tint can fully remove: the sliders are at their limit"));
+        }
+    }
+    base
+}
+
+fn pick_qualifier(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "grade.pickQualifier";
+    let coord = |k: &str| p.get(k).and_then(Value::as_f64).filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0) as f32);
+    let (Some(x), Some(y)) = (coord("x"), coord("y")) else {
+        return Err(bad(CMD, "need `x` and `y` (0…1 of the frame)"));
+    };
+    let add = match str_p(p, "mode") {
+        None | Some("set") => false,
+        Some("add") => true,
+        Some(m) => return Err(bad(CMD, format!("unknown mode `{m}` (set or add)"))),
+    };
+    let (c, id, img, working) = node_input(s, p, CMD)?;
     let rgb = sample(&img, x, y).ok_or_else(|| bad(CMD, "the clip has no picture there"))?;
     let [h, sat, l] = filmcraft_render::grade::qualifier_hsl(working, rgb);
     let mt = media_time(s, p, c);

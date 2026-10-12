@@ -8,7 +8,11 @@ module, one `#[cfg(feature = "fork-ffmpeg")]` hook marked `// FORK-ONLY`, commit
 | What | Where | Hook | Since |
 |---|---|---|---|
 | ProRes RAW via system ffmpeg (planned, RAW-PLAN R2) | `crates/fork-prores-raw` | one line in the app crate, feature `fork-ffmpeg` | — |
-| Resolve as the default workflow + one-time prefs migration (planned, RESOLVE-UI-PLAN RS1) | `crates/engine/src/settings.rs` `Workflow` default / prefs migration | `cfg_attr` lines marked `// FORK-ONLY`, engine feature `fork-resolve-default` enabled by `apps/filmcraft` | — |
+| Resolve as the default workflow + one-time prefs migration (RESOLVE-UI-PLAN RS1) | `crates/engine/src/fork_resolve.rs` (+ `fork_resolve_tests.rs`); `Workflow` default in `crates/engine/src/settings.rs` | `cfg_attr` lines on `Workflow` and `cfg(feature = "fork-resolve-default")` hooks in `autosave.rs` (`Preferences::load` / `from_value`) and `lib.rs` (`start_autosave`), all marked `// FORK-ONLY`; engine feature `fork-resolve-default` enabled by `apps/filmcraft` | RS1 |
+
+The RS1 commit also adds generic, upstream-safe pieces (not behind the feature): `PREFS_VERSION` 3,
+the `workflowReturnTheme` preference, the `resolve` dark theme (`ThemeKind::Resolve`, View ▸
+Appearance ▸ Resolve) and `set_workflow` swapping the dark theme with the keymap.
 
 ## Older fork-only code (before §1a.36, not yet isolated)
 

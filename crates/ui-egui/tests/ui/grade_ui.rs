@@ -312,6 +312,8 @@ fn color_page_clips_strip_and_split_screen() {
 #[test]
 fn resolve_workflow_shows_pages_and_color_opens_the_node_grader() {
     let mut d = Driver::demo();
+    // start in Premiere whatever the build's default workflow is (the fork's is Resolve)
+    d.exec("settings.setWorkflow", json!({"workflow": "premiere"}));
     d.frames(2);
     assert!(d.ids("page.").is_empty(), "no page bar in the Premiere workflow");
     d.exec("settings.setWorkflow", json!({"workflow": "resolve"}));
@@ -431,4 +433,45 @@ fn ai_settings_show_local_tuned_models_without_download() {
     assert!(d.harness.get_by_label("Download").accesskit_node().is_disabled(), "no download for a local model");
     assert!(d.harness.query_by_label_contains("Built on this computer (FilmCraft fine-tune of").is_some());
     assert!(d.harness.query_by_label_contains("downloaded from https://").is_none());
+}
+
+/// GRADE-PLAN G2c: Primaries ▸ WB picker arms a crosshair; a click in the Program picture
+/// balances the node's Temperature / Tint and disarms; Auto balance does it in one click.
+#[test]
+fn wb_picker_and_auto_balance_set_temperature_and_tint() {
+    let mut session = Session::default();
+    let item = session.execute("file.newColorMatte", json!({"color": "#a08c78", "width": 160, "height": 90, "seconds": 2})).unwrap()["item"].as_u64().unwrap();
+    session.execute("file.newSequenceFromClip", json!({"items": [item]})).unwrap();
+    let mut d = Driver::from_session(session);
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    let clip = select_first_clip(&mut d);
+    d.frames(3);
+    d.click("grade.addFirst");
+    d.click("grade.tab.primaries");
+    assert!(d.element("grade.wb.pick").is_some() && d.element("grade.wb.auto").is_some());
+    let temp = |d: &mut Driver| grade(d, clip)["nodes"][0]["params"]["temperature"].to_string();
+    let before = temp(&mut d);
+    assert_eq!(before, "null", "a new node has no Temperature yet");
+    d.click("grade.wb.pick");
+    // (the clicks reach the picture: graphic / mask overlays stand aside while a picker is armed)
+    d.ok("ui.click", json!({"id": "program.picture", "fx": 0.5, "fy": 0.5}));
+    d.frames(3);
+    let g = grade(&mut d, clip);
+    let t = g["nodes"][0]["params"]["temperature"].to_string();
+    let status = d.ok("ui.inspect", json!({}))["ui"]["status"].clone();
+    assert_ne!(t, before, "{g} status {status}");
+    assert!(status.as_str().is_some_and(|s| s.starts_with("White balance")), "{status}");
+    // a box drag balances the same flat frame to the same values
+    d.click("grade.wb.pick");
+    d.ok("ui.drag", json!({"from": {"id": "program.picture", "fx": 0.2, "fy": 0.2}, "to": {"id": "program.picture", "fx": 0.7, "fy": 0.8}}));
+    d.frames(3);
+    assert_eq!(temp(&mut d), t);
+    // back to neutral sliders, then Auto balance gives the same result on a flat frame
+    d.exec("grade.resetNode", json!({"clip": clip}));
+    d.frames(2);
+    assert_ne!(temp(&mut d), t);
+    d.click("grade.wb.auto");
+    d.frames(2);
+    assert_eq!(temp(&mut d), t);
 }

@@ -23,6 +23,8 @@ struct Driver {
 impl Driver {
     fn new() -> Self {
         let mut s = Session::default();
+        // these tests are about the Premiere workflow (the fork build defaults to Resolve)
+        s.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         s.execute("file.openDemoProject", json!({})).unwrap();
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(s).with_control(rx);

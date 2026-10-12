@@ -584,6 +584,7 @@ pub(crate) fn param_row(
                 app.ui.eyedropper = if armed { None } else { Some(target) };
                 // (one armed picker at a time: the Color page's qualifier picker disarms)
                 app.ui.grade_picker = None;
+                app.ui.wb_picker = None;
             }
         }
         (ParamKind::Path, _) => {

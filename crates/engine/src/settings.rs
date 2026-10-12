@@ -24,8 +24,9 @@ use crate::{EngineError, Result, Session};
 
 /// Version of the preferences file layout ([`crate::autosave::Preferences::version`]).
 /// v1: Auto Save, Audio (mixer automation), Playback (pre/postroll), Trim, Media (proxies), guides,
-/// Essential Sound presets. v2: every Settings category.
-pub const PREFS_VERSION: u32 = 2;
+/// Essential Sound presets. v2: every Settings category. v3: fork RS1 (Resolve as the default
+/// workflow; only the fork build acts on files older than v3, upstream just carries the number).
+pub const PREFS_VERSION: u32 = 3;
 
 // ------------------------------------------------------------------ category values
 
@@ -34,8 +35,9 @@ pub const PREFS_VERSION: u32 = 2;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Workflow {
-    #[default]
+    #[cfg_attr(not(feature = "fork-resolve-default"), default)] // FORK-ONLY
     Premiere,
+    #[cfg_attr(feature = "fork-resolve-default", default)] // FORK-ONLY (RESOLVE-UI-PLAN RS1)
     Resolve,
 }
 
@@ -116,7 +118,8 @@ pub struct AppearancePrefs {
     pub color_theme: String,
     /// "Appearance Mode": `auto` (follow the operating system) | `dark` (default) | `light`.
     pub appearance_mode: String,
-    /// The theme shown in dark mode: `darkest` (default) | `dark`.
+    /// The theme shown in dark mode: `darkest` (default) | `dark` | `resolve` (the Resolve
+    /// workflow's own look).
     pub dark_theme: String,
     /// The theme shown in light mode: `light`.
     pub light_theme: String,
@@ -190,6 +193,9 @@ impl AppearancePrefs {
         }
     }
 }
+
+/// The Resolve workflow's theme (a dark theme).
+pub const RESOLVE_THEME: &str = "resolve";
 
 pub const DEFAULT_HIGHLIGHT: &str = "#2f6bdf";
 
@@ -719,7 +725,7 @@ const STARTUP: &[(&str, &str)] = &[("showHome", "Show Home"), ("openMostRecent",
 const OPENING: &[(&str, &str)] = &[("showOpenDialog", "Show Open Dialog"), ("showHome", "Show Home")];
 const BIN_OPEN: &[(&str, &str)] = &[("openInPlace", "Open in place"), ("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
 const PROJECT_OPEN: &[(&str, &str)] = &[("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
-const THEMES: &[(&str, &str)] = &[("darkest", "Darkest"), ("dark", "Dark"), ("light", "Light")];
+const THEMES: &[(&str, &str)] = &[("darkest", "Darkest"), ("dark", "Dark"), ("light", "Light"), ("resolve", "Resolve")];
 pub const APPEARANCE_MODES: &[(&str, &str)] = &[("auto", "Sync with system"), ("dark", "Dark"), ("light", "Light")];
 pub const UI_SCALES: &[(&str, &str)] = &[
     ("auto", "Auto (system)"),
@@ -732,7 +738,7 @@ pub const UI_SCALES: &[(&str, &str)] = &[
     ("250", "250%"),
     ("300", "300%"),
 ];
-pub const DARK_THEMES: &[(&str, &str)] = &[("darkest", "Darkest"), ("dark", "Dark")];
+pub const DARK_THEMES: &[(&str, &str)] = &[("darkest", "Darkest"), ("dark", "Dark"), ("resolve", "Resolve")];
 pub const LIGHT_THEMES: &[(&str, &str)] = &[("light", "Light")];
 const MIXDOWN: &[(&str, &str)] = &[("front", "Front Only"), ("frontRear", "Front + Rear"), ("frontLfe", "Front + LFE"), ("frontRearLfe", "Front + Rear + LFE")];
 const AUDITION: &[(&str, &str)] = &[("scratch", "Scratch disk location for Captured Audio"), ("nextToMedia", "Next to original media files")];
@@ -1250,6 +1256,9 @@ pub fn sanitize(v: &mut Value, defaults: &Value) {
         if m.get("workflowReturnPreset").is_some_and(|w| !w.is_string()) {
             m.remove("workflowReturnPreset");
         }
+        if m.get("workflowReturnTheme").is_some_and(|w| !w.is_string()) {
+            m.remove("workflowReturnTheme");
+        }
     }
     for (_, f) in fields() {
         if let Kind::Duration { unit_key } = f.kind {
@@ -1299,6 +1308,11 @@ pub fn sanitize(v: &mut Value, defaults: &Value) {
 pub fn migrate(v: &mut Value) {
     let Some(m) = v.as_object_mut() else { return };
     let ver = m.get("version").and_then(Value::as_u64).unwrap_or(1);
+    if ver < 3 {
+        // v3 (fork RS1) only renumbers; the fork build's one-time switch to Resolve is decided by
+        // `fork_resolve::after_load` from the version the file had.
+        m.insert("version".into(), json!(3));
+    }
     if ver < 2 {
         // v1 kept the Trim Monitor's loop choice and pre/postroll; v2 adds every other category
         // (filled in from defaults by serde). The v1 "Auto Save" dialog wrote integer seconds for
@@ -1679,9 +1693,22 @@ impl Session {
                     next.workflow_return_preset = back;
                 }
                 self.shortcuts.load_preset(RESOLVE_PRESET).map_err(|e| bad(CMD, e))?;
+                // the Resolve look; the dark theme in use is remembered for the way back
+                if next.appearance.dark_theme != RESOLVE_THEME {
+                    next.workflow_return_theme = std::mem::replace(&mut next.appearance.dark_theme, RESOLVE_THEME.into());
+                    next.appearance.sync_color_theme();
+                }
             }
             Workflow::Premiere => {
                 let want = std::mem::take(&mut next.workflow_return_preset);
+                // the Resolve look goes back to the remembered dark theme; another theme chosen by
+                // hand while in Resolve stays
+                let back = std::mem::take(&mut next.workflow_return_theme);
+                if next.appearance.dark_theme == RESOLVE_THEME {
+                    let ok = back != RESOLVE_THEME && DARK_THEMES.iter().any(|(v, _)| *v == back);
+                    next.appearance.dark_theme = if ok { back } else { AppearancePrefs::default().dark_theme };
+                    next.appearance.sync_color_theme();
+                }
                 // another preset chosen by hand while in Resolve stays
                 if self.shortcuts.preset == RESOLVE_PRESET {
                     if self.shortcuts.modified {

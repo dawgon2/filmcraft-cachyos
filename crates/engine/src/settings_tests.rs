@@ -204,7 +204,11 @@ fn v1_preferences_migrate_and_bad_values_are_repaired() {
     assert!(!p.labels.colors.contains_key("nope"));
     // a broken file falls back to defaults
     std::fs::write(&path, b"{not json").unwrap();
-    assert_eq!(Preferences::load(&path), Preferences::default());
+    let mut broken = Preferences::load(&path);
+    // the fork build starts such a file as Premiere with the one-time switch to Resolve pending
+    broken.pending_resolve_migration = false;
+    broken.workflow = Preferences::default().workflow;
+    assert_eq!(broken, Preferences::default());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

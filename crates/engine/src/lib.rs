@@ -24,6 +24,8 @@ pub mod commands;
 pub mod demo;
 pub mod essential_sound;
 pub mod export_tools;
+#[cfg(feature = "fork-resolve-default")] // FORK-ONLY
+pub mod fork_resolve;
 pub mod grade;
 pub mod grade_tools;
 pub mod graphic_templates;
@@ -599,6 +601,8 @@ impl Session {
         self.presets.set_dir(&cfg.data_dir);
         self.export_presets.set_dir(&cfg.data_dir);
         self.prefs_path = Some(prefs_path);
+        #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
+        fork_resolve::apply_pending(self, &cfg.data_dir);
         self.apply_media_cache();
         self.persistence = Some(autosave::Persistence::start(&cfg, self.prefs.auto_save.clone())?);
         self.sync_persistence();
@@ -1190,6 +1194,8 @@ mod export_tests;
 #[cfg(test)]
 mod file_tests;
 #[cfg(test)]
+mod fork_resolve_tests;
+#[cfg(test)]
 mod gap_selection_tests;
 #[cfg(test)]
 mod grade_tests;
@@ -1277,6 +1283,8 @@ mod trim_tests;
 mod vfx_tests;
 #[cfg(test)]
 mod voiceover_tests;
+#[cfg(test)]
+mod wb_tests;
 #[cfg(test)]
 mod workflow_tests;
 

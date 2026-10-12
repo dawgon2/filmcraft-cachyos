@@ -16,6 +16,7 @@ pub mod lut;
 pub mod ops;
 pub mod spaces;
 pub mod transform;
+pub mod wb;
 
 pub use grade::GradeSpace;
 pub use log::LogCurve;

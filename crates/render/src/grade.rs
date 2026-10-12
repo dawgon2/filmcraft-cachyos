@@ -386,9 +386,9 @@ fn key_op(q: &Qualifier, hdr: bool) -> ColorOp {
 fn node_ops(n: &GradeNode, t: Tick, gs: &GradeSpace, ctx: &GradeCtx) -> Vec<ColorOp> {
     let mut ops = Vec::new();
     // white balance in linear light (Lumetri's gains)
-    let (temp, tint) = (n.float_at("temperature", t) / 100.0, n.float_at("tint", t) / 100.0);
+    let (temp, tint) = (n.float_at("temperature", t), n.float_at("tint", t));
     if temp != 0.0 || tint != 0.0 {
-        let g = [1.0 + 0.35 * temp, 1.0 - 0.3 * tint, 1.0 - 0.35 * temp];
+        let g = filmcraft_color::wb::gains(temp, tint);
         ops.extend(gs.decode_ops());
         ops.push(ColorOp::Matrix { m: [[g[0], 0.0, 0.0], [0.0, g[1], 0.0], [0.0, 0.0, g[2]]], offset: [0.0; 3] });
         ops.extend(gs.encode_ops());

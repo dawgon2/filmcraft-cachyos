@@ -190,6 +190,7 @@
 	Libraries	Bibliotecas
 	Lift	Levantar
 	Light	Claro
+	Resolve	Resolve
 	Link	Vincular
 	Link Media…	Vincular medios…
 	Refresh Changed Media	Actualizar medios cambiados
@@ -3777,3 +3778,11 @@
 	Cache	Caché
 	The size limit is reached: raise it, or Delete Unused, to cache more.	El límite de tamaño se ha alcanzado: auméntalo, o usa Eliminar no usados, para almacenar más.
 	4:2:2: software decode (hardware 4:2:2 decode failed earlier in this session), proxies recommended	4:2:2: decodificación por software (la decodificación 4:2:2 por hardware falló antes en esta sesión), se recomiendan proxies
+	WB picker	Selector BB
+	WB Selector	Selector BB
+	Auto balance	Balance automático
+	Click or drag on something that should be grey or white in the Program monitor: Temperature and Tint are set so it becomes neutral (Esc cancels)	Haz clic o arrastra sobre algo que debería ser gris o blanco en el monitor de programa: Temperatura y Matiz se ajustan para que quede neutro (Esc cancela)
+	Balance Temperature and Tint from the greys in the whole frame	Equilibrar Temperatura y Matiz a partir de los grises de todo el fotograma
+	Pick White Balance	Seleccionar balance de blancos
+	Auto White Balance	Balance de blancos automático
+	Auto White Balance (Lumetri)	Balance de blancos automático (Lumetri)

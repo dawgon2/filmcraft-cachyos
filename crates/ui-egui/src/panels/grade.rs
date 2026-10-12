@@ -382,6 +382,8 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let mut cmds: Vec<(&'static str, Value)> = Vec::new();
     let mut arm: Option<bool> = None;
     let armed = app.ui.grade_picker.filter(|a| a.clip == clip.0 && a.node == node_id).map(|a| a.add);
+    let wb_armed = app.ui.wb_picker.is_some_and(|w| w.clip == clip.0 && w.node == Some(node_id));
+    let wb_toggle = std::cell::Cell::new(false);
 
     bui.horizontal(|ui| {
         let labels = [tl!("Primaries"), tl!("Curves"), tl!("Qualifier"), tl!("Windows"), tl!("Noise"), tl!("Match")];
@@ -476,6 +478,26 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                             sets.push(json!({"reset": key}));
                         }
                     });
+                    if key == "tint" {
+                        // white balance: solve Temperature and Tint from something neutral
+                        ui.horizontal(|ui| {
+                            ui.add_space(88.0);
+                            let label = tl!("WB picker");
+                            let r = ui.selectable_label(wb_armed, label).on_hover_text(tl!(
+                                "Click or drag on something that should be grey or white in the Program monitor: Temperature and Tint are set so it becomes neutral (Esc cancels)"
+                            ));
+                            autos.push(("grade.wb.pick".to_string(), r.rect, label.to_string()));
+                            if r.clicked() {
+                                wb_toggle.set(true);
+                            }
+                            let label = tl!("Auto balance");
+                            let r = ui.button(label).on_hover_text(tl!("Balance Temperature and Tint from the greys in the whole frame"));
+                            autos.push(("grade.wb.auto".to_string(), r.rect, label.to_string()));
+                            if r.clicked() {
+                                cmds.push(("grade.wb.auto", json!({"node": node_id})));
+                            }
+                        });
+                    }
                 }
                 ui.separator();
                 lut_row(ui, &node, &luts, &t, cmds, autos);
@@ -627,9 +649,21 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             app.ui.grade_picker = Some(crate::state::GradePicker { clip: clip.0, node: node_id, add });
             // (one armed picker at a time: a click fills one thing)
             app.ui.eyedropper = None;
+            app.ui.wb_picker = None;
         }
         None if tab != "qualifier" || armed.is_none() => app.ui.grade_picker = None,
         None => {}
+    }
+    if wb_toggle.get() {
+        app.ui.wb_picker = if wb_armed { None } else { Some(crate::state::WbPicker { clip: clip.0, node: Some(node_id) }) };
+        if app.ui.wb_picker.is_some() {
+            // (one armed picker at a time: a click fills one thing)
+            app.ui.grade_picker = None;
+            app.ui.eyedropper = None;
+        }
+    } else if (wb_armed && tab != "primaries") || app.ui.wb_picker.is_some_and(|w| w.clip == clip.0 && w.node.is_some_and(|n| n != node_id)) {
+        // (another tab, or another node selected while armed)
+        app.ui.wb_picker = None;
     }
     for (cmd, mut p) in cmds {
         // (the Match tab's results: kept per clip until the next request, shown in the tab)
@@ -658,6 +692,10 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         }
         if p.get("clip").is_none() {
             p["clip"] = json!(clip.0);
+        }
+        if cmd == "grade.wb.auto" {
+            app.ui.status = super::monitor::wb_status(app.session.execute(cmd, p));
+            continue;
         }
         run(app, cmd, p);
     }

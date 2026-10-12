@@ -42,6 +42,21 @@ it was.
 
 Read the current state with `settings.getWorkflow`.
 
+### The default, and the Resolve theme
+
+**[Fork]** In this fork the default workflow is **Resolve** (RESOLVE-UI-PLAN RS1). A fresh install
+starts in Resolve. Preferences written before RS1 are switched to Resolve **once**, the first time
+the new build starts, through the same switch as above, so your previous keyboard preset and dark
+theme are remembered and come back when you choose **Premiere Pro**. After that, your choice is
+final: a Premiere workflow you picked yourself is never switched again. An unreadable preferences
+file starts over in Resolve. Upstream FilmCraft builds (without the fork feature) keep Premiere as
+the default and never migrate.
+
+The Resolve workflow shows the **Resolve** dark theme (near-black bars, cool grey panels, an
+orange-red accent). Choosing **Premiere Pro** puts back the dark theme you had. Settings ▸
+Appearance ▸ Dark Theme (and View ▸ Appearance ▸ **Resolve**, `view.theme.resolve`) lets either
+workflow use any theme. A highlight colour you set yourself still replaces the Resolve accent.
+
 ### What happens to your shortcuts
 
 - Edited shortcuts are never lost. Leaving Premiere with unsaved key edits first saves them as a

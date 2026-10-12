@@ -22,6 +22,10 @@ llm = ["filmcraft-llm/infer"]
 # AI model downloads over HTTPS (only when the user starts one in Settings ▸ Color).
 llm-download = ["filmcraft-llm/download"]
 
+# Fork RS1 (FORK-ONLY): Resolve is the default workflow, with a one-time preferences migration.
+# Enabled by apps/filmcraft; upstream builds leave it off and keep Premiere.
+fork-resolve-default = []
+
 [dependencies]
 filmcraft-time = { workspace = true }
 filmcraft-geom = { workspace = true }

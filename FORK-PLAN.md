@@ -2097,3 +2097,48 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   search made libva print "iHD_drv_video.so init failed" to stderr; fixed in `22cd7a43` by routing
   libva messages to the log as upstream does; that test is the regression test). Guide
   `hardware.md` updated for 4:2:2 on the Intel engine. Tag `phase-6`.
+- **2026-10-12 07:18, Phase 6 build ready and published.** `~/Apps/filmcraft-builds/phase-6/`
+  (filmcraft + filmcraft-cli, NOTES.md), `latest` → `phase-6`, launcher valid. Public (§1a.33):
+  snapshot `e57d15c8` on cachyos `fork` + tag `fork-phase-6` (the sanitiser refused the tagged
+  tree because §1a.33's own text named the user; reworded in `177cfbc3`, and the snapshot is
+  `phase-6` + that line; the private tag was not moved); scrubbed Dell build (223 s, no user
+  name / home paths in `strings`) as release `fork-phase-6` with NOTES.md. HANDOFF rewritten for
+  **G2c**.
+- **2026-10-12 08:31, G2c steps 1–6: white-balance picker, Auto balance, Lumetri WB Selector**
+  (scheduled run; mode STEADY, weekly U 61 % / line 63 %, Fable 44 %; Opus reviewer). Solver
+  `crates/color/src/wb.rs`: `gains` (the one Temperature / Tint formula, now shared by the node
+  compiler and Lumetri, bit-identical), `solve` (exact inverse; refuses NaN / too dark / clipped /
+  too colourful with a reason; clamps at ±100 and says so), `box_average`, `auto_neutral`
+  (three-round grey-world over mid-tone low-saturation unclipped pixels), CIEDE2000 + Lab.
+  Commands `grade.wb.pick` / `grade.wb.auto` (node input via `node_input`, factored out of
+  `grade.pickQualifier`) and `lumetri.wb.pick` / `lumetri.wb.auto` (sample after Lumetri's Input
+  LUT; adds a missing Lumetri in the same undo step; Basic Correction switched on). Buttons
+  `grade.wb.pick` / `grade.wb.auto` under Primaries ▸ Tint, `lumetri.wb.pick` / `lumetri.wb.auto`
+  in Lumetri ▸ Basic Correction; click or drag a box in the Program picture. **Bug fixed on the
+  way:** the graphics / mask overlays sat on top of the Program picture and swallowed clicks
+  meant for an armed picker (qualifier picker and eyedropper too); they stand aside while a
+  picker is armed (`grade_ui::wb_picker_and_auto_balance_set_temperature_and_tint` failed before).
+  Acceptance (synthetic, CPU): grey patches with 7 casts in Rec.709 and F-Log2 → DWG come out at
+  ΔE2000 < 1 after a pick, picking twice is identical, Auto balance on charts with colour patches
+  < 3 (`wb::tests`); engine tests on mattes (one undo step, idempotent, DWG sequence, animated
+  node, refusals change nothing). Review findings fixed (stray Lumetri on a refused pick, Basic
+  off + Input LUT sample, disabled Lumetri, out-of-frame points refused with a reason). Known gap,
+  documented: in DWG / HDR sequences a blown highlight isn't recognised as clipped. Guide
+  `color/primaries.md` + `color/lumetri.md`. RS1 lane running in a worktree.
+- **2026-10-12 08:52, RS1 merged (RESOLVE-UI-PLAN, lane alongside G2c):** engine feature
+  `fork-resolve-default` (enabled by `apps/filmcraft`; `// FORK-ONLY` cfg_attr pair on
+  `Workflow`, listed in docs/fork/FORK-ONLY.md) makes Resolve the default; one-time migration
+  of pre-RS1 prefs (version < 3) and fresh installs through `set_workflow` (keymap remembered in
+  `workflowReturnPreset`, theme in the new `workflowReturnTheme`), `crates/engine/src/fork_resolve.rs`.
+  Review (Opus) found that an older build (e.g. the phase-6 build) rewrites the version to 2, which
+  would re-migrate a later Premiere choice: fixed with a marker file `fork-resolve-migrated` in the
+  data directory (test `an_older_build_rewriting_the_version_does_not_migrate_again`), and a failed
+  switch now retries next launch. `ThemeKind::Resolve` (plain colour values from RESOLVE-UI-PLAN §1),
+  View ▸ Appearance `view.theme.resolve`; tests in both feature states; guide getting-started.md
+  [Fork] note. Owed (low): a session with no data directory (headless / MCP) reports the Resolve
+  workflow but keeps the default keymap; the Resolve theme chosen while in Premiere isn't
+  remembered across a workflow round trip.
+- **2026-10-12 09:42, G2c accepted:** `cargo xtask ci` green (second run, 528 s; the first
+  failed 6 UI tests that assumed the Premiere default: with RS1 the fork feature is on for every
+  test in ci, fixed in `edffc495`); engine tests with the feature off green too. Acceptance per
+  GRADE-PLAN (synthetic, CPU, see the 08:31 entry). Tag `grade-2c`.

@@ -1318,7 +1318,10 @@ fn build() -> Vec<CommandSpec> {
                     next.set(k, v.clone()).map_err(|e| bad("prefs.set", e))?;
                 }
             }
-            if next.workflow != s.prefs.workflow || next.workflow_return_preset != s.prefs.workflow_return_preset {
+            if next.workflow != s.prefs.workflow
+                || next.workflow_return_preset != s.prefs.workflow_return_preset
+                || next.workflow_return_theme != s.prefs.workflow_return_theme
+            {
                 return Err(bad("prefs.set", "the workflow changes the keyboard preset too: use settings.setWorkflow"));
             }
             s.set_prefs(next).map_err(|e| EngineError::Other(format!("saving preferences: {e}")))?;
@@ -1336,6 +1339,7 @@ fn build() -> Vec<CommandSpec> {
                     crate::autosave::Preferences {
                         workflow: s.prefs.workflow,
                         workflow_return_preset: s.prefs.workflow_return_preset.clone(),
+                        workflow_return_theme: s.prefs.workflow_return_theme.clone(),
                         ..Default::default()
                     }
                 }

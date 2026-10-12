@@ -20,6 +20,8 @@ fn step(h: &mut Harness<'static, FilmcraftApp>) {
 
 fn harness() -> Harness<'static, FilmcraftApp> {
     let mut s = Session::default();
+    // these tests are about the Premiere workflow (the fork build defaults to Resolve)
+    s.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
     s.execute("file.openDemoProject", json!({})).unwrap();
     s.execute("file.newSequence", json!({"name":"Drop test","width":1280,"height":720,"fps":24})).unwrap();
     let mut h = Harness::builder().with_size(egui::vec2(1600.0, 980.0)).build_eframe(move |_cc| FilmcraftApp::new(s));

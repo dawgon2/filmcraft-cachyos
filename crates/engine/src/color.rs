@@ -65,6 +65,10 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
         spec("lumetri.setLook", "Set Creative Look", &[], r#"{"clip":id?,"lut":"lib:<id>"|"builtin:<id>"|""?,"path":str?}"#, has_seq, |s, p| {
             set_lut(s, p, "look_lut")
         }),
+        spec("lumetri.wb.pick", "WB Selector", &[], r#"{"clip":id?,"x":0..1,"y":0..1,"x2":0..1?,"y2":0..1?,"time":ticks?}"#, has_seq, |s, p| {
+            lumetri_white_balance(s, p, false)
+        }),
+        spec("lumetri.wb.auto", "Auto White Balance (Lumetri)", &[], r#"{"clip":id?,"time":ticks?}"#, has_seq, |s, p| lumetri_white_balance(s, p, true)),
         spec(
             "lumetri.applyMatch",
             "Apply Match",
@@ -165,6 +169,16 @@ fn export(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// The target clip and the index of its Lumetri effect (applying Lumetri when missing).
 pub(crate) fn lumetri_clip(s: &mut Session, p: &Value, cmd: &str) -> Result<(ClipId, usize)> {
+    let (clip, idx) = lumetri_target(s, p, cmd)?;
+    if idx.is_none() {
+        s.execute("effects.apply", json!({"clips": [clip.0], "effect": "lumetri"}))?;
+    }
+    lumetri_index(s, clip, cmd)
+}
+
+/// The target clip of a Lumetri command (`clip`, else the selected video clip with a Lumetri,
+/// else the first selected video clip) and the index of its Lumetri, without applying one.
+fn lumetri_target(s: &Session, p: &Value, cmd: &str) -> Result<(ClipId, Option<usize>)> {
     let seq = s.active_sequence().ok_or_else(|| bad(cmd, "no active sequence"))?;
     let video = |c: &ClipId| seq.find_item(*c).is_some_and(|(t, _)| seq.track(t).is_some_and(|t| t.kind == TrackKind::Video));
     let has = |c: &ClipId| seq.find_item(*c).is_some_and(|(_, it)| it.effects.iter().any(|e| e.effect == "lumetri"));
@@ -176,9 +190,15 @@ pub(crate) fn lumetri_clip(s: &mut Session, p: &Value, cmd: &str) -> Result<(Cli
             sel.iter().copied().find(has).or(sel.first().copied()).ok_or_else(|| bad(cmd, "select a video clip"))?
         }
     };
-    if !has(&clip) {
-        s.execute("effects.apply", json!({"clips": [clip.0], "effect": "lumetri"}))?;
-    }
+    Ok((clip, seq.find_item(clip).and_then(|(_, it)| it.effects.iter().position(|e| e.effect == "lumetri"))))
+}
+
+/// Where `effects.apply` puts a new video effect: before the intrinsic ones (render order).
+fn new_effect_pos(effects: &[filmcraft_project::EffectInstance]) -> usize {
+    effects.iter().position(|e| e.def().is_some_and(|d| d.intrinsic)).unwrap_or(effects.len())
+}
+
+fn lumetri_index(s: &Session, clip: ClipId, cmd: &str) -> Result<(ClipId, usize)> {
     let seq = s.active_sequence().ok_or_else(|| bad(cmd, "no active sequence"))?;
     let idx = seq.find_item(clip).and_then(|(_, it)| it.effects.iter().position(|e| e.effect == "lumetri")).ok_or_else(|| bad(cmd, "no Lumetri"))?;
     Ok((clip, idx))
@@ -464,6 +484,86 @@ fn preset_thumbnails(_: &mut Session, p: &Value) -> Result<Value> {
 /// Lumetri ▸ Color Wheels & Match ▸ Apply Match (see `filmcraft_render::color_match`): match the
 /// clip at the playhead to the sequence frame at the reference time. Sets the three wheels, their
 /// lightness and Basic saturation in one undo step.
+/// `lumetri.wb.pick` (Premiere's WB Selector) / `lumetri.wb.auto`: set Lumetri ▸ Basic
+/// Correction's Temperature and Tint so the picked spot (or the frame's neutral estimate) becomes
+/// neutral, as one undo step. The sample is what Lumetri's white balance sees: the clip with
+/// this Lumetri reduced to its Input LUT and every effect after it off, so picking twice gives
+/// the same values. Animated Temperature / Tint lose their keyframes (as Apply Match does).
+fn lumetri_white_balance(s: &mut Session, p: &Value, auto: bool) -> Result<Value> {
+    let cmd = if auto { "lumetri.wb.auto" } else { "lumetri.wb.pick" };
+    if !auto {
+        crate::grade::wb_point_check(p, cmd)?;
+    }
+    let (clip, existing) = lumetri_target(s, p, cmd)?;
+    let seq_id = s.state.active_sequence.ok_or_else(|| bad(cmd, "no active sequence"))?;
+    let q = s.active_sequence().ok_or_else(|| bad(cmd, "no active sequence"))?;
+    let working = q.settings.color.working;
+    let (_, it) = q.find_item(clip).ok_or_else(|| bad(cmd, "no such clip"))?;
+    if s.project.item(it.item).is_some_and(|pi| matches!(pi.kind, filmcraft_project::ItemKind::AdjustmentLayer { .. })) {
+        return Err(bad(cmd, "the pickers don't work on adjustment layers yet: set the values by hand"));
+    }
+    let t = time_p(s, p, "").unwrap_or_else(|| s.playhead()).clamp(it.start, (it.end() - filmcraft_time::Tick(1)).max(it.start));
+    let fresh = filmcraft_project::find_effect("lumetri").map(|d| d.instance()).ok_or_else(|| bad(cmd, "no Lumetri effect"))?;
+    // the clip has no Lumetri yet: it is added (as `effects.apply` would) with the values, as one step
+    let base = match existing {
+        Some(i) => it.effects.get(i).cloned().ok_or_else(|| bad(cmd, "no Lumetri"))?,
+        None => fresh.clone(),
+    };
+    let mut probe = (*s.project).clone();
+    if let Some((_, pi)) = probe.sequence_mut(seq_id).and_then(|q| q.find_item_mut(clip)) {
+        let idx = existing.unwrap_or_else(|| new_effect_pos(&pi.effects));
+        if existing.is_none() {
+            pi.effects.insert(idx, fresh.clone());
+        }
+        for (i, e) in pi.effects.iter_mut().enumerate() {
+            if i == idx {
+                // a fresh Lumetri with only this one's Input LUT (applied before the white balance;
+                // Basic Correction is switched on by the pick, so its LUT counts)
+                let mut only_lut = fresh.clone();
+                for k in ["input_lut", "hdr_white"] {
+                    if let Some(v) = base.params.get(k) {
+                        only_lut.params.insert(k.to_string(), v.clone());
+                    }
+                }
+                only_lut.params.insert("basic_on".into(), filmcraft_project::Param::new(ParamValue::Bool(true)));
+                only_lut.enabled = base.enabled;
+                *e = only_lut;
+            } else if i > idx && !e.def().is_some_and(|d| d.intrinsic) {
+                e.enabled = false;
+            }
+        }
+    }
+    let provider = s.media.provider(s.project.clone(), s.services.clone());
+    let opts = filmcraft_render::RenderOptions { scale: 0.25, working_output: true, ..Default::default() };
+    let img = filmcraft_render::render_clip(&probe, seq_id, clip, t, opts, &provider).ok_or_else(|| bad(cmd, "the clip has no picture"))?;
+    let rgb = crate::grade::wb_sample(&img, working, p, auto, cmd)?;
+    let sol = filmcraft_color::wb::solve(rgb, crate::grade::wb_clip_level(working)).map_err(|e| bad(cmd, e.message()))?;
+    let values = [
+        ("temperature", ParamValue::Float(f64::from(sol.temperature))),
+        ("tint", ParamValue::Float(f64::from(sol.tint))),
+        ("basic_on", ParamValue::Bool(true)),
+    ];
+    s.edit_sequence(if auto { "Auto White Balance" } else { "WB Selector" }, |q, _, _| {
+        let (_, it) = q.find_item_mut(clip).ok_or(filmcraft_edit::EditError::NoItem(clip))?;
+        let idx = match existing {
+            Some(i) => i,
+            None => {
+                let i = new_effect_pos(&it.effects);
+                it.effects.insert(i, fresh);
+                i
+            }
+        };
+        let e = it.effects.get_mut(idx).ok_or_else(|| bad(cmd, "no Lumetri"))?;
+        for (k, v) in &values {
+            let prm = e.params.entry(k.to_string()).or_insert_with(|| filmcraft_project::Param::new(v.clone()));
+            prm.keyframes.clear();
+            prm.value = v.clone();
+        }
+        Ok(())
+    })?;
+    Ok(crate::grade::wb_result(json!({"clip": clip.0}), sol))
+}
+
 fn apply_match(s: &mut Session, p: &Value) -> Result<Value> {
     let (clip, idx) = lumetri_clip(s, p, "lumetri.applyMatch")?;
     let seq_id = s.state.active_sequence.ok_or_else(|| bad("lumetri.applyMatch", "no active sequence"))?;

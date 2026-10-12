@@ -17,6 +17,8 @@ struct Driver {
 impl Driver {
     fn demo(scratch: &str) -> Self {
         let mut session = Session::default();
+        // these tests are about the Premiere workflow (the fork build defaults to Resolve)
+        session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         session.execute("file.openDemoProject", json!({})).expect("demo project");
         session.execute("file.projectSettings.scratchDisks", json!({"captured": scratch})).expect("scratch disk");
         let (tx, rx) = channel();

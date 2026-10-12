@@ -174,6 +174,12 @@ pub struct Preferences {
     /// The keyboard preset to return to when the workflow goes back to Premiere ("" = FilmCraft
     /// Default). Set when switching to Resolve; not shown in the dialog.
     pub workflow_return_preset: String,
+    /// The dark theme to return to when the workflow goes back to Premiere ("" = the default).
+    pub workflow_return_theme: String,
+    /// Fork RS1: this file (or its absence) asks for the one-time switch to Resolve, which the
+    /// session performs through `set_workflow` once the keyboard presets are loaded. Never saved.
+    #[serde(skip)]
+    pub pending_resolve_migration: bool,
 }
 
 impl Default for Preferences {
@@ -203,6 +209,8 @@ impl Default for Preferences {
             media_browser: Default::default(),
             workflow: Default::default(),
             workflow_return_preset: String::new(),
+            workflow_return_theme: String::new(),
+            pending_resolve_migration: false,
         }
     }
 }
@@ -413,10 +421,16 @@ impl Preferences {
 
     /// Parse a preferences document: migrate older layouts, repair values against the schema.
     pub fn from_value(mut v: Value) -> Self {
+        #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
+        let file_version = v.get("version").and_then(Value::as_u64).unwrap_or(1);
+        #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
+        let file_was_resolve = v.get("workflow").and_then(Value::as_str) == Some("resolve");
         settings::migrate(&mut v);
         settings::sanitize(&mut v, &Self::default().to_value());
         let mut p: Preferences = serde_json::from_value(v).unwrap_or_default();
         p.clamp();
+        #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
+        crate::fork_resolve::after_load(&mut p, file_version, file_was_resolve);
         p
     }
 
@@ -482,7 +496,13 @@ impl Preferences {
     }
 
     pub fn load(path: &Path) -> Self {
-        fs::read(path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).map(Self::from_value).unwrap_or_default()
+        let parsed = fs::read(path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+        // no readable file: a fresh install gets the Resolve workflow through the same switch
+        #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
+        if parsed.is_none() {
+            return crate::fork_resolve::fresh();
+        }
+        parsed.map(Self::from_value).unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {

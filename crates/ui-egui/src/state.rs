@@ -405,6 +405,14 @@ pub struct Eyedropper {
     pub mask: Option<usize>,
 }
 
+/// What an armed white-balance picker sets (`grade.wb.pick` on a grade node, or
+/// `lumetri.wb.pick`, Lumetri ▸ Basic Correction's WB Selector, when `node` is `None`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WbPicker {
+    pub clip: u64,
+    pub node: Option<u64>,
+}
+
 /// The grade node an armed qualifier picker sets (`grade.pickQualifier`; `add` widens the
 /// qualifier instead of replacing it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -507,6 +515,10 @@ pub struct UiState {
     /// Qualifier ▸ Pick / Add; Esc disarms). Never saved.
     #[serde(skip)]
     pub grade_picker: Option<GradePicker>,
+    /// The grade node (or Lumetri) whose Temperature / Tint the next click or drag in the Program
+    /// picture balances (Primaries ▸ WB picker, Lumetri ▸ WB Selector; Esc disarms). Never saved.
+    #[serde(skip)]
+    pub wb_picker: Option<WbPicker>,
     /// The grade node being renamed in the Nodes strip (Enter or a click away keeps the name, Esc
     /// cancels). Never saved.
     #[serde(skip)]
@@ -1025,6 +1037,7 @@ impl Default for UiState {
             status: String::new(),
             eyedropper: None,
             grade_picker: None,
+            wb_picker: None,
             grade_rename: None,
             coach_ask: CoachAsk::default(),
             keyframe_selection: Vec::new(),

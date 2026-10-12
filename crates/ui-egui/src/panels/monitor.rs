@@ -333,9 +333,13 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
     }
     if which == Which::Program && show_picture {
         grade_picker(app, ui, &pic_resp, pic);
+        wb_picker(app, ui, &pic_resp, pic);
         eyedropper(app, ui, &pic_resp, pic, target, rate, time);
-        crate::panels::graphics::monitor_overlay(app, ui, pic, frame_size);
-        crate::panels::masks::monitor_overlay(app, ui, pic, frame_size);
+        // (while a picker is armed, a click on the picture belongs to it, not to a layer or mask)
+        if app.ui.wb_picker.is_none() && app.ui.grade_picker.is_none() && app.ui.eyedropper.is_none() {
+            crate::panels::graphics::monitor_overlay(app, ui, pic, frame_size);
+            crate::panels::masks::monitor_overlay(app, ui, pic, frame_size);
+        }
     }
     if show_picture {
         monitor_view::guides(app, ui, which, video_area, pic, frame_size);
@@ -581,6 +585,81 @@ fn grade_picker(app: &mut FilmcraftApp, ui: &mut egui::Ui, resp: &egui::Response
         if let Err(e) = app.session.execute("grade.pickQualifier", json!({"clip": armed.clip, "node": armed.node, "x": x, "y": y, "mode": mode})) {
             app.ui.status = e.to_string();
         }
+    }
+}
+
+/// White-balance picker (Primaries ▸ WB picker, Lumetri ▸ WB Selector): while armed, the Program
+/// picture takes a crosshair; a click balances on a 5 × 5 px spot and a drag on the box drawn (the
+/// engine samples the node's / Lumetri's input, so picking again gives the same values). Esc
+/// disarms; the result (or why the spot can't be used) goes to the status line.
+fn wb_picker(app: &mut FilmcraftApp, ui: &mut egui::Ui, resp: &egui::Response, pic: Rect) {
+    let Some(armed) = app.ui.wb_picker else { return };
+    // (its clip was deselected: the picker would otherwise stay armed out of sight)
+    if !app.session.state.selection.iter().any(|c| c.0 == armed.clip) {
+        app.ui.wb_picker = None;
+        return;
+    }
+    let ctx = ui.ctx().clone();
+    let start_id = egui::Id::new("wb-picker-drag-start");
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.ui.wb_picker = None;
+        ctx.data_mut(|d| d.remove::<egui::Pos2>(start_id));
+        return;
+    }
+    if resp.hovered() || resp.dragged() {
+        ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+    }
+    if pic.width() <= 0.0 || pic.height() <= 0.0 {
+        return;
+    }
+    let uv = |pos: egui::Pos2| [((pos.x - pic.min.x) / pic.width()).clamp(0.0, 1.0), ((pos.y - pic.min.y) / pic.height()).clamp(0.0, 1.0)];
+    if resp.drag_started()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        ctx.data_mut(|d| d.insert_temp(start_id, pos));
+    }
+    let start: Option<egui::Pos2> = ctx.data(|d| d.get_temp(start_id));
+    if let (Some(a), Some(b)) = (start, resp.interact_pointer_pos())
+        && resp.dragged()
+    {
+        let r = Rect::from_two_pos(a, b).intersect(pic);
+        ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.0, egui::Color32::WHITE), egui::StrokeKind::Outside);
+    }
+    let end = resp.interact_pointer_pos().or_else(|| ctx.input(|i| i.pointer.interact_pos()));
+    let pick = if resp.clicked() {
+        ctx.data_mut(|d| d.remove::<egui::Pos2>(start_id));
+        end.map(|p| (uv(p), uv(p)))
+    } else if resp.drag_stopped() {
+        ctx.data_mut(|d| d.remove::<egui::Pos2>(start_id));
+        end.map(|b| (uv(start.unwrap_or(b)), uv(b)))
+    } else {
+        None
+    };
+    let Some(([x, y], [x2, y2])) = pick else { return };
+    app.ui.wb_picker = None;
+    let (cmd, mut p) = match armed.node {
+        Some(node) => ("grade.wb.pick", json!({"clip": armed.clip, "node": node})),
+        None => ("lumetri.wb.pick", json!({"clip": armed.clip})),
+    };
+    p["x"] = json!(x);
+    p["y"] = json!(y);
+    p["x2"] = json!(x2);
+    p["y2"] = json!(y2);
+    app.ui.status = wb_status(app.session.execute(cmd, p));
+}
+
+/// The status line after a white-balance pick or Auto balance.
+pub(crate) fn wb_status(r: filmcraft_engine::Result<serde_json::Value>) -> String {
+    match r {
+        Ok(v) => match v.get("message").and_then(serde_json::Value::as_str) {
+            Some(m) => m.to_string(),
+            None => format!(
+                "White balance: Temperature {:+.1}, Tint {:+.1}",
+                v.get("temperature").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
+                v.get("tint").and_then(serde_json::Value::as_f64).unwrap_or(0.0)
+            ),
+        },
+        Err(e) => e.to_string(),
     }
 }
 

@@ -706,8 +706,8 @@ pub(crate) fn lumetri_grade(e: &EffectInstance, cx: &FxCtx, w: usize, h: usize) 
     let hdr = gs.is_hdr();
     let mut ops = Vec::new();
     // white balance + exposure in linear light
-    let (temp, tint, exposure) = (bf("temperature") / 100.0, bf("tint") / 100.0, 2f32.powf(bf("exposure")));
-    let gains = [(1.0 + 0.35 * temp) * exposure, (1.0 - 0.3 * tint) * exposure, (1.0 - 0.35 * temp) * exposure];
+    let (wb, exposure) = (filmcraft_color::wb::gains(bf("temperature"), bf("tint")), 2f32.powf(bf("exposure")));
+    let gains = [wb[0] * exposure, wb[1] * exposure, wb[2] * exposure];
     if gains != [1.0; 3] {
         ops.push(ColorOp::Matrix { m: [[gains[0], 0.0, 0.0], [0.0, gains[1], 0.0], [0.0, 0.0, gains[2]]], offset: [0.0; 3] });
     }

@@ -72,4 +72,5 @@ mod unlink_ui;
 mod va_interop;
 mod view_ui;
 mod voiceover_ui;
+mod workflow_theme_ui;
 mod workspaces_ui;

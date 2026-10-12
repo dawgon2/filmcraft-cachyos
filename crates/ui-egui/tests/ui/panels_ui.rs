@@ -38,6 +38,8 @@ impl Driver {
 
     fn demo() -> Self {
         let mut session = Session::default();
+        // these tests are about the Premiere workflow (the fork build defaults to Resolve)
+        session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         session.execute("file.openDemoProject", json!({})).expect("demo project");
         Self::with(session)
     }
@@ -442,6 +444,8 @@ fn reference_monitor_parks_gangs_and_shows_scopes() {
 #[test]
 fn scopes_of_colour_bars() {
     let mut s = Session::default();
+    // these tests are about the Premiere workflow (the fork build defaults to Resolve)
+    s.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
     let id = s.execute("file.newBarsAndTone", json!({"seconds": 2})).unwrap()["item"].as_u64().unwrap();
     s.execute("file.newSequenceFromClip", json!({"items": [id]})).unwrap();
     let mut d = Driver::with(s);

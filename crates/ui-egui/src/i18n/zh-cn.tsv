@@ -185,6 +185,7 @@
 	Libraries	库
 	Lift	提升
 	Light	浅
+	Resolve	Resolve
 	Link	链接
 	Link Media…	链接媒体…
 	Refresh Changed Media	刷新已更改的媒体
@@ -3771,3 +3772,11 @@
 	Cache	缓存
 	The size limit is reached: raise it, or Delete Unused, to cache more.	已达到大小上限：提高上限或删除未使用的文件即可缓存更多内容。
 	4:2:2: software decode (hardware 4:2:2 decode failed earlier in this session), proxies recommended	4:2:2：软件解码（本次会话中 4:2:2 硬件解码曾失败），建议使用代理
+	WB picker	白平衡吸管
+	WB Selector	白平衡选择器
+	Auto balance	自动平衡
+	Click or drag on something that should be grey or white in the Program monitor: Temperature and Tint are set so it becomes neutral (Esc cancels)	在节目监视器中单击或拖动应为灰色或白色的区域：自动设置色温和色调使其变为中性（Esc 取消）
+	Balance Temperature and Tint from the greys in the whole frame	根据整帧中的灰色区域平衡色温和色调
+	Pick White Balance	拾取白平衡
+	Auto White Balance	自动白平衡
+	Auto White Balance (Lumetri)	自动白平衡（Lumetri）

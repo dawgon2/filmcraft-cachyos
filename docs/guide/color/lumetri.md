@@ -50,9 +50,18 @@ The order for every clip is: input transform → **your grade nodes** → the cl
    - **HSL Secondary**: a hue / saturation / luma key with Soften, Denoise and Blur, Show Mask,
      and a correction for the keyed area.
    - **Vignette**: Amount, Midpoint, Roundness, Feather.
-4. Every slider is an effect parameter: `effects.setParam` sets it, and it can be keyframed like
+4. **WB Selector** {ui:lumetri.wb.pick} (Basic Correction ▸ Color, Premiere's white-balance
+   eyedropper): click it, then click or drag on something grey or white in the Program monitor;
+   Temperature and Tint are set so it becomes neutral, in one undo step (`lumetri.wb.pick`).
+   **Auto balance** {ui:lumetri.wb.auto} does it from the frame's greys (`lumetri.wb.auto`). It
+   samples the clip as Lumetri's white balance sees it (after the Input LUT), so picking twice
+   gives the same values; clipped, too dark or too colourful spots are refused with a reason.
+   Unlike the node picker, it removes keyframes from Temperature / Tint (as Apply Match does).
+   Same solver as the node grader's **WB picker** ([primaries.md](primaries.md)); in Premiere
+   the selector may weigh the cast differently, so values won't match Premiere's.
+5. Every slider is an effect parameter: `effects.setParam` sets it, and it can be keyframed like
    any effect.
-5. Built-in looks: Effects panel ▸ **Lumetri Presets**, or `lumetri.applyPreset`.
+6. Built-in looks: Effects panel ▸ **Lumetri Presets**, or `lumetri.applyPreset`.
 
 **Color Match:** turn on **Comparison View** {ui:lumetri.match.comparisonView}, park the
 reference frame, then click **Apply Match** {ui:lumetri.match.apply} (`lumetri.applyMatch`). It

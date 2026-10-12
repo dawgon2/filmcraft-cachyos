@@ -31,6 +31,14 @@ fn add(s: &mut Session, p: Value) -> u64 {
     s.execute("grade.addNode", p).unwrap()["node"].as_u64().unwrap()
 }
 
+/// A session that starts in the Premiere workflow whatever the default is (the fork build's is
+/// Resolve), so the switch tests below exercise the same transitions in both builds.
+fn premiere_session() -> Session {
+    let mut s = Session::default();
+    s.prefs.workflow = settings::Workflow::Premiere;
+    s
+}
+
 fn with_ui_commands(s: &mut Session) {
     s.shortcuts.register_external(vec![
         CommandInfo::new("playback.toggle", "Play/Stop", &[], Some("Space")),
@@ -219,9 +227,11 @@ fn old_preferences_without_workflow_load_as_premiere() {
 #[test]
 fn workflow_switch_loads_resolve_keys_and_restores_the_previous_preset() {
     let dir = tmp_dir("prefs-workflow");
-    let mut s = Session::default();
+    let mut s = premiere_session();
     s.start_autosave(crate::autosave::AutosaveConfig::new(&dir)).unwrap();
     s.shortcuts.set_dir(&dir);
+    // the fork build's one-time migration already moved this fresh directory to Resolve
+    s.set_workflow(settings::Workflow::Premiere).unwrap();
     assert_eq!(s.execute("settings.getWorkflow", json!({})).unwrap()["workflow"], "premiere");
     // start from Premiere keys plus a personal edit
     s.execute("shortcuts.loadPreset", json!({"name": "Premiere Pro Compatible"})).unwrap();
@@ -255,7 +265,7 @@ fn workflow_switch_loads_resolve_keys_and_restores_the_previous_preset() {
     assert!(s.execute("settings.setWorkflow", json!({"workflow": "avid"})).is_err());
     assert!(s.execute("prefs.set", json!({"key": "workflow", "value": "avid"})).is_err());
     // a fresh default session returns to FilmCraft Default
-    let mut t = Session::default();
+    let mut t = premiere_session();
     t.execute("settings.setWorkflow", json!({"workflow": "resolve"})).unwrap();
     t.execute("settings.setWorkflow", json!({"workflow": "premiere"})).unwrap();
     assert_eq!(t.shortcuts.preset, "FilmCraft Default");
@@ -283,7 +293,7 @@ fn garbage_workflow_values_keep_every_other_preference() {
 
 #[test]
 fn prefs_commands_cannot_bypass_set_workflow() {
-    let mut s = Session::default();
+    let mut s = premiere_session();
     assert!(s.execute("prefs.set", json!({"key": "workflow", "value": "resolve"})).is_err());
     assert!(s.execute("prefs.set", json!({"values": {"workflow": "resolve", "timeline.stillImageDuration": 9}})).is_err());
     assert!(s.execute("prefs.set", json!({"key": "workflowReturnPreset", "value": "X"})).is_err());
@@ -301,7 +311,7 @@ fn prefs_commands_cannot_bypass_set_workflow() {
 #[test]
 fn a_failed_save_refuses_the_switch() {
     // no data directory: custom presets cannot be saved
-    let mut s = Session::default();
+    let mut s = premiere_session();
     s.execute("shortcuts.set", json!({"command": "markers.add", "keys": "Cmd+Alt+J"})).unwrap();
     assert!(s.shortcuts.modified);
     assert!(s.execute("settings.setWorkflow", json!({"workflow": "resolve"})).is_err());
@@ -309,7 +319,7 @@ fn a_failed_save_refuses_the_switch() {
     assert_eq!(s.shortcuts.preset, "FilmCraft Default");
     assert_eq!(s.shortcuts.primary("markers.add").as_deref(), Some("Cmd+Alt+J"), "edits untouched");
     // and the same on the way back
-    let mut t = Session::default();
+    let mut t = premiere_session();
     t.execute("settings.setWorkflow", json!({"workflow": "resolve"})).unwrap();
     t.execute("shortcuts.set", json!({"command": "markers.add", "keys": "Cmd+Alt+J"})).unwrap();
     assert!(t.execute("settings.setWorkflow", json!({"workflow": "premiere"})).is_err());
@@ -321,7 +331,7 @@ fn a_failed_save_refuses_the_switch() {
 #[test]
 fn saved_presets_are_never_overwritten_and_resolve_edits_are_kept() {
     let dir = tmp_dir("prefs-workflow-names");
-    let mut s = Session::default();
+    let mut s = premiere_session();
     s.shortcuts.set_dir(&dir);
     for round in 1..=2 {
         s.execute("shortcuts.loadPreset", json!({"name": "Premiere Pro Compatible"})).unwrap();
@@ -354,7 +364,7 @@ fn saved_presets_are_never_overwritten_and_resolve_edits_are_kept() {
 #[test]
 fn a_preset_loaded_by_hand_in_resolve_stays_when_switching_back() {
     let dir = tmp_dir("prefs-workflow-manual");
-    let mut s = Session::default();
+    let mut s = premiere_session();
     s.shortcuts.set_dir(&dir);
     s.execute("settings.setWorkflow", json!({"workflow": "resolve"})).unwrap();
     s.execute("shortcuts.loadPreset", json!({"name": "Avid Media Composer Compatible"})).unwrap();

@@ -64,10 +64,26 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let set = |actions: &mut Actions, param: &str, v: Value| actions.push(json!({"clip": clip.0, "effect": idx, "param": param, "value": v}));
     let mut sections: Vec<&'static str> = Vec::new();
     let mut lut_actions: Vec<(&'static str, Value)> = Vec::new();
+    let wb_armed = app.ui.wb_picker == Some(crate::state::WbPicker { clip: clip.0, node: None });
+    let (mut wb_toggle, mut wb_auto) = (false, false);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(&mut bui, |ui| {
         if open_section(ui, app, &e, "Basic Correction", "basic_on", "basic", &mut sections) {
             lut_combo(ui, app, &e, "input_lut", tl!("Input LUT"), true, &mut lut_actions);
             sub(ui, &t, tl!("Color"));
+            // WB Selector: click or drag on something neutral in the Program monitor
+            ui.horizontal(|ui| {
+                ui.add_space(110.0);
+                let label = tl!("WB Selector");
+                let r = ui.selectable_label(wb_armed, label).on_hover_text(tl!(
+                    "Click or drag on something that should be grey or white in the Program monitor: Temperature and Tint are set so it becomes neutral (Esc cancels)"
+                ));
+                auto_rows.push(("lumetri.wb.pick".to_string(), r.rect, label));
+                wb_toggle |= r.clicked();
+                let label = tl!("Auto balance");
+                let r = ui.button(label).on_hover_text(tl!("Balance Temperature and Tint from the greys in the whole frame"));
+                auto_rows.push(("lumetri.wb.auto".to_string(), r.rect, label));
+                wb_auto |= r.clicked();
+            });
             slider(ui, &e, mt, "temperature", tl!("Temperature"), Some(Gradient::Temp), &t, &mut actions, clip, idx);
             slider(ui, &e, mt, "tint", tl!("Tint"), Some(Gradient::Tint), &t, &mut actions, clip, idx);
             slider(ui, &e, mt, "saturation", tl!("Saturation"), None, &t, &mut actions, clip, idx);
@@ -235,6 +251,17 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         if r.is_positive() {
             app.auto.add(&id, r, label);
         }
+    }
+    if wb_toggle {
+        app.ui.wb_picker = if wb_armed { None } else { Some(crate::state::WbPicker { clip: clip.0, node: None }) };
+        if app.ui.wb_picker.is_some() {
+            // (one armed picker at a time: a click fills one thing)
+            app.ui.grade_picker = None;
+            app.ui.eyedropper = None;
+        }
+    }
+    if wb_auto {
+        app.ui.status = super::monitor::wb_status(app.session.execute("lumetri.wb.auto", json!({"clip": clip.0})));
     }
     for a in actions {
         if let Err(err) = app.session.execute("effects.setParam", a) {

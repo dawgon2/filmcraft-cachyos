@@ -16,6 +16,9 @@ pub enum ThemeKind {
     /// Slightly lighter grey panels (Premiere's brightness slider mid position).
     Medium,
     Light,
+    /// The Resolve workflow's own look: near-black chrome with cool grey panels and an orange-red
+    /// accent (colours observed from the reference screenshots, no Blackmagic assets). A dark theme.
+    Resolve,
 }
 
 impl ThemeKind {
@@ -25,12 +28,14 @@ impl ThemeKind {
             ThemeKind::Dark => "darkest",
             ThemeKind::Medium => "dark",
             ThemeKind::Light => "light",
+            ThemeKind::Resolve => "resolve",
         }
     }
     pub fn from_pref(s: &str) -> ThemeKind {
         match s {
             "dark" => ThemeKind::Medium,
             "light" => ThemeKind::Light,
+            "resolve" => ThemeKind::Resolve,
             _ => ThemeKind::Dark,
         }
     }
@@ -39,6 +44,7 @@ impl ThemeKind {
             "dark" | "darkest" => Some(ThemeKind::Dark),
             "medium" | "grey" | "gray" => Some(ThemeKind::Medium),
             "light" => Some(ThemeKind::Light),
+            "resolve" => Some(ThemeKind::Resolve),
             _ => None,
         }
     }
@@ -259,6 +265,51 @@ impl Tokens {
                 hover: Color32::from_rgb(64, 64, 64),
                 ..dark
             },
+            ThemeKind::Resolve => {
+                // menu / page bars #17181a, home grid #212126, panels #28282e, accent #fa5b4a,
+                // secondary button text #747475 (RESOLVE-UI-PLAN §1)
+                let bar = Color32::from_rgb(0x17, 0x18, 0x1a);
+                let grid = Color32::from_rgb(0x21, 0x21, 0x26);
+                let panel = Color32::from_rgb(0x28, 0x28, 0x2e);
+                let accent = Color32::from_rgb(0xfa, 0x5b, 0x4a);
+                let accent_lit = Color32::from_rgb(0xff, 0x7a, 0x6b);
+                Tokens {
+                    app_bg: bar,
+                    header_bg: bar,
+                    panel_bg: panel,
+                    tab_bg: panel,
+                    tab_text: Color32::from_rgb(0x9a, 0x9a, 0xa0),
+                    tab_text_active: Color32::from_rgb(0xe4, 0xe4, 0xe6),
+                    focus: accent_lit,
+                    accent,
+                    accent_hover: accent_lit,
+                    text: Color32::from_rgb(0xd8, 0xd8, 0xda),
+                    text_dim: Color32::from_rgb(0x9a, 0x9a, 0xa0),
+                    text_faint: Color32::from_rgb(0x74, 0x74, 0x75),
+                    icon: Color32::from_rgb(0x9a, 0x9a, 0xa0),
+                    icon_active: Color32::from_rgb(0xe4, 0xe4, 0xe6),
+                    hover: Color32::from_rgb(0x34, 0x34, 0x3b),
+                    pressed: Color32::from_rgb(0x46, 0x46, 0x4e),
+                    field_bg: Color32::from_rgb(0x1b, 0x1b, 0x1f),
+                    field_border: Color32::from_rgb(0x3a, 0x3a, 0x42),
+                    separator: Color32::from_rgb(0x1b, 0x1b, 0x1f),
+                    row_alt: grid,
+                    row_selected: Color32::from_rgb(0x4a, 0x2f, 0x2e),
+                    hot_text: accent_lit,
+                    pill_active_bg: Color32::from_rgb(0x3a, 0x3a, 0x42),
+                    tl_bg: panel,
+                    tl_track_bg: grid,
+                    tl_track_bg_alt: panel,
+                    tl_header_bg: panel,
+                    tl_ruler_bg: bar,
+                    playhead: accent,
+                    track_target: Color32::from_rgb(0xc4, 0x47, 0x3a),
+                    in_out_shade: Color32::from_rgb(0x3a, 0x3a, 0x42),
+                    monitor_bg: bar,
+                    timecode: accent_lit,
+                    ..dark
+                }
+            }
             ThemeKind::Light => Tokens {
                 app_bg: Color32::from_rgb(180, 180, 180),
                 header_bg: Color32::from_rgb(214, 214, 214),
@@ -337,6 +388,10 @@ impl Tokens {
     /// the focus outline, the playhead, timecodes, drag values and track targeting) and accessible
     /// colour contrast (brighter secondary text and borders).
     pub fn with_appearance(mut self, highlight: Option<[u8; 3]>, accessible_contrast: bool) -> Self {
+        // The Resolve theme has an accent of its own: the preference's default highlight (the
+        // other themes' blue) leaves it alone; a highlight the user picked still applies.
+        let default_highlight = filmcraft_engine::settings::parse_hex(filmcraft_engine::settings::DEFAULT_HIGHLIGHT);
+        let highlight = highlight.filter(|h| !(self.kind == ThemeKind::Resolve && Some(*h) == default_highlight));
         if let Some([r, g, b]) = highlight {
             let c = Color32::from_rgb(r, g, b);
             // A highlight of the user's own also colours the theme's other blues: the same hue, as
@@ -568,6 +623,27 @@ mod tests {
             assert_eq!(t.keyframe_plot_axis, Color32::from_gray(0x33));
             assert_eq!(t.keyframe_handle, Color32::from_gray(0xd0));
         }
+    }
+
+    #[test]
+    fn resolve_theme_is_dark_with_its_own_accent() {
+        let r = Tokens::for_kind(ThemeKind::Resolve);
+        assert_eq!(ThemeKind::from_pref("resolve"), ThemeKind::Resolve);
+        assert_eq!(ThemeKind::from_name("Resolve"), Some(ThemeKind::Resolve));
+        assert_eq!(ThemeKind::Resolve.pref_name(), "resolve");
+        assert_eq!(
+            (r.app_bg, r.panel_bg, r.accent),
+            (Color32::from_rgb(0x17, 0x18, 0x1a), Color32::from_rgb(0x28, 0x28, 0x2e), Color32::from_rgb(0xfa, 0x5b, 0x4a))
+        );
+        // the default highlight keeps the theme's accent; the user's own colour still wins
+        let default = filmcraft_engine::settings::parse_hex(filmcraft_engine::settings::DEFAULT_HIGHLIGHT);
+        assert_eq!(r.with_appearance(default, false).accent, r.accent);
+        assert_eq!(r.with_appearance(Some([1, 2, 3]), false).accent, Color32::from_rgb(1, 2, 3));
+        // the Premiere themes are unchanged: their accent is the default highlight
+        assert_eq!(Tokens::for_kind(ThemeKind::Dark).with_appearance(default, false).accent, Tokens::for_kind(ThemeKind::Dark).accent);
+        // light text on dark surfaces
+        let sum = |c: Color32| u16::from(c.r()) + u16::from(c.g()) + u16::from(c.b());
+        assert!(sum(r.text) > sum(r.panel_bg) * 2);
     }
 
     /// The colours the highlight drives besides the accent (#707).
