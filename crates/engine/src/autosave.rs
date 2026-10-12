@@ -247,9 +247,15 @@ pub struct MediaPrefs {
     pub write_clip_markers_to_xmp: bool,
     pub enable_xmp_linking: bool,
     pub include_captions_on_import: bool,
-    /// "Enable proxies": playback and monitors read attached proxies (the monitors' Toggle
-    /// Proxies button). Export always uses full-resolution media.
-    pub enable_proxies: bool,
+    /// "Proxies": which frames read attached proxies (`auto`: playback, prefetch and scrubbing;
+    /// `on`: every frame, the monitors' Toggle Proxies button; `off`). Export always uses
+    /// full-resolution media. Older files' `enableProxies` switch reads as `on` / `auto`.
+    #[serde(alias = "enableProxies")]
+    pub proxies: crate::media_pool::ProxyMode,
+    /// "Create proxies automatically for 4K and larger long-GOP clips" (fork 6.2): queue proxies on
+    /// import and project open. 4:2:2 long-GOP clips get them whatever this says (unless proxies
+    /// are off).
+    pub auto_proxies: bool,
     pub allow_duplicate_media: bool,
     pub create_folder_for_imported_projects: bool,
     pub auto_hide_dependent_clips: bool,
@@ -273,7 +279,8 @@ impl Default for MediaPrefs {
             write_clip_markers_to_xmp: false,
             enable_xmp_linking: false,
             include_captions_on_import: true,
-            enable_proxies: false,
+            proxies: crate::media_pool::ProxyMode::Auto,
+            auto_proxies: true,
             allow_duplicate_media: false,
             create_folder_for_imported_projects: false,
             auto_hide_dependent_clips: false,

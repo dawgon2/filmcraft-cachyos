@@ -68,9 +68,17 @@ settings for later, use **Disable** {ui:grade.toggleNode} instead.
 
 **[Fork]**
 
-`grade.moveNode` (params `node`, `to`) moves a node to a position and `grade.labelNode` gives it a
-name; the strip shows the name. Neither has a button or a drag yet; use the command (control
-channel, MCP or command list).
+Naming nodes ("Balance", "Skin", "Look") makes a grade readable at a glance, as in Resolve.
+
+1. Select the node, then click **Rename** {ui:grade.renameNode} in the Nodes panel, or right-click
+   the node and choose **Rename**.
+2. Type the name in the field on the node and press **Enter** (or click elsewhere). **Esc**
+   leaves the old name. An empty name clears it, and the node shows what it changes instead.
+3. **Ctrl+Z** undoes a rename (`grade.labelNode`, params `node`, `label`).
+
+Right-clicking a node also offers **Disable** / **Enable**, **Reset** and **Delete**.
+`grade.moveNode` (params `node`, `to`) moves a node to a position; it has no drag yet, so use the
+command (control channel, MCP or command list).
 
 ## A starter tree for F-Log2
 

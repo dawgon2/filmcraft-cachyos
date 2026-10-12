@@ -357,6 +357,10 @@ impl HevcDecoder {
         let (w, h) = (p.width as usize, p.height as usize);
         let (cw, ch) = (p.chroma_width as usize, p.chroma_height as usize);
         let (ys, uvs) = (p.y_stride, p.uv_stride);
+        let chroma = match p.chroma_format {
+            filmcraft_hevc::ChromaFormat::Yuv420 => filmcraft_frame::Chroma::C420,
+            filmcraft_hevc::ChromaFormat::Yuv422 => filmcraft_frame::Chroma::C422,
+        };
         let wide = |pl: Plane| -> Vec<u16> {
             match pl {
                 Plane::U16(v) => v,
@@ -366,12 +370,12 @@ impl HevcDecoder {
         let data = match (p.y, p.u, p.v) {
             (Plane::U8(y), Plane::U8(u), Plane::U8(v)) => filmcraft_frame::PixelData::Yuv8 {
                 planes: [Arc::new(tight_plane(y, ys, w, h)), Arc::new(tight_plane(u, uvs, cw, ch)), Arc::new(tight_plane(v, uvs, cw, ch))],
-                chroma: filmcraft_frame::Chroma::C420,
+                chroma,
                 alpha: None,
             },
             (y, u, v) => filmcraft_frame::PixelData::Yuv16 {
                 planes: [Arc::new(tight_plane(wide(y), ys, w, h)), Arc::new(tight_plane(wide(u), uvs, cw, ch)), Arc::new(tight_plane(wide(v), uvs, cw, ch))],
-                chroma: filmcraft_frame::Chroma::C420,
+                chroma,
                 bits: p.bit_depth,
                 alpha: None,
             },
@@ -994,6 +998,71 @@ pub fn mpeg2_factory(e: &SampleEntry) -> Option<Result<Box<dyn VideoDecoder>>> {
             Some(Ok(Box::new(Mpeg2Decoder::new(header)) as Box<dyn VideoDecoder>))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod hevc_convert_tests {
+    use super::HevcDecoder;
+    use filmcraft_frame::{Chroma, PixelData};
+    use filmcraft_hevc::{ChromaFormat, ColorInfo, Picture, Plane};
+
+    fn picture(w: u32, h: u32, ch: u32, bit_depth: u32) -> Picture {
+        let cw = w.div_ceil(2);
+        let chroma_format = if ch == h && h > 1 { ChromaFormat::Yuv422 } else { ChromaFormat::Yuv420 };
+        let plane = |n: u32| if bit_depth > 8 { Plane::U16((0..n as u16).collect()) } else { Plane::U8((0..n).map(|v| v as u8).collect()) };
+        Picture {
+            width: w,
+            height: h,
+            chroma_format,
+            chroma_width: cw,
+            chroma_height: ch,
+            bit_depth,
+            y: plane(w * h),
+            u: plane(cw * ch),
+            v: plane(cw * ch),
+            y_stride: w as usize,
+            uv_stride: cw as usize,
+            pts: 7,
+            poc: 0,
+            key: true,
+            color: ColorInfo { full_range: false, primaries: 1, transfer: 1, matrix: 1 },
+            sar: (1, 1),
+            draft: false,
+        }
+    }
+
+    #[test]
+    fn chroma_format_422_is_c422() {
+        let f = HevcDecoder::convert(picture(8, 6, 6, 10));
+        assert_eq!(f.pts, 7);
+        match &f.frame.data {
+            PixelData::Yuv16 { planes, chroma, bits, .. } => {
+                assert_eq!((*chroma, *bits), (Chroma::C422, 10));
+                assert_eq!((planes[0].len(), planes[1].len(), planes[2].len()), (48, 24, 24));
+            }
+            _ => panic!("expected 16-bit planes"),
+        }
+        let f = HevcDecoder::convert(picture(8, 6, 6, 8));
+        assert!(matches!(&f.frame.data, PixelData::Yuv8 { chroma: Chroma::C422, .. }));
+    }
+
+    #[test]
+    fn chroma_format_420_is_c420() {
+        let f = HevcDecoder::convert(picture(8, 6, 3, 10));
+        match &f.frame.data {
+            PixelData::Yuv16 { planes, chroma, .. } => {
+                assert_eq!(*chroma, Chroma::C420);
+                assert_eq!((planes[1].len(), planes[2].len()), (12, 12));
+            }
+            _ => panic!("expected 16-bit planes"),
+        }
+        // odd heights round the chroma up
+        assert!(matches!(&HevcDecoder::convert(picture(8, 5, 3, 8)).frame.data, PixelData::Yuv8 { chroma: Chroma::C420, .. }));
+        // the field decides, not the plane geometry: one line of 4:2:2
+        let mut p = picture(8, 1, 1, 8);
+        p.chroma_format = ChromaFormat::Yuv422;
+        assert!(matches!(&HevcDecoder::convert(p).frame.data, PixelData::Yuv8 { chroma: Chroma::C422, .. }));
     }
 }
 

@@ -22,6 +22,11 @@
 //!
 //! Playback asks [`PreviewStore::frame`] first: when the frame lies in a segment with a preview, the
 //! decoded preview frame replaces the live render.
+//!
+//! The render cache (fork 6.3, [`crate::render_cache`]) writes its parts into the same folder with
+//! the same names, so the bar, playback and Delete Render Files treat them like any preview. The
+//! folder's `index.json` records each file's size and when playback last used it (for the cache's
+//! size limit).
 
 use filmcraft_audio_dsp::channels::{Layout, Mixdown};
 use filmcraft_render::audio::to_layout;
@@ -50,6 +55,8 @@ pub enum BarState {
     Red,
     /// A preview file exists.
     Green,
+    /// The render cache is rendering these frames right now (fork 6.3).
+    Building,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -93,7 +100,20 @@ pub struct PreviewStore {
     pub generation: AtomicU64,
     /// Live mixer state shared with playback: held controls, meters, newest project snapshot.
     pub live: Arc<filmcraft_render::mixer::LiveMix>,
+    /// The render cache's index and queue (fork 6.3).
+    pub cache: crate::render_cache::CacheState,
 }
+
+/// Opened preview files kept at once (playback pre-opens the next part, so the part on screen,
+/// the next one and a few recent ones stay open).
+const MAX_OPEN_PARTS: usize = 12;
+
+/// A preview file no streaming reader takes is read whole only up to this size (fork 6.3: the
+/// store used to read every file whole).
+const MAX_WHOLE_READ: u64 = 64 << 20;
+
+/// Playback opens the next part when the frame on screen is this close to the end of its part.
+const PREOPEN_FRAMES: i64 = 30;
 
 fn video_name(hash: &str) -> String {
     format!("{hash}.mov")
@@ -111,12 +131,12 @@ struct Part {
 const WHOLE: i64 = i64::MAX;
 
 /// File name of the preview of frames `off..off + len` of a segment of `frames` frames.
-fn part_name(hash: &str, off: i64, len: i64, frames: i64) -> String {
+pub(crate) fn part_name(hash: &str, off: i64, len: i64, frames: i64) -> String {
     if off == 0 && len >= frames { video_name(hash) } else { format!("{hash}-{off}-{len}.mov") }
 }
 
 /// `(hash, off, len)` of a video preview file name (`<hash>.mov` or `<hash>-<off>-<len>.mov`).
-fn parse_video_name(name: &str) -> Option<(&str, i64, i64)> {
+pub(crate) fn parse_video_name(name: &str) -> Option<(&str, i64, i64)> {
     let stem = name.strip_suffix(".mov")?;
     if is_hash(stem) {
         return Some((stem, 0, WHOLE));
@@ -131,7 +151,7 @@ fn parse_video_name(name: &str) -> Option<(&str, i64, i64)> {
 }
 
 /// The parts of `[a, b)` not covered by the sorted, merged intervals `cov`.
-fn gaps(cov: &[(i64, i64)], a: i64, b: i64) -> Vec<(i64, i64)> {
+pub(crate) fn gaps(cov: &[(i64, i64)], a: i64, b: i64) -> Vec<(i64, i64)> {
     let mut out = Vec::new();
     let mut pos = a;
     for &(x, y) in cov {
@@ -211,6 +231,7 @@ impl PreviewStore {
                 }
             }
         }
+        self.cache.load(dir.as_deref(), &files);
         *self.dir.write().unwrap_or_else(|e| e.into_inner()) = dir;
         *self.files.write().unwrap_or_else(|e| e.into_inner()) = files;
         self.reindex();
@@ -229,7 +250,10 @@ impl PreviewStore {
             && (old.starts_with(crate::temp_dir()) || self.temp_root().is_some_and(|r| old.starts_with(r)))
         {
             let _ = std::fs::create_dir_all(&dir);
-            for name in self.files.read().unwrap_or_else(|e| e.into_inner()).iter() {
+            // the cache index goes along (written first, so it lists every file that moves)
+            self.cache.save(true);
+            let index = [crate::render_cache::INDEX_FILE.to_string()];
+            for name in self.files.read().unwrap_or_else(|e| e.into_inner()).iter().chain(index.iter()) {
                 let (a, b) = (old.join(name), dir.join(name));
                 if !b.exists() && std::fs::rename(&a, &b).is_err() {
                     let _ = std::fs::copy(&a, &b).map(|_| std::fs::remove_file(&a));
@@ -297,15 +321,20 @@ impl PreviewStore {
     }
 
     /// Register a finished video preview file (`<hash>.mov` or `<hash>-<off>-<len>.mov`).
-    fn add_video(&self, name: &str) {
+    pub(crate) fn add_video(&self, name: &str) {
         self.files.write().unwrap_or_else(|e| e.into_inner()).insert(name.to_string());
         self.reindex();
+        let bytes = self.dir().and_then(|d| std::fs::metadata(d.join(name)).ok()).map_or(0, |m| m.len());
+        self.cache.added(name, bytes);
         self.bump();
     }
 
     /// Register a finished audio preview file.
     pub fn add_audio(&self, hash: &str) {
-        self.files.write().unwrap_or_else(|e| e.into_inner()).insert(audio_name(hash));
+        let name = audio_name(hash);
+        self.files.write().unwrap_or_else(|e| e.into_inner()).insert(name.clone());
+        let bytes = self.dir().and_then(|d| std::fs::metadata(d.join(&name)).ok()).map_or(0, |m| m.len());
+        self.cache.added(&name, bytes);
         self.bump();
     }
 
@@ -330,7 +359,7 @@ impl PreviewStore {
     }
 
     /// Delete the preview files named `names`. Returns how many were removed.
-    fn delete_files(&self, names: &[String]) -> usize {
+    pub(crate) fn delete_files(&self, names: &[String]) -> usize {
         let Some(dir) = self.dir() else { return 0 };
         let victims: Vec<String> = {
             let files = self.files.read().unwrap_or_else(|e| e.into_inner());
@@ -345,6 +374,7 @@ impl PreviewStore {
         }
         drop(files);
         self.reindex();
+        self.cache.removed(&victims);
         self.bump();
         victims.len()
     }
@@ -475,19 +505,32 @@ impl PreviewStore {
     pub fn bar(&self, project: &Arc<Project>, seq: ItemId) -> Vec<BarSpan> {
         let Some(rate) = project.sequence(seq).map(|q| q.settings.frame_rate) else { return Vec::new() };
         let mut out: Vec<BarSpan> = Vec::new();
+        let building = self.cache.building();
         for s in self.segments(project, seq).iter() {
             let need = need_state(s);
             let mut spans = Vec::new();
             let mut pos = 0;
+            // the part the render cache is building (its frames not rendered yet) shows as such
+            let unrendered = |spans: &mut Vec<(i64, i64, BarState)>, a: i64, b: i64| match &building {
+                Some((h, off, len)) if *h == s.hash => {
+                    let (x, y) = ((*off).clamp(a, b), off.saturating_add(*len).clamp(a, b));
+                    for (p, q, st) in [(a, x, need), (x, y, BarState::Building), (y, b, need)] {
+                        if p < q {
+                            spans.push((p, q, st));
+                        }
+                    }
+                }
+                _ => spans.push((a, b, need)),
+            };
             for (a, b) in self.coverage(s) {
                 if a > pos {
-                    spans.push((pos, a, need));
+                    unrendered(&mut spans, pos, a);
                 }
                 spans.push((a, b, BarState::Green));
                 pos = b;
             }
             if pos < s.frames {
-                spans.push((pos, s.frames, need));
+                unrendered(&mut spans, pos, s.frames);
             }
             let at = |f: i64| match f {
                 0 => s.start,
@@ -513,14 +556,66 @@ impl PreviewStore {
         let segs = self.segments(project, seq);
         let seg = segment_at(&segs, frame)?;
         let rel = frame.checked_sub(seg.first_frame)?;
-        let (name, off) = {
-            let video = self.video.read().unwrap_or_else(|e| e.into_inner());
-            let p = video.get(&seg.hash)?.iter().find(|p| p.off <= rel && rel < p.off.saturating_add(p.len))?;
-            (p.name.clone(), p.off)
-        };
+        let (name, off) = self.part_at(&seg.hash, rel)?;
         let src = self.open(pool, &name)?;
+        self.cache.touch(&name);
         let rate = project.sequence(seq)?.settings.frame_rate;
-        src.video_frame(FrameRequest { time: rate.tick_of(rel - off), scale }).ok()
+        src.video_frame(FrameRequest { time: rate.tick_of(rel.saturating_sub(off)), scale }).ok()
+    }
+
+    /// The preview file holding frame `rel` (from the segment start) of segment `hash`, and the
+    /// file's first frame. The latest-starting file wins where files overlap (the render cache's
+    /// parts start at every 2 s, a partial render may start anywhere).
+    fn part_at(&self, hash: &str, rel: i64) -> Option<(String, i64)> {
+        let video = self.video.read().unwrap_or_else(|e| e.into_inner());
+        video.get(hash)?.iter().filter(|p| p.off <= rel && rel < p.off.saturating_add(p.len)).max_by_key(|p| p.off).map(|p| (p.name.clone(), p.off))
+    }
+
+    /// The preview file playback needs after sequence frame `frame`, when `frame` is within
+    /// [`PREOPEN_FRAMES`] of the end of its file (of its segment when it plays live): the next part
+    /// of the segment, else the first file of the next segment. None when there is none, or it is
+    /// not near.
+    pub fn next_part(&self, project: &Arc<Project>, seq: ItemId, frame: i64) -> Option<String> {
+        if self.files.read().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            return None;
+        }
+        let segs = self.segments(project, seq);
+        let i = segs.partition_point(|g| g.first_frame <= frame).checked_sub(1)?;
+        let seg = segs.get(i).filter(|g| g.contains_frame(frame))?;
+        let rel = frame.saturating_sub(seg.first_frame);
+        // the end of the file on screen, else (a live frame) the end of the segment
+        let end = match self.part_at(&seg.hash, rel) {
+            Some((_, off)) => {
+                let video = self.video.read().unwrap_or_else(|e| e.into_inner());
+                video.get(&seg.hash)?.iter().filter(|p| p.off == off).map(|p| p.off.saturating_add(p.len)).max()?.min(seg.frames)
+            }
+            None => seg.frames,
+        };
+        if end.saturating_sub(rel) > PREOPEN_FRAMES {
+            return None;
+        }
+        if end < seg.frames {
+            return self.part_at(&seg.hash, end).map(|(n, _)| n);
+        }
+        // the next segment, when it starts where this one ends
+        let next = segs.get(i.saturating_add(1)).filter(|g| g.first_frame == seg.first_frame.saturating_add(seg.frames))?;
+        self.part_at(&next.hash, 0).map(|(n, _)| n)
+    }
+
+    /// Open the preview file playback needs after `frame` ahead of time ([`Self::next_part`]):
+    /// prefetch calls this so a cut or a part boundary does not wait for the file to open.
+    /// Returns whether a file was opened now.
+    pub fn preopen_next(&self, pool: &MediaPool, project: &Arc<Project>, seq: ItemId, frame: i64) -> bool {
+        let Some(name) = self.next_part(project, seq, frame) else { return false };
+        if self.is_open(&name) {
+            return false;
+        }
+        self.open(pool, &name).is_some()
+    }
+
+    /// Whether preview file `name` is open.
+    pub fn is_open(&self, name: &str) -> bool {
+        self.sources.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(n, _)| n == name)
     }
 
     /// The opened preview file `name` (`<hash>.mov` or a part).
@@ -535,15 +630,85 @@ impl PreviewStore {
             }
         }
         let path = self.dir()?.join(name);
-        let bytes = std::fs::read(&path).ok()?;
-        let src = pool.open_bytes(name, bytes.into()).ok()?;
+        let src = open_part_file(pool, name, &path)?;
         let mut g = self.sources.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = g.iter().position(|(n, _)| n == name) {
+            // opened by another thread meanwhile
+            return g.get(i).map(|(_, s)| s.clone());
+        }
         g.push((name.to_string(), src.clone()));
-        if g.len() > 6 {
+        while g.len() > MAX_OPEN_PARTS {
             g.remove(0);
         }
         Some(src)
     }
+}
+
+/// Open a preview file in place: containers read their index now and samples on demand, so
+/// opening costs the index, not the file (fork 6.3; the store used to read whole files). A file no
+/// streaming reader takes is read whole only up to [`MAX_WHOLE_READ`] bytes.
+#[cfg(any(unix, windows))]
+fn open_part_file(pool: &MediaPool, name: &str, path: &Path) -> Option<SharedSource> {
+    let reader = filmcraft_media::reader::FileReader::open(path).ok()?;
+    open_part_reader(pool, name, Arc::new(reader))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_part_file(pool: &MediaPool, name: &str, path: &Path) -> Option<SharedSource> {
+    let len = std::fs::metadata(path).ok()?.len();
+    if len > MAX_WHOLE_READ {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    pool.open_bytes(name, bytes.into()).ok()
+}
+
+/// Largest `moov` box of a preview file read (an hour-long whole-segment preview's is well under
+/// 1 MB; the demuxer itself accepts up to 1 GB).
+const MAX_PREVIEW_MOOV: u64 = 32 << 20;
+
+/// Whether a QuickTime / MP4 file's top-level boxes announce a `moov` larger than
+/// [`MAX_PREVIEW_MOOV`] (a corrupt or foreign file): reads 16 bytes per top-level box, at most 64
+/// boxes.
+fn moov_too_large(r: &dyn filmcraft_media::ByteReader) -> bool {
+    let len = r.len();
+    let mut off = 0u64;
+    for _ in 0..64 {
+        if off.saturating_add(8) > len {
+            return false;
+        }
+        let mut h = [0u8; 16];
+        let n = len.saturating_sub(off).min(16) as usize;
+        let Some(buf) = h.get_mut(..n) else { return false };
+        if r.read_at(off, buf).is_err() {
+            return false;
+        }
+        let size32 = u64::from(u32::from_be_bytes([h[0], h[1], h[2], h[3]]));
+        let size = match size32 {
+            0 => len.saturating_sub(off),
+            1 if n >= 16 => u64::from_be_bytes([h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]]),
+            s if s >= 8 => s,
+            _ => return false,
+        };
+        if &h[4..8] == b"moov" {
+            return size > MAX_PREVIEW_MOOV;
+        }
+        if size32 == 0 {
+            return false;
+        }
+        off = off.saturating_add(size.max(8));
+    }
+    false
+}
+
+/// [`open_part_file`] from a reader (tests count what it reads).
+pub(crate) fn open_part_reader(pool: &MediaPool, name: &str, reader: filmcraft_media::SharedReader) -> Option<SharedSource> {
+    if moov_too_large(&*reader) {
+        log::warn!("preview {name}: its index is too large (a damaged file); not opened");
+        return None;
+    }
+    let openers = pool.openers.read().unwrap_or_else(|e| e.into_inner()).clone();
+    filmcraft_media::reader::open_reader_within(name, reader, &filmcraft_codecs::reader_openers(), &openers, MAX_WHOLE_READ).ok()
 }
 
 fn need_state(seg: &Segment) -> BarState {

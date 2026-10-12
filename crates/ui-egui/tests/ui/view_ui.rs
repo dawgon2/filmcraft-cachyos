@@ -223,12 +223,17 @@ fn wheel_zooms_about_the_pointer_and_the_middle_button_pans() {
     assert_eq!(num(&p["zoom"]), zoom, "a pan does not zoom");
     assert!((num(&p["pan"][0]) - (pan[0] - 40.0)).abs() < 1.0 && (num(&p["pan"][1]) - (pan[1] + 20.0)).abs() < 1.0, "pan {} after {pan:?}", p["pan"]);
 
-    // zooming out stops at the menu's smallest level; Fit resets zoom and pan
+    // zooming out stops at Fit (zoom null, pan reset), so the picture scales with the panel again
     for _ in 0..12 {
         d.ok("ui.scroll", json!({"x": centre.0, "y": centre.1, "dx": 0.0, "dy": -50.0}));
     }
     d.frames(2);
-    assert!((num(&d.program()["zoom"]) - 0.1).abs() < 1e-6, "stops at 10%");
+    let p = d.program();
+    assert!(p["zoom"].is_null() && p["pan"] == json!([0.0, 0.0]), "zoom-out ends at Fit: {p}");
+    // the menu still sets a size below Fit; Fit resets zoom and pan
+    d.click("program.zoom");
+    d.click("program.zoom.10");
+    assert!((num(&d.program()["zoom"]) - 0.1).abs() < 1e-6);
     d.menu("view.magnification.fit");
     let p = d.program();
     assert!(p["zoom"].is_null() && p["pan"] == json!([0.0, 0.0]), "{p}");

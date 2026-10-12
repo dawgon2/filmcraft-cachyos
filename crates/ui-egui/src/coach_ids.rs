@@ -29,7 +29,7 @@ pub const MAX_SEEN: usize = 50_000;
 pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "about.*", "about.credits.header.*", "about.credits.names.*", "about.tab.*", "addTracks.*.amount", "addTracks.*.placement",
     "addTracks.*.placement.option.*", "addTracks.*.type", "addTracks.*.type.option.*", "align.*", "audioGain.*", "audioGain.*.value",
-    "audioMeters.channel.*", "clipMixer.*", "coach.ask.step.*", "coach.lessons.item.*", "colorDialog.par.*", "colorDialog.space.*", "colorDialog.working.*",
+    "audioMeters.channel.*", "clipMixer.*", "clips.card.*", "clips.split.*", "coach.ask.step.*", "coach.lessons.item.*", "colorDialog.par.*", "colorDialog.space.*", "colorDialog.working.*",
     "deleteTracks.*", "deleteTracks.*.option.*", "deleteTracks.*.option.empty", "deleteTracks.*.target", "display.*", "dock.gutter.*",
     "editCameras.enabled.*", "editCameras.name.*", "editCameras.thumb.*", "effectControls.*.*", "effectControls.*.*.eyedropper",
     "effectControls.*.*.graphs", "effectControls.*.*.keyframe.*", "effectControls.*.*.reset", "effectControls.*.*.stopwatch",
@@ -59,7 +59,7 @@ pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "panel.menu.Source.recent.*", "panel.tab.*", "panel.tabs.list.*", "panel.tabs.more.*", "pausedRes.*", "playbackRes.*", "pm.mode.*",
     "pm.preset.*", "pm.seq.*", "presetManager.favorite.*", "presetManager.item.*", "program.compare.*", "program.layer.*.*",
     "program.layer.*.*.anchor", "program.layer.*.*.corner.*", "program.layer.*.*.handle.*", "program.mask.*", "program.mask.*.*",
-    "program.mask.vertex.*", "program.multicam.*", "program.multicam.angle.*", "progress.cancel.*", "progress.job.*", "project.itemMenu.*",
+    "program.mask.vertex.*", "program.multicam.*", "program.multicam.angle.*", "program.split.*", "progress.cancel.*", "progress.job.*", "project.itemMenu.*",
     "project.menu.*", "project.menu.fontSize.*", "project.menu.restoreViewPreset.*", "project.menu.view.*", "project.searchBin.*",
     "project.tab.*", "project.tab.*.close", "projectBin.*", "projectBin.*.window", "projectDialog.*", "projectDialog.down.*",
     "projectDialog.field.*", "projectDialog.preset.*", "projectDialog.up.*", "projectSettings.*.*", "projectSettings.scratch.*",

@@ -880,3 +880,236 @@ fn gpu_denoise_timing() {
         eprintln!("denoise {l} {ch} σ{s} 1080p: {:.2} ms (frame with read-back {ms:.2} ms, without the op {base:.2} ms)", ms - base);
     }
 }
+
+/// Temporal noise reduction (`FxOp::TemporalDenoise`, fork 6.7) on the GPU against the CPU
+/// reference (`gpufx::apply_ops`): the design's synthetic sequence (half-float frames, so the
+/// source draws are lossless), flows estimated once on the CPU and uploaded as they are, radius
+/// 1 and 2, luma / chroma / both, an op before it (replayed on the neighbours) and one after,
+/// hostile params and flows, identity cases. Within 1e-3 relative; a threshold flip (a sample
+/// landing exactly on the frame edge) may change at most 1e-4 of the values.
+#[test]
+fn temporal_denoise() {
+    use filmcraft_render::flow::{FlowField, chain, estimate_pair};
+    use filmcraft_render::gpufx::{NeighbourPicture, TemporalInputs, TemporalNeighbour, apply_ops};
+    use filmcraft_render::tnr::fixture::{FRAMES, H, MID, NOISE, W, frames};
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    if let Ok(a) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) {
+        eprintln!("adapter: {}", a.get_info().name);
+    }
+    let mut c = GpuCompositor::new(&dev, &q);
+    let imgs: Vec<filmcraft_render::Image> = frames(NOISE, 0x7e57)
+        .into_iter()
+        .map(|mut im| {
+            im.px.iter_mut().for_each(|v| *v = half(*v));
+            im
+        })
+        .collect();
+    assert_eq!(imgs.len(), FRAMES);
+    let vf: Vec<Arc<VideoFrame>> = imgs.iter().map(|im| Arc::new(VideoFrame::rgba_f32(W as u32, H as u32, im.px.clone()))).collect();
+    let pair = |a: usize, b: usize| estimate_pair(&imgs[a], &imgs[b]).expect("flow");
+    let (m1, m2, p1, p2) = (pair(MID, MID - 1), pair(MID - 1, MID - 2), pair(MID, MID + 1), pair(MID + 1, MID + 2));
+    let fl: Vec<(i8, FlowField, FlowField)> = vec![
+        (-1, m1.0.clone(), m1.1.clone()),
+        (1, p1.0.clone(), p1.1.clone()),
+        (-2, chain(&m1.0, &m2.0).expect("chain"), chain(&m2.1, &m1.1).expect("chain")),
+        (2, chain(&p1.0, &p2.0).expect("chain"), chain(&p2.1, &p1.1).expect("chain")),
+    ];
+    let inputs = |fl: &[(i8, FlowField, FlowField)]| {
+        Arc::new(TemporalInputs {
+            source_size: (W as u32, H as u32),
+            neighbours: fl
+                .iter()
+                .map(|(o, f, b)| TemporalNeighbour {
+                    offset: *o,
+                    picture: NeighbourPicture::Frame { frame: vf[(MID as i64 + *o as i64) as usize].clone(), decimation: 1 },
+                    flow: Arc::new(f.clone()),
+                    back: Arc::new(b.clone()),
+                })
+                .collect(),
+        })
+    };
+    let full = inputs(&fl);
+    // hostile flows: NaN / infinite vectors on every third grid pixel of the ±1 pair
+    let mut nan = fl[..2].to_vec();
+    for (_, f, b) in &mut nan {
+        for (i, v) in f.uv.iter_mut().chain(b.uv.iter_mut()).enumerate() {
+            if i % 3 == 0 {
+                *v = [f32::NAN, f32::NEG_INFINITY];
+            }
+        }
+    }
+    let nan = inputs(&nan);
+    let tnr = |luma: f32, chroma: f32, radius: u8, motion: f32, inp: &Arc<TemporalInputs>| FxOp::TemporalDenoise {
+        luma,
+        chroma,
+        radius,
+        motion,
+        inputs: Some(inp.clone()),
+    };
+    let cases: Vec<(&str, Vec<FxOp>)> = vec![
+        ("r1 luma+chroma", vec![tnr(1.0, 1.0, 1, 0.5, &full)]),
+        ("r2 luma+chroma", vec![tnr(1.0, 1.0, 2, 0.5, &full)]),
+        ("r2 luma only, strict motion", vec![tnr(0.6, 0.0, 2, 0.0, &full)]),
+        ("r2 chroma only, loose motion", vec![tnr(0.0, 0.8, 2, 1.0, &full)]),
+        ("r9 hostile params", vec![tnr(f32::INFINITY, f32::NAN, 9, f32::NAN, &full)]),
+        ("NaN flows", vec![tnr(1.0, 1.0, 1, 0.5, &nan)]),
+        (
+            "op before (replayed) and after",
+            vec![FxOp::BrightnessContrast { br: 0.04, co: 1.1 }, tnr(1.0, 0.7, 2, 0.5, &full), FxOp::Denoise { luma: 0.5, chroma: 0.5, sigma: 1.0 }],
+        ),
+        ("no inputs", vec![FxOp::TemporalDenoise { luma: 1.0, chroma: 1.0, radius: 2, motion: 0.5, inputs: None }]),
+        ("empty inputs", vec![tnr(1.0, 1.0, 2, 0.5, &Arc::new(TemporalInputs { source_size: (W as u32, H as u32), neighbours: vec![] }))]),
+        ("zero strength", vec![tnr(0.0, 0.0, 2, 0.5, &full)]),
+        // two temporal ops in one layer (they share the spare textures; the second replays the
+        // op between them on its neighbours)
+        ("two temporal ops", vec![tnr(1.0, 0.0, 1, 0.5, &full), FxOp::BrightnessContrast { br: -0.03, co: 1.05 }, tnr(0.0, 1.0, 2, 0.8, &full)]),
+    ];
+    let mut worst_all = 0f32;
+    let mut check = |name: &str, gpu_ops: Vec<FxOp>, cpu_ops: &[FxOp], c: &mut GpuCompositor| {
+        let mut cpu = imgs[MID].clone();
+        apply_ops(cpu_ops, &mut cpu);
+        let (_, _, gpu) = c.effect_image(&vf[MID], &LayerFx { size: (W as u32, H as u32), decimation: 1, ops: gpu_ops }).expect("effect image");
+        let (worst, flips) = compare(&cpu.px, &gpu);
+        eprintln!("temporal_denoise {name}: max rel diff {worst:.2e}, flips {flips:.2e}");
+        assert!(worst < 1e-3 && flips <= 1e-4, "{name}: {worst:.2e} {flips:.2e}");
+        worst_all = worst_all.max(worst);
+    };
+    for (name, ops) in cases {
+        assert!(ops.iter().all(FxOp::gpu_ok), "{name}");
+        check(name, ops.clone(), &ops, &mut c);
+    }
+    // ready images among the neighbours: the GPU has no bind group for them (None) and skips
+    // them, shifting the slots of the source frames after them; the result is the CPU's with the
+    // source frames alone
+    let mixed = Arc::new(TemporalInputs {
+        source_size: (W as u32, H as u32),
+        neighbours: fl
+            .iter()
+            .map(|(o, f, b)| {
+                let i = (MID as i64 + *o as i64) as usize;
+                let picture = if o.abs() == 1 {
+                    NeighbourPicture::Image(Arc::new(imgs[i].clone()))
+                } else {
+                    NeighbourPicture::Frame { frame: vf[i].clone(), decimation: 1 }
+                };
+                TemporalNeighbour { offset: *o, picture, flow: Arc::new(f.clone()), back: Arc::new(b.clone()) }
+            })
+            .collect(),
+    });
+    assert!(!tnr(1.0, 1.0, 2, 0.5, &mixed).gpu_ok());
+    check("ready images skipped (slot shift)", vec![tnr(1.0, 1.0, 2, 0.5, &mixed)], &[tnr(1.0, 1.0, 2, 0.5, &inputs(&fl[2..]))], &mut c);
+    // the working-texture budget: ±2 needs 8 textures, ±1 6, none 2
+    let px = u64::from(W as u32) * u64::from(H as u32) * 16;
+    c.set_fx_vram_budget(7 * px);
+    check("over budget → ±1", vec![tnr(1.0, 1.0, 2, 0.5, &full)], &[tnr(1.0, 1.0, 1, 0.5, &full)], &mut c);
+    c.set_fx_vram_budget(1);
+    check("over budget → skipped", vec![tnr(1.0, 1.0, 2, 0.5, &full)], &[], &mut c);
+    check(
+        "over budget, other ops still run",
+        vec![FxOp::Denoise { luma: 0.5, chroma: 0.5, sigma: 1.0 }, tnr(1.0, 1.0, 2, 0.5, &full)],
+        &[FxOp::Denoise { luma: 0.5, chroma: 0.5, sigma: 1.0 }],
+        &mut c,
+    );
+    c.set_fx_vram_budget(crate::fx::FX_VRAM_BUDGET);
+    check("budget restored", vec![tnr(1.0, 1.0, 2, 0.5, &full)], &[tnr(1.0, 1.0, 2, 0.5, &full)], &mut c);
+    eprintln!("temporal_denoise GPU parity: max rel diff {worst_all:.2e}");
+}
+
+/// Regression: reading back a 6.2K working image (6224×4152 Rgba32Float, 413 MB) asked for one
+/// buffer above the device's largest (256 MiB by default) and panicked in wgpu validation; it is
+/// now read in row bands.
+#[test]
+fn effect_image_reads_back_a_6k_working_image() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (6224u32, 4152u32);
+    let px: Vec<u8> = (0..w * h).flat_map(|i| [(i % w % 256) as u8, (i / w % 256) as u8, 128, 255]).collect();
+    let frame = VideoFrame::rgba8(w, h, px);
+    let (rw, rh, out) = c.effect_image(&frame, &LayerFx { size: (w, h), decimation: 1, ops: vec![] }).expect("6.2K working image");
+    assert_eq!((rw, rh, out.len()), (w, h, (w * h * 4) as usize));
+    // a pixel in the last band: x = 200, y = 4100 → sRGB codes (200, 4100 % 256, 128), opaque
+    let i = ((4100 * w + 200) * 4) as usize;
+    let want = [200.0f32, (4100 % 256) as f32, 128.0].map(|v| filmcraft_color::srgb_to_linear(v / 255.0));
+    for k in 0..3 {
+        assert!((out[i + k] - want[k]).abs() < 2e-3, "channel {k}: {} vs {}", out[i + k], want[k]);
+    }
+    assert!((out[i + 3] - 1.0).abs() < 1e-6);
+}
+
+/// GPU cost of TemporalDenoise at 6.2K (6224×4152, 8-bit synthetic frames, uniform motion,
+/// radius 1 and 2): the effect stage with the op minus without it (source draw and read-back
+/// cancel), i.e. neighbour draws + YCC conversions + the blend. One measurement after a warm-up.
+/// `cargo test -p filmcraft-gpu --lib temporal_denoise_timing_6k -- --ignored --nocapture`.
+#[test]
+#[ignore = "timing, run by hand"]
+fn temporal_denoise_timing_6k() {
+    use filmcraft_render::flow::FlowField;
+    use filmcraft_render::gpufx::{NeighbourPicture, TemporalInputs, TemporalNeighbour};
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    if let Ok(a) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) {
+        eprintln!("adapter: {}", a.get_info().name);
+    }
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (6224u32, 4152u32);
+    let frame = |k: i32| {
+        let px: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = ((i % w) as i32 - 3 * k, (i / w) as i32 + 2 * k);
+                let v = (96 + (x * 7 + y * 3).rem_euclid(61) + (x / 9 + y / 7).rem_euclid(5) * 9) as u8;
+                [v, v.saturating_add(4), v.saturating_sub(6), 255]
+            })
+            .collect();
+        Arc::new(VideoFrame::rgba8(w, h, px))
+    };
+    let cur = frame(0);
+    let s = w.div_ceil(640) as usize;
+    let (gw, gh) = ((w as usize).div_ceil(s), (h as usize).div_ceil(s));
+    let flow = |k: i32| {
+        let mut f = FlowField::zero(gw, gh, s as f32);
+        f.uv.iter_mut().for_each(|v| *v = [3.0 * k as f32 / s as f32, -2.0 * k as f32 / s as f32]);
+        Arc::new(f)
+    };
+    let nbrs: Vec<TemporalNeighbour> = [-1i32, 1, -2, 2]
+        .iter()
+        .map(|&k| TemporalNeighbour { offset: k as i8, picture: NeighbourPicture::Frame { frame: frame(k), decimation: 1 }, flow: flow(k), back: flow(-k) })
+        .collect();
+    let inputs = Arc::new(TemporalInputs { source_size: (w, h), neighbours: nbrs });
+    // (no read-back: a 6.2K f32 image exceeds the largest buffer `effect_image` may map)
+    let mut time = |ops: Vec<FxOp>| {
+        let fx = LayerFx { size: (w, h), decimation: 1, ops };
+        let _ = stage_ms(&mut c, &cur, &fx);
+        stage_ms(&mut c, &cur, &fx)
+    };
+    let base = time(vec![]).expect("plain stage");
+    for r in [1u8, 2] {
+        let ms = time(vec![FxOp::TemporalDenoise { luma: 1.0, chroma: 1.0, radius: r, motion: 0.5, inputs: Some(inputs.clone()) }]).expect("temporal stage");
+        eprintln!("temporal_denoise radius {r} at 6224×4152 (synthetic): {:.1} ms GPU (stage {ms:.1} ms, without the op {base:.1} ms)", ms - base);
+    }
+}
+
+/// Run the effect stage of `fx` on `frame` and wait for the GPU: milliseconds from submit to idle.
+fn stage_ms(c: &mut GpuCompositor, frame: &VideoFrame, fx: &LayerFx) -> Option<f64> {
+    let sbg = c.fx_source_bg(frame, fx)?;
+    let nbrs = c.fx_neighbour_sources(fx);
+    let stage = c.fx.as_mut()?;
+    stage.begin_frame();
+    let job = stage.job(&c.device, &c.queue, fx, sbg, &nbrs, &c.dummy)?;
+    let mut enc = c.device.create_command_encoder(&Default::default());
+    stage.record(&mut enc, &job);
+    let _ = c.device.poll(wgpu::PollType::wait_indefinitely());
+    let t = std::time::Instant::now();
+    c.queue.submit([enc.finish()]);
+    let _ = c.device.poll(wgpu::PollType::wait_indefinitely());
+    let ms = t.elapsed().as_secs_f64() * 1000.0;
+    stage.end_frame();
+    Some(ms)
+}

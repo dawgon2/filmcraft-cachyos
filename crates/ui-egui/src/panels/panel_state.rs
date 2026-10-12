@@ -1,4 +1,4 @@
-//! Frontend state of the Lumetri Scopes, Timecode, Events, Progress and Reference Monitor panels
+//! Frontend state of the Lumetri Scopes, Timecode, Events, Progress, Reference Monitor and Clips panels
 //! (`UiState::panels`). Plain serde, so agents read it with `ui.inspect` (`ui.panels`) and change
 //! it with `ui.set {"panels": {"scopes": {...}, "timecode": {...}, ...}}` (fields merged).
 
@@ -14,6 +14,26 @@ pub struct PanelsState {
     pub reference: ReferenceState,
     pub events: EventsState,
     pub progress: ProgressState,
+    pub clips: ClipsState,
+}
+
+/// The Color page's Clips panel and the Program monitor's split screen.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ClipsState {
+    pub split: SplitScreen,
+}
+
+/// What the Program monitor's split screen shows (Resolve: View ▸ Split Screen).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SplitScreen {
+    #[default]
+    Off,
+    /// The previous, current and next clip.
+    Adjacent,
+    /// The selected clips (up to 16).
+    Selected,
 }
 
 /// Lumetri Scopes settings (the wrench / right-click menu and the footer).

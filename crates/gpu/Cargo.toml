@@ -44,6 +44,8 @@ ash = "0.38"
 wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan"] }
 
 [dev-dependencies]
+# `tnr::fixture`, the synthetic sequence of the temporal noise reduction parity test.
+filmcraft-render = { workspace = true, features = ["test-support"] }
 pollster = "0.4"
 filmcraft-export = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }

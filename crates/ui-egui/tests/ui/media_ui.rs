@@ -452,7 +452,7 @@ fn offline_badges_proxy_toggle_and_dialogs() {
     }
     assert_eq!(d.app().session.project.items.values().filter(|i| i.as_media().is_some_and(|m| m.proxy.is_some())).count(), 2, "proxies attached");
     d.click("program.transport.media.toggleProxies");
-    assert!(d.app().session.prefs.media.enable_proxies);
+    assert_eq!(d.app().session.prefs.media.proxies, filmcraft_engine::media_pool::ProxyMode::On);
     assert_eq!(d.ids("project.item.").into_iter().filter(|i| i.ends_with(".proxy")).count(), 2, "proxy badges");
     d.frames(20);
     d.snapshot("media-proxies-on");
@@ -514,5 +514,58 @@ fn locate_relinks_instead_of_importing() {
     assert_eq!(d.app().session.project.items.len(), items, "no new project item");
     let st = d.exec("media.status", json!({}));
     assert!(st.as_array().unwrap().iter().all(|m| m["status"] == "online"), "item {item}: {st}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// (fork 6.2) A 4:2:2 H.265 clip shows the 4:2:2 badge and its automatic proxy's progress
+/// (queued, then ready), with automation labels saying what they mean.
+#[test]
+fn automatic_proxy_and_422_badges() {
+    let root = tmp_dir("autoproxy-badges");
+    let file = root.join("C422.mov");
+    make_movie(&file, DemoScene::OceanSunset, 320, 180, 24);
+    let mut s = Session::default();
+    s.auto_proxies.first_preset = filmcraft_engine::proxies::preset("prores_proxy_half");
+    s.auto_proxies.enabled = true;
+    let r = s.execute("file.import", json!({"paths": [file.to_string_lossy()]})).unwrap();
+    let item = filmcraft_engine::project::ItemId(r["items"][0].as_u64().unwrap());
+    // the test movie is ProRes; make the clip look like 4:2:2 H.265 footage
+    let mut p = (*s.project).clone();
+    let v = p.item_mut(item).unwrap().as_media_mut().unwrap().info.video.as_mut().unwrap();
+    v.codec = "HEVC".into();
+    v.pixel_format = "YUV 4:2:2 10-bit".into();
+    s.project = Arc::new(p);
+    s.background.pause();
+    filmcraft_engine::proxy_jobs::on_import(&mut s, &[item]);
+    let mut d = Driver::new(s);
+    d.frames(4);
+    let labels = |d: &mut Driver| -> Vec<(String, String)> {
+        let v = d.ok("ui.elements", json!({"prefix": "project.item."}));
+        v.as_array().unwrap().iter().filter_map(|e| Some((e["id"].as_str()?.to_string(), e["label"].as_str().unwrap_or("").to_string()))).collect()
+    };
+    let l = labels(&mut d);
+    let c422: Vec<_> = l.iter().filter(|(id, _)| id.ends_with(".c422")).collect();
+    if filmcraft_codecs::hw::hevc_422_in_hardware() != Some(false) {
+        // a 4:2:2 hardware decoder here (fork 6.1b): no software-decode warning
+        assert!(c422.is_empty(), "{l:?}");
+    } else {
+        assert!(!c422.is_empty(), "{l:?}");
+        assert!(c422.iter().all(|(_, label)| label == "4:2:2: software decode, proxies recommended"));
+    }
+    assert!(l.iter().any(|(id, label)| id.ends_with(".proxy") && label == "Proxy queued"), "{l:?}");
+    d.snapshot("media-proxy-queued-422");
+    d.app().session.background.resume();
+    for _ in 0..600 {
+        d.frames(1);
+        if d.app().session.project.item(item).and_then(|i| i.as_media()).is_some_and(|m| m.proxy.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    d.frames(4);
+    let l = labels(&mut d);
+    assert!(l.iter().any(|(id, label)| id.ends_with(".proxy") && label == "Proxy attached"), "{l:?}");
+    assert!(!l.iter().any(|(id, _)| id.ends_with(".c422")), "no 4:2:2 warning once the proxy is there: {l:?}");
+    d.snapshot("media-proxy-ready");
     let _ = std::fs::remove_dir_all(&root);
 }

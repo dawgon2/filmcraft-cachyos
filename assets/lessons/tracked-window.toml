@@ -18,9 +18,9 @@ target = "header.workspaces"
 expect = { element = "panel.ColorPrimaries" }
 
 [[step]]
-text = "Select the clip with the face in the timeline, and put the playhead on a frame where the face is clear."
+text = "Select the clip with the face in the Clips strip (or the timeline), and put the playhead on a frame where the face is clear."
 why = "Tracking starts from the frame under the playhead."
-target = "timeline.tracks"
+target = ["clips.strip", "timeline.tracks"]
 expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
 
 [[step]]

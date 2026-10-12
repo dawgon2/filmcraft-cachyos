@@ -248,3 +248,88 @@ fn effect_costs() {
         println!("{ms:8.2} ms  {id:24} tier {:.0}", effect_cost_ms(id));
     }
 }
+
+fn media_mut(p: &mut Project, id: ItemId) -> &mut MediaClip {
+    match &mut p.item_mut(id).unwrap().kind {
+        ItemKind::Media(m) => m,
+        _ => panic!("not media"),
+    }
+}
+
+#[test]
+fn attaching_or_detaching_a_proxy_keeps_hashes() {
+    let (mut p, matte, ocean, seq) = setup();
+    let a = place(&mut p, seq, 0, ocean, 0, 48);
+    place(&mut p, seq, 1, matte, 24, 48);
+    add_fx(&mut p, seq, a, "lumetri");
+    let before = video_segments(&p, seq);
+    media_mut(&mut p, ocean).proxy = Some(MediaRef::File { path: "/proxies/ocean_Proxy.0123456789abcdef.mov".into() });
+    media_mut(&mut p, matte).proxy = Some(MediaRef::File { path: "/proxies/matte_Proxy.mov".into() });
+    assert_eq!(before, video_segments(&p, seq), "attaching a proxy keeps every preview");
+    media_mut(&mut p, ocean).proxy = None;
+    assert_eq!(before, video_segments(&p, seq), "detaching too");
+    // and across save / load with a proxy attached
+    let loaded = Project::from_json(&p.to_json()).unwrap();
+    assert_eq!(before, video_segments(&loaded, seq));
+}
+
+#[test]
+fn grade_output_size_and_source_identity_change_hashes() {
+    let (mut p, _matte, ocean, seq) = setup();
+    let a = place(&mut p, seq, 0, ocean, 0, 48);
+    let before = by_frame(&video_segments(&p, seq), 10);
+    // a grade on the clip
+    p.sequence_mut(seq).unwrap().find_item_mut(a).unwrap().1.grade = Some(filmcraft_project::grade::Grade { bypass: true, ..Default::default() });
+    assert_ne!(before, by_frame(&video_segments(&p, seq), 10), "a grade changes the hash");
+    p.sequence_mut(seq).unwrap().find_item_mut(a).unwrap().1.grade = None;
+    assert_eq!(before, by_frame(&video_segments(&p, seq), 10), "removing it restores the hash");
+    // output (sequence) size
+    p.sequence_mut(seq).unwrap().settings.width = 1280;
+    p.sequence_mut(seq).unwrap().settings.height = 720;
+    assert_ne!(before, by_frame(&video_segments(&p, seq), 10), "output size changes the hash");
+    p.sequence_mut(seq).unwrap().settings.width = 1920;
+    p.sequence_mut(seq).unwrap().settings.height = 1080;
+    assert_eq!(before, by_frame(&video_segments(&p, seq), 10));
+    // source identity (a different file behind the same media item)
+    media_mut(&mut p, ocean).identity = Some(filmcraft_project::MediaIdentity { size: 1000, fingerprint: 0x1234 });
+    let id1 = by_frame(&video_segments(&p, seq), 10);
+    assert_ne!(before, id1, "identity changes the hash");
+    media_mut(&mut p, ocean).identity = Some(filmcraft_project::MediaIdentity { size: 1000, fingerprint: 0x5678 });
+    assert_ne!(id1, by_frame(&video_segments(&p, seq), 10), "a different fingerprint changes the hash");
+}
+
+/// Temporal noise reduction (fork 6.7) renders only in the cache, at export and on the paused
+/// frame: every `tnr.*` edit changes the segment hash (the cached part is re-rendered) and a clip
+/// with it needs rendering.
+#[test]
+fn temporal_nr_edits_change_the_hash_and_need_rendering() {
+    use filmcraft_project::Param;
+    use filmcraft_project::grade::{Grade, GradeNode};
+    let (mut p, _matte, ocean, seq) = setup();
+    let a = place(&mut p, seq, 0, ocean, 0, 48);
+    let set = |p: &mut Project, params: &[(&str, f64)]| {
+        let mut n = GradeNode::new(1);
+        for (k, v) in params {
+            n.params.insert((*k).into(), Param::new(ParamValue::Float(*v)));
+        }
+        p.sequence_mut(seq).unwrap().find_item_mut(a).unwrap().1.grade = Some(Grade { nodes: vec![n], bypass: false });
+        let s = video_segments(p, seq);
+        let seg = segment_at(&s, 10).unwrap();
+        (seg.hash.clone(), seg.need)
+    };
+    let (none, need0) = set(&mut p, &[]);
+    let (luma, need1) = set(&mut p, &[("tnr.luma", 0.5)]);
+    let (chroma, _) = set(&mut p, &[("tnr.luma", 0.5), ("tnr.chroma", 0.5)]);
+    let (frames, _) = set(&mut p, &[("tnr.luma", 0.5), ("tnr.chroma", 0.5), ("tnr.frames", 2.0)]);
+    let (motion, _) = set(&mut p, &[("tnr.luma", 0.5), ("tnr.chroma", 0.5), ("tnr.frames", 2.0), ("tnr.motion", 0.9)]);
+    let all = [&none, &luma, &chroma, &frames, &motion];
+    for (i, x) in all.iter().enumerate() {
+        for y in all.iter().skip(i + 1) {
+            assert_ne!(x, y, "every tnr edit changes the hash");
+        }
+    }
+    assert_ne!(need0, Need::Render);
+    assert_eq!(need1, Need::Render, "temporal NR never plays live: the segment needs rendering");
+    // back to no temporal NR: the hash and the need return
+    assert_eq!(set(&mut p, &[]), (none, need0));
+}

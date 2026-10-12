@@ -60,6 +60,24 @@ fixture_tests!(
     uhd_4k_main10,
     vt_main,
     vt_main10,
+    intra_422,
+    intra_nosao_nodbk_422,
+    nosao_nodbk_422,
+    medium_422,
+    bframes_422,
+    slow_422,
+    odd_422_1918x1078,
+    slices4_422,
+    qp30_422,
+    cbqp_422,
+    rect_amp_422,
+    ctu16_422,
+    tu4_422,
+    tskip_422,
+    weightp_422,
+    constrained_intra_422,
+    cu_lossless_422,
+    scaling_list_422,
 );
 
 /// Draft mode: sub-layer non-reference pictures skip deblocking and SAO and are flagged; every
@@ -67,16 +85,14 @@ fixture_tests!(
 #[test]
 fn draft_mode_changes_only_flagged_non_reference_pictures() {
     let mut checked = 0;
-    for name in ["bframes", "medium", "slow", "weightp_main10"] {
+    for name in ["bframes", "medium", "slow", "weightp_main10", "bframes_422"] {
         let f = common::fixture(name);
         let Some((hevc, yuv)) = common::ensure(f) else {
             eprintln!("skipped {name}");
             continue;
         };
         let reference = std::fs::read(&yuv).unwrap();
-        let (w, h) = (f.width as usize, f.height as usize);
-        let bps = if f.bit_depth > 8 { 2 } else { 1 };
-        let fsize = (w * h + 2 * w.div_ceil(2) * h.div_ceil(2)) * bps;
+        let fsize = common::frame_size(f);
         for threads in [1, 3] {
             let pics = common::decode_file_opts(&hevc, threads, true).unwrap_or_else(|(au, e, _)| panic!("{name}: error at {au}: {e}"));
             common::check_pts(&pics).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -125,10 +141,10 @@ fn compare_detects_mismatch() {
     let Some((hevc, yuv)) = common::ensure(f) else { return };
     let pics = common::decode_file_threads(&hevc, 1).map_err(|e| e.1).unwrap();
     let mut reference = std::fs::read(yuv).unwrap();
-    common::compare(&pics, &reference, f.width as usize, f.height as usize, f.bit_depth).unwrap();
+    common::compare_fixture(&pics, &reference, f).unwrap();
     let pos = reference.len() - 7;
     reference[pos] ^= 1;
-    let err = common::compare(&pics, &reference, f.width as usize, f.height as usize, f.bit_depth).unwrap_err();
+    let err = common::compare_fixture(&pics, &reference, f).unwrap_err();
     assert!(err.contains("plane V"), "{err}");
 }
 

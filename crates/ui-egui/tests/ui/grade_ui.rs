@@ -235,6 +235,81 @@ fn clicks_are_separate_undo_steps_and_full_strips_scroll() {
 }
 
 #[test]
+fn rename_names_a_node_in_place_and_escape_cancels() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    let clip = select_first_clip(&mut d);
+    d.frames(2);
+    d.click("grade.addFirst");
+    d.click("grade.addNode");
+    let first = grade(&mut d, clip)["nodes"][0]["id"].as_u64().unwrap();
+    d.click(&format!("grade.node.{first}"));
+    // Rename opens a field on the node; Enter keeps the name (one undo step)
+    d.click("grade.renameNode");
+    assert!(d.element("grade.renameNode.field").is_some(), "rename field shown");
+    d.ok("ui.type", json!({"text": "Balance"}));
+    d.ok("ui.key", json!({"key": "Enter"}));
+    d.frames(2);
+    assert!(d.element("grade.renameNode.field").is_none(), "field closed");
+    assert_eq!(grade(&mut d, clip)["nodes"][0]["label"], json!("Balance"));
+    d.snapshot("grade-node-renamed", Some("grade.node."));
+    // Esc leaves the name as it was
+    d.click("grade.renameNode");
+    d.ok("ui.type", json!({"text": " more"}));
+    d.ok("ui.key", json!({"key": "Escape"}));
+    d.frames(2);
+    assert!(d.element("grade.renameNode.field").is_none());
+    assert_eq!(grade(&mut d, clip)["nodes"][0]["label"], json!("Balance"));
+    d.exec("edit.undo", json!({}));
+    assert_eq!(grade(&mut d, clip)["nodes"][0]["label"].as_str().unwrap_or(""), "");
+}
+
+#[test]
+fn color_page_clips_strip_and_split_screen() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(4);
+    // Resolve's Color page: the clips strip spans the width with no meters or tools beside it
+    let ids = d.ids("");
+    assert!(ids.iter().any(|i| i == "clips.strip" || i.starts_with("clips.card.")), "clips strip shown");
+    assert!(!ids.iter().any(|i| i.starts_with("audioMeters.")), "no audio meters on the Color page");
+    let seq = d.exec("sequence.inspect", json!({}));
+    let items = seq["video"][0]["items"].as_array().cloned().unwrap_or_default();
+    assert!(items.len() >= 2, "demo has two clips: {seq}");
+    let (a, b) = (items[0]["clip"].as_u64().unwrap(), items[1]["clip"].as_u64().unwrap());
+    // a card selects its clip and moves the playhead into it
+    d.click(&format!("clips.card.{b}"));
+    let st = d.exec("sequence.inspect", json!({}));
+    assert!(st["selection"].as_array().is_some_and(|v| v.contains(&json!(b)) && !v.contains(&json!(a))), "clip {b} selected: {}", st["selection"]);
+    let (start, end) = (items[1]["start"].as_i64().unwrap(), items[1]["end"].as_i64().unwrap());
+    let ph = st["playhead"].as_i64().unwrap();
+    assert!(start <= ph && ph < end, "playhead {ph} in clip {b} ({start}..{end})");
+    // the mini timeline seeks
+    let ph0 = d.exec("sequence.inspect", json!({}))["playhead"].as_i64().unwrap_or(-1);
+    d.ok("ui.click", json!({"id": "clips.mini", "fx": 0.02, "fy": 0.5}));
+    d.frames(2);
+    let ph1 = d.exec("sequence.inspect", json!({}))["playhead"].as_i64().unwrap_or(-1);
+    assert_ne!(ph0, ph1, "mini timeline click moved the playhead");
+    d.click("grade.addFirst");
+    d.frames(3);
+    d.snapshot("color-page", None);
+    // split screen: adjacent clips tile the Program monitor; a tile click selects that clip
+    d.ok("ui.menu.invoke", json!({"id": "view.splitScreen.adjacent"}));
+    d.frames(3);
+    let tiles = d.ids("program.split.");
+    assert!(tiles.iter().any(|t| t == &format!("program.split.{a}")) && tiles.iter().any(|t| t == &format!("program.split.{b}")), "{tiles:?}");
+    d.snapshot("color-page-split", None);
+    d.click(&format!("program.split.{a}"));
+    let st = d.exec("sequence.inspect", json!({}));
+    assert!(st["selection"].as_array().is_some_and(|v| v.contains(&json!(a)) && !v.contains(&json!(b))), "tile selects clip {a}: {}", st["selection"]);
+    // Ctrl+Alt+W toggles it off
+    d.ok("ui.menu.invoke", json!({"id": "view.splitScreen.toggle"}));
+    d.frames(2);
+    assert!(d.ids("program.split.").is_empty(), "split screen off");
+}
+
+#[test]
 fn resolve_workflow_shows_pages_and_color_opens_the_node_grader() {
     let mut d = Driver::demo();
     d.frames(2);

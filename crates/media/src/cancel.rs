@@ -47,10 +47,16 @@ thread_local! {
 /// A video engine running flat out made the GPU's compositing wait 40–100 ms per frame on an
 /// RX 6700 XT (Mesa radeonsi, VCN 3); paced, it did not.
 pub fn with_pace<R>(interval: Option<Duration>, f: impl FnOnce() -> R) -> R {
-    let prev = PACE.with(|c| c.replace(interval));
-    let r = f();
-    PACE.with(|c| c.set(prev));
-    r
+    /// Restores the previous pace however `f` ends (a panic caught further up must not leave the
+    /// thread paced).
+    struct Restore(Option<Duration>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PACE.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(PACE.with(|c| c.replace(interval)));
+    f()
 }
 
 /// The hardware-decode pace of the work running on this thread (None: as fast as it goes).
@@ -143,10 +149,17 @@ pub fn catch_up() -> Option<Tick> {
 
 /// Run `f` with `flag` as this thread's cancellation flag (restoring the previous one after).
 pub fn with_cancel<R>(flag: &Arc<AtomicBool>, f: impl FnOnce() -> R) -> R {
-    let prev = CURRENT.with(|c| c.replace(Some(flag.clone())));
-    let r = f();
-    CURRENT.with(|c| *c.borrow_mut() = prev);
-    r
+    /// Restores the previous flag however `f` ends (a panic caught further up must not leave the
+    /// thread with a stale flag).
+    struct Restore(Option<Arc<AtomicBool>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let prev = self.0.take();
+            CURRENT.with(|c| *c.borrow_mut() = prev);
+        }
+    }
+    let _restore = Restore(CURRENT.with(|c| c.replace(Some(flag.clone()))));
+    f()
 }
 
 /// Whether the work running on this thread has been cancelled.
@@ -197,6 +210,24 @@ mod tests {
         let r = std::panic::catch_unwind(|| with_background(true, || panic!("boom")));
         assert!(r.is_err());
         assert!(!background());
+    }
+
+    #[test]
+    fn a_panic_inside_cancel_or_pace_restores_the_outer_values() {
+        let outer = Arc::new(AtomicBool::new(false));
+        let inner = Arc::new(AtomicBool::new(true));
+        with_cancel(&outer, || {
+            with_pace(Some(Duration::from_millis(3)), || {
+                let r = std::panic::catch_unwind(|| with_cancel(&inner, || with_pace(Some(Duration::from_millis(9)), || panic!("boom"))));
+                assert!(r.is_err());
+                assert!(!cancelled(), "the outer flag again, not the inner (set) one");
+                assert_eq!(pace(), Some(Duration::from_millis(3)));
+            });
+        });
+        let r = std::panic::catch_unwind(|| with_cancel(&inner, || with_pace(Some(Duration::from_millis(9)), || panic!("boom"))));
+        assert!(r.is_err());
+        assert!(!cancelled(), "no flag left on the thread");
+        assert_eq!(pace(), None);
     }
 
     #[test]

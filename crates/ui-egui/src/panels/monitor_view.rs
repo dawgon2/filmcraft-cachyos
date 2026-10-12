@@ -127,6 +127,22 @@ pub fn route(app: &mut FilmcraftApp, id: &str, params: &Value) -> Option<Result<
     if let Some(d) = rest.strip_prefix("display.") {
         return Some(set_display(app, w, d));
     }
+    if let Some(m) = rest.strip_prefix("splitScreen.") {
+        use crate::panels::panel_state::SplitScreen;
+        let cur = app.ui.panels.clips.split;
+        let mode = match m {
+            "off" => SplitScreen::Off,
+            "adjacent" => SplitScreen::Adjacent,
+            "selected" => SplitScreen::Selected,
+            // Resolve's Ctrl+Alt+W: adjacent clips, or the selected ones when several are selected
+            "toggle" if cur != SplitScreen::Off => SplitScreen::Off,
+            "toggle" if app.session.state.selection.len() > 1 => SplitScreen::Selected,
+            "toggle" => SplitScreen::Adjacent,
+            _ => return None,
+        };
+        app.ui.panels.clips.split = mode;
+        return Some(Ok(json!({"splitScreen": mode})));
+    }
     if let Some(z) = rest.strip_prefix("magnification.") {
         let zoom = if z == "fit" { None } else { Some(ZOOMS.iter().find(|(n, _)| *n == z)?.1) };
         let v = view_mut(app, w);
@@ -298,6 +314,16 @@ pub fn checked(app: &FilmcraftApp, id: &str) -> Option<bool> {
         };
         return Some(v.display_mode() == Some(*mode));
     }
+    if let Some(m) = rest.strip_prefix("splitScreen.") {
+        use crate::panels::panel_state::SplitScreen;
+        let mode = app.ui.panels.clips.split;
+        return match m {
+            "off" => Some(mode == SplitScreen::Off),
+            "adjacent" => Some(mode == SplitScreen::Adjacent),
+            "selected" => Some(mode == SplitScreen::Selected),
+            _ => None,
+        };
+    }
     if let Some(z) = rest.strip_prefix("magnification.") {
         return Some(if z == "fit" { v.zoom.is_none() } else { ZOOMS.iter().find(|(n, _)| *n == z).is_some_and(|(_, f)| v.zoom == Some(*f)) });
     }
@@ -356,7 +382,8 @@ pub fn picture_rect(area: Rect, fw: f32, fh: f32, v: &MonitorView, ppp: f32) -> 
 }
 
 /// Zoom and pan the picture `pic` shown in `area`: the wheel (or a pinch) zooms about the pointer,
-/// from Fit too, between the zoom menu's 10% and 1600%; a middle-button drag, or a drag with the
+/// from Fit too, between Fit and the zoom menu's 1600% (zooming out ends at Fit; the menu still
+/// offers sizes below it); a middle-button drag, or a drag with the
 /// Hand tool, pans a magnified picture. `fw` is the picture's width in frame pixels.
 pub fn zoom_pan_input(app: &mut FilmcraftApp, ui: &mut egui::Ui, w: Which, area: Rect, pic: Rect, fw: f32, ppp: f32) {
     let ctx = ui.ctx().clone();
@@ -369,6 +396,15 @@ pub fn zoom_pan_input(app: &mut FilmcraftApp, ui: &mut egui::Ui, w: Which, area:
         if (f - 1.0).abs() > 1e-4 && pic.width() > 0.0 && fw > 0.0 {
             let cur = pic.width() * ppp / fw;
             let z = (cur * f).clamp(ZOOMS[0].1, ZOOMS[ZOOMS.len() - 1].1);
+            // zooming out stops at Fit (and stays Fit, scaling with the panel) instead of leaving
+            // a fixed size smaller than the panel
+            let fitted = crate::panels::monitor::fit(area, fw, fw * pic.height() / pic.width());
+            if f < 1.0 && z <= fitted.width() * ppp / fw * 1.001 {
+                let v = view_mut(app, w);
+                v.zoom = None;
+                v.pan = [0.0, 0.0];
+                return;
+            }
             let k = z / cur;
             // the point of the picture under the pointer stays under it
             let centre = p - (p - pic.center()) * k;

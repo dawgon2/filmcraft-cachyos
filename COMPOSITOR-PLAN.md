@@ -2,7 +2,7 @@
 
 Written 2026-10-11 (session 8, with the owner). **Phase C1** (a deliberately small compositor) and **C2** are
 scheduled **right after Y3, before Phase 7** (owner, moved 2026-10-11, so Phase 7's soak and real-edit check cover them): FORK-PLAN §1a.6: G0 ✓ → G1 ✓ → U0 ✓ → G2 → G2b → 6 → Y1 → 6E → U0.2 → Y3 → C1 → C2 → 7 (+ Y4) → D → 8 → Y2 → H1 → H2 → H3.
-**C2 (the grader's parallel / layer nodes) is scheduled (owner, 2026-10-11); C3 and later are deferred: don't start them without the owner.** All FORK-PLAN rules apply
+**C2 (the grader's parallel / layer nodes) is scheduled (owner, 2026-10-11). C3 and C4 are approved and scheduled after H3 (owner, 2026-10-12, FORK-PLAN §1a.6 / §1a.35); C5 and later stay deferred: don't start them without the owner.** All FORK-PLAN rules apply
 (never crash, `Tick` time, everything is a command, every widget has an automation id, layering).
 
 Fusion (in DaVinci Resolve) composites with a graph of nodes instead of stacked layers, e.g.
@@ -69,9 +69,26 @@ evaluation engine and canvas.
 render identically on CPU and GPU, round-trip through save / load, and play graded 6.2K in the
 quick pass without a regression beyond noise. Tag `comp-2`.
 
-## Deferred (needs the owner): C3 and later
+## Phase C3: tracking, paint and roto (approved, owner 2026-10-12; ≈ 60–120 h)
 
-- **C3:** tracker and planar-tracker nodes, paint and roto brush.
-- **C4:** expressions (a small, safe expression language), macros / groups, templates.
-- **C5:** 3D (cameras, 3D text, simple lights), particles.
+Tracker node (reuses `crates/render/src/track.rs`: point / multi-point, stabilise, match move,
+corner pin) and a **planar tracker** node (homography tracking of a user-drawn region, with
+corner-pin output); GRADE-PLAN G4 reuses it for planar-tracked windows. **Paint** (clone / reveal
+/ colour strokes, per frame or held, stroke list editable) and **roto** (Bézier / B-spline shapes,
+per-point feather, keyframed, track-assisted). **Accept:** synthetic motion with a known path is
+tracked within a set pixel error (point and planar); a corner-pinned insert stays locked; roto and
+paint strokes survive save / load. Tag `comp-3`.
+
+## Phase C4: expressions, macros and templates (approved, owner 2026-10-12; ≈ 30–60 h)
+
+A small, safe expression language for parameters (time, other parameters, arithmetic, `sin` /
+`noise` etc.; no I/O, bounded evaluation, parse errors shown not crashed), node groups / macros
+with exposed parameters, and saved comp templates. **Accept:** hostile expressions (deep nesting,
+huge loops, NaN) never crash or hang; a macro round-trips through save / load. Tag `comp-4`.
+
+## Deferred (needs the owner): C5 and later
+
+- **C5:** 3D (cameras, 3D text, simple lights), particles. Owner, 2026-10-12: maybe in the
+  latter reaches, unsure how much use it would serve; reconsider after C4 (Blender and Send to
+  Resolve cover most of it meanwhile).
 - Plugin nodes come from PLUGIN-PLAN.md once that exists.

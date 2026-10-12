@@ -122,6 +122,14 @@ pub const NODE_PARAMS: &[NodeParam] = &[
     NodeParam { key: "nr.luma", label: "NR luma", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
     NodeParam { key: "nr.chroma", label: "NR chroma", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
     NodeParam { key: "nr.size", label: "NR radius", kind: NodeParamKind::Float { identity: 1.5, min: 0.25, max: 3.5 } },
+    // temporal noise reduction (fork 6.7) at the node's input, before the spatial NR: luma /
+    // chroma strength, frames each side (1 or 2, rounded), motion tolerance. Renders only at
+    // export, in the render cache and on the paused Program frame; v1 honours it on the first
+    // active node only (provisional, owner question Q9)
+    NodeParam { key: "tnr.luma", label: "Temporal NR luma", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "tnr.chroma", label: "Temporal NR chroma", kind: NodeParamKind::Float { identity: 0.0, min: 0.0, max: 1.0 } },
+    NodeParam { key: "tnr.frames", label: "Temporal NR frames", kind: NodeParamKind::Float { identity: 1.0, min: 1.0, max: 2.0 } },
+    NodeParam { key: "tnr.motion", label: "Temporal NR motion", kind: NodeParamKind::Float { identity: 0.5, min: 0.0, max: 1.0 } },
     // the node's LUT mix (G2.6)
     NodeParam { key: "lut.mix", label: "LUT mix", kind: NodeParamKind::Float { identity: 1.0, min: 0.0, max: 1.0 } },
     // highlight soft clip (G2.5): above the knee (on the grading signal) values roll off
@@ -312,6 +320,27 @@ mod tests {
         let many = (0..10_000).map(|i| [i as f32 / 10_000.0, 0.5]).collect();
         n.params.insert("curve.b".into(), Param::new(ParamValue::Curve(many)));
         assert_eq!(n.curve("curve.b").map(|c| c.len()), Some(MAX_CURVE_POINTS));
+    }
+
+    #[test]
+    fn temporal_nr_keys_default_to_identity_and_clamp() {
+        let mut n = GradeNode::new(1);
+        let t = Tick(0);
+        let read = |n: &GradeNode| ["tnr.luma", "tnr.chroma", "tnr.frames", "tnr.motion"].map(|k| n.float_at(k, t));
+        // missing: identity (old projects unchanged)
+        assert_eq!(read(&n), [0.0, 0.0, 1.0, 0.5]);
+        for (k, v) in [("tnr.luma", 7.0), ("tnr.chroma", -1.0), ("tnr.frames", 99.0), ("tnr.motion", f64::NAN)] {
+            n.params.insert(k.into(), Param::new(ParamValue::Float(v)));
+        }
+        assert_eq!(read(&n), [1.0, 0.0, 2.0, 0.5]);
+        n.params.insert("tnr.luma".into(), Param::new(ParamValue::Float(f64::INFINITY)));
+        n.params.insert("tnr.frames".into(), Param::new(ParamValue::Text("2".into())));
+        assert_eq!(read(&n), [0.0, 0.0, 1.0, 0.5]);
+        // an old project's node (no tnr keys) round-trips without gaining any
+        let old = GradeNode::new(3);
+        let json = serde_json::to_string(&old).unwrap();
+        assert!(!json.contains("tnr"));
+        assert_eq!(serde_json::from_str::<GradeNode>(&json).unwrap(), old);
     }
 
     #[test]

@@ -152,6 +152,10 @@ pub fn register() -> Availability {
         let mut available = if native.is_ok() || upstream.is_ok() || pipe {
             filmcraft_codecs::register_video_decoder(vaapi_factory);
             filmcraft_codecs::hw::set_hw_backend("VA-API");
+            // 4:2:2 HEVC on a display with Main 4:2:2 10 (fork 6.1b): the clip badges ask this,
+            // without waiting for the display search, which starts now in the background
+            va_hevc::warm_422_probe();
+            filmcraft_codecs::hw::set_hevc_422_probe(va_hevc::hardware_422_ready);
             Availability::Available("VA-API")
         } else {
             Availability::Unavailable("no VA-API driver (libva and a DRM render node), no ffmpeg with a VA-API device and no NVIDIA driver (NVDEC)")
@@ -225,6 +229,21 @@ pub fn hardware_decoder_for(entry: &filmcraft_isobmff::SampleEntry) -> bool {
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = entry;
+        false
+    }
+}
+
+/// Whether HEVC Main 4:2:2 10 clips decode in hardware on this system (fork Phase 6.1b: VA-API on
+/// a display with that profile, Hardware decoding on, no 4:2:2 hardware failure this session),
+/// waiting for the display search (diagnostics, tests). False: they decode in software.
+pub fn hevc_422_in_hardware() -> bool {
+    // (the UI asks the non-blocking `filmcraft_codecs::hw::hevc_422_in_hardware`)
+    #[cfg(target_os = "linux")]
+    {
+        va_hevc::hardware_422()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
         false
     }
 }

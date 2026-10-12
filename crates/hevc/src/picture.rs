@@ -33,6 +33,8 @@ pub struct Frame {
     pub height: usize,
     pub cwidth: usize,
     pub cheight: usize,
+    /// log2(SubHeightC): 1 for 4:2:0, 0 for 4:2:2 (chroma is always half width).
+    pub csy: u32,
     pub log2_ctb: u32,
     pub bit_depth: u32,
     pub bit_depth_c: u32,
@@ -40,15 +42,18 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new(id: u32, poc: i32, width: usize, height: usize, log2_ctb: u32, bit_depth: u32, bit_depth_c: u32) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(id: u32, poc: i32, width: usize, height: usize, csy: u32, log2_ctb: u32, bit_depth: u32, bit_depth_c: u32) -> Self {
         let n = height.div_ceil(1 << log2_ctb);
+        let csy = csy.min(1);
         Frame {
             id,
             poc,
             width,
             height,
             cwidth: width / 2,
-            cheight: height / 2,
+            cheight: height >> csy,
+            csy,
             log2_ctb,
             bit_depth,
             bit_depth_c,
@@ -127,7 +132,7 @@ impl Frame {
     /// Copy a w x h window of chroma component `c` (0 = Cb, 1 = Cr) with edge replication.
     pub fn chroma_window(&self, c: usize, x0: i32, y0: i32, w: usize, h: usize, out: &mut [i16], os: usize) {
         let (cw, ch) = (self.cwidth as i32, self.cheight as i32);
-        let sh = self.log2_ctb - 1;
+        let sh = self.log2_ctb - self.csy;
         let mask = (1i32 << sh) - 1;
         for r in 0..h {
             let yy = (y0 + r as i32).clamp(0, ch - 1);
@@ -148,8 +153,9 @@ impl Frame {
             let o = (r % ctb) * self.width + cx;
             y.extend_from_slice(&row.y[o..o + cw]);
         }
-        let (ccx, ccy, ccw, cch) = (cx / 2, cy / 2, cw.div_ceil(2), ch.div_ceil(2));
-        let cctb = ctb / 2;
+        let cch = if self.csy == 1 { ch.div_ceil(2) } else { ch };
+        let (ccx, ccy, ccw) = (cx / 2, cy >> self.csy, cw.div_ceil(2));
+        let cctb = ctb >> self.csy;
         let mut u = Vec::with_capacity(ccw * cch);
         let mut v = Vec::with_capacity(ccw * cch);
         for r in ccy..ccy + cch {
@@ -164,14 +170,15 @@ impl Frame {
     /// A frame with every row published from full-picture planes and no motion (used to replace missing
     /// reference pictures).
     pub fn from_planes(id: u32, poc: i32, like: &Frame, y: &[u16], cb: &[u16], cr: &[u16]) -> Frame {
-        let f = Frame::new(id, poc, like.width, like.height, like.log2_ctb, like.bit_depth, like.bit_depth_c);
+        let f = Frame::new(id, poc, like.width, like.height, like.csy, like.log2_ctb, like.bit_depth, like.bit_depth_c);
         let ctb = 1usize << f.log2_ctb;
         let w16 = f.width16();
         for r in 0..f.num_rows() {
             let lines = f.row_lines(r);
             let (y0, y1) = (r * ctb * f.width, (r * ctb + lines) * f.width);
-            let clines = lines.div_ceil(2);
-            let (c0, c1) = (r * ctb / 2 * f.cwidth, (r * ctb / 2 + clines) * f.cwidth);
+            let clines = if f.csy == 1 { lines.div_ceil(2) } else { lines };
+            let crow = (r * ctb) >> f.csy;
+            let (c0, c1) = (crow * f.cwidth, (crow + clines) * f.cwidth);
             f.publish(
                 r,
                 FrameRow { y: y[y0..y1].into(), cb: cb[c0..c1].into(), cr: cr[c0..c1].into(), col: vec![ColMv::default(); w16 * lines.div_ceil(16)].into() },

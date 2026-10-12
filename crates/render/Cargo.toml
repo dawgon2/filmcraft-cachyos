@@ -24,6 +24,10 @@ log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[features]
+# Test fixtures other crates' tests share (`tnr::fixture`); never enabled by product code.
+test-support = []
+
 [dev-dependencies]
 # examples/explain_traindata.rs (G2.11b): the explain prompt the model sees (L2, below render).
 filmcraft-llm = { workspace = true }

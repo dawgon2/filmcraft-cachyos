@@ -31,7 +31,8 @@ and fixture generators.
 | Frame-level multithreading (CTB-row granularity dependencies) | done |
 | Draft mode (non-reference pictures skip deblocking / SAO; reduced-resolution playback only) | done |
 | Tiles / WPP | parsed and decoded sequentially within a picture (parallelism is across pictures) |
-| 4:2:2 / 4:4:4 / monochrome, range-extension tools (RExt), 12-bit+ with extended precision | not yet (`Error::Unsupported`) |
+| 4:2:2 (Main 4:2:2 10 without RExt tools: Table 8-3 chroma mode mapping, stacked chroma TBs, QpC, chroma deblocking grid, MC) | done |
+| 4:4:4 / monochrome, range-extension tools (RExt), 12-bit+ with extended precision | not yet (`Error::Unsupported`) |
 | SCC, multilayer (SHVC / MV-HEVC), 3D extensions | not supported (layers > 0 are ignored) |
 
 ## API
@@ -95,7 +96,7 @@ with ffmpeg; tests print a message and skip when ffmpeg is absent).
 - Robustness: hvcC input with pts round trip; randomly corrupted, truncated and garbage input never
   panics or deadlocks (single- and multi-threaded).
 - Conformance (`tests/conformance.rs`): every fixture is decoded with 1 thread, 3 threads and every
-  core and compared sample-exactly with `ffmpeg -f rawvideo -pix_fmt yuv420p / yuv420p10le`; on mismatch
+  core and compared sample-exactly with `ffmpeg -f rawvideo -pix_fmt yuv420p / yuv420p10le / yuv422p10le`; on mismatch
   the first differing frame, plane, sample, CTB and 8x8 block are reported. Output pts/POC order is
   checked too, and that no picture is flagged draft without draft mode. `compare_detects_mismatch`
   guards the harness itself. Draft mode (`draft_mode_changes_only_flagged_non_reference_pictures`):
@@ -183,12 +184,12 @@ context-coded bins are branch-free. Single-threaded 4K now splits into CABAC res
 
 ## Known gaps
 
-- 4:2:2 (Main 4:2:2 10, RExt) is the next step: chroma geometry is 4:2:0-specific in `slicedec`
-  (chroma TU placement, second chroma cbf flags, Table 8-3 intra mode mapping), `inter` (vertical
-  chroma MV scaling), `filter` (chroma edge spacing, QpC = Min(qPi, 51)) and `picture`. Range
-  extension tools (implicit / explicit RDPCM, cross-component prediction, extended precision,
-  persistent Rice adaptation, bypass alignment, chroma QP offset lists) are rejected with
-  `Error::Unsupported`.
+- 4:2:2 streams that enable range extension tools (implicit / explicit RDPCM, cross-component
+  prediction, extended precision, persistent Rice adaptation, bypass alignment, transform skip
+  above 4x4, chroma QP offset lists, SAO offset scaling) are rejected with `Error::Unsupported`
+  naming the tools; libx265 sets none of them. `cargo run -p filmcraft-hevc --example hevcinfo --
+  in.hevc` prints a stream's SPS / PPS and which tools it enables. 4:4:4 and monochrome are not
+  implemented.
 - Tiles and WPP substreams are decoded sequentially (entry points are parsed but the decoder finds
   substream starts itself); parallelism is at the picture level.
 - Error concealment is minimal: missing references are replaced by grey pictures, undecodable

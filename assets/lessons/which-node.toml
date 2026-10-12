@@ -23,9 +23,9 @@ target = "header.workspaces"
 expect = { element = "panel.ColorNodes" }
 
 [[step]]
-text = "Select a clip in the timeline."
+text = "Select a clip in the Clips strip (or the timeline)."
 why = "The tree is built on the selected clip."
-target = "timeline.tracks"
+target = ["clips.strip", "timeline.tracks"]
 expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
 already = "clipSelected"
 

@@ -46,10 +46,12 @@ pub enum PanelKind {
     /// Color grading: the stills gallery (grab, compare, apply a still's grade).
     Gallery,
     ProjectNotes,
+    /// Color page: the sequence's clips as thumbnails over a mini timeline (Resolve's clip strip).
+    ColorClips,
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 31] = [
+    pub const ALL: [PanelKind; 32] = [
         PanelKind::Project,
         PanelKind::MediaBrowser,
         PanelKind::Libraries,
@@ -81,6 +83,7 @@ impl PanelKind {
         PanelKind::ColorPrimaries,
         PanelKind::Gallery,
         PanelKind::ProjectNotes,
+        PanelKind::ColorClips,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -115,6 +118,7 @@ impl PanelKind {
             PanelKind::ColorPrimaries => "Primaries",
             PanelKind::Gallery => "Gallery",
             PanelKind::ProjectNotes => "Project Notes",
+            PanelKind::ColorClips => "Clips",
         }
     }
     pub fn id(self) -> String {
@@ -345,9 +349,11 @@ pub fn workspace(name: &str) -> DockNode {
             tabs(&[LumetriColor, Effects], 0),
         ),
         // fork GRADE-PLAN G1: the node grader, laid out like Resolve's Color page: gallery |
-        // viewer | nodes on top, the timeline as a clip strip, primaries / curves and scopes below
+        // viewer | nodes on top; the clips (thumbnails over a mini timeline, the full Timeline one
+        // tab away) across the whole width, with no tools or meters beside them; primaries /
+        // curves and scopes below
         "Color Grading" => vsplit(
-            Ratio(0.56),
+            Ratio(0.52),
             hsplit(
                 FixedA(250.0),
                 tabs(&[Gallery, Project, MediaBrowser], 0),
@@ -355,7 +361,7 @@ pub fn workspace(name: &str) -> DockNode {
             ),
             vsplit(
                 FixedA(190.0),
-                bottom_editing(),
+                tabs(&[ColorClips, Timeline], 0),
                 hsplit(Ratio(0.64), tabs(&[ColorPrimaries, LumetriColor, EffectControls], 0), tabs(&[LumetriScopes, Markers], 0)),
             ),
         ),

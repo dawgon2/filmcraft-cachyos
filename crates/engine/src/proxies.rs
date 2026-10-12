@@ -7,8 +7,10 @@
 //!   `Session::poll_persistence`).
 //! - **Attach.** A proxy must have the original's duration (±1 frame) and frame rate; its frame
 //!   size and aspect may differ.
-//! - **Toggle.** `media.toggleProxies` flips Preferences ▸ Media ▸ Enable proxies; the media pool
-//!   then hands proxies to monitors and playback. Export always uses full resolution.
+//! - **Toggle.** `media.toggleProxies` switches Preferences ▸ Media ▸ Proxies between On and Off
+//!   (Auto, the default, uses proxies while playing; see [`crate::media_pool::ProxyMode`]). Export
+//!   always uses full resolution.
+//! - **Automatic proxies** (fork 6.2) are made by the background worker: [`crate::proxy_jobs`].
 //! - **Ingest.** With ingest enabled, `file.import` copies (verified by fingerprint), transcodes
 //!   and/or creates proxies.
 
@@ -39,6 +41,9 @@ pub struct Preset {
     pub extension: &'static str,
     /// Offered for proxies (else only for transcodes).
     pub proxy: bool,
+    /// The output carries the clip's audio (else video only: playback takes the audio from the
+    /// original).
+    pub audio: bool,
 }
 
 pub const PRESETS: &[Preset] = &[
@@ -50,21 +55,139 @@ pub const PRESETS: &[Preset] = &[
         prores: "proxy",
         extension: "mov",
         proxy: true,
+        audio: true,
     },
-    Preset { id: "prores_proxy_half", label: "ProRes 422 Proxy, ½ size", format: Format::ProRes, scale: 0.5, prores: "proxy", extension: "mov", proxy: true },
-    Preset { id: "prores_lt_half", label: "ProRes 422 LT, ½ size", format: Format::ProRes, scale: 0.5, prores: "lt", extension: "mov", proxy: true },
-    Preset { id: "h264_quarter", label: "H.264, ¼ size", format: Format::H264, scale: 0.25, prores: "", extension: "mp4", proxy: true },
-    Preset { id: "h264_half", label: "H.264, ½ size", format: Format::H264, scale: 0.5, prores: "", extension: "mp4", proxy: true },
-    Preset { id: "prores_lt", label: "ProRes 422 LT (full size)", format: Format::ProRes, scale: 1.0, prores: "lt", extension: "mov", proxy: false },
-    Preset { id: "prores_hq", label: "ProRes 422 HQ (full size)", format: Format::ProRes, scale: 1.0, prores: "hq", extension: "mov", proxy: false },
-    Preset { id: "h264", label: "H.264 (full size)", format: Format::H264, scale: 1.0, prores: "", extension: "mp4", proxy: false },
+    Preset {
+        id: "prores_proxy_half",
+        label: "ProRes 422 Proxy, ½ size",
+        format: Format::ProRes,
+        scale: 0.5,
+        prores: "proxy",
+        extension: "mov",
+        proxy: true,
+        audio: true,
+    },
+    Preset {
+        id: "prores_lt_half",
+        label: "ProRes 422 LT, ½ size",
+        format: Format::ProRes,
+        scale: 0.5,
+        prores: "lt",
+        extension: "mov",
+        proxy: true,
+        audio: true,
+    },
+    Preset { id: "h264_quarter", label: "H.264, ¼ size", format: Format::H264, scale: 0.25, prores: "", extension: "mp4", proxy: true, audio: true },
+    Preset { id: "h264_half", label: "H.264, ½ size", format: Format::H264, scale: 0.5, prores: "", extension: "mp4", proxy: true, audio: true },
+    Preset {
+        id: "prores_lt",
+        label: "ProRes 422 LT (full size)",
+        format: Format::ProRes,
+        scale: 1.0,
+        prores: "lt",
+        extension: "mov",
+        proxy: false,
+        audio: true,
+    },
+    Preset {
+        id: "prores_hq",
+        label: "ProRes 422 HQ (full size)",
+        format: Format::ProRes,
+        scale: 1.0,
+        prores: "hq",
+        extension: "mov",
+        proxy: false,
+        audio: true,
+    },
+    Preset { id: "h264", label: "H.264 (full size)", format: Format::H264, scale: 1.0, prores: "", extension: "mp4", proxy: false, audio: true },
 ];
 
 pub const DEFAULT_PROXY_PRESET: &str = "prores_proxy_quarter";
 pub const DEFAULT_TRANSCODE_PRESET: &str = "prores_lt";
 
+/// The automatic proxy (fork 6.2): half size, H.265 Main 10 4:2:0 in a QuickTime movie (`hvc1`),
+/// encoded by the VA-API encoder (in process), VBR at max(8 Mbps, source / 8), a keyframe every
+/// second, composited on the GPU, no audio (playback takes the audio from the original). See
+/// [`transcode_settings`]. Not in [`PRESETS`] (the Create Proxies dialog) yet; [`preset`] finds it.
+pub const HEVC_HALF: Preset =
+    Preset { id: "hevc_half", label: "H.265 Main 10, ½ size", format: Format::Hevc, scale: 0.5, prores: "", extension: "mov", proxy: true, audio: false };
+
+/// The automatic proxy where VA-API H.265 encoding is not available ([`auto_proxy_preset`]).
+pub const FALLBACK_PROXY_PRESET: &str = "prores_proxy_half";
+
+/// Lowest video bitrate of an [`HEVC_HALF`] proxy, in kbps.
+pub const HEVC_HALF_MIN_KBPS: u32 = 8_000;
+
 pub fn preset(id: &str) -> Option<&'static Preset> {
-    PRESETS.iter().find(|p| p.id == id)
+    PRESETS.iter().chain(std::iter::once(&HEVC_HALF)).find(|p| p.id == id)
+}
+
+/// Whether an H.265 encoder is registered here (the fork's platform layer registers the VA-API
+/// one). **Approximate:** it is also true where the only H.265 encoder is ffmpeg's libx265, and an
+/// [`HEVC_HALF`] transcode (VA-API only) then fails. Callers treat any failure of an `HEVC_HALF`
+/// job to start VA-API encoding as "requeue it with [`FALLBACK_PROXY_PRESET`]", not as an error.
+pub fn hevc_encode_available() -> bool {
+    filmcraft_export::available(Format::Hevc)
+}
+
+/// The automatic proxy preset: [`HEVC_HALF`] when VA-API H.265 encoding is available, else
+/// [`FALLBACK_PROXY_PRESET`] (ProRes 422 Proxy, half size).
+pub fn auto_proxy_preset(va_encode: bool) -> &'static Preset {
+    if va_encode {
+        return &HEVC_HALF;
+    }
+    preset(FALLBACK_PROXY_PRESET).unwrap_or(&HEVC_HALF)
+}
+
+/// Video bitrate of an [`HEVC_HALF`] proxy of `clip`, in kbps: an eighth of the source's (its
+/// stream bitrate, else file size / duration), at least [`HEVC_HALF_MIN_KBPS`].
+pub fn hevc_half_kbps(clip: &MediaClip) -> u32 {
+    let info = &clip.info;
+    let secs = info.duration.seconds();
+    let source_bps = info
+        .video
+        .as_ref()
+        .and_then(|v| v.bitrate)
+        .or_else(|| info.file_size.filter(|_| secs.is_finite() && secs > 0.0).map(|b| (b as f64 * 8.0 / secs) as u64));
+    let eighth_kbps = source_bps.map_or(0, |b| b / 8 / 1000);
+    u32::try_from(eighth_kbps).unwrap_or(u32::MAX).max(HEVC_HALF_MIN_KBPS)
+}
+
+/// The export settings of a transcode of `clip` with `preset` to `out` (the sequence it renders
+/// has the clip's frame size, rate and pixel aspect). Proxies are composited on the GPU
+/// (`gpu_rendering: Auto`; the CPU reference renderer at 6.2K is several times slower); full-size
+/// transcodes keep the CPU reference renderer (byte-reproducible).
+pub fn transcode_settings(clip: &MediaClip, preset: &Preset, out: &str) -> ExportSettings {
+    let info = &clip.info;
+    let has_v = info.video.is_some();
+    let has_a = info.has_audio() && preset.audio;
+    let mut settings = ExportSettings {
+        format: if has_v { preset.format } else { Format::Wav },
+        path: out.to_string(),
+        scale: preset.scale,
+        include_audio: has_a,
+        quality: 85,
+        bitrate_kbps: ((info.video.as_ref().map_or(1920 * 1080, |v| v.width * v.height) as f64 * (preset.scale * preset.scale) as f64) / 200.0).max(800.0)
+            as u32,
+        part_of_batch: true,
+        prores_profile: preset.prores.to_string(),
+        ..Default::default()
+    };
+    if preset.proxy {
+        settings.gpu_rendering = filmcraft_export::GpuRendering::Auto;
+    }
+    if has_v && preset.format == Format::Hevc {
+        let kbps = hevc_half_kbps(clip);
+        let fps = clip.frame_rate().as_f64();
+        settings.hevc_bit_depth = 10;
+        settings.hevc_encoder = filmcraft_export::HevcEncoder::Vaapi;
+        settings.bitrate_mode = filmcraft_export::BitrateMode::Vbr1Pass;
+        settings.bitrate_kbps = kbps;
+        settings.max_bitrate_kbps = Some(kbps.saturating_add(kbps / 2));
+        settings.keyframe_distance = Some(if fps.is_finite() { fps.round().clamp(1.0, 240.0) as u32 } else { 30 });
+        settings.multiplexer = filmcraft_export::Multiplexer::Mov;
+    }
+    settings
 }
 
 /// What to do with a finished job's outputs.
@@ -86,17 +209,10 @@ pub struct PendingJob {
     pub outputs: Arc<Mutex<Vec<(ItemId, String)>>>,
 }
 
-/// Transcode `range` (whole media when None) of one media clip to `out` with `preset`, blocking.
-/// `progress.total` is the caller's; this adds one per frame to `progress.done`.
-pub fn transcode(
-    clip: &MediaClip,
-    name: &str,
-    src: SharedSource,
-    range: Option<TimeRange>,
-    out: &str,
-    preset: &Preset,
-    progress: &Progress,
-) -> std::result::Result<Report, String> {
+/// The one-clip project a transcode of `clip` renders: a sequence with the clip's frame size,
+/// rate and pixel aspect holding `range` (whole media when None) on V1 (and A1 when the preset
+/// carries audio). Returns (project, sequence, the clip's item in it).
+pub fn transcode_project(clip: &MediaClip, name: &str, range: Option<TimeRange>, preset: &Preset) -> Result<(Arc<Project>, ItemId, ItemId)> {
     let info = &clip.info;
     let rate = clip.frame_rate();
     let mut st = SequenceSettings::default();
@@ -114,7 +230,7 @@ pub fn transcode(
     c.proxy = None;
     let item = p.add_item(name, filmcraft_project::Label::Iris, ItemKind::Media(c), None);
     let has_v = info.video.is_some();
-    let has_a = info.has_audio();
+    let has_a = info.has_audio() && preset.audio;
     let seq = p.new_sequence("transcode", st, usize::from(has_v), usize::from(has_a), None);
     let range = range.unwrap_or(TimeRange { start: Tick::ZERO, duration: info.duration });
     let mut placed = Vec::new();
@@ -124,25 +240,29 @@ pub fn transcode(
     if has_a && let Some(ti) = p.make_track_item(item, TrackKind::Audio, Tick::ZERO, range, rate) {
         placed.push((TrackKind::Audio, ti));
     }
-    let q = p.sequence_mut(seq).ok_or("no sequence")?;
+    let q = p.sequence_mut(seq).ok_or_else(|| EngineError::Other("transcode: no sequence".into()))?;
     for (k, ti) in placed {
-        let t = if k == TrackKind::Video { &mut q.video_tracks[0] } else { &mut q.audio_tracks[0] };
-        t.items.push(ti);
+        let t = if k == TrackKind::Video { q.video_tracks.first_mut() } else { q.audio_tracks.first_mut() };
+        if let Some(t) = t {
+            t.items.push(ti);
+        }
     }
-    let format = if has_v { preset.format } else { Format::Wav };
-    let settings = ExportSettings {
-        format,
-        path: out.to_string(),
-        scale: preset.scale,
-        include_audio: has_a,
-        quality: 85,
-        bitrate_kbps: ((info.video.as_ref().map_or(1920 * 1080, |v| v.width * v.height) as f64 * (preset.scale * preset.scale) as f64) / 200.0).max(800.0)
-            as u32,
-        part_of_batch: true,
-        prores_profile: preset.prores.to_string(),
-        ..Default::default()
-    };
-    let project = Arc::new(p);
+    Ok((Arc::new(p), seq, item))
+}
+
+/// Transcode `range` (whole media when None) of one media clip to `out` with `preset`, blocking.
+/// `progress.total` is the caller's; this adds one per frame to `progress.done`.
+pub fn transcode(
+    clip: &MediaClip,
+    name: &str,
+    src: SharedSource,
+    range: Option<TimeRange>,
+    out: &str,
+    preset: &Preset,
+    progress: &Progress,
+) -> std::result::Result<Report, String> {
+    let (project, seq, item) = transcode_project(clip, name, range, preset).map_err(|e| e.to_string())?;
+    let settings = transcode_settings(clip, preset, out);
     let provider = move |id: ItemId| (id == item).then(|| src.clone());
     filmcraft_export::export(&project, seq, &settings, &provider, progress).map_err(|e| e.to_string())
 }
@@ -167,7 +287,7 @@ pub fn unique_path(dir: &Path, stem: &str, suffix: &str, ext: &str, taken: &[Str
     }
 }
 
-fn media_path(p: &Project, item: ItemId) -> Option<(MediaClip, String, String)> {
+pub(crate) fn media_path(p: &Project, item: ItemId) -> Option<(MediaClip, String, String)> {
     let it = p.item(item)?;
     let m = it.as_media()?;
     match &m.media {
@@ -176,7 +296,7 @@ fn media_path(p: &Project, item: ItemId) -> Option<(MediaClip, String, String)> 
     }
 }
 
-fn items_param(s: &Session, p: &Value) -> Vec<ItemId> {
+pub(crate) fn items_param(s: &Session, p: &Value) -> Vec<ItemId> {
     match p.get("items").and_then(Value::as_array) {
         Some(a) => a.iter().filter_map(Value::as_u64).map(ItemId).collect(),
         None => u64_p(p, "item").map(|i| vec![ItemId(i)]).unwrap_or_else(|| s.state.project_selection.clone()),
@@ -258,6 +378,7 @@ pub fn start_job(s: &mut Session, label: String, work: Vec<(ItemId, String, &'st
 /// Apply the outputs of finished media jobs (attach proxies, switch to transcodes).
 pub fn poll(s: &mut Session) {
     use std::sync::atomic::Ordering;
+    crate::proxy_jobs::poll(s);
     let finished: Vec<usize> = s
         .media_jobs
         .iter()
@@ -283,7 +404,7 @@ pub fn poll(s: &mut Session) {
 }
 
 /// Check a proxy file against its clip: duration within one frame, same frame rate.
-fn check_proxy(s: &Session, item: ItemId, path: &str) -> Result<()> {
+pub(crate) fn check_proxy(s: &Session, item: ItemId, path: &str) -> Result<()> {
     let (clip, _, name) = media_path(&s.project, item).ok_or_else(|| bad("media.attachProxies", format!("item {} is not file media", item.0)))?;
     let src = s.media.open_file(path, &*s.services).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     let pi = src.info();
@@ -344,6 +465,11 @@ pub fn proxy_dir(media: &str, dest: Option<&str>) -> PathBuf {
 
 /// `media.createProxies {items?, preset?, destination?, wait?}`.
 pub fn create(s: &mut Session, p: &Value) -> Result<Value> {
+    if str_p(p, "preset") == Some("auto") {
+        // the automatic proxy, made by the background worker (never in the way of playback)
+        let items = items_param(s, p);
+        return crate::proxy_jobs::create(s, &items);
+    }
     let pr = preset(str_p(p, "preset").unwrap_or(DEFAULT_PROXY_PRESET)).ok_or_else(|| bad("media.createProxies", "unknown preset (see media.proxyPresets)"))?;
     let items = items_param(s, p);
     // default: Project Settings ▸ Scratch Disks ▸ Captured and Generated, else next to the media
@@ -380,6 +506,16 @@ pub fn create(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// Ingest freshly imported items per the project's ingest settings.
 pub fn ingest(s: &mut Session, items: &[ItemId]) -> Result<Value> {
+    let r = ingest_files(s, items);
+    // automatic proxies (fork 6.2) for what the ingest settings don't proxy themselves
+    let ing = &s.project.settings.ingest;
+    if !(ing.enabled && matches!(ing.action, IngestAction::CreateProxies | IngestAction::CopyAndCreateProxies)) {
+        crate::proxy_jobs::on_import(s, items);
+    }
+    r
+}
+
+fn ingest_files(s: &mut Session, items: &[ItemId]) -> Result<Value> {
     let ing = s.project.settings.ingest.clone();
     if !ing.enabled || items.is_empty() {
         return Ok(Value::Null);
@@ -446,13 +582,14 @@ pub fn ingest(s: &mut Session, items: &[ItemId]) -> Result<Value> {
 }
 
 pub fn commands() -> Vec<CommandSpec> {
-    vec![
+    let mut v = crate::proxy_jobs::commands();
+    v.extend([
         CommandSpec {
             id: "media.createProxies",
             label: "Create Proxies…",
             menu: &["Clip", "Proxy"],
             shortcut: None,
-            params: r#"{"items":[id]?,"preset":"prores_proxy_quarter|prores_proxy_half|prores_lt_half|h264_quarter|h264_half","destination":str?,"attach":bool=true,"wait":bool=false}"#,
+            params: r#"{"items":[id]?,"preset":"prores_proxy_quarter|prores_proxy_half|prores_lt_half|h264_quarter|h264_half|auto","destination":str?,"attach":bool=true,"wait":bool=false}"#,
             enabled: has_file_media,
             run: create,
             journal: true,
@@ -527,12 +664,13 @@ pub fn commands() -> Vec<CommandSpec> {
             params: r#"{"enabled":bool?}"#,
             enabled: always,
             run: |s, p| {
-                let on = bool_p(p, "enabled").unwrap_or(!s.prefs.media.enable_proxies);
-                let mut next = s.prefs.clone();
-                next.media.enable_proxies = on;
-                s.set_prefs(next).map_err(|e| EngineError::Other(format!("saving preferences: {e}")))?;
+                // on = every frame reads proxies; off = none (Settings ▸ Media ▸ Proxies has Auto,
+                // which the button shows unlit: a click from Auto turns them on)
+                use crate::media_pool::ProxyMode;
+                let on = bool_p(p, "enabled").unwrap_or(s.prefs.media.proxies != ProxyMode::On);
+                crate::proxy_jobs::set_mode(s, if on { ProxyMode::On } else { ProxyMode::Off })?;
                 let attached = s.project.items.values().filter(|i| i.as_media().is_some_and(|m| m.proxy.is_some())).count();
-                Ok(json!({"enabled": on, "clipsWithProxies": attached}))
+                Ok(json!({"enabled": on, "mode": s.prefs.media.proxies, "clipsWithProxies": attached}))
             },
             journal: false,
         },
@@ -581,10 +719,11 @@ pub fn commands() -> Vec<CommandSpec> {
             },
             journal: true,
         },
-    ]
+    ]);
+    v
 }
 
-fn has_file_media(s: &Session) -> std::result::Result<(), String> {
+pub(crate) fn has_file_media(s: &Session) -> std::result::Result<(), String> {
     if s.project.items.values().any(|i| i.as_media().is_some_and(|m| matches!(m.media, MediaRef::File { .. }))) {
         Ok(())
     } else {

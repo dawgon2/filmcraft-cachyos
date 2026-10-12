@@ -22,7 +22,7 @@ hardware. Knowing what runs where helps when something is slower than you expect
 |---|---|---|
 | Decoding H.265 (HEVC) 4:2:0, 8- or 10-bit (X-M5 main setting) | AMD video engine, through VA-API, inside FilmCraft | a second VA-API path (upstream's), then the system ffmpeg using the same video engine, then FilmCraft's own software decoder |
 | Decoding H.264 | AMD video engine (VA-API) | FilmCraft's own software decoder |
-| Decoding H.265 4:2:2 (X-M5 occasional setting) | not possible on this graphics card (see below) | — |
+| Decoding H.265 4:2:2 10-bit (X-M5 occasional setting) | Intel video engine (VA-API), picture handed to the AMD card (see below) | the same Intel decode with the picture copied through memory, then FilmCraft's own software decoder |
 | Showing the picture, compositing layers, the colour grade | AMD graphics card (Vulkan) | the CPU compositor (much slower) |
 | Exporting H.265 | AMD video engine (VA-API), frames rendered straight into the encoder | the system ffmpeg's VA-API encoder, then software x265 |
 | Rendering H.265 export pictures | AMD graphics card, straight into the encoder's memory | CPU rendering when the export is HDR or burns in an overlay, timecode, name or the video limiter, or the picture is letterboxed |
@@ -38,8 +38,8 @@ and writes one line in the log.
 
 **[Fork]**
 
-The Intel UHD 750 in the CPU is a second, smaller graphics device. FilmCraft doesn't use it on
-its own; it is there as a spare. Every colour feature is tested on both the AMD and the Intel
+The Intel UHD 750 in the CPU is a second, smaller graphics device. Its video engine decodes
+4:2:2 H.265, which the AMD one can't (next section); otherwise it is a spare. Every colour feature is tested on both the AMD and the Intel
 device so the picture is the same on either, and an advanced switch (below) lets export encode
 on the Intel video engine while the AMD one keeps decoding.
 
@@ -47,10 +47,22 @@ on the Intel video engine while the AMD one keeps decoding.
 
 **[Fork]**
 
-The AMD video engine can't decode 4:2:2 H.265 at all; this is a limit of the chip, and Resolve
-has the same limit on this card. Today such a clip imports, plays its sound, and shows an
-"unreadable" slate saying why. Phase 6 adds 4:2:2 to FilmCraft's own decoder (on the CPU, many
-threads) and automatic proxies, so these clips edit smoothly; this page will be updated then.
+The AMD video engine can't decode 4:2:2 H.265 at all; this is a limit of the chip. The Intel
+video engine can, so FilmCraft decodes 4:2:2 clips there and hands each picture straight to
+the AMD card (a shared buffer, no copy through main memory; about 21 pictures a second at
+6.2K on this PC, measured on test clips). Why both: the AMD card does all the compositing
+and grading, the Intel engine only decodes.
+
+1. Import the clip. No badge means the hardware path is in use.
+2. If the Project panel shows an amber **4:2:2** badge ("4:2:2: software decode, proxies
+   recommended"), FilmCraft is using its own software decoder instead: no Intel engine was
+   found, or it failed on this clip earlier in the session (the badge's tooltip says so).
+   Software decoding is slow at 6.2K.
+3. Either way, FilmCraft makes a half-size proxy of each 4:2:2 clip in the background as
+   soon as it is imported, and playback can use it; see [proxies.md](proxies.md).
+
+If the hand-off to the AMD card is refused by the driver, the pictures are copied through
+memory instead (slower, same result) and one line is written to the log.
 
 ## The switches
 
@@ -97,7 +109,7 @@ are for troubleshooting; normally leave them unset.
 
 **[Fork]**
 
-1. Check the clip: 4:2:2 clips can't use the video engine (above).
+1. Check the clip: a 4:2:2 clip with the amber badge is decoded in software (above).
 2. Check the log (or the status bar) for a line saying a path was switched off, such as
    "switched to software compositing" or "GPU acceleration is unavailable; preview renders on
    the CPU". Those mean a fallback is in use.
@@ -109,8 +121,9 @@ are for troubleshooting; normally leave them unset.
 **[Resolve-style]**
 
 Resolve's "Decode H.264/H.265 using hardware acceleration" preference corresponds to
-Hardware decoding: Auto. Like Resolve on Linux with this AMD card, there is no hardware 4:2:2
-decoding; the answer is the same (proxies or optimized media).
+Hardware decoding: Auto. Resolve on Linux with this AMD card decodes 4:2:2 H.265 in software;
+FilmCraft uses the Intel video engine for it instead, and proxies (like Resolve's optimized
+media) remain the fallback.
 
 ## If you know Premiere
 

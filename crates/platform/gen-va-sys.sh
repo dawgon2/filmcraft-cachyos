@@ -12,9 +12,14 @@ cat > "$tmp/wrapper.h" <<'EOF'
 #include <va/va_drmcommon.h>
 #include <va/va_dec_hevc.h>
 #include <va/va_enc_hevc.h>
+#include <va/va_vpp.h>
 EOF
 fns='vaBeginPicture|vaCreateBuffer|vaCreateConfig|vaCreateContext|vaCreateImage|vaCreateSurfaces|vaDeriveImage|vaDestroyBuffer|vaDestroyConfig|vaDestroyContext|vaDestroyImage|vaDestroySurfaces|vaEndPicture|vaErrorStr|vaExportSurfaceHandle|vaGetConfigAttributes|vaGetDisplayDRM|vaGetImage|vaInitialize|vaMapBuffer|vaMaxNumEntrypoints|vaMaxNumImageFormats|vaMaxNumProfiles|vaPutImage|vaQueryConfigEntrypoints|vaQueryConfigProfiles|vaQueryImageFormats|vaQuerySurfaceStatus|vaQueryVendorString|vaRenderPicture|vaSetErrorCallback|vaSetInfoCallback|vaSyncSurface|vaTerminate|vaUnmapBuffer'
 types='VAPictureParameterBufferHEVC|VASliceParameterBufferHEVC|VAIQMatrixBufferHEVC|VADRMPRIMESurfaceDescriptor|VASurfaceAttrib|VAImage|VAConfigAttrib'
+# range extensions: 4:2:2 decode (fork Phase 6.1b)
+types="$types|VAPictureParameterBufferHEVCExtension|VASliceParameterBufferHEVCExtension"
+# Intel → AMD hand-off of 4:2:2 pictures: VPP copy into a linear surface (fork Phase 6.1b)
+types="$types|VAProcPipelineParameterBuffer|VADRMFormatModifierList"
 # encode (fork Phase 5.2b)
 types="$types|VAEncSequenceParameterBufferHEVC|VAEncPictureParameterBufferHEVC|VAEncSliceParameterBufferHEVC|VAEncPackedHeaderParameterBuffer|VAEncPackedHeaderType|VACodedBufferSegment|VAEncMiscParameterBuffer|VAEncMiscParameterType|VAEncMiscParameterRateControl|VAEncMiscParameterHRD|VAEncMiscParameterFrameRate|VAConfigAttribValEncHEVCFeatures|VAConfigAttribValEncHEVCBlockSizes"
 bindgen "$tmp/wrapper.h" --no-layout-tests --dynamic-loading Va --dynamic-link-require-all --with-derive-default \

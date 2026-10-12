@@ -467,6 +467,10 @@ pub struct MediaCachePrefs {
     pub management: String,
     pub older_than_days: u32,
     pub max_size_gb: u32,
+    /// The render cache (fork 6.3): `smart` | `all` | `off`.
+    pub render_cache: String,
+    /// Size limit of the render cache in the project's preview folder (GB).
+    pub render_cache_gb: u32,
 }
 
 impl Default for MediaCachePrefs {
@@ -478,6 +482,8 @@ impl Default for MediaCachePrefs {
             management: "never".into(),
             older_than_days: 90,
             max_size_gb: 92,
+            render_cache: "smart".into(),
+            render_cache_gb: crate::render_cache::DEFAULT_BUDGET_GB,
         }
     }
 }
@@ -752,6 +758,7 @@ const TIMEBASE: &[(&str, &str)] = &[
 const TIMECODE: &[(&str, &str)] = &[("useMediaSource", "Use Media Source"), ("generate", "Generate Timecode")];
 const FRAME_COUNT: &[(&str, &str)] = &[("startAt0", "Start at 0"), ("startAt1", "Start at 1"), ("timecodeConversion", "Timecode Conversion")];
 const SCALING: &[(&str, &str)] = &[("none", "None"), ("scaleToFrameSize", "Scale to frame size"), ("setToFrameSize", "Set to frame size")];
+const PROXIES: &[(&str, &str)] = &[("auto", "Auto (proxies while playing, original when paused)"), ("on", "Always use proxies"), ("off", "Never use proxies")];
 const ANALYSIS_CACHE: &[(&str, &str)] = &[("mediaCache", "In the Media Cache"), ("project", "In the project")];
 const TRANSCRIBE_SCOPE: &[(&str, &str)] =
     &[("sequenceClips", "Auto-transcribe only clips in sequences"), ("allImported", "Auto-transcribe all imported clips")];
@@ -1021,7 +1028,8 @@ static CATEGORIES: &[Category] = &[
             b("media.writeClipMarkersToXmp", "Write clip markers to XMP", false),
             b("media.enableXmpLinking", "Enable clip and XMP metadata linking", false),
             b("media.includeCaptionsOnImport", "Include captions on import", false),
-            b("media.enableProxies", "Enable proxies", true),
+            f("media.proxies", "Proxies", Kind::Choice(PROXIES), true),
+            b("media.autoProxies", "Create proxies automatically for 4K and larger long-GOP clips", true),
             b("media.allowDuplicateMedia", "Allow duplicate media during project import", false),
             b("media.createFolderForImportedProjects", "Create folder for imported projects", false),
             b("media.autoHideDependentClips", "Automatically Hide Dependent Clips", false),
@@ -1080,6 +1088,14 @@ static CATEGORIES: &[Category] = &[
                     f("mediaCache.management", "Policy", Kind::Choice(CACHE_MGMT), true),
                     f("mediaCache.olderThanDays", "Delete files older than", int(1.0, 3650.0, "days"), true),
                     f("mediaCache.maxSizeGb", "Delete oldest files when the cache exceeds", int(1.0, 100_000.0, "GB"), true),
+                ],
+            ),
+            Row::Group(
+                "Render Cache",
+                &[
+                    f("mediaCache.renderCache", "Render cache", Kind::Choice(crate::render_cache::MODES), true),
+                    f("mediaCache.renderCacheGb", "Render cache size limit", int(1.0, 100_000.0, "GB"), true),
+                    Row::Custom("renderCacheInfo"),
                 ],
             ),
             Row::Note(
@@ -1288,6 +1304,14 @@ pub fn migrate(v: &mut Value) {
         // (filled in from defaults by serde). The v1 "Auto Save" dialog wrote integer seconds for
         // pre/postroll; v2 stores them as reals, which serde reads either way.
         m.insert("version".into(), json!(2));
+    }
+    // Files from before fork 6.2 had an "Enable proxies" switch: on stays on, off becomes Auto
+    // (proxies were off only because there were none to use)
+    if let Some(media) = m.get_mut("media").and_then(Value::as_object_mut)
+        && let Some(old) = media.remove("enableProxies")
+        && !media.contains_key("proxies")
+    {
+        media.insert("proxies".into(), json!(if old.as_bool() == Some(true) { "on" } else { "auto" }));
     }
     // Files from before appearance modes had one Color Theme: keep showing it, as a fixed Dark or
     // Light mode, instead of switching established users to another theme or to Auto.

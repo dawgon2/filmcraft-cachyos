@@ -18,9 +18,9 @@ target = "header.workspaces"
 expect = { element = "panel.ColorPrimaries" }
 
 [[step]]
-text = "Select the noisy clip in the timeline."
+text = "Select the noisy clip in the Clips strip (or the timeline)."
 why = "Noise reduction is set per clip, on a node."
-target = "timeline.tracks"
+target = ["clips.strip", "timeline.tracks"]
 expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
 
 [[step]]

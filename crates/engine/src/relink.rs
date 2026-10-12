@@ -360,6 +360,8 @@ fn apply(s: &mut Session, plans: Vec<Plan>, align_timecode: bool, label: &str) -
     if s.offline.missing.is_empty() {
         s.offline.prompt = false;
     }
+    // automatic proxies made from another file are detached and made again (fork 6.2)
+    crate::proxy_jobs::after_relink(s, &gone);
     Ok(rows)
 }
 
@@ -735,6 +737,8 @@ pub fn commands() -> Vec<CommandSpec> {
 pub fn on_open(s: &mut Session) -> usize {
     let list = refresh(s);
     s.offline.prompt = !s.offline.missing.is_empty();
+    // automatic proxies: check the attached ones, queue the missing ones (fork 6.2)
+    crate::proxy_jobs::on_open(s);
     if !s.offline.missing.is_empty() {
         s.toast(format!("{} media file(s) are missing; File ▸ Link Media… reconnects them", s.offline.missing.len()));
     }

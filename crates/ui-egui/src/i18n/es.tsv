@@ -3455,6 +3455,7 @@
 	Encoder	Codificador
 	Hardware (H.265 has no software encoder)	Hardware (H.265 no tiene codificador por software)
 	Hardware (AV1 has no software encoder)	Hardware (AV1 no tiene codificador por software)
+	HDR export: written as Main 10 (10-bit)	Exportación HDR: se escribe como Main 10 (10 bits)
 	Text Properties	Propiedades de texto
 	Text Box Height	Altura del cuadro de texto
 	Paragraph Text	Texto de párrafo
@@ -3644,6 +3645,14 @@
 	NR luma	RR luma
 	NR chroma	RR croma
 	NR radius	Radio de RR
+# fork 6.7: temporal noise reduction
+	Temporal	Temporal
+	Temporal NR luma	RR temporal luma
+	Temporal NR chroma	RR temporal croma
+	Temporal NR frames	Fotogramas de RR temporal
+	Temporal NR motion	Movimiento de RR temporal
+	Shown on the paused frame, at export and in the render cache; not while playing.	Se ve en el fotograma en pausa, al exportar y en la caché de render; no durante la reproducción.
+	Temporal NR only runs on the first active node: these values are ignored here.	La RR temporal solo actúa en el primer nodo activo: aquí estos valores se ignoran.
 # fork G2.5 / G2.6: soft clip and node LUT
 	Soft clip	Recorte suave
 	Highlight roll-off	Atenuación de altas luces
@@ -3725,3 +3734,46 @@
 	Got it	Entendido
 	Turn hints off	Desactivar consejos
 	Grading Lessons…	Lecciones de etalonaje…
+	1 clip	1 clip
+	{n} clips	{n} clips
+	Adjacent Clips	Clips adyacentes
+	Disabled	Desactivado
+	Mini timeline	Minilínea de tiempo
+	No video clips in this sequence	No hay clips de video en esta secuencia
+	Selected Clips	Clips seleccionados
+	Show several clips side by side in the Program monitor (Ctrl+Alt+W)	Mostrar varios clips uno junto a otro en el monitor de programa (Ctrl+Alt+W)
+	Split Screen	Pantalla dividida
+	Split Screen Off	Pantalla dividida desactivada
+	Proxies	Proxies
+	Auto (proxies while playing, original when paused)	Automático (proxies al reproducir, original en pausa)
+	Always use proxies	Usar siempre proxies
+	Never use proxies	No usar nunca proxies
+	Create proxies automatically for 4K and larger long-GOP clips	Crear proxies automáticamente para clips long-GOP de 4K o más
+	Building proxy: {pct} %	Creando proxy: {pct} %
+	Proxy queued	Proxy en cola
+	Proxy failed: {error}	Error del proxy: {error}
+	Proxy attached	Proxy adjunto
+	4:2:2: software decode, proxies recommended	4:2:2: decodificación por software, se recomiendan proxies
+	Building the render cache	Generando la caché de procesamiento
+	In this project's render cache: {parts} part(s), {size} of {limit}.	En la caché de procesamiento de este proyecto: {parts} parte(s), {size} de {limit}.
+	Building a part ({percent} %); {queued} queued.	Generando una parte ({percent} %); {queued} en cola.
+	Paused.	En pausa.
+	Off: nothing new is cached.	Desactivada: no se almacena nada nuevo.
+	{queued} part(s) queued: the cache renders while you are not playing, scrubbing or exporting.	{queued} parte(s) en cola: la caché se procesa mientras no reproduces, arrastras el cabezal ni exportas.
+	Up to date.	Al día.
+	Pause	Pausar
+	Resume	Reanudar
+	Delete Unused	Eliminar no usados
+	Deleted {n} render cache file(s)	Se eliminaron {n} archivo(s) de la caché de procesamiento
+	Render Cache	Caché de procesamiento
+	Render cache	Caché de procesamiento
+	Render cache size limit	Tamaño máximo de la caché de procesamiento
+	Smart	Inteligente
+	Render Cache Status	Estado de la caché de procesamiento
+	Set Render Cache Mode	Establecer el modo de la caché de procesamiento
+	Pause Render Cache	Pausar la caché de procesamiento
+	Resume Render Cache	Reanudar la caché de procesamiento
+	Delete Unused Render Cache Files	Eliminar archivos no usados de la caché de procesamiento
+	Cache	Caché
+	The size limit is reached: raise it, or Delete Unused, to cache more.	El límite de tamaño se ha alcanzado: auméntalo, o usa Eliminar no usados, para almacenar más.
+	4:2:2: software decode (hardware 4:2:2 decode failed earlier in this session), proxies recommended	4:2:2: decodificación por software (la decodificación 4:2:2 por hardware falló antes en esta sesión), se recomiendan proxies

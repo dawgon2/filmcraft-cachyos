@@ -5,7 +5,7 @@
 # one and requires that section first for at least 28 of the 30, and every answer to pass the
 # command check; the UI test checks every remaining automation id.
 #
-# [[offtopic]]: questions the guide doesn't cover (editing, audio, export…). Each must fall back:
+# [[offtopic]]: questions the guide doesn't cover (editing, audio, stabilising…). Each must fall back:
 # no steps, no sources, and the message says the guide doesn't cover it yet.
 
 [[question]]
@@ -162,7 +162,7 @@ heading = "The node explainer"
 ask = "how do I add music"
 
 [[offtopic]]
-ask = "export a video for youtube"
+ask = "how do I stabilise shaky footage?"
 
 [[offtopic]]
 ask = "cut a clip in half"

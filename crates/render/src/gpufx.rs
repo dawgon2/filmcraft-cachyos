@@ -210,6 +210,132 @@ pub enum FxOp {
         /// the window radius is `ceil(2σ)`, 1…=[`crate::denoise::DENOISE_MAX_RADIUS`].
         sigma: f32,
     },
+    /// Temporal noise reduction (`crate::tnr`, fork 6.7): motion-compensated blending with up to
+    /// `radius` frames each side (`inputs`: the neighbouring frames and their flows, attached by
+    /// the renderer). Identity when `inputs` is None or has no usable neighbour, when both
+    /// strengths are 0 (or NaN / negative), or at radius 0. Every value is sanitised by
+    /// `tnr::params` / `tnr::radius` (CPU and GPU alike).
+    TemporalDenoise {
+        /// Luma strength 0…1 (range sigma 0.05 × strength in encoded units).
+        luma: f32,
+        /// Chroma strength 0…1.
+        chroma: f32,
+        /// Frames each side, 0…=[`crate::tnr::MAX_RADIUS`] (larger: the maximum).
+        radius: u8,
+        /// Motion tolerance 0…1 (forward–backward disagreement accepted; NaN → 0.5).
+        motion: f32,
+        inputs: Option<std::sync::Arc<TemporalInputs>>,
+    },
+}
+
+/// A neighbouring frame of [`FxOp::TemporalDenoise`].
+#[derive(Clone, Debug)]
+pub enum NeighbourPicture {
+    /// A source frame: decoded like the layer's own frame (box-decimated by `decimation`, then
+    /// resampled to the working size, [`working_image`]) and run through the ops that precede
+    /// the temporal op in the layer ([`apply_ops`]; the GPU replays the same passes). The GPU
+    /// path needs this form.
+    Frame { frame: std::sync::Arc<filmcraft_frame::VideoFrame>, decimation: u32 },
+    /// A working image already in the state of the image being filtered (CPU path only:
+    /// [`FxOp::gpu_ok`] is false while one is selected). Skipped when its size differs.
+    Image(std::sync::Arc<Image>),
+}
+
+/// One neighbour: frame `t + offset` and its motion relative to the current frame.
+#[derive(Clone, Debug)]
+pub struct TemporalNeighbour {
+    /// −radius…radius, not 0.
+    pub offset: i8,
+    pub picture: NeighbourPicture,
+    /// Current → neighbour (`crate::flow::estimate(current, neighbour)`, ±2 by `flow::chain`).
+    pub flow: std::sync::Arc<crate::flow::FlowField>,
+    /// Neighbour → current.
+    pub back: std::sync::Arc<crate::flow::FlowField>,
+}
+
+/// The neighbours [`FxOp::TemporalDenoise`] blends (see `tnr::select` for which are used).
+#[derive(Clone, Debug, Default)]
+pub struct TemporalInputs {
+    /// Size of the current source frame: [`NeighbourPicture::Frame`]s of another size are skipped.
+    pub source_size: (u32, u32),
+    pub neighbours: Vec<TemporalNeighbour>,
+}
+
+impl PartialEq for NeighbourPicture {
+    fn eq(&self, o: &Self) -> bool {
+        match (self, o) {
+            (NeighbourPicture::Frame { frame: a, decimation: da }, NeighbourPicture::Frame { frame: b, decimation: db }) => {
+                std::sync::Arc::ptr_eq(a, b) && da == db
+            }
+            (NeighbourPicture::Image(a), NeighbourPicture::Image(b)) => std::sync::Arc::ptr_eq(a, b) || a == b,
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq for TemporalNeighbour {
+    fn eq(&self, o: &Self) -> bool {
+        self.offset == o.offset && self.picture == o.picture && self.flow == o.flow && self.back == o.back
+    }
+}
+
+impl PartialEq for TemporalInputs {
+    fn eq(&self, o: &Self) -> bool {
+        self.source_size == o.source_size && self.neighbours == o.neighbours
+    }
+}
+
+/// A source frame as the effect stage's working image of `size`: box-decimated by `decimation`
+/// (as the CPU decodes it) and resampled when `size` is smaller still (the decode half of
+/// `plan::effect_image`). Empty sizes give an empty image.
+pub fn working_image(frame: &filmcraft_frame::VideoFrame, decimation: u32, size: (usize, usize)) -> Image {
+    let (w, h, px) = frame.to_linear_f32_decimated(decimation.max(1) as usize);
+    let mut img = Image { w, h, px };
+    let (fw, fh) = size;
+    if (fw, fh) != (w, h) && fw > 0 && fh > 0 && fw <= w && fh <= h {
+        img = img.transformed(fw, fh, &Affine::scale(fw as f64 / w as f64, fh as f64 / h as f64));
+    }
+    img
+}
+
+/// Run a layer's ops in order on the CPU. Same as calling [`FxOp::apply`] one by one, except
+/// that a [`FxOp::TemporalDenoise`] runs its source-frame neighbours through the ops before it
+/// (what the GPU stage does; inside a masked effect: the layer's ops before the effect, then the
+/// effect's own earlier ops), so `plan::effect_image` uses this.
+pub fn apply_ops(ops: &[FxOp], img: &mut Image) {
+    apply_ops_with(ops, img, &[], true);
+}
+
+/// Whether `ops` contain a temporal op with inputs (also inside masked effects).
+fn has_temporal(ops: &[FxOp]) -> bool {
+    ops.iter().any(|o| match o {
+        FxOp::TemporalDenoise { inputs, .. } => inputs.is_some(),
+        FxOp::Masked { ops, .. } => has_temporal(ops),
+        _ => false,
+    })
+}
+
+/// [`apply_ops`] for ops that follow `outer` (the ops before an enclosing masked effect);
+/// `temporal` false makes temporal ops identity (a neighbour's replay of the earlier ops).
+pub(crate) fn apply_ops_with(ops: &[FxOp], img: &mut Image, outer: &[FxOp], temporal: bool) {
+    for (j, op) in ops.iter().enumerate() {
+        let before = || -> Vec<FxOp> { outer.iter().chain(ops.get(..j).unwrap_or_default()).cloned().collect() };
+        match op {
+            FxOp::TemporalDenoise { luma, chroma, radius, motion, inputs } => {
+                if let (true, Some(inp)) = (temporal, inputs) {
+                    crate::tnr::apply_inputs(img, inp, *luma, *chroma, *radius, *motion, &before());
+                }
+            }
+            FxOp::Masked { ops: inner, masks } if has_temporal(inner) => {
+                let original = img.clone();
+                apply_ops_with(inner, img, &before(), temporal);
+                if let Some(cov) = crate::mask::coverage(masks, img.w, img.h) {
+                    crate::mask::mix(img, &original, &cov);
+                }
+            }
+            _ => op.apply(img),
+        }
+    }
 }
 
 /// Masks the GPU takes (more points or masks: the clip renders on the CPU).
@@ -622,7 +748,12 @@ impl FxOp {
                     && *median_r <= GPU_MEDIAN_MAX
                     && denoise.is_finite()
             }
-            FxOp::Masked { ops, masks } => masks_ok(masks) && ops.iter().all(|o| !matches!(o, FxOp::Masked { .. } | FxOp::OpacityMask { .. }) && o.gpu_ok()),
+            FxOp::Masked { ops, masks } => {
+                masks_ok(masks)
+                    && ops
+                        .iter()
+                        .all(|o| !matches!(o, FxOp::Masked { .. } | FxOp::OpacityMask { .. } | FxOp::TemporalDenoise { inputs: Some(_), .. }) && o.gpu_ok())
+            }
             FxOp::OpacityMask { masks } => masks_ok(masks),
             FxOp::ColorChain(ops) => {
                 ops.iter().all(filmcraft_color::ops::ColorOp::is_finite) && filmcraft_color::ops::gpu_size(ops) <= filmcraft_color::ops::MAX_GPU_PROGRAM
@@ -631,6 +762,10 @@ impl FxOp {
             FxOp::VideoLimiter { max, comp, axis, warning_color, .. } => *axis <= 3 && max.is_finite() && comp.is_finite() && fin(warning_color),
             // (`denoise::params` turns any values into finite constants, as the CPU does)
             FxOp::Denoise { .. } => true,
+            // (the GPU draws source frames only; flows are checked by `tnr::select` on both)
+            FxOp::TemporalDenoise { radius, inputs, .. } => inputs.as_ref().is_none_or(|inp| {
+                crate::tnr::select(inp, *radius).iter().all(|&i| inp.neighbours.get(i).is_some_and(|n| matches!(n.picture, NeighbourPicture::Frame { .. })))
+            }),
         }
     }
 
@@ -964,6 +1099,12 @@ impl FxOp {
                 });
             }
             FxOp::Denoise { luma, chroma, sigma } => crate::denoise::apply(img, *luma, *chroma, *sigma),
+            // (alone, source-frame neighbours are not run through earlier ops: see `apply_ops`)
+            FxOp::TemporalDenoise { luma, chroma, radius, motion, inputs } => {
+                if let Some(inp) = inputs {
+                    crate::tnr::apply_inputs(img, inp, *luma, *chroma, *radius, *motion, &[]);
+                }
+            }
         }
     }
 }

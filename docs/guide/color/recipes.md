@@ -144,6 +144,42 @@ sources feel like one film. Add it last, so nothing after it sharpens or blurs i
 4. Use the same three numbers on the other clips so the grain matches everywhere. (Copying the
    grade with recipe 6 would bring this clip's other nodes along too.)
 
+## 8. Fix grey or lifeless skin
+
+**[Resolve-style]**
+
+**Why:** after a log normalisation, or under green-ish or overcast light, faces can look grey,
+pale or a little ill while the rest of the shot is fine. Raising saturation or warmth for the
+whole picture would push the background too far, so select the skin with a qualifier and give
+only the skin a small lift. Small is the point: skin that is too orange looks worse than grey
+skin.
+
+1. Get the overall balance right first (recipe 1); this fix goes on a node of its own after
+   it. Add one with **+ Serial** {ui:grade.addNode} and, if you like, name it "Skin"
+   (`grade.labelNode`).
+2. Open the **Qualifier** tab {ui:grade.tab.qualifier}, click **Pick** {ui:grade.qual.pick}
+   and click the cheek or forehead in the Program monitor (`grade.pickQualifier`). Avoid shiny
+   highlights and deep shadow.
+3. Click **Add** {ui:grade.qual.add} and click a lighter and a darker part of the same face (and
+   a hand or arm, if they show) so the whole skin tone range is in.
+4. Set **View** to **Matte** {ui:grade.qual.show.2}. Skin should be white. Wooden furniture,
+   brick, sand or orange clothing often come in too, because they share skin's hue: narrow
+   **Hue width** {ui:grade.param.qual.hueWidth} until most of them turn black, and accept a
+   little spill rather than holes in the face. Raise **Qualifier softness**
+   {ui:grade.param.qual.soft} so the edges fade instead of cutting, and **Matte blur**
+   {ui:grade.param.qual.blur} if the face looks speckled.
+5. Set **View** back to **Normal** {ui:grade.qual.show.0}. Always judge the colour itself in
+   Normal: the matte only tells you *where* the node acts.
+6. Open the **Primaries** tab {ui:grade.tab.primaries}. Raise **Saturation**
+   {ui:grade.param.saturation} a little (a few steps, not a lot), then raise **Temperature**
+   {ui:grade.param.temperature} slightly for warmth. If the face is also dull, lift the **Gamma**
+   ring {ui:grade.wheel.gamma} a touch.
+7. Press **Disable / Enable** {ui:grade.toggleNode} a few times. The face should look healthier,
+   not obviously different; if you notice the change at once, it is too strong: halve it.
+8. Set **View** to **Matte** {ui:grade.qual.show.2} one last time while you play the clip: if
+   the matte flickers on a moving face, raise **Qualifier softness**
+   {ui:grade.param.qual.soft} again, then go back to **Normal** {ui:grade.qual.show.0}.
+
 ## If you know Resolve
 
 **[Resolve-style]**

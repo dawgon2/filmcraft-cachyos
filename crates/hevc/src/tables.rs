@@ -56,6 +56,24 @@ pub fn scan_diag(log2: u32) -> &'static [(u8, u8)] {
     scan_order(log2, 0)
 }
 
+/// Table 8-3: IntraPredModeC for ChromaArrayType 2 as a function of modeIdc (the 4:2:0 mode).
+///
+/// modeIdc 11 -> 12 and 14 -> 17 are what the ffmpeg reference decode of the libx265 4:2:2
+/// fixtures requires; 11 -> 11 / 14 -> 16 (as the table was read in review) breaks all 18
+/// `*_422` fixtures. First-mismatch evidence (intra_nosao_nodbk_422, frame 0, plane U):
+/// with 14 -> 16, the 4x4 chroma block at (40,48) of the 8x8 NxN CU at luma (80,48) (luma mode
+/// 14) differs and ffmpeg's samples equal the mode 17 prediction from the same references;
+/// with 11 -> 11 (14 -> 17 kept), 16 fixtures still fail, first at the block at chroma
+/// (156,144) of the CU at luma (312,144) (luma mode 11), whose top row matches mode 12.
+pub const INTRA_MODE_422: [u8; 35] =
+    [0, 1, 2, 2, 2, 2, 3, 5, 7, 8, 10, 12, 13, 15, 17, 18, 19, 20, 21, 22, 23, 23, 24, 24, 25, 25, 26, 27, 27, 28, 28, 29, 29, 30, 31];
+
+/// QpC as a function of qPi: Table 8-10 for ChromaArrayType 1, Min(qPi, 51) otherwise.
+#[inline]
+pub fn qpc(qpi: i32, c420: bool) -> i32 {
+    if c420 { qpc_420(qpi) } else { qpi.min(51) }
+}
+
 /// Table 8-10: QpC as a function of qPi (ChromaArrayType 1).
 #[inline]
 pub fn qpc_420(qpi: i32) -> i32 {
@@ -119,5 +137,19 @@ mod tests {
         assert_eq!(qpc_420(30), 29);
         assert_eq!(qpc_420(43), 37);
         assert_eq!(qpc_420(51), 45);
+        // ChromaArrayType 2: Min(qPi, 51)
+        assert_eq!(qpc(30, false), 30);
+        assert_eq!(qpc(43, false), 43);
+        assert_eq!(qpc(57, false), 51);
+        assert_eq!(qpc(-12, false), -12);
+        assert_eq!(qpc(43, true), 37);
+    }
+
+    /// Table 8-3, as verified against the 4:2:2 fixtures (see `INTRA_MODE_422`).
+    #[test]
+    fn intra_mode_422_table() {
+        let expected: [u8; 35] =
+            [0, 1, 2, 2, 2, 2, 3, 5, 7, 8, 10, 12, 13, 15, 17, 18, 19, 20, 21, 22, 23, 23, 24, 24, 25, 25, 26, 27, 27, 28, 28, 29, 29, 30, 31];
+        assert_eq!(INTRA_MODE_422, expected);
     }
 }

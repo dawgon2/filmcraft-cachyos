@@ -103,13 +103,23 @@ impl Plane {
     }
 }
 
-/// A decoded, cropped picture in planar 4:2:0.
+/// Chroma sampling of a decoded picture (chroma_format_idc 1 or 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChromaFormat {
+    /// Half width, half height.
+    Yuv420,
+    /// Half width, full height.
+    Yuv422,
+}
+
+/// A decoded, cropped picture in planar 4:2:0 or 4:2:2 (see `chroma_format`).
 #[derive(Clone, Debug)]
 pub struct Picture {
     /// Cropped luma width.
     pub width: u32,
     /// Cropped luma height.
     pub height: u32,
+    pub chroma_format: ChromaFormat,
     pub chroma_width: u32,
     pub chroma_height: u32,
     /// Luma bit depth (chroma uses the same storage type).

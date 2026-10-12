@@ -950,7 +950,7 @@ impl FilmcraftApp {
                 | PanelKind::Text
                 | PanelKind::ReferenceMonitor
                 | PanelKind::Timecode => PanelKind::Source,
-                PanelKind::ColorNodes | PanelKind::Gallery => PanelKind::Timeline,
+                PanelKind::ColorNodes | PanelKind::Gallery | PanelKind::ColorClips => PanelKind::Timeline,
                 _ => PanelKind::Project,
             };
             self.ui.dock.open_near(p, near);
@@ -1319,7 +1319,7 @@ impl FilmcraftApp {
         let rate = pi.frame_rate();
         let frame = rate.frame_at(t);
         let rev = self.item_revision(item);
-        let key = FrameKey { target: Target::Item(item), frame, size: width, revision: rev, draft: false };
+        let key = FrameKey { target: Target::Item(item), frame, size: width, revision: rev, draft: false, temporal: false };
         let name = format!("thumb-{}-{}-{}", item.0, frame, width);
         if let Some(img) = self.frames.get(&key) {
             let id = self.texture_for(ctx, &name, key, &img);
@@ -1788,6 +1788,13 @@ impl FilmcraftApp {
         self.advance_playback(&ctx);
         self.advance_source_playback(&ctx);
         self.scrub_audio(&ctx);
+        // fork 6.2 / 6.3: the background media worker (proxies, render cache) waits while the
+        // user plays, scrubs (a playhead move while stopped) or exports
+        self.session.background.observe(
+            self.playback.playing || self.source_playback.clock.playing,
+            filmcraft_engine::background::foreground_jobs_running(&self.session),
+            Some(self.session.playhead()),
+        );
         // Text to Speech: a selected narration clip loads into the panel
         panels::tts::follow_selection(self);
         if self.ui.tts.pending.is_some() || self.ui.tts.download_job.is_some() {

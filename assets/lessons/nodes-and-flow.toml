@@ -18,9 +18,9 @@ target = "header.workspaces"
 expect = { element = "panel.ColorNodes" }
 
 [[step]]
-text = "Click a clip in the timeline to choose the shot you will grade."
+text = "Click a clip in the Clips strip (or the timeline) to choose the shot you will grade."
 why = "Every grade belongs to one clip. Nothing can be graded until a clip is selected."
-target = "timeline.tracks"
+target = ["clips.strip", "timeline.tracks"]
 expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
 already = "clipSelected"
 

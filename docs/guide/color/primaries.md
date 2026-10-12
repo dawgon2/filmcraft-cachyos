@@ -85,4 +85,4 @@ colour-boost / mid-detail sliders yet.
 
 Lumetri's wheels and sliders are a separate tool (**[FilmCraft]**) that lives in the clip's
 effect stack. Nodes run before the effect stack, so a node grade and Lumetri can be combined.
-`lumetri.md` is still to write.
+See [lumetri.md](lumetri.md) for when to use which.

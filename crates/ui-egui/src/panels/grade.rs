@@ -4,7 +4,8 @@
 //!
 //! Every edit goes through the `grade.*` engine commands; drags use one `merge` key per press so a
 //! drag is one undo step. Automation ids: `grade.node.<id>`, `grade.addNode`, `grade.insertNode`,
-//! `grade.removeNode`, `grade.toggleNode`, `grade.resetNode`, `grade.bypass`, `grade.tab.<tab>`,
+//! `grade.removeNode`, `grade.toggleNode`, `grade.resetNode`, `grade.renameNode` (and its field
+//! `grade.renameNode.field`), `grade.bypass`, `grade.tab.<tab>`,
 //! `grade.wheel.<key>`, `grade.param.<key>`, `grade.curve.<channel>`.
 
 use egui::{Align2, Color32, Rect, Sense, Stroke, pos2, vec2};
@@ -14,6 +15,7 @@ use filmcraft_time::Tick;
 use serde_json::{Value, json};
 
 use crate::FilmcraftApp;
+use crate::state::GradeRename;
 use crate::widgets;
 
 /// The first selected clip on a video track.
@@ -68,6 +70,8 @@ fn gesture(ui: &egui::Ui) -> u64 {
 const NODE_W: f32 = 92.0;
 const NODE_H: f32 = 46.0;
 const NODE_GAP: f32 = 22.0;
+/// Longest node name, as `grade.labelNode` keeps it.
+const MAX_LABEL: usize = 64;
 
 pub fn show_nodes(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let t = app.tokens;
@@ -79,7 +83,12 @@ pub fn show_nodes(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let cur = current_node(app, clip, &grade);
     let mut cmds: Vec<(&'static str, Value)> = Vec::new();
     let mut select: Option<u64> = None;
+    let mut rename: Option<u64> = None;
     let mut autos: Vec<(String, Rect, String)> = Vec::new();
+    // a rename whose clip is no longer selected or whose node is gone ends without a change
+    if app.ui.grade_rename.as_ref().is_some_and(|rn| rn.clip != clip.0 || grade.node(rn.node).is_none()) {
+        app.ui.grade_rename = None;
+    }
 
     let mut bui = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(8.0, 4.0))).id_salt("grade-nodes"));
     bui.horizontal(|ui| {
@@ -111,6 +120,9 @@ pub fn show_nodes(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         }
         if button(ui, "grade.resetNode", "Reset", "Reset the selected node", has) {
             cmds.push(("grade.resetNode", json!({"clip": clip.0, "node": cur})));
+        }
+        if button(ui, "grade.renameNode", "Rename", "Name the selected node", has) {
+            rename = cur;
         }
         if button(ui, "grade.bypass", "Bypass", "Bypass the clip's grade", it.grade.is_some()) {
             cmds.push(("grade.bypass", json!({"clip": clip.0})));
@@ -146,8 +158,17 @@ pub fn show_nodes(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             p.rect_stroke(r, 4.0, Stroke::new(if sel { 2.0 } else { 1.0 }, if sel { t.accent } else { t.text_faint }), egui::StrokeKind::Inside);
             let col = if n.enabled && !grade.bypass { t.text } else { t.text_faint };
             p.text(r.min + vec2(6.0, 4.0), Align2::LEFT_TOP, format!("{:02}", i + 1), egui::FontId::monospace(11.0), col);
-            let name = if n.label.is_empty() { summary(n) } else { short(&n.label, 13) };
-            p.text(r.left_bottom() + vec2(6.0, -5.0), Align2::LEFT_BOTTOM, name, egui::FontId::proportional(11.0), col);
+            let renaming = app.ui.grade_rename.as_ref().is_some_and(|rn| rn.node == n.id);
+            if renaming {
+                let field = Rect::from_min_max(pos2(r.min.x + 4.0, r.max.y - 22.0), pos2(r.max.x - 4.0, r.max.y - 3.0));
+                if let Some(done) = rename_field(app, ui, field, clip) {
+                    cmds.extend(done);
+                }
+                autos.push(("grade.renameNode.field".into(), field, format!("Name of node {:02}", i + 1)));
+            } else {
+                let name = if n.label.is_empty() { summary(n) } else { short(&n.label, 13) };
+                p.text(r.left_bottom() + vec2(6.0, -5.0), Align2::LEFT_BOTTOM, name, egui::FontId::proportional(11.0), col);
+            }
             if !n.enabled {
                 p.line_segment([r.left_bottom(), r.right_top()], Stroke::new(1.0, t.text_faint));
             }
@@ -157,6 +178,24 @@ pub fn show_nodes(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             if resp.double_clicked() {
                 cmds.push(("grade.toggleNode", json!({"clip": clip.0, "node": n.id})));
             }
+            resp.context_menu(|ui| {
+                if ui.button("Rename").clicked() {
+                    rename = Some(n.id);
+                    ui.close();
+                }
+                if ui.button(if n.enabled { "Disable" } else { "Enable" }).clicked() {
+                    cmds.push(("grade.toggleNode", json!({"clip": clip.0, "node": n.id})));
+                    ui.close();
+                }
+                if ui.button("Reset").clicked() {
+                    cmds.push(("grade.resetNode", json!({"clip": clip.0, "node": n.id})));
+                    ui.close();
+                }
+                if ui.button("Delete").clicked() {
+                    cmds.push(("grade.removeNode", json!({"clip": clip.0, "node": n.id})));
+                    ui.close();
+                }
+            });
             if ui.clip_rect().intersects(r) {
                 autos.push((format!("grade.node.{}", n.id), r.intersect(ui.clip_rect()), format!("Node {:02}", i + 1)));
             }
@@ -184,6 +223,12 @@ pub fn show_nodes(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some(id) = select {
         select_node(app, clip, id);
     }
+    if let Some(id) = rename
+        && let Some(n) = grade.node(id)
+    {
+        select_node(app, clip, id);
+        app.ui.grade_rename = Some(GradeRename { clip: clip.0, node: id, text: n.label.clone() });
+    }
     for (cmd, p) in cmds {
         if let Some(v) = run(app, cmd, p)
             && let Some(id) = v.get("node").and_then(Value::as_u64)
@@ -191,6 +236,36 @@ pub fn show_nodes(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             select_node(app, clip, id);
         }
     }
+}
+
+/// The in-place name field of the node being renamed, at `r`. Returns the command to run once the
+/// rename ends (`Some(None)` when it ends without a change: Esc, or the same name).
+fn rename_field(app: &mut FilmcraftApp, ui: &mut egui::Ui, r: Rect, clip: ClipId) -> Option<Option<(&'static str, Value)>> {
+    let rn = app.ui.grade_rename.clone()?;
+    let mut text = rn.text;
+    let id = egui::Id::new(("grade-rename-field", rn.clip, rn.node));
+    let resp = ui.put(r, egui::TextEdit::singleline(&mut text).id(id).char_limit(MAX_LABEL).font(egui::FontId::proportional(11.0)).margin(vec2(3.0, 1.0)));
+    // take keyboard focus the first frame the field is shown
+    let shown = egui::Id::new("grade-rename-shown");
+    if ui.ctx().data(|d| d.get_temp::<egui::Id>(shown)) != Some(id) {
+        ui.ctx().data_mut(|d| d.insert_temp(shown, id));
+        resp.request_focus();
+    }
+    if let Some(rn) = app.ui.grade_rename.as_mut() {
+        rn.text = text.clone();
+    }
+    let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    if !cancel && !resp.lost_focus() {
+        return None;
+    }
+    app.ui.grade_rename = None;
+    ui.ctx().data_mut(|d| d.remove::<egui::Id>(shown));
+    let label = text.trim();
+    let old = selected(app).and_then(|(_, it)| it.grade?.node(rn.node).map(|n| n.label.clone())).unwrap_or_default();
+    if cancel || label == old {
+        return Some(None);
+    }
+    Some(Some(("grade.labelNode", json!({"clip": clip.0, "node": rn.node, "label": label}))))
 }
 
 /// A short description of what a node changes (shown when it has no label).
@@ -217,6 +292,16 @@ fn summary(n: &GradeNode) -> String {
 /// opposite equals it), full-scale master offset.
 pub(crate) const WHEELS: [(&str, &str, f32, f32); 4] =
     [("lift", "Lift", 0.25, 0.5), ("gamma", "Gamma", 0.25, 0.5), ("gain", "Gain", 0.5, 1.0), ("offset", "Offset", 0.25, 0.5)];
+
+/// Smallest and largest wheel (points), the gap between wheels, and the height a wheel's title and
+/// numbers take besides the wheel itself.
+const WHEEL_MIN: f32 = 72.0;
+const WHEEL_MAX: f32 = 240.0;
+const WHEEL_GAP: f32 = 12.0;
+const WHEEL_CHROME: f32 = 44.0;
+/// The slider column beside the wheels on a wide panel, and the gap before it.
+const SIDE_W: f32 = 330.0;
+const SIDE_GAP: f32 = 24.0;
 
 /// Number sliders below the wheels; `""` draws a separator (the film grain group follows).
 const SLIDERS: [&str; 9] = ["contrast", "pivot", "saturation", "temperature", "tint", "", "grain.strength", "grain.size", "grain.softness"];
@@ -329,79 +414,114 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let mview = if tab == "match" { Some(match_view(app, bui.ctx(), clip, &grade)) } else { None };
     let luts = lut_entries(&app.session.project);
     let scroll_rect = Rect::from_min_max(bui.cursor().min, bui.max_rect().max);
+    let view_h = scroll_rect.height();
     let mut sui = bui.new_child(egui::UiBuilder::new().max_rect(scroll_rect).id_salt("grade-primaries-scroll"));
     // a Grading Coach step about one of these controls scrolls it into view (once per step)
     let coach_scroll = super::coach::scroll_request(app, bui.ctx());
     let mut coach_scrolled = false;
     egui::ScrollArea::vertical().id_salt(("grade-primaries", tab)).auto_shrink([false, false]).show(&mut sui, |bui| {
         if tab == "primaries" {
-            // four wheels in a row when the panel is wide (Resolve's Color page), else two by two
-            let cols = if bui.available_width() >= 4.0 * 130.0 { 4 } else { 2 };
-            let size = ((bui.available_width() - 12.0 * (cols as f32 - 1.0)) / cols as f32).clamp(90.0, 170.0);
-            for row in WHEELS.chunks(cols) {
-                bui.horizontal(|ui| {
-                    for &(key, title, scale, master_scale) in row {
-                        ui.vertical(|ui| {
-                            ui.set_width(size);
-                            let w = node.wheel_at(key, mt);
-                            ui.label(egui::RichText::new(title).color(t.text_dim));
-                            let puck = puck_of([w[0], w[1], w[2]], scale);
-                            let light = (w[3] / master_scale * 100.0).clamp(-100.0, 100.0);
-                            let wheel_rect = Rect::from_min_size(ui.cursor().min, vec2(size, size));
-                            let ch = widgets::color::color_wheel(ui, puck, light, size, &t, egui::Id::new(("grade-wl", clip.0, node_id, key)));
-                            autos.push((format!("grade.wheel.{key}"), wheel_rect, title.to_string()));
-                            let mean = (w[0] + w[1] + w[2]) / 3.0;
-                            if let Some(p) = ch.puck {
-                                let c = rgb_of(p, scale);
-                                let v = [mean + c[0], mean + c[1], mean + c[2], w[3]];
-                                sets.push(set(key, json!(v), Some(key_of(key))));
-                            }
-                            if let Some(l) = ch.lightness {
-                                sets.push(set(key, json!([w[0], w[1], w[2], l / 100.0 * master_scale]), Some(key_of(key))));
-                            }
-                            ui.label(
-                                egui::RichText::new(format!("{:+.2} {:+.2} {:+.2}  {:+.2}", w[0], w[1], w[2], w[3])).monospace().small().color(t.text_faint),
-                            );
-                        });
-                    }
-                });
-                bui.add_space(4.0);
-            }
-            bui.separator();
-            for key in SLIDERS {
-                if key.is_empty() {
-                    bui.add_space(2.0);
-                    bui.label(egui::RichText::new("Film grain").color(t.text_dim));
-                    continue;
-                }
-                let Some(def) = node_param(key) else { continue };
-                let NodeParamKind::Float { min, max, .. } = def.kind else { continue };
-                let mut v = node.float_at(key, mt);
-                bui.horizontal(|ui| {
-                    ui.add_sized(vec2(84.0, 18.0), egui::Label::new(egui::RichText::new(def.label).color(t.text_dim)));
-                    let r = ui.add(egui::Slider::new(&mut v, min..=max).max_decimals(3));
-                    autos.push((format!("grade.param.{key}"), r.rect, def.label.to_string()));
-                    if r.changed() {
+            // Resolve's Color page: four wheels in a row sized to the panel's height as well as its
+            // width (so they never hide below a short panel), with the sliders beside them when
+            // the panel is wide enough; else the wheels two by two and the sliders below
+            let wheel = |ui: &mut egui::Ui,
+                         &(key, title, scale, master_scale): &(&'static str, &'static str, f32, f32),
+                         size: f32,
+                         sets: &mut Vec<Value>,
+                         autos: &mut Vec<(String, Rect, String)>| {
+                ui.vertical(|ui| {
+                    ui.set_width(size);
+                    let w = node.wheel_at(key, mt);
+                    ui.label(egui::RichText::new(title).color(t.text_dim));
+                    let puck = puck_of([w[0], w[1], w[2]], scale);
+                    let light = (w[3] / master_scale * 100.0).clamp(-100.0, 100.0);
+                    let wheel_rect = Rect::from_min_size(ui.cursor().min, vec2(size, size));
+                    let ch = widgets::color::color_wheel(ui, puck, light, size, &t, egui::Id::new(("grade-wl", clip.0, node_id, key)));
+                    autos.push((format!("grade.wheel.{key}"), wheel_rect, title.to_string()));
+                    let mean = (w[0] + w[1] + w[2]) / 3.0;
+                    if let Some(p) = ch.puck {
+                        let c = rgb_of(p, scale);
+                        let v = [mean + c[0], mean + c[1], mean + c[2], w[3]];
                         sets.push(set(key, json!(v), Some(key_of(key))));
                     }
-                    let reset = ui.small_button("↺").on_hover_text(format!("Reset {}", def.label));
-                    autos.push((format!("grade.param.{key}.reset"), reset.rect, format!("Reset {}", def.label)));
-                    if reset.clicked() {
-                        sets.push(json!({"reset": key}));
+                    if let Some(l) = ch.lightness {
+                        sets.push(set(key, json!([w[0], w[1], w[2], l / 100.0 * master_scale]), Some(key_of(key))));
                     }
+                    // one line (a narrow wheel cuts it short; the full values are on hover)
+                    let nums = format!("{:+.2} {:+.2} {:+.2} {:+.2}", w[0], w[1], w[2], w[3]);
+                    ui.add(egui::Label::new(egui::RichText::new(&nums).monospace().size(9.5).color(t.text_faint)).truncate())
+                        .on_hover_text(format!("R G B, master: {nums}"));
                 });
-            }
-            bui.separator();
-            lut_row(bui, &node, &luts, &t, &mut cmds, &mut autos);
-            if !node.lut.is_empty() {
-                let mut edits = Vec::new();
-                float_rows(bui, &node, mt, &t, &["lut.mix"], true, &mut edits, &mut autos);
-                for (key, v) in edits {
-                    sets.push(match v {
-                        Some(v) => set(key, v, Some(key_of(key))),
-                        None => json!({"reset": key}),
+            };
+            let sliders = |ui: &mut egui::Ui, sets: &mut Vec<Value>, autos: &mut Vec<(String, Rect, String)>, cmds: &mut Vec<(&'static str, Value)>| {
+                for key in SLIDERS {
+                    if key.is_empty() {
+                        ui.add_space(2.0);
+                        ui.label(egui::RichText::new("Film grain").color(t.text_dim));
+                        continue;
+                    }
+                    let Some(def) = node_param(key) else { continue };
+                    let NodeParamKind::Float { min, max, .. } = def.kind else { continue };
+                    let mut v = node.float_at(key, mt);
+                    ui.horizontal(|ui| {
+                        ui.add_sized(vec2(84.0, 18.0), egui::Label::new(egui::RichText::new(def.label).color(t.text_dim)));
+                        let r = ui.add(egui::Slider::new(&mut v, min..=max).max_decimals(3));
+                        autos.push((format!("grade.param.{key}"), r.rect, def.label.to_string()));
+                        if r.changed() {
+                            sets.push(set(key, json!(v), Some(key_of(key))));
+                        }
+                        let reset = ui.small_button("↺").on_hover_text(format!("Reset {}", def.label));
+                        autos.push((format!("grade.param.{key}.reset"), reset.rect, format!("Reset {}", def.label)));
+                        if reset.clicked() {
+                            sets.push(json!({"reset": key}));
+                        }
                     });
                 }
+                ui.separator();
+                lut_row(ui, &node, &luts, &t, cmds, autos);
+                if !node.lut.is_empty() {
+                    let mut edits = Vec::new();
+                    float_rows(ui, &node, mt, &t, &["lut.mix"], true, &mut edits, autos);
+                    for (key, v) in edits {
+                        sets.push(match v {
+                            Some(v) => set(key, v, Some(key_of(key))),
+                            None => json!({"reset": key}),
+                        });
+                    }
+                }
+            };
+            // room for a wheel's title above it and its numbers below
+            let by_height = (view_h - WHEEL_CHROME).max(0.0);
+            let width = bui.available_width();
+            if width >= 4.0 * WHEEL_MIN + 3.0 * WHEEL_GAP + SIDE_GAP + SIDE_W {
+                bui.horizontal_top(|ui| {
+                    let wheels_w = width - SIDE_GAP - SIDE_W;
+                    let size = ((wheels_w - 3.0 * WHEEL_GAP) / 4.0).min(by_height).clamp(WHEEL_MIN, WHEEL_MAX);
+                    ui.spacing_mut().item_spacing.x = WHEEL_GAP;
+                    for w in &WHEELS {
+                        wheel(ui, w, size, &mut sets, &mut autos);
+                    }
+                    ui.add_space(SIDE_GAP - WHEEL_GAP);
+                    ui.vertical(|ui| {
+                        ui.set_width(SIDE_W);
+                        sliders(ui, &mut sets, &mut autos, &mut cmds);
+                    });
+                });
+            } else {
+                let cols = if width >= 4.0 * WHEEL_MIN + 3.0 * WHEEL_GAP { 4 } else { 2 };
+                let rows = (WHEELS.len() / cols) as f32;
+                let size = ((width - WHEEL_GAP * (cols as f32 - 1.0)) / cols as f32).min(by_height / rows).clamp(WHEEL_MIN, WHEEL_MAX);
+                for row in WHEELS.chunks(cols) {
+                    bui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = WHEEL_GAP;
+                        for w in row {
+                            wheel(ui, w, size, &mut sets, &mut autos);
+                        }
+                    });
+                    bui.add_space(4.0);
+                }
+                bui.separator();
+                sliders(bui, &mut sets, &mut autos, &mut cmds);
             }
         } else if tab == "match" {
             if let Some(mv) = &mview {
@@ -414,6 +534,19 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         } else if tab == "noise" {
             let mut edits = Vec::new();
             float_rows(bui, &node, mt, &t, &["nr.luma", "nr.chroma", "nr.size"], true, &mut edits, &mut autos);
+            // temporal noise reduction (fork 6.7): renders at export, in the render cache and on
+            // the paused Program frame; v1 honours it on the first active node only
+            // (provisional, owner question Q9)
+            bui.add_space(6.0);
+            bui.label(egui::RichText::new(tl!("Temporal")).color(t.text_dim));
+            float_rows(bui, &node, mt, &t, &["tnr.luma", "tnr.chroma", "tnr.frames", "tnr.motion"], true, &mut edits, &mut autos);
+            let first_active = grade.active_nodes().next().is_some_and(|n| n.id == node_id);
+            let note = if first_active {
+                tl!("Shown on the paused frame, at export and in the render cache; not while playing.")
+            } else {
+                tl!("Temporal NR only runs on the first active node: these values are ignored here.")
+            };
+            bui.label(egui::RichText::new(note).color(t.text_faint));
             for (key, v) in edits {
                 sets.push(match v {
                     Some(v) => set(key, v, Some(key_of(key))),
@@ -624,7 +757,9 @@ fn float_rows(
         ui.horizontal(|ui| {
             let label = crate::i18n::t(def.label);
             ui.add_sized(vec2(104.0, 18.0), egui::Label::new(egui::RichText::new(label).color(t.text_dim)));
-            let r = ui.add_enabled(enabled, egui::Slider::new(&mut v, min..=max).max_decimals(3));
+            // (whole frames for the temporal radius)
+            let step = if *key == "tnr.frames" { 1.0 } else { 0.0 };
+            let r = ui.add_enabled(enabled, egui::Slider::new(&mut v, min..=max).max_decimals(3).step_by(step));
             autos.push((format!("grade.param.{key}"), r.rect, label.to_string()));
             if r.changed() {
                 edits.push((def.key, Some(json!(v))));

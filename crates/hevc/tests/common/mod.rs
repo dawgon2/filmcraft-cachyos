@@ -16,8 +16,10 @@ pub struct Fixture {
     pub frames: u32,
     /// Extra video filter appended after the source (e.g. noise, fade).
     pub filter: &'static str,
-    /// 10 (yuv420p10le) or 8.
+    /// 10 (yuv420p10le / yuv422p10le) or 8.
     pub bit_depth: u32,
+    /// 4:2:2 (otherwise 4:2:0).
+    pub c422: bool,
     /// Encoder arguments (libx265 unless `-c:v` is given).
     pub args: &'static [&'static str],
 }
@@ -26,7 +28,14 @@ const NOISE: &str = "noise=alls=12:allf=t+u";
 
 macro_rules! fx {
     ($name:expr, $src:expr, $w:expr, $h:expr, $n:expr, $filter:expr, $bd:expr, [$($a:expr),* $(,)?]) => {
-        Fixture { name: $name, source: $src, width: $w, height: $h, frames: $n, filter: $filter, bit_depth: $bd, args: &[$($a),*] }
+        Fixture { name: $name, source: $src, width: $w, height: $h, frames: $n, filter: $filter, bit_depth: $bd, c422: false, args: &[$($a),*] }
+    };
+}
+
+/// A 4:2:2 fixture (libx265 Main 4:2:2 10).
+macro_rules! fx422 {
+    ($name:expr, $src:expr, $w:expr, $h:expr, $n:expr, $filter:expr, [$($a:expr),* $(,)?]) => {
+        Fixture { name: $name, source: $src, width: $w, height: $h, frames: $n, filter: $filter, bit_depth: 10, c422: true, args: &["-profile:v", "main422-10", $($a),*] }
     };
 }
 
@@ -79,6 +88,25 @@ pub const FIXTURES: &[Fixture] = &[
     // Apple VideoToolbox (hardware encoder, macOS only)
     fx!("vt_main", "testsrc2", 640, 360, 20, NOISE, 8, ["-c:v", "hevc_videotoolbox", "-b:v", "2M"]),
     fx!("vt_main10", "mandelbrot", 640, 360, 20, NOISE, 10, ["-c:v", "hevc_videotoolbox", "-profile:v", "main10", "-b:v", "2M"]),
+    // 4:2:2 10-bit (Main 4:2:2 10)
+    fx422!("intra_422", "testsrc2", 352, 288, 3, NOISE, ["-x265-params", "keyint=1:log-level=error"]),
+    fx422!("intra_nosao_nodbk_422", "testsrc2", 352, 288, 2, NOISE, ["-x265-params", "keyint=1:no-sao=1:no-deblock=1:log-level=error"]),
+    fx422!("nosao_nodbk_422", "testsrc2", 352, 288, 12, NOISE, ["-x265-params", "no-sao=1:no-deblock=1:log-level=error"]),
+    fx422!("medium_422", "testsrc2", 352, 288, 20, NOISE, ["-preset", "medium", "-x265-params", "log-level=error"]),
+    fx422!("bframes_422", "testsrc2", 352, 288, 30, NOISE, ["-x265-params", "bframes=8:b-pyramid=1:ref=4:log-level=error"]),
+    fx422!("slow_422", "mandelbrot", 352, 288, 16, NOISE, ["-preset", "slow", "-x265-params", "log-level=error"]),
+    fx422!("odd_422_1918x1078", "testsrc2", 1918, 1078, 3, NOISE, ["-preset", "veryfast", "-x265-params", "log-level=error"]),
+    fx422!("slices4_422", "testsrc2", 352, 288, 12, NOISE, ["-x265-params", "slices=4:log-level=error"]),
+    fx422!("qp30_422", "mandelbrot", 352, 288, 12, NOISE, ["-x265-params", "qp=30:log-level=error"]),
+    fx422!("cbqp_422", "testsrc2", 352, 288, 12, NOISE, ["-x265-params", "qp=34:cbqpoffs=-5:crqpoffs=4:log-level=error"]),
+    fx422!("rect_amp_422", "mandelbrot", 352, 288, 16, NOISE, ["-x265-params", "rect=1:amp=1:log-level=error"]),
+    fx422!("ctu16_422", "testsrc2", 352, 288, 12, NOISE, ["-x265-params", "ctu=16:log-level=error"]),
+    fx422!("tu4_422", "testsrc2", 352, 288, 8, NOISE, ["-x265-params", "ctu=32:tu-intra-depth=4:tu-inter-depth=4:max-tu-size=16:log-level=error"]),
+    fx422!("tskip_422", "testsrc2", 352, 288, 12, NOISE, ["-x265-params", "tskip=1:log-level=error"]),
+    fx422!("weightp_422", "testsrc2", 352, 288, 20, "fade=in:0:18", ["-x265-params", "weightp=1:weightb=1:log-level=error"]),
+    fx422!("constrained_intra_422", "testsrc2", 352, 288, 12, NOISE, ["-x265-params", "constrained-intra=1:log-level=error"]),
+    fx422!("cu_lossless_422", "testsrc2", 176, 144, 6, NOISE, ["-x265-params", "cu-lossless=1:log-level=error"]),
+    fx422!("scaling_list_422", "testsrc2", 352, 288, 12, NOISE, ["-x265-params", "scaling-list=default:log-level=error"]),
 ];
 
 pub fn fixture(name: &str) -> &'static Fixture {
@@ -108,8 +136,21 @@ fn run(cmd: &mut Command) -> bool {
     }
 }
 
-pub fn pix_fmt(bd: u32) -> &'static str {
-    if bd > 8 { "yuv420p10le" } else { "yuv420p" }
+pub fn pix_fmt(f: &Fixture) -> &'static str {
+    match (f.c422, f.bit_depth > 8) {
+        (true, true) => "yuv422p10le",
+        (true, false) => "yuv422p",
+        (false, true) => "yuv420p10le",
+        (false, false) => "yuv420p",
+    }
+}
+
+/// Bytes of one frame of the raw reference decode.
+pub fn frame_size(f: &Fixture) -> usize {
+    let (w, h) = (f.width as usize, f.height as usize);
+    let ch = if f.c422 { h } else { h.div_ceil(2) };
+    let bps = if f.bit_depth > 8 { 2 } else { 1 };
+    (w * h + 2 * w.div_ceil(2) * ch) * bps
 }
 
 /// Generate (if needed) the fixture stream and its ffmpeg reference decode.
@@ -121,7 +162,7 @@ pub fn ensure(f: &Fixture) -> Option<(PathBuf, PathBuf)> {
     let yuv = dir.join(format!("{}.yuv", f.name));
     if !hevc.exists() {
         let tmp = filmcraft_testkit::temp_path(&hevc);
-        let mut vf = format!("{}=size={}x{}:rate=25,format={}", f.source, f.width, f.height, pix_fmt(f.bit_depth));
+        let mut vf = format!("{}=size={}x{}:rate=25,format={}", f.source, f.width, f.height, pix_fmt(f));
         if !f.filter.is_empty() {
             vf.push(',');
             vf.push_str(f.filter);
@@ -132,7 +173,7 @@ pub fn ensure(f: &Fixture) -> Option<(PathBuf, PathBuf)> {
         if !f.args.contains(&"-c:v") {
             c.args(["-c:v", "libx265"]);
         }
-        c.args(["-pix_fmt", pix_fmt(f.bit_depth)]);
+        c.args(["-pix_fmt", pix_fmt(f)]);
         c.args(f.args);
         c.args(["-f", "hevc"]).arg(&tmp);
         if !run(&mut c) {
@@ -148,7 +189,7 @@ pub fn ensure(f: &Fixture) -> Option<(PathBuf, PathBuf)> {
         let tmp = filmcraft_testkit::temp_path(&yuv);
         let mut c = Command::new(&ff);
         c.args(["-hide_banner", "-loglevel", "error", "-y", "-i"]).arg(&hevc);
-        c.args(["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", pix_fmt(f.bit_depth)]).arg(&tmp);
+        c.args(["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", pix_fmt(f)]).arg(&tmp);
         assert!(run(&mut c), "reference decode failed for {}", f.name);
         std::fs::rename(&tmp, &yuv).unwrap();
     }
@@ -225,11 +266,18 @@ pub fn decode_file_opts(path: &Path, threads: usize, draft: bool) -> Result<Vec<
     Ok(out)
 }
 
-/// Compare decoded pictures with a raw yuv420p / yuv420p10le reference; returns a diagnostic on the
-/// first mismatch (frame, plane, sample position, CTB (64x64) and 8x8 block).
-pub fn compare(pics: &[Picture], reference: &[u8], w: usize, h: usize, bd: u32) -> Result<(), String> {
+/// [`compare`] with the geometry of fixture `f`.
+pub fn compare_fixture(pics: &[Picture], reference: &[u8], f: &Fixture) -> Result<(), String> {
+    compare(pics, reference, f.width as usize, f.height as usize, f.bit_depth, f.c422)
+}
+
+/// Compare decoded pictures with a raw yuv420p / yuv420p10le (yuv422p / yuv422p10le when `c422`)
+/// reference; returns a diagnostic on the first mismatch (frame, plane, sample position, CTB
+/// (64x64) and 8x8 block).
+pub fn compare(pics: &[Picture], reference: &[u8], w: usize, h: usize, bd: u32, c422: bool) -> Result<(), String> {
     let bps = if bd > 8 { 2 } else { 1 };
-    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    let (cw, ch) = (w.div_ceil(2), if c422 { h } else { h.div_ceil(2) });
+    let sub_y = if c422 { 1 } else { 2 };
     let fsize = (w * h + 2 * cw * ch) * bps;
     let nref = reference.len() / fsize;
     for (i, p) in pics.iter().enumerate() {
@@ -239,11 +287,14 @@ pub fn compare(pics: &[Picture], reference: &[u8], w: usize, h: usize, bd: u32) 
         if p.width as usize != w || p.height as usize != h {
             return Err(format!("frame {i}: size {}x{} != {}x{}", p.width, p.height, w, h));
         }
+        if p.chroma_width as usize != cw || p.chroma_height as usize != ch {
+            return Err(format!("frame {i}: chroma size {}x{} != {}x{}", p.chroma_width, p.chroma_height, cw, ch));
+        }
         let f = &reference[i * fsize..(i + 1) * fsize];
         let sample = |buf: &[u8], k: usize| if bps == 2 { u16::from_le_bytes([buf[2 * k], buf[2 * k + 1]]) } else { buf[k] as u16 };
         let (ys, cs) = (w * h * bps, cw * ch * bps);
-        let planes = [("Y", &p.y, &f[..ys], w, h, 1), ("U", &p.u, &f[ys..ys + cs], cw, ch, 2), ("V", &p.v, &f[ys + cs..], cw, ch, 2)];
-        for (name, got, exp, pw, ph, sub) in planes {
+        let planes = [("Y", &p.y, &f[..ys], w, h, (1, 1)), ("U", &p.u, &f[ys..ys + cs], cw, ch, (2, sub_y)), ("V", &p.v, &f[ys + cs..], cw, ch, (2, sub_y))];
+        for (name, got, exp, pw, ph, (sx, sy)) in planes {
             let mut first = None;
             let mut count = 0usize;
             let mut maxd = 0i32;
@@ -260,7 +311,7 @@ pub fn compare(pics: &[Picture], reference: &[u8], w: usize, h: usize, bd: u32) 
                 }
             }
             if let Some((x, y, a, b)) = first {
-                let (lx, ly) = (x * sub, y * sub);
+                let (lx, ly) = (x * sx, y * sy);
                 return Err(format!(
                     "frame {i} (poc {}, pts {}) plane {name}: first mismatch at ({x},{y}) [luma ({lx},{ly}), CTB64 ({},{}), 8x8 ({},{})]: got {a} want {b}; {count} samples differ, max diff {maxd}",
                     p.poc,
@@ -289,11 +340,11 @@ pub fn check_fixture(name: &str) -> Result<bool, String> {
         let pics = match decode_file_threads(&hevc, threads) {
             Ok(p) => p,
             Err((au, e, partial)) => {
-                let cmp = compare(&partial, &reference, f.width as usize, f.height as usize, f.bit_depth).err().unwrap_or_default();
+                let cmp = compare_fixture(&partial, &reference, f).err().unwrap_or_default();
                 return Err(format!("{name} (threads {threads}): decode error at access unit {au}: {e} (after {} pictures) {cmp}", partial.len()));
             }
         };
-        compare(&pics, &reference, f.width as usize, f.height as usize, f.bit_depth).map_err(|e| format!("{name} (threads {threads}): {e}"))?;
+        compare_fixture(&pics, &reference, f).map_err(|e| format!("{name} (threads {threads}): {e}"))?;
         check_pts(&pics).map_err(|e| format!("{name} (threads {threads}): {e}"))?;
         if pics.iter().any(|p| p.draft) {
             return Err(format!("{name} (threads {threads}): picture flagged draft without draft mode"));

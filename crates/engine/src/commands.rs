@@ -3028,6 +3028,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::shortcuts::commands());
     v.extend(crate::relink::commands());
     v.extend(crate::proxies::commands());
+    v.extend(crate::render_cache::commands());
     v.extend(crate::project_manager::commands());
     v.extend(crate::masks::commands());
     v.extend(crate::presets::commands());
@@ -3941,9 +3942,9 @@ fn schema_backup_path(path: &str, schema: u32) -> String {
 
 /// Make `proj` the session's project (fresh history, media pool and editor state).
 fn install_project(s: &mut Session, proj: filmcraft_project::Project, path: Option<String>, clean: bool) {
-    let proxies = s.media.use_proxies();
+    let proxies = s.media.proxy_mode();
     s.media = std::sync::Arc::new(crate::MediaPool::default());
-    s.media.set_use_proxies(proxies);
+    s.media.set_proxy_mode(proxies);
     s.offline = Default::default();
     let first = proj.sequences().next().map(|i| i.id);
     s.project = std::sync::Arc::new(proj);
@@ -3959,6 +3960,8 @@ fn install_project(s: &mut Session, proj: filmcraft_project::Project, path: Opti
         s.previews.set_dir(Some(crate::project_tools::previews_dir_for(&s.project, p)));
     }
     s.path = path;
+    // the preview folder's files rendered from now on are this project's (fork 6.3)
+    s.previews.cache.set_owner(&crate::render_cache::owner_id(s));
     s.revision += 1;
     // A recovered project is unsaved: its saved revision is one that never existed.
     s.saved_revision = if clean { s.revision } else { 0 };

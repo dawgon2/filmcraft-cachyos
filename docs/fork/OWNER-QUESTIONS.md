@@ -178,3 +178,15 @@ thrash between flagged and unflagged release builds); (c) our own copy of candle
 forward pass (MIT/Apache, ~860 lines) with gemm-based prefill (≈ 2 s per explanation even
 without the flag; more code to own). **Provisional: (a)**, committed with a comment block
 in `.cargo/config.toml` (delete it to undo); (c) stays a possible later speed-up.
+**Owner, 2026-10-12: do (c)** as AI-PLAN Phase AI1 (after C2), then remove the flag (FORK-PLAN §1a.37).
+
+## Q9 (2026-10-12, Phase 6 item 7): temporal noise reduction on which node?
+
+Temporal NR needs the neighbouring frames *as they look at that node*. On the first node that
+is just the decoded clip; on a later node every earlier node would have to be re-run on each
+neighbour (2–4 extra full grades per frame at 6.2K). Options: (a) **first active node only**
+in v1 (cheap; a note in the panel says so; later nodes ignore it); (b) any node, re-grading the
+neighbours (correct anywhere, roughly 2–5× slower export with TNR on); (c) a separate clip-level
+"Temporal NR" before the grade (like Resolve's per-clip NR setting, not a node). **Provisional:
+(a)**, marked "provisional (owner question Q9)" in the compile step; switching to (b) or (c)
+later keeps the same parameters. Design: `docs/fork/PHASE6-DESIGN.md` §6.7.

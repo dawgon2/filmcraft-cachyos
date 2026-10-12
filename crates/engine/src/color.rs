@@ -481,7 +481,8 @@ fn apply_match(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some((_, pi)) = probe.sequence_mut(seq_id).and_then(|q| q.find_item_mut(clip)) {
         pi.effects[idx].enabled = false;
     }
-    let provider = s.media.provider(s.project.clone(), s.services.clone());
+    // the originals, never proxies: the match is stored in the grade
+    let provider = s.media.full_res_provider(s.project.clone(), s.services.clone());
     let opts = filmcraft_render::RenderOptions { scale: 0.25, working_output: true, ..Default::default() };
     let current =
         filmcraft_render::render_clip(&probe, seq_id, clip, t, opts, &provider).ok_or_else(|| bad("lumetri.applyMatch", "the clip has no picture"))?;

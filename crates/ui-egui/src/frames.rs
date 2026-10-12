@@ -63,6 +63,18 @@ pub struct FrameKey {
     /// ([`filmcraft_media::cancel::with_draft`]). Draft frames have their own keys, so a paused
     /// monitor, an export or a render never shows one.
     pub draft: bool,
+    /// A temporal render (fork 6.7, `RenderOptions::temporal`): clips with temporal noise
+    /// reduction blend their neighbouring frames. Only the paused Program frame asks for one
+    /// ([`temporal_frame`]), never playback or scrubbing; it has its own key, so a frame rendered
+    /// while scrubbing is never shown as the paused one.
+    pub temporal: bool,
+}
+
+/// Whether the Program monitor asks for a temporal render of its frame ([`FrameKey::temporal`]):
+/// paused, not being scrubbed or dragged (`pointer_down`), and a clip at the frame uses temporal
+/// noise reduction (`uses`), so every other paused frame keeps its single cache entry.
+pub fn temporal_frame(playing: bool, pointer_down: bool, uses: bool) -> bool {
+    !playing && !pointer_down && uses
 }
 
 /// Whether a monitor frame is requested with draft decoding ([`FrameKey::draft`]): only while
@@ -973,7 +985,7 @@ impl FrameServer {
     /// The most recent cached frame for `target` at or before `frame` within `max_back` frames.
     pub fn nearest(&self, target: Target, frame: i64, size: u32, revision: u64, max_back: i64) -> Option<Arc<Rgba>> {
         for d in 0..=max_back {
-            if let Some(v) = self.get(&FrameKey { target, frame: frame - d, size, revision, draft: false }) {
+            if let Some(v) = self.get(&FrameKey { target, frame: frame - d, size, revision, draft: false, temporal: false }) {
                 return Some(v);
             }
         }
@@ -1259,7 +1271,20 @@ fn run_job(sh: &Shared, job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Ser
 /// The preview frame for a sequence job, when its segment has been rendered.
 fn preview_frame(job: &Job, seq: ItemId, pool: &MediaPool, previews: &PreviewStore) -> Option<Arc<filmcraft_frame::VideoFrame>> {
     let rate = job.project.sequence(seq)?.settings.frame_rate;
-    timed_source(|| previews.frame(pool, &job.project, seq, rate.frame_at(job.time), job.scale))
+    let f = rate.frame_at(job.time);
+    let out = timed_source(|| previews.frame(pool, &job.project, seq, f, job.scale));
+    if job.prefetch {
+        // fork 6.3: open the next cached part now, so a part boundary or a cut does not wait for
+        // its file to open
+        previews.preopen_next(pool, &job.project, seq, f);
+    }
+    out
+}
+
+/// Whether a job renders with temporal access: its key asks for it and it is not playback
+/// prefetch (the flows run here, on a frame-server worker, never on the UI thread).
+fn job_temporal(job: &Job) -> bool {
+    job.key.temporal && !job.prefetch && matches!(job.key.target, Target::Sequence(_) | Target::SequencePlan(_))
 }
 
 fn provider(job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>) -> JobProvider {
@@ -1267,7 +1292,7 @@ fn provider(job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>) -> J
 }
 
 fn plan_job(job: &Job, seq: ItemId, pool: &Arc<MediaPool>, services: &Arc<dyn Services>, previews: &PreviewStore) -> (filmcraft_render::plan::FramePlan, bool) {
-    let opts = filmcraft_render::RenderOptions { scale: job.scale, captions: true, ..Default::default() };
+    let opts = filmcraft_render::RenderOptions { scale: job.scale, captions: true, temporal: job_temporal(job), ..Default::default() };
     if let Some(frame) = preview_frame(job, seq, pool, previews)
         && let Some(q) = job.project.sequence(seq)
     {
@@ -1313,7 +1338,7 @@ fn render_job(job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>, pr
         return (Rgba { w: img.w, h: img.h, px: img.over_black_rgba8() }, true);
     }
     let provider = provider(job, pool, services);
-    let opts = filmcraft_render::RenderOptions { scale: job.scale, captions: true, ..Default::default() };
+    let opts = filmcraft_render::RenderOptions { scale: job.scale, captions: true, temporal: job_temporal(job), ..Default::default() };
     let img = match job.key.target {
         Target::Sequence(seq) | Target::SequencePlan(seq) => Some(filmcraft_render::render_sequence(&job.project, seq, job.time, opts, &provider)),
         Target::Item(item) => filmcraft_render::render_item(&job.project, item, job.time, job.scale, &provider),
@@ -1400,7 +1425,14 @@ mod tests {
     #[test]
     fn plans_playback_has_passed_are_evicted_first() {
         let mut c = super::PlanCache::default();
-        let key = |frame| super::FrameKey { target: super::Target::SequencePlan(filmcraft_project::ItemId(1)), frame, size: 1000, revision: 0, draft: false };
+        let key = |frame| super::FrameKey {
+            target: super::Target::SequencePlan(filmcraft_project::ItemId(1)),
+            frame,
+            size: 1000,
+            revision: 0,
+            draft: false,
+            temporal: false,
+        };
         let plan = || super::GpuPlan {
             plan: filmcraft_render::plan::FramePlan::Image(filmcraft_render::Image::new(1, 1)),
             prepared: filmcraft_gpu::PreparedPlan::default(),
@@ -1478,6 +1510,15 @@ mod tests {
         assert!(!draft_playback(false, 0.5, true), "a paused frame is never draft");
         assert!(!draft_playback(true, 0.5, false), "off unless enabled");
         assert!(!filmcraft_engine::autosave::Preferences::default().playback.draft_decode, "off by default");
+    }
+
+    #[test]
+    fn temporal_renders_only_for_the_paused_unscrubbed_frame() {
+        use super::temporal_frame;
+        assert!(temporal_frame(false, false, true));
+        assert!(!temporal_frame(true, false, true), "never while playing");
+        assert!(!temporal_frame(false, true, true), "never while scrubbing / dragging");
+        assert!(!temporal_frame(false, false, false), "only where a clip uses it");
     }
 
     #[test]

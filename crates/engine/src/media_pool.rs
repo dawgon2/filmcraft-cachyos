@@ -7,13 +7,18 @@
 //!   slate ([`filmcraft_render::offline`]) instead of failing; the reason is kept for the UI. So
 //!   do the frames of a file that opens but whose picture FilmCraft cannot decode (a codec or
 //!   profile without a decoder).
-//! - With proxies enabled ([`MediaPool::set_use_proxies`]) items with an attached proxy are read
-//!   from it. Proxy frames are smaller; the source still reports the full-resolution size, and the
+//! - Which frames read attached proxies follows the [`ProxyMode`] (Settings ▸ Media ▸ Proxies):
+//!   **On** every frame but exports, **Off** none, **Auto** (the default) every frame while the
+//!   user plays or scrubs ([`MediaPool::set_motion`], set from the background worker's activity
+//!   each UI frame) and none while paused; stopping redraws the paused frame from the original.
+//!   A per-frame hint ([`with_motion`]) overrides that, but nothing in the product sets it yet
+//!   (owed: the frame server sets it per frame job, so prefetch of paused frames reads originals). Items with an attached proxy are then read from it. Proxy frames are smaller; the source still reports the full-resolution size, and the
 //!   compositor derives its pixel scale from the frame it gets, so effects and Motion render the
 //!   same picture at lower resolution. Export asks for [`MediaPool::full_res_provider`].
 
+use std::cell::Cell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use filmcraft_frame::{AudioBuffer, VideoFrame};
@@ -23,6 +28,105 @@ use filmcraft_project::{ItemId, MediaClip, MediaRef, Project};
 use filmcraft_render::offline::OfflineReason;
 
 use crate::Services;
+
+/// Which frames read attached proxies (Settings ▸ Media ▸ Proxies, `media.proxyMode`). Exports
+/// always read the originals.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyMode {
+    /// Playback, prefetch and scrubbing read proxies; a paused frame reads the original.
+    #[default]
+    Auto,
+    /// Every frame reads the proxy (Toggle Proxies on).
+    On,
+    /// No frame reads a proxy.
+    Off,
+}
+
+impl ProxyMode {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::On, Self::Off];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.id().eq_ignore_ascii_case(s.trim()))
+    }
+
+    /// Whether a frame reads an attached proxy. `motion`: the frame is for playback, prefetch or
+    /// scrubbing (`Some(true)`), shown while paused (`Some(false)`), or unknown (`None`: treated
+    /// as paused, so a caller that says nothing never gets a lower-resolution frame).
+    pub fn use_proxy(self, motion: Option<bool>) -> bool {
+        match self {
+            Self::On => true,
+            Self::Off => false,
+            Self::Auto => motion.unwrap_or(false),
+        }
+    }
+
+    fn to_u8(self) -> u8 {
+        match self {
+            Self::Auto => 0,
+            Self::On => 1,
+            Self::Off => 2,
+        }
+    }
+
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::On,
+            2 => Self::Off,
+            _ => Self::Auto,
+        }
+    }
+}
+
+/// Reads `"auto" | "on" | "off"`, and the `true` / `false` of the older `enableProxies` switch
+/// (`true` = On; `false` = Auto, the new default: proxies were off only because there were none).
+impl<'de> serde::Deserialize<'de> for ProxyMode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Str(String),
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Bool(true) => Self::On,
+            Raw::Bool(false) => Self::Auto,
+            Raw::Str(s) => Self::parse(&s).unwrap_or_default(),
+        })
+    }
+}
+
+thread_local! {
+    static MOTION: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// Run `f` with the frame-use hint `motion` (restoring the previous one after): the frames it
+/// renders are for playback, prefetch or scrubbing (`true`) or shown while paused (`false`). In
+/// [`ProxyMode::Auto`] only the former read proxies. Not set by the product yet (owed: the frame
+/// server sets it per frame job); without it Auto follows [`MediaPool::set_motion`].
+pub fn with_motion<R>(motion: bool, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<bool>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            MOTION.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(MOTION.with(|c| c.replace(Some(motion))));
+    f()
+}
+
+/// The frame-use hint of the work running on this thread ([`with_motion`]; None: not said).
+pub fn motion() -> Option<bool> {
+    MOTION.with(Cell::get)
+}
 
 /// Why an item renders the offline slate, as last seen by the pool.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,7 +141,11 @@ pub struct MediaPool {
     sources: RwLock<HashMap<ItemId, (String, SharedSource)>>,
     proxies: RwLock<HashMap<ItemId, (String, SharedSource)>>,
     offline: Arc<RwLock<HashMap<ItemId, OfflineStatus>>>,
-    use_proxies: AtomicBool,
+    /// [`ProxyMode`] as a byte.
+    proxy_mode: AtomicU8,
+    /// The user plays or scrubs ([`MediaPool::set_motion`]): what [`ProxyMode::Auto`] goes by for
+    /// frames rendered without a [`with_motion`] hint.
+    motion: AtomicBool,
     /// Openers tried before the built-in ones (MP4/MOV + codecs register here).
     pub openers: RwLock<Vec<Opener>>,
 }
@@ -49,7 +157,8 @@ impl Default for MediaPool {
             sources: RwLock::new(HashMap::new()),
             proxies: RwLock::new(HashMap::new()),
             offline: Arc::new(RwLock::new(HashMap::new())),
-            use_proxies: AtomicBool::new(false),
+            proxy_mode: AtomicU8::new(ProxyMode::default().to_u8()),
+            motion: AtomicBool::new(false),
             openers: RwLock::new(filmcraft_codecs::openers()),
         }
     }
@@ -175,12 +284,38 @@ impl MediaPool {
         self.sources.read().unwrap_or_else(|e| e.into_inner()).len() + self.proxies.read().unwrap_or_else(|e| e.into_inner()).len()
     }
 
+    /// Proxies are on for every frame ([`ProxyMode::On`]: Toggle Proxies is lit).
     pub fn use_proxies(&self) -> bool {
-        self.use_proxies.load(Ordering::Relaxed)
+        self.proxy_mode() == ProxyMode::On
     }
 
+    /// Toggle Proxies: [`ProxyMode::On`] or [`ProxyMode::Off`].
     pub fn set_use_proxies(&self, on: bool) {
-        self.use_proxies.store(on, Ordering::Relaxed);
+        self.set_proxy_mode(if on { ProxyMode::On } else { ProxyMode::Off });
+    }
+
+    pub fn proxy_mode(&self) -> ProxyMode {
+        ProxyMode::from_u8(self.proxy_mode.load(Ordering::Relaxed))
+    }
+
+    pub fn set_proxy_mode(&self, m: ProxyMode) {
+        self.proxy_mode.store(m.to_u8(), Ordering::Relaxed);
+    }
+
+    /// Whether a frame rendered on this thread now reads attached proxies (the mode and the
+    /// [`with_motion`] hint).
+    pub fn proxies_now(&self) -> bool {
+        self.proxy_mode().use_proxy(Some(motion().unwrap_or_else(|| self.motion.load(Ordering::Relaxed))))
+    }
+
+    /// Whether the user plays or scrubs now (the session sets it from the background worker's
+    /// [`crate::background::Activity`] every UI frame). Returns whether it changed.
+    pub fn set_motion(&self, on: bool) -> bool {
+        self.motion.swap(on, Ordering::Relaxed) != on
+    }
+
+    pub fn in_motion(&self) -> bool {
+        self.motion.load(Ordering::Relaxed)
     }
 
     /// Why an item last rendered offline (None = online or not opened yet).
@@ -216,9 +351,10 @@ impl MediaPool {
         filmcraft_media::reader::open_reader_within(&file_name(path), r, &filmcraft_codecs::reader_openers(), &openers, PROBE_WHOLE_FILE_MAX)
     }
 
-    /// Resolve (and cache) the source for a project item, using proxies when they are enabled.
+    /// Resolve (and cache) the source for a project item, using its proxy when the
+    /// [`ProxyMode`] says so for this frame ([`Self::proxies_now`]).
     pub fn source_for(&self, p: &Project, item: ItemId, services: &dyn Services) -> Option<SharedSource> {
-        self.resolve(p, item, services, self.use_proxies())
+        self.resolve(p, item, services, self.proxies_now())
     }
 
     /// Resolve the full-resolution source for an item (never a proxy).

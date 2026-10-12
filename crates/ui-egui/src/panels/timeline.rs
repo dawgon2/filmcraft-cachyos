@@ -1388,7 +1388,8 @@ fn draw_top(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, seq: &Sequenc
     }
     // render bar
     // Per segment (engine `previews`): green = rendered preview, yellow = should play in real time,
-    // red = needs rendering, nothing = plays natively.
+    // red = needs rendering, nothing = plays natively; dim green = the render cache is building
+    // these frames now (fork 6.3).
     let rb = Rect::from_min_max(pos2(ruler.min.x, ruler.max.y - 2.0), ruler.max);
     let bar = app.session.previews.bar(&app.session.project, seq_id);
     for (i, span) in bar.iter().enumerate() {
@@ -1398,6 +1399,7 @@ fn draw_top(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, seq: &Sequenc
             BarState::Yellow => (t.render_yellow, tl!("Unrendered: should play back in real time")),
             BarState::Red => (t.render_red, tl!("Unrendered: render to play back in real time")),
             BarState::Green => (t.render_green, tl!("Rendered preview")),
+            BarState::Building => (t.render_green.gamma_multiply(0.45), tl!("Building the render cache")),
         };
         let r = Rect::from_min_max(pos2(layout.x_of(span.start), rb.min.y), pos2(layout.x_of(span.end), rb.max.y)).intersect(ruler);
         if r.width() <= 0.0 {

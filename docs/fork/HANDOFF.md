@@ -2,102 +2,131 @@
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**
 incl. §1a.6 order, §1a.16 6E, §1a.17 grader, §1a.18 YouTube gaps, §1a.19–24; §5 phases; §7
-progress log), then [`GRADE-PLAN.md`](../../GRADE-PLAN.md) (all of it; §3 items 11–12 and
-"Phase G2b", §7 lanes), [`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md), [`EXPORT-PLAN.md`](../../EXPORT-PLAN.md),
-[`H264-PLAN.md`](../../H264-PLAN.md), [`COMPOSITOR-PLAN.md`](../../COMPOSITOR-PLAN.md),
-[`UPSTREAM-PLAN.md`](../../UPSTREAM-PLAN.md), [`DECODER-PLAN.md`](../../DECODER-PLAN.md),
-[`docs/guide/README.md`](../guide/README.md), `docs/fork/OWNER-QUESTIONS.md`, then this file.
-Rewritten 2026-10-11 in session 13 (G2 done, tagged `grade-2`, built). Phase order (FORK-PLAN
-§1a.6, owner): G0 ✓ → G1 ✓ → U0 ✓ → G2 ✓ → **G2b** (G2.11 + G2.12, tag `grade-2b`) → 6 (incl.
-6.1; temporal NR is Phase 6 item 7) → Y1 → 6E → Y3 → C1 → C2 → 7 (+ Y4) → D → U0.2 → 8 → Y2 →
-H1 → H2 → H3.
+progress log), then [`GRADE-PLAN.md`](../../GRADE-PLAN.md), [`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md),
+[`EXPORT-PLAN.md`](../../EXPORT-PLAN.md), [`H264-PLAN.md`](../../H264-PLAN.md),
+[`COMPOSITOR-PLAN.md`](../../COMPOSITOR-PLAN.md), [`UPSTREAM-PLAN.md`](../../UPSTREAM-PLAN.md),
+[`DECODER-PLAN.md`](../../DECODER-PLAN.md), [`docs/guide/README.md`](../guide/README.md),
+`docs/fork/OWNER-QUESTIONS.md` (Q8 open: x86-64-v3 build flag, provisional), then this file.
+Rewritten 2026-10-11 22:45 (live session: G2b done, tagged `grade-2b`, built). Phase order
+(FORK-PLAN §1a.6, owner): G0 ✓ → G1 ✓ → U0 ✓ → G2 ✓ → G2b ✓ → **6** (incl. 6.1; temporal NR
+is Phase 6 item 7) → G2c (WB picker, §1a.38) → Y1 → 6E → U0.2 → A1 → Y3 → C1 → C2 → AI1 → A2 → G3 → 7 (+ Y4) → Y2 → H1 → H2 → H3 → C3 → C4 → G4 → A3 → R1 → R2 → D → 8 (A / G3 / G4 / C3–C4 / R added by the owner 2026-10-12, §1a.35–36, [`AUDIO-PLAN.md`](../../AUDIO-PLAN.md), [`RAW-PLAN.md`](../../RAW-PLAN.md), [`AI-PLAN.md`](../../AI-PLAN.md) (AI1, §1a.37); fork-only code rule §1a.36, [`FORK-ONLY.md`](FORK-ONLY.md))
+(corrected and revised by the owner 2026-10-12, FORK-PLAN §1a.6 / §1a.34: D after H3, Phase 8
+deferred to the end). **Publish to `cachyos` after every phase (§1a.33).**
 
 ## Status
 
 - **Branch** `hevc-vaapi` (never touch `master`). Tags: `phase-1` … `phase-5`, `grade-0`,
-  `grade-1`, `upstream-sync-1`, `grade-2`. Builds in `~/Apps/filmcraft-builds/` (… `grade-2`);
-  `latest` → `grade-2`; launcher `~/.local/share/applications/filmcraft-fork.desktop`. Bench
-  binaries `target/fork-bench/bench-{phase0,1,2,4,5,grade0,grade1,u0,grade2}`.
-- **G2 done** (session 13, FORK-PLAN §7): per-node HSL qualifier (`qual.*`, `ColorOp::Stash` /
-  `MixStash`, picker `grade.pickQualifier`), windows (`GradeNode.windows`; the `masks.*`
-  commands, monitor handles and tracker take `"node"`, `engine::masks::Owner`), linear mask shape
-  (all masks), spatial NR (`FxOp::Denoise`, `nr.*`), highlight soft clip (`hl.*`), node LUT
-  (`GradeNode.lut`, `grade.setLut`), same-grade / compare / scene check / Shot Match / node
-  explainer (`crates/render/src/grade_match.rs`, `grade_explain.rs`,
-  `crates/engine/src/grade_tools.rs`). The grade compiles to FX steps
-  (`render::grade::compile_fx` / `item_fx`): fused colour chain, `HslSecondary` for a blurred
-  matte, `Masked` for windows, `Denoise`. Color page tabs: Primaries, Curves, Qualifier, Windows,
-  Noise, Match. Guide: `color/secondaries.md`, `noise.md`, `finishing.md`, `matching.md`.
-- Schema unchanged (v16): every new field is serde-default (old projects load unchanged).
-- New user-visible strings need es + zh-cn entries (ui-egui i18n tests).
-- Follow-ups noted, not done: Match tab requests render on the UI thread (background job); node
-  strip doesn't show the explainer's summary (cache by `grade_explain::node_state_key`); no
-  "mark pair intended"; no timeline badge for identical grades; preview cost model ignores the
-  grade (`render/src/preview.rs` `item_fx_cost`); linear masks re-saved by an older build lose
-  their shape; mask tracking keys at source time, edits at effect time (differ only under holds);
-  earlier list (effects.setParam keyframe time, stills gallery UI-thread renders, app-wide grade
-  keys, Gallery empty-state clipping, `cropped()` read-back, two VA displays, HDR→Main 10 note).
+  `grade-1`, `upstream-sync-1`, `grade-2`, `grade-2b`. Builds in `~/Apps/filmcraft-builds/`
+  (… `grade-2`, `grade-2b`); `latest` → `grade-2b`; launcher
+  `~/.local/share/applications/filmcraft-fork.desktop`. Bench binaries
+  `target/fork-bench/bench-{phase0,1,2,4,5,grade0,grade1,u0,grade2}`.
+- **Build flag:** `.cargo/config.toml` builds x86-64 Linux for `x86-64-v3` (AVX2; candle's
+  quantized kernels need it at compile time; OWNER-QUESTIONS Q8, provisional). Float results
+  unchanged; all target dirs were rebuilt once.
+- **G2b done** (live session 2026-10-11, FORK-PLAN §7):
+  - `crates/llm` (filmcraft-llm, L2): candle GGUF inference (qwen2 / llama), GGUF
+    pre-validator, guarded `generate`, `compact_facts` prompt, catalogue (4 stock Apache-2.0
+    models + 2 local FilmCraft-tuned entries, `is_local()`, `recommended_options()` = repeat
+    penalty 1.0 for tunes), examples `llm_eval`, `llm_quantize` (safetensors → GGUF).
+  - `crates/render/src/grade_explain/{check.rs,grammar.ebnf,cases.rs}`: the fact checker is a
+    strict controlled grammar (`GRAMMAR_DOC`, `VOCABULARY`, `check_explanation_labeled`,
+    `check_grammar`), 36 held-out cases (`eval_cases`), 101 adversarial must-fail rows; examples
+    `explain_traindata` (training set) and `explain_score`.
+  - `crates/engine/src/ai_explain.rs`: optional AI explanations (`ExplainBackend`, cached
+    model, checker gate, fixed reason codes, `ai.*` commands, `grade.explainNode` + `aiKey`),
+    prefs `color.ai.{enabled (off), model ("" = best installed tune, else DEFAULT_MODEL)}`,
+    Settings ▸ Color ▸ AI explanations. Engine features `llm` / `llm-download` (apps default
+    `llm`).
+  - Grading Coach: `crates/engine/src/{coach.rs, coach_ask.rs, coach_hints.rs}`,
+    `assets/lessons/*.toml` (7), `assets/coach/{hints.toml, questions.toml}`,
+    `crates/ui-egui/src/{panels/coach.rs, coach_ids.rs}`; Help ▸ Grading Lessons…; guide
+    `docs/guide/color/coach.md` (every `{ui:}` id there and in the whole guide is checked by
+    `coach_ui` walk tests; new guide pages must be added to `GUIDE_PAGES`).
+  - Training (owner Q6/Q7): `tools/explainer-train/` + `docs/fork/TRAINING.md`; venv
+    `~/Apps/filmcraft-train/.venv` (torch ROCm, `HSA_OVERRIDE_GFX_VERSION=10.3.0`); tuned
+    models in `~/.local/share/filmcraft-fork/models/tuned/` and hard-linked into
+    `models/<id>/`. Tuned Qwen 0.5B Q8_0: 35/36 checker passes at 2.4 s (best stock 5/36).
+    Publishing to dawgon2/filmcraft-cachyos releases only when the owner says "publish".
+    Release folders `tuned/{qwen05-v1,smol360-v1}/` are ready (FORK-PLAN §1a.26 done 2026-10-11):
+    `NOTICE`, `LICENSE`, path-free `manifest.json` (`manifest.private.json` keeps the local
+    paths; never publish it).
+    **Owner 2026-10-12 (FORK-PLAN §1a.27): SmolLM2 is the explainer base going forward;
+    `qwen05-v1` is frozen (kept, not developed or published). Second held-out set: smol360-v1
+    72/75, qwen05-v1 74/75 (TRAINING.md).**
+- Acceptance (GRADE-PLAN "Phase G2b"): AI text passes the fact check on the held-out set with
+  the tuned model (35/36; the miss falls back) and falls back cleanly without a model; every
+  lesson completes end to end through the control channel (coach_ui); 30 beginner questions pass
+  the control-name check (29/30 top-1 section, 8/8 off-topic fall back). `cargo xtask ci` green
+  (3215 tests, 39 min after the full rebuild).
+- Follow-ups noted, not done: lesson / hint / AI texts English only; a second held-out set on
+  another frame / seed; own quantized forward pass with gemm prefill (≈ 2 s); pure-Rust candle
+  LoRA trainer; `explainGrade` doesn't use the AI path yet; earlier G2 list (Match tab renders on
+  the UI thread, node strip summary, mark pair intended, identical-grade badge, preview cost
+  ignores the grade, linear masks in older builds, mask tracking key time, effects.setParam
+  keyframe time, stills gallery UI-thread renders, app-wide grade keys, Gallery empty-state
+  clipping, `cropped()` read-back, two VA displays, HDR→Main 10 note).
+- Schema unchanged (v16). New user-visible strings need es + zh-cn entries.
+- Cloud: merged up to `55f8639c` (2026-10-12 02:35: EXPORT-UI-1, KEYMAP-1, REVIEW-1, GUIDE-4/5/6;
+  tested on PC). Owed: export-page screenshot with an HDR sequence. Merge `origin/cloud-work`
+  first if it has new commits (CLOUD-QUEUE: GUIDE-7/8, COACH-WALK-1, Y1-PREP, I18N-2).
 
-- Cloud work merged 2026-10-11 16:22 (GUIDE-1 glossary, GUIDE-2 hardware page) and 16:30
-  (GUIDE-3 colour recipes, I18N-1 zh-cn entries); ids checked, i18n tests green, no GPU owed. The cloud may still be pushing to `cloud-work`: merge it first.
+## Exact next step: FORK-PLAN Phase 6, step 6.1 (merge the 4:2:2 decoder lane), then 6.2 / 6.3
 
-## G2b progress (live session 2026-10-11)
+**New, owner 2026-10-12 (FORK-PLAN §1a.39): [`RESOLVE-UI-PLAN.md`](../../RESOLVE-UI-PLAN.md).**
+Resolve style becomes the fork's default (Premiere stays a full option) and the app opens on a
+Resolve-style **Project Manager home screen** (pick a project to go into), with Resolve terminology
+(Sequence → Timeline, …; RS2b). Start RS1 → RS2 → RS2b as a
+leaf-builder lane next to Phase 6 when a lane slot is free (UI / engine only); RS3 later.
+References: `plan/resolve/screenshots/` (local only, never commit).
 
-- Done and merged: G2.11 `crates/llm` (filmcraft-llm) + speed fix (x86-64-v3, compact prompt,
-  `llm_eval`); G2.11 fact checker (strict controlled grammar, 36 cases); G2.12 lesson engine + 7
-  lessons + coach card; G2.12 ask the coach (BM25 over docs/guide, checked ids).
-- In flight at 17:40: fact checker as a strict controlled grammar (worktree
-  `agent-a3ee12ea903e9078f`, two review rounds of false accepts → redesign); LLM speed + stock
-  eval runner (lane D). Stock models are slow (14–47 s, target ≤ 5 s): suspected compile-time
-  AVX2/FMA in candle's k-quants + long prompts.
-- Still to do in G2b: model choice on the 36-case set; G2.11b test-training (both small bases,
-  PyTorch ROCm + candle fallback, generator/eval/quantize in Rust, `docs/fork/TRAINING.md`);
-  engine wiring (explain with model → checker → template fallback, background, Settings ▸ Color
-  ▸ AI explanations with a choosable model download); ask-the-coach (BM25 over docs/guide, the
-  control-name check, closest-lesson fallback); context hints; lesson picker UI; select-step on
-  an already selected clip; lesson text i18n.
-
-## Exact next step: Phase G2b, step G2.11 (local AI explanations)
-
-GRADE-PLAN §3 items 11 and 12 ("Phase G2b"). Suggested lanes (prompt §3, mode permitting):
-1. **G2.11 model crate** (leaf builder, Opus): a new L-level crate beside `crates/speech` (no UI
-   deps; behind a cargo feature off in wasm), candle inference of a quantized open-licence small
-   instruct model, the catalogue / verified downloader pattern of `crates/speech/src/models.rs`
-   (pinned revision, SHA-256, licence, per-user data dir), opt-in download only (Settings ▸ Color ▸
-   AI explanations), never bundled. Input: `grade_explain::NodeFacts` (serde) + a fixed prompt;
-   output fact-checked (every number / direction must match the facts; length cap) with the
-   G2.10 template as fallback; `catch_unwind`, memory and time caps. Pick the model on a fixed
-   30-case set (quality, ≤ ~5 s on this CPU). Downloads are allowed only after the user opts in:
-   in tests use a tiny local fixture or skip when the model is absent; the owner downloads.
-2. **G2.12 lesson engine** (main): `assets/lessons/*.toml` (steps, target automation id, expected
-   command + param condition, text), highlight via `crates/ui-egui/src/automation.rs`, wait for
-   the real command, Back / Skip / Exit, progress per user; the seven lessons listed in GRADE-PLAN.
-3. **G2.12 ask the coach** (leaf builder): BM25 over `docs/guide/` (the only knowledge source),
-   the current grade's facts, numbered steps; every named control / command checked against the
-   live command list and automation ids; fallback to the closest lesson.
-4. Context hints (dismissible cards, one switch off).
-5. A guide check (README "Keeping it true"): `cargo xtask guide` or a test that every
-   `{ui:…}` / command id in `docs/guide/` exists and every section has a provenance tag — the
-   coach depends on it.
-Acceptance (GRADE-PLAN "Phase G2b"): 30-case fact check with the model + clean fallback without
-it; every lesson completable through the control channel; 30 beginner questions pass the
-control-name check. Then `cargo xtask ci`, tag `grade-2b`, build, rewrite this file for Phase 6.
-If the model download needs the owner (size / licence), ask in OWNER-QUESTIONS.md with a
-provisional choice (§2b) and keep building against the fallback.
-
-## After G2b: FORK-PLAN Phase 6 (owner, 2026-10-11)
-
-Phase 6 notes, for after G2b (temporal NR is Phase 6 item 7, after the render cache 6.3):
+Temporal NR is Phase 6 item 7, after the render cache 6.3. Design notes for 6.1–6.3:
+[`PHASE6-DESIGN.md`](PHASE6-DESIGN.md).
 
 Order (scheduled-task prompt §2, FORK-PLAN §5 Phase 6):
-1. **6.5 first: the multicut regression.** `xm5-multicut` regressed to 302–338 drops vs 237 at
-   Phase 4 (same with the old GOP cache code, so not Phase 5's GOP change). Bisect with the saved
-   bench binaries (`target/fork-bench/bench-phase4`, `bench-phase5`, `bench-grade0`,
-   `bench-grade1`, `bench-u0`) and `--quick` / full multicut runs on an idle machine; use a Fable
-   diagnostician for the root cause (prompt §3). Then extend `xm5-multicut` with realistic cut
-   spacing (2 / 3 / 4 / 5 s, clips entered mid-GOP) and record drops per spacing (synthetic).
-2. **6.1** 4:2:2 software decode on the built-in HEVC decoder (FORK-PLAN §1a.24, not ffmpeg; old note: 4:2:2 software decode (ffmpeg pipe, multithreaded, 4:2:2 biplanar frames)) + the badge
-   "4:2:2: software decode, proxies recommended" on the clip.
+1. ~~6.5~~ **done 2026-10-12** (FORK-PLAN §7): no code regression (noise sd 31 + Mesa 26.2.4
+   ~10 %); cut-spacing cases `xm5-cutspacing 2s|3s|4s|5s` + per-cut `missed` accounting; root
+   cause of cut drops fixed in `gop.rs` (multicut ~258 → 63–70 dropped, synthetic). Compare
+   multicut numbers only as means of ≥ 2–3 runs.
+2. **6.1** part 1 **merged 2026-10-12** (`92054234`, 4:2:2 decode bit-exact, ~14 fps at 6.2K).
+   Owed: renderer check of C422 frames (`--only 422-play`), the "4:2:2: software decode, proxies
+   recommended" badge (lane B, `media_badge` in `panels/project_views.rs`), 4:2:2 proxies (6.2).
+   Lane A of 6.2 / 6.3 **merged 2026-10-12** (background worker `engine/src/background.rs`,
+   preview hash v2, `HEVC_HALF`; see FORK-PLAN §7). At 02:35 two Opus lanes started in
+   worktrees: **lane B** (auto proxies, `media.*` proxy commands, 4:2:2 badge, Settings ▸ Media,
+   guide `proxies.md`, bench `… proxies` cases) and **lane C** (render cache on the worker,
+   `cache.*` commands, budget / eviction, Settings ▸ Media Cache, guide `render-cache.md`, bench
+   `… cached` + `xm5-cache-while-playing`). If a run died with them unmerged: their branches are
+   `worktree-agent-*` under `.claude/worktrees/`; review (Opus in STEADY) and merge one at a
+   time, or note and remove them. Also owed: the frame-server hook for "proxies while playing,
+   originals when paused" if lane B couldn't do it within its files; 4:2:2 software-decode
+   memory cap (RSS ~8 GB in `xm5-422-play`).
+   **02:23: the run died (systemd-oomd killed the Claude app; §1a.31).** Lanes B and C were
+   not merged: lane B (auto proxies) is all uncommitted in `.claude/worktrees/agent-acb14297…`,
+   lane C (render cache) has `f5bfc6a3` plus uncommitted UI / settings / guide changes in
+   `.claude/worktrees/agent-ae7b714f…`. Check each builds and passes its crate tests (through
+   `fc-cargo.sh`, one UI-crate run at a time), review, commit in the worktree, merge one at a time.
+   **03:28 (scheduled run): lanes B (6.2, `2798066e`) and C (6.3, `cd0bb40b`) merged, review
+   fixes in, tests green (FORK-PLAN §7). 6.1b runs as an Opus lane: edits in a
+   `.claude/worktrees/agent-*` worktree here, builds / Intel tests on the Dell (owner request:
+   branch `lane-6-1b` pushed to the Dell, worktree `~/Projects/fc-6-1b` there). If a run dies:
+   check the lane's last commit here and on the Dell, review (Opus: FFI), merge.**
+   **05:15 state: two unmerged lanes, both committed in `.claude/worktrees/agent-*`:**
+   (a) **DMA-BUF hand-off** `worktree-agent-a97b975e5d7c97018` (`447a7ee8`; Opus review: approve
+   after fixes — HOST_COHERENT non-device-local memory type, external-buffer query, process-wide
+   "4:2:2 import refused" flag, mmap read-back to drop the triple copy, pool stress test; the
+   lane is applying them). Timings (synthetic): decode→GPU frame 44–47 ms hand-off vs 103–146 ms
+   read-back. (b) **6.7 lane B** `worktree-agent-afcc51ee9cfb7445f` (`073d5b40`, TNR
+   integration; Opus review running). If a run dies: finish the reviews / fixes, merge one at a
+   time (re-run touched crates' tests), then the remaining Phase 6 acceptance item — **export
+   from 4:2:2 originals keeps the source chroma** (no test yet: e.g. a 4:2:2 fixture → ProRes 422
+   HQ export → decode → compare Cb/Cr planes, PSNR threshold) — a quick `xm5` pass, `cargo xtask
+   ci`, tag `phase-6`, build, publish (§1a.33), rewrite this file for **G2c**.**
+   **6.1b (owner §1a.29, not started): 4:2:2 decode on the Intel media engine through our own
+   `va_hevc.rs`** (FORK-PLAN §5 Phase 6 item 1, "6.1b"): own `Display` for Main 4:2:2 10 on the
+   node advertising it (`renderD128`, iHD), bit-exact vs the software decoder, read-back cost at
+   6.2K, fallback chain + badge per path. Do it after lanes B / C merge and before 6.6 (it is
+   what makes 4:2:2 play without proxies). Owner asked about it 2026-10-12. **§1a.30: the
+   DMA-BUF hand-off Intel → AMD is part of 6.1b** (measure read-back first as the baseline).
 3. **6.2** auto proxies on import with the in-process hardware encoder (`crates/engine/src/
    proxies.rs`, fast decode paths; export always reads originals).
 4. **6.3** render cache like Resolve's Smart Cache (`crates/engine/src/previews.rs`; background
@@ -105,13 +134,12 @@ Order (scheduled-task prompt §2, FORK-PLAN §5 Phase 6):
    GPU-stall-while-decoding gotcha below). Fable designer for the cache design.
 5. **6.6** L 2× with zero drops on 6.2K originals via proxies / render cache; zero drops at cuts.
 6. Acceptance (FORK-PLAN §5 Phase 6 "Accept", quick passes per §1a.7, synthetic), `cargo xtask
-   ci`, tag `phase-6`, build `phase-6`, rewrite this file for **Y1** (YOUTUBE-PLAN, hard limit
+   ci`, tag `phase-6`, build `phase-6`, then rewrite this file for **Y1** (YOUTUBE-PLAN, hard limit
    8 agent hours; re-scoped by U0).
 
-Lanes that fit (prompt §3): 6.5 runs alone (benchmarks); proxies
-(6.2) and the render cache (6.3) share the hardware encoder and `previews.rs` — design the cache
-first, then build them in separate worktrees. Benchmarks only in the main session with no
-builder compiling.
+Lanes that fit (prompt §3): 6.5 runs alone (benchmarks); proxies (6.2) and the render cache
+(6.3) share the hardware encoder and `previews.rs` — design the cache first, then build them in
+separate worktrees. Benchmarks only in the main session with no builder compiling.
 
 ## Environment and gotchas
 
@@ -142,6 +170,10 @@ builder compiling.
 - **Foreground commands time out at 10 min.** Run long work detached
   (`(cmd > log 2>&1; echo "exit $?" >> log) &; disown`) and wait with
   `timeout 590 bash -c 'until grep -q "^exit" log; do sleep 15; done'`. Never chain `sleep`s.
+- **Dell lane (FORK-PLAN §1a.32):** `ssh dell` (fish shell: send `bash -s` scripts) is a second
+  machine with an Intel UHD 770, set up and green (full build 392 s, tests 380 s). Use it for
+  Intel-path tests (6.1b 4:2:2 parity first), long tests / soaks and weaker-PC checks; sync
+  with `git push ssh://dell~/Projects/filmcraft-main hevc-vaapi`.
 - **GPUs:** AMD RX 6700 XT = `/dev/dri/renderD129`, Vulkan GPU0; Intel UHD 750 = `renderD128`,
   Vulkan GPU1. Force one for wgpu tests: `MESA_VK_DEVICE_SELECT=1002:73df` (AMD) or `8086:4c8a`
   (Intel) plus `MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1`. Run GPU parity tests on both.

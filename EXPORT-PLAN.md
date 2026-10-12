@@ -27,6 +27,11 @@ Intel's low-power `EncSliceLP` / VDEnc is much faster). Graded 4K exports go bey
 4. AMD encoder quality / speed level (`-compression_level`) at 6.2K.
 5. Encode two chunks per device, concatenate the Annex B streams, check with ffprobe and mpv
    (parameter-set compatibility, CVS concatenation).
+6. **4:2:2 sources (added 2026-10-12 after Phase 6):** export from 6.2K 4:2:2 originals, per
+   stage (Intel decode + hand-off, render, encode). First data point: the xm5 4:2:2 clip →
+   ProRes 422 HQ through `filmcraft-cli export` (CPU render, default settings) ran at ~2.2 fps
+   (60 frames in 26.7 s, synthetic, single run). Measure the same with GPU Rendering on and to
+   H.265 Main 10 (zero-copy path), and with 6E.4's 4:2:2 HEVC master preset once it exists.
 Record all numbers (synthetic) in `docs/fork-benchmarks.md` "Phase 6E". If 1–3 show Intel adds
 less than ~4 fps, stop, record it, and ship only 6E.2's single-VCN gains.
 
@@ -51,6 +56,16 @@ less than ~4 fps, stop, record it, and ship only 6E.2's single-VCN gains.
   AMD-only, with the reason in the export log and `perf.stats`; Settings choice
   "Export engines: Auto / AMD only / AMD + Intel".
 
+### 6E.4 4:2:2 10-bit HEVC master on the Intel encoder (owner, 2026-10-12, FORK-PLAN §1a.30)
+- An export preset "HEVC 4:2:2 10-bit master" on the Intel encoder (`VAProfileHEVCMain422_10`,
+  `VAEntrypointEncSlice` on `renderD128`; AMD has no 4:2:2 encode): `va_enc.rs` accepts
+  `chroma_format_idc` 2, writes the range-extension SPS fields, takes 4:2:2 input surfaces
+  (Y210 / P210, whichever the driver accepts; the compositor writes 4:2:2 Y'CbCr into them).
+- Reuses 6.1b's 4:2:2 display selection and surface formats. Shown only when a device offers the
+  profile; never the default (YouTube, proxies and the render cache stay 4:2:0).
+- Test: decode the export with the built-in 4:2:2 decoder; PSNR against
+  the Program frame above a set threshold; ffprobe reports `yuv422p10le`; plays in mpv.
+
 ### Accept
 `xm5-export-6k` ≥ 24 fps on the AMD + Intel path (target 26+), output passes ffprobe, plays in mpv,
 colour matches the Program monitor, no visible step at chunk joins (the static-shot test), pulling
@@ -58,4 +73,4 @@ the Intel device mid-export finishes on AMD alone; `xm5-export-4k` and graded 4K
 `xm5` export suite (synthetic). `cargo xtask ci`, tag `phase-6e`, build per §1a.9.
 
 ## Estimates
-6E.1 2–3 h · 6E.2 3–6 h · 6E.3 15–30 h · total ≈ 20–40 agent hours.
+6E.1 2–3 h · 6E.2 3–6 h · 6E.3 15–30 h · 6E.4 3–6 h · total ≈ 23–46 agent hours.

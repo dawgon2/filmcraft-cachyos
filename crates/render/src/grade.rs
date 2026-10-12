@@ -69,8 +69,87 @@ pub fn item_fx(
 /// vector-sharp, a nested sequence keeps drawing its own layers). Cheap: reads the parameters,
 /// builds no operations or curve tables. (A hostile grade whose chain [`compile_at`] drops as
 /// non-finite still counts: the clip then takes the effect path with an empty grade.)
-pub fn changes_picture(project: &filmcraft_project::Project, item: &TrackItem, t: Tick) -> bool {
-    item.grade.as_ref().is_some_and(|g| g.active_nodes().any(|n| node_changes(n, t, Some(project))))
+///
+/// Temporal noise reduction counts only in a render with temporal access (`temporal`,
+/// [`crate::RenderOptions::temporal`]) and on a media / subclip item: elsewhere the op is left out,
+/// so a clip whose grade only has `tnr.*` keeps its plain fast paths (playback, graphics, nests).
+pub fn changes_picture(project: &filmcraft_project::Project, item: &TrackItem, t: Tick, temporal: bool) -> bool {
+    item.grade
+        .as_ref()
+        .is_some_and(|g| g.active_nodes().any(|n| node_changes(n, t, Some(project))) || (temporal && is_media(project, item) && temporal_node(g, t).is_some()))
+}
+
+/// Whether `item` shows media (a media clip or a subclip): the items temporal NR runs on.
+pub fn is_media(project: &filmcraft_project::Project, item: &TrackItem) -> bool {
+    project.item(item.item).is_some_and(|p| matches!(p.kind, filmcraft_project::ItemKind::Media(_) | filmcraft_project::ItemKind::Subclip { .. }))
+}
+
+/// The node whose temporal noise reduction renders (fork 6.7) and its op at clip time `t` (the
+/// op's `inputs` are None: the renderer attaches the neighbouring frames, `crate::temporal`).
+///
+/// Provisional (owner question Q9): v1 honours `tnr.*` on the **first active node only**; later
+/// nodes' temporal parameters are kept but ignored (the Noise tab says so).
+pub fn temporal_node(grade: &Grade, t: Tick) -> Option<(&GradeNode, FxOp)> {
+    let n = grade.active_nodes().next()?;
+    temporal(n, t).map(|op| (n, op))
+}
+
+/// A node's temporal noise reduction at clip time `t` (None: both strengths 0). Every value is
+/// clamped by the schema (NaN / mistyped: identity); `tnr.frames` is rounded to 1 or 2.
+fn temporal(n: &GradeNode, t: Tick) -> Option<FxOp> {
+    let (luma, chroma) = (n.float_at("tnr.luma", t), n.float_at("tnr.chroma", t));
+    let radius = n.float_at("tnr.frames", t).round().clamp(1.0, f32::from(crate::tnr::MAX_RADIUS)) as u8;
+    (luma > 0.0 || chroma > 0.0).then(|| FxOp::TemporalDenoise { luma, chroma, radius, motion: n.float_at("tnr.motion", t), inputs: None })
+}
+
+/// Whether `item`'s grade asks for temporal noise reduction at clip time `t` (its first active
+/// node; see [`temporal_node`]).
+pub fn uses_temporal(item: &TrackItem, t: Tick) -> bool {
+    item.enabled && item.grade.as_ref().is_some_and(|g| temporal_node(g, t).is_some())
+}
+
+/// Whether `item`'s grade asks for temporal noise reduction anywhere: at the clip's start or at
+/// any keyframe of its first active node's strengths (the render bar marks such a clip for
+/// rendering: playback never shows temporal NR, the render cache does).
+pub fn ever_temporal(project: &filmcraft_project::Project, item: &TrackItem) -> bool {
+    if !is_media(project, item) {
+        return false;
+    }
+    let Some(n) = item.grade.as_ref().and_then(|g| g.active_nodes().next()) else { return false };
+    let mut times = vec![item.effect_time_at(item.start)];
+    for k in ["tnr.luma", "tnr.chroma"] {
+        if let Some(p) = n.param(k) {
+            times.extend(p.keyframes.iter().map(|kf| kf.time));
+        }
+    }
+    item.enabled && times.into_iter().any(|t| temporal(n, t).is_some())
+}
+
+/// Whether the frame of sequence `seq_id` at `t` shows a media clip with temporal noise
+/// reduction (also inside nested sequences, as deep as they render). The Program monitor asks for
+/// a temporal render of its paused frame only then, so other frames keep one cache entry.
+pub fn temporal_at(project: &filmcraft_project::Project, seq_id: filmcraft_project::ItemId, t: Tick) -> bool {
+    fn walk(project: &filmcraft_project::Project, seq: &filmcraft_project::Sequence, t: Tick, depth: u32) -> bool {
+        seq.video_tracks.iter().filter(|tr| tr.enabled).any(|tr| {
+            tr.items.iter().filter(|it| it.enabled && it.start <= t && t < it.end()).any(|it| match project.item(it.item).map(|p| &p.kind) {
+                Some(filmcraft_project::ItemKind::Media(_) | filmcraft_project::ItemKind::Subclip { .. }) => uses_temporal(it, it.effect_time_at(t)),
+                Some(filmcraft_project::ItemKind::Sequence(nested)) if depth < crate::MAX_NEST_DEPTH => walk(project, nested, it.source_time_at(t), depth + 1),
+                _ => false,
+            })
+        })
+    }
+    project.sequence(seq_id).is_some_and(|seq| walk(project, seq, t, 0))
+}
+
+/// Remove every [`FxOp::TemporalDenoise`] from `ops` (also inside masked steps): a render without
+/// temporal access (playback, scrubbing, adjustment layers, nested / graphic clips).
+pub fn strip_temporal(ops: &mut Vec<FxOp>) {
+    ops.retain(|o| !matches!(o, FxOp::TemporalDenoise { .. }));
+    for o in ops.iter_mut() {
+        if let FxOp::Masked { ops: inner, .. } = o {
+            strip_temporal(inner);
+        }
+    }
 }
 
 /// Whether [`node_ops`] emits anything for `n` at `t` (the same conditions).
@@ -149,6 +228,12 @@ pub fn compile_fx(grade: &Grade, t: Tick, working: WorkingSpace, ctx: GradeCtx, 
         correct.extend(body);
         FxOp::HslSecondary { key: wrap(vec![key]).into(), median_r: 0, denoise: 0.0, blur, correct: wrap(correct).into() }
     };
+    // temporal NR of the first active node (provisional, owner question Q9): before everything,
+    // on the whole picture (the node's windows and qualifier don't limit it; on the GPU a masked
+    // temporal op would send the clip to the CPU), then the node's spatial NR
+    if let Some((_, op)) = temporal_node(grade, t) {
+        out.push(op);
+    }
     for (n, part) in parts(grade, t, &gs, ctx) {
         let nr = denoise(n, t, px_scale);
         let empty = matches!(&part, Part::Signal(ops) if ops.is_empty());

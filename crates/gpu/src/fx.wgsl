@@ -52,6 +52,7 @@ const OP_MEDIAN_MASK: u32 = 30u;
 const OP_VIDEO_LIMITER: u32 = 31u;
 const OP_DENOISE: u32 = 32u;
 const OP_DENOISE_YCC: u32 = 33u;
+const OP_TEMPORAL_INIT: u32 = 34u;
 
 fn size() -> vec2<i32> {
     return vec2<i32>(i32(u.i0.y), i32(u.i0.z));
@@ -650,7 +651,7 @@ fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
             }
             return acc / f32(steps);
         }
-        case OP_DENOISE_YCC: {
+        case OP_DENOISE_YCC, OP_TEMPORAL_INIT: {
             return denoise_ycc(p);
         }
         case OP_DENOISE: {
@@ -829,4 +830,215 @@ fn fx_run(@builtin(global_invocation_id) id: vec3<u32>) {
             acc += ld(select(vec2(j, line), vec2(line, j), vertical));
         }
     }
+}
+
+// ---- temporal noise reduction (`filmcraft_render::tnr`, fork 6.7)
+//
+// `OP_TEMPORAL_INIT` (a `pixel` op) converts the current image and each neighbour to
+// (Y, Cb, Cr, α) like `denoise_ycc`. `temporal_accumulate` then reads the current one as `src`,
+// the original as `aux` and, in group 1, up to four neighbours with their forward (current →
+// neighbour) and backward flows (`Rg32Float`, grid pixels), and writes the finished pixel.
+
+struct TU {
+    n: vec4<u32>,              // neighbours, luma on, chroma on, unused
+    k: vec4<f32>,              // 1/2σl², 1/2σc², 1/τ² (agreement), unused
+    gi: array<vec4<u32>, 4>,   // flow grid size per neighbour
+    gs: array<vec4<f32>, 4>,   // image pixels per grid pixel (x, y) per neighbour
+};
+
+@group(1) @binding(0) var<uniform> tu: TU;
+@group(1) @binding(1) var tn0: texture_2d<f32>;
+@group(1) @binding(2) var tn1: texture_2d<f32>;
+@group(1) @binding(3) var tn2: texture_2d<f32>;
+@group(1) @binding(4) var tn3: texture_2d<f32>;
+@group(1) @binding(5) var tf0: texture_2d<f32>;
+@group(1) @binding(6) var tb0: texture_2d<f32>;
+@group(1) @binding(7) var tf1: texture_2d<f32>;
+@group(1) @binding(8) var tb1: texture_2d<f32>;
+@group(1) @binding(9) var tf2: texture_2d<f32>;
+@group(1) @binding(10) var tb2: texture_2d<f32>;
+@group(1) @binding(11) var tf3: texture_2d<f32>;
+@group(1) @binding(12) var tb3: texture_2d<f32>;
+
+fn flow_at(t: texture_2d<f32>, g: vec2<i32>, x: i32, y: i32) -> vec2<f32> {
+    return textureLoad(t, vec2(clamp(x, 0, g.x - 1), clamp(y, 0, g.y - 1)), 0).xy;
+}
+
+// `FlowField::sample`: bilinear at grid coordinates, clamped.
+fn flow_sample(t: texture_2d<f32>, g: vec2<i32>, x: f32, y: f32) -> vec2<f32> {
+    let x0f = floor(x);
+    let y0f = floor(y);
+    let fx = x - x0f;
+    let fy = y - y0f;
+    let x0 = i32(x0f);
+    let y0 = i32(y0f);
+    let a = flow_at(t, g, x0, y0);
+    let b = flow_at(t, g, x0 + 1, y0);
+    let c = flow_at(t, g, x0, y0 + 1);
+    let d = flow_at(t, g, x0 + 1, y0 + 1);
+    let top = a + (b - a) * fx;
+    let bot = c + (d - c) * fx;
+    return top + (bot - top) * fy;
+}
+
+// `tnr::bilinear`: (Y, Cb, Cr, 1) at an image point (centres at +0.5, clamped); w = −1 when
+// one of the four texels is a skipped pixel.
+fn tnr_bilinear(t: texture_2d<f32>, x: f32, y: f32) -> vec4<f32> {
+    let s = size();
+    let fx = clamp(x - 0.5, 0.0, f32(s.x - 1));
+    let fy = clamp(y - 0.5, 0.0, f32(s.y - 1));
+    let x0 = i32(floor(fx));
+    let y0 = i32(floor(fy));
+    let x1 = min(x0 + 1, s.x - 1);
+    let y1 = min(y0 + 1, s.y - 1);
+    let tx = fx - f32(x0);
+    let ty = fy - f32(y0);
+    let a = textureLoad(t, vec2(x0, y0), 0);
+    let b = textureLoad(t, vec2(x1, y0), 0);
+    let c = textureLoad(t, vec2(x0, y1), 0);
+    let d = textureLoad(t, vec2(x1, y1), 0);
+    if a.w <= 0.0 || b.w <= 0.0 || c.w <= 0.0 || d.w <= 0.0 {
+        return vec4(0.0, 0.0, 0.0, -1.0);
+    }
+    let top = a.xyz + (b.xyz - a.xyz) * tx;
+    let bot = c.xyz + (d.xyz - c.xyz) * tx;
+    return vec4(top + (bot - top) * ty, 1.0);
+}
+
+// `tnr::bilinear_y`
+fn tnr_bilinear_y(t: texture_2d<f32>, x: f32, y: f32) -> f32 {
+    let s = size();
+    let fx = clamp(x - 0.5, 0.0, f32(s.x - 1));
+    let fy = clamp(y - 0.5, 0.0, f32(s.y - 1));
+    let x0 = i32(floor(fx));
+    let y0 = i32(floor(fy));
+    let x1 = min(x0 + 1, s.x - 1);
+    let y1 = min(y0 + 1, s.y - 1);
+    let tx = fx - f32(x0);
+    let ty = fy - f32(y0);
+    let a = textureLoad(t, vec2(x0, y0), 0).x;
+    let b = textureLoad(t, vec2(x1, y0), 0).x;
+    let c = textureLoad(t, vec2(x0, y1), 0).x;
+    let d = textureLoad(t, vec2(x1, y1), 0).x;
+    let top = a + (b - a) * tx;
+    let bot = c + (d - c) * tx;
+    return top + (bot - top) * ty;
+}
+
+struct TC {
+    wl: f32,
+    wc: f32,
+    v: vec3<f32>,
+};
+
+// `tnr::contribution`: one neighbour's weights and value at pixel `p` (zero weights: nothing).
+fn tnr_contrib(nb: texture_2d<f32>, fw: texture_2d<f32>, bw: texture_2d<f32>, gi: vec4<u32>, gs: vec4<f32>, p: vec2<i32>, c0: vec4<f32>) -> TC {
+    var o = TC(0.0, 0.0, vec3(0.0));
+    let s = size();
+    let g = vec2<i32>(i32(max(gi.x, 1u)), i32(max(gi.y, 1u)));
+    let px = f32(p.x) + 0.5;
+    let py = f32(p.y) + 0.5;
+    let sx = gs.x;
+    let sy = gs.y;
+    let gx = px / sx - 0.5;
+    let gy = py / sy - 0.5;
+    let f = flow_sample(fw, g, gx, gy);
+    let qx = px + f.x * sx;
+    let qy = py + f.y * sy;
+    if !(qx >= 0.0 && qx <= f32(s.x) && qy >= 0.0 && qy <= f32(s.y)) {
+        return o;
+    }
+    let r = flow_sample(bw, g, gx + f.x, gy + f.y);
+    let ex = f.x + r.x;
+    let ey = f.y + r.y;
+    let fb2 = ex * ex + ey * ey;
+    let agree = 1.0 / (1.0 + fb2 * tu.k.z);
+    let c = tnr_bilinear(nb, qx, qy);
+    if c.w < 0.0 {
+        return o;
+    }
+    var sad = 0.0;
+    for (var dy = -1; dy <= 1; dy++) {
+        let yy = clamp(p.y + dy, 0, s.y - 1);
+        for (var dx = -1; dx <= 1; dx++) {
+            let xx = clamp(p.x + dx, 0, s.x - 1);
+            let yt = ld(vec2(xx, yy)).x;
+            let yk = tnr_bilinear_y(nb, qx + f32(dx), qy + f32(dy));
+            sad += abs(yt - yk);
+        }
+    }
+    let d = sad / 9.0;
+    if tu.n.y != 0u {
+        o.wl = exp(-(d * d) * tu.k.x) * agree;
+    }
+    if tu.n.z != 0u {
+        let d1 = c.y - c0.y;
+        let d2 = c.z - c0.z;
+        o.wc = exp(-(d1 * d1 + d2 * d2) * tu.k.y) * agree;
+    }
+    o.v = c.xyz;
+    return o;
+}
+
+// `tnr::apply_with_flows` for one pixel: src = the current (Y, Cb, Cr, α), aux = the original.
+@compute @workgroup_size(16, 16)
+fn temporal_accumulate(@builtin(global_invocation_id) id: vec3<u32>) {
+    if id.x >= u.i0.y || id.y >= u.i0.z {
+        return;
+    }
+    let p = vec2<i32>(id.xy);
+    let c0 = ld(p);
+    let orig = textureLoad(aux, p, 0);
+    if c0.w <= 0.0 {
+        textureStore(dst, p, orig);
+        return;
+    }
+    var sl = 0.0;
+    var wl = 0.0;
+    var sc = vec2(0.0);
+    var wc = 0.0;
+    let n = tu.n.x;
+    if n > 0u {
+        let t = tnr_contrib(tn0, tf0, tb0, tu.gi[0], tu.gs[0], p, c0);
+        sl += t.wl * t.v.x;
+        wl += t.wl;
+        sc += t.wc * t.v.yz;
+        wc += t.wc;
+    }
+    if n > 1u {
+        let t = tnr_contrib(tn1, tf1, tb1, tu.gi[1], tu.gs[1], p, c0);
+        sl += t.wl * t.v.x;
+        wl += t.wl;
+        sc += t.wc * t.v.yz;
+        wc += t.wc;
+    }
+    if n > 2u {
+        let t = tnr_contrib(tn2, tf2, tb2, tu.gi[2], tu.gs[2], p, c0);
+        sl += t.wl * t.v.x;
+        wl += t.wl;
+        sc += t.wc * t.v.yz;
+        wc += t.wc;
+    }
+    if n > 3u {
+        let t = tnr_contrib(tn3, tf3, tb3, tu.gi[3], tu.gs[3], p, c0);
+        sl += t.wl * t.v.x;
+        wl += t.wl;
+        sc += t.wc * t.v.yz;
+        wc += t.wc;
+    }
+    var yy = c0.x;
+    if tu.n.y != 0u {
+        yy = (c0.x + sl) / (1.0 + wl);
+    }
+    var cc = c0.yz;
+    if tu.n.z != 0u {
+        cc = (c0.yz + sc) / (1.0 + wc);
+    }
+    let out = vec4(nr_rgb(vec3(yy, cc)) * c0.w, c0.w);
+    if !finite4(out) {
+        textureStore(dst, p, orig);
+        return;
+    }
+    // (alpha: the original's, bit for bit)
+    textureStore(dst, p, vec4(out.rgb, orig.a));
 }

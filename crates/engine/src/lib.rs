@@ -13,6 +13,7 @@
 pub mod aaf_omf;
 pub mod ai_explain;
 pub mod autosave;
+pub mod background;
 pub mod captions;
 pub mod clip_ops;
 pub mod coach;
@@ -46,8 +47,10 @@ pub mod project_manager;
 pub mod project_panel;
 pub mod project_tools;
 pub mod proxies;
+pub mod proxy_jobs;
 pub mod relink;
 pub mod remix;
+pub mod render_cache;
 pub mod scene_detect;
 pub mod scopes;
 pub mod sequence_extras;
@@ -451,6 +454,12 @@ pub struct Session {
     /// Local AI explanations of grade nodes (`ai.*`, fork GRADE-PLAN G2.11): the answer cache,
     /// an injected backend (tests) and the running model download.
     pub ai: ai_explain::AiExplain,
+    /// The background media worker (fork 6.2 / 6.3: automatic proxies, render cache). Its thread
+    /// starts with the first job; the frontend reports playing / scrubbing / exporting to it.
+    pub background: background::BackgroundWorker,
+    /// Automatic proxies (fork 6.2): the proxy jobs queued on [`Self::background`] and each clip's
+    /// proxy state (`media.proxyStatus`, the Project panel's badges).
+    pub auto_proxies: proxy_jobs::AutoProxies,
 }
 
 /// An export advanced a batch at a time on the host's thread ([`Session::pump_jobs`]).
@@ -543,6 +552,8 @@ impl Session {
             coach: Default::default(),
             coach_ids: None,
             ai: Default::default(),
+            background: Default::default(),
+            auto_proxies: Default::default(),
             media_stamps: Default::default(),
             media_scan: None,
         }
@@ -583,7 +594,7 @@ impl Session {
         let prefs_path = cfg.data_dir.join("preferences.json");
         self.prefs = autosave::Preferences::load(&prefs_path);
         self.prefs.apply_hardware_decoding();
-        self.media.set_use_proxies(self.prefs.media.enable_proxies);
+        self.media.set_proxy_mode(self.prefs.media.proxies);
         self.shortcuts.set_dir(&cfg.data_dir);
         self.presets.set_dir(&cfg.data_dir);
         self.export_presets.set_dir(&cfg.data_dir);
@@ -632,6 +643,8 @@ impl Session {
         scene_detect::poll(self);
         export_tools::pump_queue(self, false);
         panels::log_jobs(self);
+        // fork 6.3: the render cache (throttled; cheap when nothing changed)
+        render_cache::tick(self, false);
         let Some(p) = self.persistence.as_mut() else { return };
         for ev in p.drain_events() {
             match ev {
@@ -668,8 +681,8 @@ impl Session {
         if cache_changed {
             self.apply_media_cache();
         }
-        if self.media.use_proxies() != self.prefs.media.enable_proxies {
-            self.media.set_use_proxies(self.prefs.media.enable_proxies);
+        if self.media.proxy_mode() != self.prefs.media.proxies {
+            self.media.set_proxy_mode(self.prefs.media.proxies);
             self.bump_view();
         }
         if let Some(w) = &self.persistence {
@@ -687,6 +700,8 @@ impl Session {
             && !cfg!(target_arch = "wasm32")
         {
             self.previews.move_to(project_tools::previews_dir(self).unwrap_or_else(|| previews::dir_for_project(p)));
+            // files rendered from now on (and those made while unsaved) are this project's
+            self.previews.cache.set_owner(&render_cache::owner_id(self));
         }
     }
 
@@ -1155,6 +1170,8 @@ mod audio_placement_tests;
 #[cfg(test)]
 mod autosave_tests;
 #[cfg(test)]
+mod background_tests;
+#[cfg(test)]
 mod clip_ops_tests;
 #[cfg(test)]
 mod coach_ask_tests;
@@ -1220,6 +1237,10 @@ mod project_manager_tests;
 mod project_panel_tests;
 #[cfg(test)]
 mod proxies_tests;
+#[cfg(test)]
+mod proxy_jobs_tests;
+#[cfg(test)]
+mod proxy_preset_tests;
 #[cfg(test)]
 mod relink_tests;
 #[cfg(test)]

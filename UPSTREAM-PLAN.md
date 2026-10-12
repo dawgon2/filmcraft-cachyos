@@ -103,7 +103,8 @@ continues.
 
 Pipeline (owner, 2026-10-11: runs in a contribution slot at each phase boundary from G2b on, FORK-PLAN §1a.25):
 1. Pick candidates (below); for each, build a clean branch **on upstream `main`** in the `cachyos`
-   remote: fork-only parts removed (ffmpeg fallbacks, FORK-PLAN / HANDOFF / plan files, X-M5
+   remote: fork-only parts removed (everything in [`docs/fork/FORK-ONLY.md`](docs/fork/FORK-ONLY.md):
+   `FORK-ONLY:` commits and `// FORK-ONLY` hooks, ffmpeg fallbacks, FORK-PLAN / HANDOFF / plan files, X-M5
    benches), upstream's rules met (no `unsafe` outside `crates/platform` with an ADR, ffmpeg only
    as a test oracle, assets / attribution, fonts), upstream's full `cargo xtask ci` green, a Fable
    review against upstream's AGENTS.md, a focused PR description. **Small PRs**, one fix or feature

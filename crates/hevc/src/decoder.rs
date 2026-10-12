@@ -11,7 +11,7 @@ use crate::params::{Layout, Pps, Sps, Vps};
 use crate::picture::{Frame, FrameRef};
 use crate::slice::{NalHeader, SliceHeader, nal_type};
 use crate::slicedec::{F_INTRA, F_SKIP, PicState, SliceDecoder, SliceJob};
-use crate::{ColorInfo, Picture, Plane};
+use crate::{ChromaFormat, ColorInfo, Picture, Plane};
 use filmcraft_bitstream::{annexb_nals, length_prefixed_nals, unescape_rbsp};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -394,7 +394,8 @@ impl Decoder {
         let max_lsb = sps.max_poc_lsb();
         let poc = self.poc_state.compute(sh, max_lsb, irap_no_rasl);
         let (w, h) = (sps.width as usize, sps.height as usize);
-        let template = Frame::new(0, 0, w, h, sps.log2_ctb, sps.bit_depth_luma, sps.bit_depth_chroma);
+        let csy = if sps.sub_height_c() == 2 { 1 } else { 0 };
+        let template = Frame::new(0, 0, w, h, csy, sps.log2_ctb, sps.bit_depth_luma, sps.bit_depth_chroma);
         let next_id = &mut self.next_id;
         let mut missing = 0u64;
         let mut make_missing = |p: i32| -> Result<FrameRef> {
@@ -421,7 +422,7 @@ impl Decoder {
         let _ = scaling;
         let id = self.next_id;
         self.next_id += 1;
-        let frame = Arc::new(Frame::new(id, poc, w, h, sps.log2_ctb, sps.bit_depth_luma, sps.bit_depth_chroma));
+        let frame = Arc::new(Frame::new(id, poc, w, h, csy, sps.log2_ctb, sps.bit_depth_luma, sps.bit_depth_chroma));
         let output = sh.pic_output && !(hdr.is_rasl() && self.skip_rasl);
         // Draft mode: a sub-layer non-reference picture of the highest sub-layer is never used
         // for prediction, so its in-loop filters can be left out without changing anything else.
@@ -593,12 +594,13 @@ fn make_picture(o: &Output<FrameRef>) -> Picture {
     let (cx, cy, cw, ch) = o.meta.crop;
     let (cx, cy, cw, ch) = (cx as usize, cy as usize, cw as usize, ch as usize);
     let (y, u, v) = o.frame.copy_cropped((cx, cy, cw, ch));
-    let (ccw, cch) = (cw.div_ceil(2), ch.div_ceil(2));
+    let (ccw, cch) = (cw.div_ceil(2), if o.frame.csy == 1 { ch.div_ceil(2) } else { ch });
     let bd = o.meta.bit_depth;
     let conv = |p: Vec<u16>| if bd <= 8 { Plane::U8(p.into_iter().map(|v| v as u8).collect()) } else { Plane::U16(p) };
     Picture {
         width: cw as u32,
         height: ch as u32,
+        chroma_format: if o.frame.csy == 1 { ChromaFormat::Yuv420 } else { ChromaFormat::Yuv422 },
         chroma_width: ccw as u32,
         chroma_height: cch as u32,
         bit_depth: bd,

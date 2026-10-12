@@ -11,7 +11,7 @@ use crate::params::{Layout, Pps, Sps};
 use crate::picture::{FrameRef, RefPic};
 use crate::slice::{SliceHeader, SliceType};
 use crate::spec_tables::*;
-use crate::tables::{CTX_IDX_MAP, LEVEL_SCALE, SCAN_4, qpc_420, scan_order};
+use crate::tables::{CTX_IDX_MAP, INTRA_MODE_422, LEVEL_SCALE, SCAN_4, qpc, scan_order};
 use crate::transform;
 use std::sync::Arc;
 
@@ -106,6 +106,8 @@ pub struct PicState {
     pub height: usize,
     pub cwidth: usize,
     pub cheight: usize,
+    /// log2(SubHeightC): 1 for 4:2:0, 0 for 4:2:2 (chroma is always half width).
+    pub csy: u32,
     pub w4: usize,
     pub h4: usize,
     pub log2_ctb: u32,
@@ -139,7 +141,8 @@ pub struct PicState {
 impl PicState {
     pub fn new(frame: FrameRef, sps: Arc<Sps>, pps: Arc<Pps>, layout: Arc<Layout>, scaling: Option<Arc<Vec<Vec<u8>>>>) -> Self {
         let (width, height) = (sps.width as usize, sps.height as usize);
-        let (cwidth, cheight) = (width / 2, height / 2);
+        let csy = if sps.sub_height_c() == 2 { 1 } else { 0 };
+        let (cwidth, cheight) = (width / 2, height >> csy);
         let (w4, h4) = (width.div_ceil(4), height.div_ceil(4));
         let log2_ctb = sps.log2_ctb;
         let (wctb, hctb) = (sps.pic_width_in_ctbs() as usize, sps.pic_height_in_ctbs() as usize);
@@ -156,6 +159,7 @@ impl PicState {
             height,
             cwidth,
             cheight,
+            csy,
             w4,
             h4,
             log2_ctb,
@@ -627,8 +631,9 @@ impl<'a> SliceDecoder<'a> {
         let offc = 6 * (self.pic.bd_c as i32 - 8);
         let qpi_cb = (self.qp_y + self.pps.cb_qp_offset + self.sh.cb_qp_offset).clamp(-offc, 57);
         let qpi_cr = (self.qp_y + self.pps.cr_qp_offset + self.sh.cr_qp_offset).clamp(-offc, 57);
-        self.qp_cb = qpc_420(qpi_cb) + offc;
-        self.qp_cr = qpc_420(qpi_cr) + offc;
+        let c420 = self.pic.csy == 1;
+        self.qp_cb = qpc(qpi_cb, c420) + offc;
+        self.qp_cr = qpc(qpi_cr, c420) + offc;
     }
 
     fn coding_unit(&mut self, x0: i32, y0: i32, log2: u32, depth: u32) -> Result<()> {
@@ -690,7 +695,7 @@ impl<'a> SliceDecoder<'a> {
             }
             self.parse_intra_modes(x0, y0, n, part)?;
             self.max_trafo_depth = self.sps.max_th_depth_intra + self.intra_split as u32;
-            self.transform_tree(x0, y0, x0, y0, log2, 0, 0, [true, true])?;
+            self.transform_tree(x0, y0, x0, y0, log2, 0, 0, [[true; 2]; 2])?;
         } else {
             self.intra_split = false;
             let mut merge2nx2n = false;
@@ -721,7 +726,7 @@ impl<'a> SliceDecoder<'a> {
             let root_cbf = if !merge2nx2n { self.dd(RQT_ROOT_CBF) == 1 } else { true };
             if root_cbf {
                 self.max_trafo_depth = self.sps.max_th_depth_inter;
-                self.transform_tree(x0, y0, x0, y0, log2, 0, 0, [true, true])?;
+                self.transform_tree(x0, y0, x0, y0, log2, 0, 0, [[true; 2]; 2])?;
             }
         }
         self.finish_cu(x0, y0, n);
@@ -794,7 +799,8 @@ impl<'a> SliceDecoder<'a> {
         let data = self.c.data();
         let n = 1usize << log2;
         let (bl, bc) = (self.sps.pcm_bit_depth_luma, self.sps.pcm_bit_depth_chroma);
-        let total_bits = n * n * bl as usize + 2 * (n / 2) * (n / 2) * bc as usize;
+        let (cn_w, cn_h) = (n / 2, n >> self.pic.csy);
+        let total_bits = n * n * bl as usize + 2 * cn_w * cn_h * bc as usize;
         ensure!(start + total_bits.div_ceil(8) <= data.len(), "PCM samples truncated");
         let mut r = filmcraft_bitstream::BitReader::new(&data[start..]);
         let (sy, sc) = (self.pic.bd_y - bl, self.pic.bd_c - bc);
@@ -806,11 +812,12 @@ impl<'a> SliceDecoder<'a> {
             }
         }
         let cw = self.pic.cwidth;
+        let yc0 = y0 as usize >> self.pic.csy;
         for c in 1..3 {
-            for y in 0..n / 2 {
-                for x in 0..n / 2 {
+            for y in 0..cn_h {
+                for x in 0..cn_w {
                     let v = r.read_bits(bc)? as u16;
-                    self.pic.planes[c][(y0 as usize / 2 + y) * cw + x0 as usize / 2 + x] = v << sc;
+                    self.pic.planes[c][(yc0 + y) * cw + x0 as usize / 2 + x] = v << sc;
                 }
             }
         }
@@ -878,20 +885,22 @@ impl<'a> SliceDecoder<'a> {
                 self.fill_blk(xp, yp, pb, pb, |b| b.ipm = mode as u8);
             }
         }
-        // chroma mode (4:2:0: one per CU, derived from the first PU's luma mode)
+        // chroma mode (4:2:0 / 4:2:2: one per CU, derived from the first PU's luma mode, 8.4.3)
         let icpm = if self.dd(INTRA_CHROMA) == 0 { 4 } else { self.bypass_bits(2) };
         let luma = self.pic.blk_at(x0, y0).ipm as u32;
-        self.intra_chroma_mode = match icpm {
+        let mode_idc = match icpm {
             4 => luma,
             _ => {
-                let m = [0, 26, 10, 1][icpm as usize];
+                let m = [0, 26, 10, 1][icpm as usize & 3];
                 if m == luma { 34 } else { m }
             }
         };
+        self.intra_chroma_mode = if self.pic.csy == 0 { INTRA_MODE_422.get(mode_idc as usize).map_or(1, |&m| m as u32) } else { mode_idc };
         Ok(())
     }
 
-    fn transform_tree(&mut self, x0: i32, y0: i32, xb: i32, yb: i32, log2: u32, depth: u32, blk_idx: u32, parent_cbf_c: [bool; 2]) -> Result<()> {
+    /// `parent_cbf_c[c][t]`: cbf_cb / cbf_cr of the parent (t = 1: the lower 4:2:2 block).
+    fn transform_tree(&mut self, x0: i32, y0: i32, xb: i32, yb: i32, log2: u32, depth: u32, blk_idx: u32, parent_cbf_c: [[bool; 2]; 2]) -> Result<()> {
         let split = if log2 <= self.sps.log2_max_tb && log2 > self.sps.log2_min_tb && depth < self.max_trafo_depth && !(self.intra_split && depth == 0) {
             self.dd(SPLIT_TRANSFORM + (5 - log2 as usize)) == 1
         } else {
@@ -899,18 +908,23 @@ impl<'a> SliceDecoder<'a> {
             let inter_split = self.sps.max_th_depth_inter == 0 && !self.cu_intra && self.cu_part != PartMode::P2Nx2N && depth == 0;
             log2 > self.sps.log2_max_tb || (self.intra_split && depth == 0) || inter_split
         };
-        let mut cbf_c = [false, false];
+        let mut cbf_c = [[false; 2]; 2];
         if log2 > 2 {
+            // 4:2:2: a second flag for the lower chroma block when this node holds the chroma TBs
+            let two = self.pic.csy == 0 && (!split || log2 == 3);
             for (c, cbf) in cbf_c.iter_mut().enumerate() {
-                if depth == 0 || parent_cbf_c[c] {
-                    *cbf = self.dd(CBF_CHROMA + depth as usize) == 1;
+                if depth == 0 || parent_cbf_c[c][0] {
+                    cbf[0] = self.dd(CBF_CHROMA + depth as usize) == 1;
+                    if two {
+                        cbf[1] = self.dd(CBF_CHROMA + depth as usize) == 1;
+                    }
                 }
             }
         } else {
             // 4x4 luma blocks: chroma cbfs are those of the parent (coded at blkIdx 3)
             cbf_c = parent_cbf_c;
             if depth == 0 {
-                cbf_c = [false, false];
+                cbf_c = [[false; 2]; 2];
             }
         }
         if split {
@@ -921,7 +935,8 @@ impl<'a> SliceDecoder<'a> {
             self.transform_tree(x0 + h, y0 + h, x0, y0, log2 - 1, depth + 1, 3, cbf_c)?;
             return Ok(());
         }
-        let cbf_luma = if self.cu_intra || depth != 0 || cbf_c[0] || cbf_c[1] { self.dd(CBF_LUMA + if depth == 0 { 1 } else { 0 }) == 1 } else { true };
+        let cbf_luma =
+            if self.cu_intra || depth != 0 || cbf_c.iter().flatten().any(|&f| f) { self.dd(CBF_LUMA + if depth == 0 { 1 } else { 0 }) == 1 } else { true };
         let n = 1 << log2;
         if depth > 0 {
             self.mark_edges(x0, y0, n, n, E_TU_V, E_TU_H);
@@ -929,10 +944,10 @@ impl<'a> SliceDecoder<'a> {
         self.transform_unit(x0, y0, xb, yb, log2, blk_idx, cbf_luma, cbf_c)
     }
 
-    fn transform_unit(&mut self, x0: i32, y0: i32, xb: i32, yb: i32, log2: u32, blk_idx: u32, cbf_luma: bool, cbf_c: [bool; 2]) -> Result<()> {
+    fn transform_unit(&mut self, x0: i32, y0: i32, xb: i32, yb: i32, log2: u32, blk_idx: u32, cbf_luma: bool, cbf_c: [[bool; 2]; 2]) -> Result<()> {
         let n = 1i32 << log2;
         let chroma_here = log2 > 2 || blk_idx == 3;
-        let cbf_chroma = cbf_c[0] || cbf_c[1];
+        let cbf_chroma = cbf_c.iter().flatten().any(|&f| f);
         if (cbf_luma || cbf_chroma) && self.pps.cu_qp_delta_enabled && !self.is_cu_qp_delta_coded {
             // cu_qp_delta_abs: prefix TU(5) with ctx 0,1,1,1,1, suffix EG0
             let mut v = 0;
@@ -971,15 +986,22 @@ impl<'a> SliceDecoder<'a> {
         if !chroma_here {
             return Ok(());
         }
-        let (xc, yc, log2c) = if log2 > 2 { (x0 / 2, y0 / 2, log2 - 1) } else { (xb / 2, yb / 2, 2) };
+        let csy = self.pic.csy;
+        let (xc, yc, log2c) = if log2 > 2 { (x0 / 2, y0 >> csy, log2 - 1) } else { (xb / 2, yb >> csy, 2) };
+        // 4:2:2: each chroma TB is two vertically stacked square blocks, predicted and
+        // reconstructed in turn
+        let blocks = if csy == 0 { 2 } else { 1 };
         for c in 1..3 {
-            if self.cu_intra {
-                let mode = self.intra_chroma_mode;
-                self.intra_predict(xc, yc, log2c, c, mode);
-            }
-            if cbf_c[c - 1] {
-                let qp = if c == 1 { self.qp_cb } else { self.qp_cr };
-                self.residual(xc, yc, log2c, c, qp)?;
+            for (t, &cbf) in cbf_c[c - 1].iter().enumerate().take(blocks) {
+                let yt = yc + ((t as i32) << log2c);
+                if self.cu_intra {
+                    let mode = self.intra_chroma_mode;
+                    self.intra_predict(xc, yt, log2c, c, mode);
+                }
+                if cbf {
+                    let qp = if c == 1 { self.qp_cb } else { self.qp_cr };
+                    self.residual(xc, yt, log2c, c, qp)?;
+                }
             }
         }
         Ok(())
@@ -988,9 +1010,11 @@ impl<'a> SliceDecoder<'a> {
     /// Intra prediction of an n x n block of component `c` at component position (x0, y0).
     fn intra_predict(&mut self, x0: i32, y0: i32, log2: u32, c: usize, mode: u32) {
         let n = 1usize << log2;
-        let sc = if c == 0 { 1 } else { 2 };
-        let (xl, yl) = (x0 * sc, y0 * sc);
-        let unit = 4 / sc as usize; // component samples per 4x4 luma block
+        // component -> luma sample scale factors
+        let (scx, scy) = if c == 0 { (1, 1) } else { (2, 2 >> (1 - self.pic.csy)) };
+        let (xl, yl) = (x0 * scx, y0 * scy);
+        // component samples per 4x4 luma block, vertically and horizontally
+        let (unit_y, unit_x) = (4 / scy as usize, 4 / scx as usize);
         let stride = if c == 0 { self.pic.width } else { self.pic.cwidth };
         let constrained = self.pps.constrained_intra_pred;
         let mut al = [false; 129];
@@ -1011,21 +1035,25 @@ impl<'a> SliceDecoder<'a> {
         let mut k = 0;
         while k < 2 * n {
             let yn = y0 + k as i32;
-            if avail(self.pic, xl - 1, yn * sc) {
-                for i in 0..unit {
+            if avail(self.pic, xl - 1, yn * scy) {
+                for i in 0..unit_y {
                     al[1 + k + i] = true;
                     r.left[1 + k + i] = plane[(yn as usize + i) * stride + (x0 - 1) as usize];
                 }
             }
+            k += unit_y;
+        }
+        let mut k = 0;
+        while k < 2 * n {
             let xn = x0 + k as i32;
-            if avail(self.pic, xn * sc, yl - 1) {
+            if avail(self.pic, xn * scx, yl - 1) {
                 let o = (y0 - 1) as usize * stride + xn as usize;
-                for i in 0..unit {
+                for i in 0..unit_x {
                     at[1 + k + i] = true;
                     r.top[1 + k + i] = plane[o + i];
                 }
             }
-            k += unit;
+            k += unit_x;
         }
         let bd = if c == 0 { self.pic.bd_y } else { self.pic.bd_c };
         intra::substitute(r, &al, &at, n, bd);
@@ -1446,8 +1474,9 @@ impl<'a> SliceDecoder<'a> {
             SliceType::I => false,
         };
         let bi = f.pred(0) && f.pred(1);
+        let csy = self.pic.csy;
         for c in 0..3 {
-            let (x, y, bw, bh, bd) = if c == 0 { (xp, yp, w, h, self.pic.bd_y) } else { (xp / 2, yp / 2, w / 2, h / 2, self.pic.bd_c) };
+            let (x, y, bw, bh, bd) = if c == 0 { (xp, yp, w, h, self.pic.bd_y) } else { (xp / 2, yp >> csy, w / 2, h >> csy, self.pic.bd_c) };
             let mut lists = [false; 2];
             for l in 0..2 {
                 if !f.pred(l) {
@@ -1459,7 +1488,9 @@ impl<'a> SliceDecoder<'a> {
                 if c == 0 {
                     inter::mc_luma(frame, x, y, f.mv[l], bw, bh, buf, &mut self.mc);
                 } else {
-                    inter::mc_chroma(frame, c - 1, x, y, f.mv[l], bw, bh, buf, &mut self.mc);
+                    // mvCLX in 1/8 chroma samples (8.5.3.2.10): 4:2:2 doubles the vertical part
+                    let mvc = [f.mv[l][0] as i32, (f.mv[l][1] as i32) << (1 - csy)];
+                    inter::mc_chroma(frame, c - 1, x, y, mvc, bw, bh, buf, &mut self.mc);
                 }
             }
             let stride = if c == 0 { self.pic.width } else { self.pic.cwidth };

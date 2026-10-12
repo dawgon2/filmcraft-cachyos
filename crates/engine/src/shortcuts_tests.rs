@@ -236,6 +236,21 @@ fn list_searches_labels_and_keys() {
 }
 
 #[test]
+fn every_builtin_keymap_has_no_conflicts_on_any_platform() {
+    // fork KEYMAP-1: not just FilmCraft Default; the Premiere, Final Cut, Avid and Resolve presets
+    // too (the Resolve preset inherits Premiere's macOS keys, where ⌃ and ⌘ differ)
+    use crate::shortcuts::BUILTIN_PRESETS;
+    let s = Session::default();
+    for name in BUILTIN_PRESETS {
+        for p in [Platform::Mac, Platform::Windows, Platform::Linux] {
+            let mut sc = s.shortcuts.clone();
+            sc.bindings = sc.builtin_for(name, p).unwrap();
+            assert!(sc.conflicts(p).is_empty(), "{name} on {p:?}: {:?}", sc.conflicts(p));
+        }
+    }
+}
+
+#[test]
 fn default_keymaps_have_no_conflicts_on_any_platform() {
     // The Premiere audit used to check keys on macOS only, so off macOS `⌃9`/`⌘9`, `⌃⇧M`/`⌘⇧M` and
     // `⌃T`/`⌘T` ended up on the same Ctrl key; CI only ran on macOS, so nobody saw it.

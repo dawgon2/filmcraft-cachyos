@@ -93,7 +93,7 @@ one `llm_eval` run on this PC (x86-64-v3 build, idle machine):
 
 With the stock default repeat penalty 1.1 the stock models score 0–8 % and the tuned SmolLM2
 58 %: the controlled grammar repeats small words, so tuned models run without the penalty
-(`ModelInfo::recommended_options`). **Pick: `filmcraft-explainer-qwen05-v1-q8`** (best pass rate,
+(`ModelInfo::recommended_options`). **Owner decision 2026-10-12 (FORK-PLAN §1a.27): SmolLM2 is the base going forward (open training data); `qwen05-v1` is frozen. Original pick by score: `filmcraft-explainer-qwen05-v1-q8`** (best pass rate,
 and faster than the 360M model: 24 layers and a shorter prompt in tokens). Q8_0 beats Q4_K on
 speed here because candle's Q4_K / Q5_0 prefill is ≈ 3× slower than Q8_0 on this CPU; the
 Q4_K file is only 40 MB smaller. The one shared failure (`warm_gain`) is a tint claim
@@ -111,8 +111,71 @@ evaluation reference sentences also appear as training targets (the trivial case
 change", "disabled", the matte view, single-control whole-frame shifts whose wording has only one
 form). On the 24 cases with no overlapping reference the tuned Qwen2.5-0.5B scored **23/24**, so
 the result is not memorisation of the easy cases, but 36 cases on one frame is a small test.
-**Follow-up:** a second held-out set on another frame and seed (its facts deduped against the
-training data the same way) before calling a pass rate final.
+**Follow-up (done 2026-10-12):** the second held-out set below confirms it: `qwen05-v1` Q8_0
+passes 39/39 on another frame and seed (74/75 over both sets), `smol360-v1` 38/39 (72/75).
+
+### Second held-out set (2026-10-12)
+
+**How it is built** (`eval_cases_v2` in `crates/render/src/grade_explain/cases.rs`, code, not a
+file): 40 one-node grades covering the families of the first set (wheels, contrast incl. pivot,
+saturation, temperature / tint, master and red-channel curves, qualifier incl. inverted, windows
+incl. inverted, a real look LUT, grain, noise reduction, roll-off, disabled, matte view, identity,
+tiny no-op) on a **different frame**: 96 × 64 (every training frame is 120 × 60 with a horizontal
+ramp on top), a vertical grey ramp of another curve on the left 40 columns and a 2 × 2 grid of
+patches on the right whose colours are not in the generator's palette; control values drawn from
+**seed 2** (SplitMix64, as the generator). Labels `h2_…`. Dump, deduped against the training data:
+
+```sh
+cargo run --release -p filmcraft-render --example explain_score -- --set 2 --dump-cases cases-v2.jsonl \
+    --dedupe ~/Apps/filmcraft-train/runs/data-v1/train.jsonl --dedupe ~/Apps/filmcraft-train/runs/data-v1/val.jsonl
+```
+
+**Dedupe** (against all 4991 data-v1 examples, 2496 distinct facts; compact facts as the prompt
+carries them): **1 dropped** for exactly equal facts (`h2_disabled_contrast`: a disabled node's
+facts don't depend on the frame) → **39 cases**. Near-duplicates (kept; the reference sentence
+without its "Node k" label equals a training example's, i.e. equal at the precision the sentence
+and the checker use): **7/39** (identity, +½ stop, green tint, matte view, grain, roll-off, tiny
+gain), against **12/36** for set 1 by the same measure; 2/39 references are also training targets
+(set 1: 5/36). Set 1 re-checked: 0 exact matches.
+
+**Results**, both sets in one `llm_eval` run (`runs/heldout2/`: `eval.jsonl`, `eval.log`,
+`score-set{1,2}.md`), greedy, 80 tokens, repeat penalty 1.0 for all four, deadline 120 s. The machine
+was **busy** (another session's ffmpeg / x265 fixture encode, load average 17 → 9.5 over the run),
+so the stock model's times are inflated (it ran first, at the peak); the Q8_0 tunes' times are
+within 5 % of the idle first run (Q4_K ran faster than its first 6.26 s; timing is noisy):
+
+| model | set 1 (36) | set 2 (39) | both (75) | mean s / answer (set 1 / set 2) |
+|---|---|---|---|---|
+| best stock: `smollm2-1.7b-instruct-q4km` | 5 (14 %) | 3 (8 %) | 8 (11 %) | 13.65 / 7.71 (loaded) |
+| tuned `smol360-v1` Q8_0 | 34 (94 %) | 38 (97 %) | 72 (96 %) | 2.98 / 3.16 |
+| **tuned `qwen05-v1` Q8_0** | **35 (97 %)** | **39 (100 %)** | **74 (99 %)** | **2.47 / 2.59** |
+| tuned `qwen05-v1` Q4_K_M-like | 35 (97 %) | 37 (95 %) | 72 (96 %) | 4.30 / 4.49 |
+
+Set 1 answers are identical to the first run (greedy), so its numbers repeat.
+
+**Every failure inspected:**
+- Tunes, all **model errors** (correct rejections): set 1 `warm_gain` (all three: "more magenta"
+  midtones, below the tint threshold), `offset_blue` (smol: "less saturated" midtones, no clear
+  change); set 2 `h2_qualifier_skin_inverted` (smol: midtones "a sixth of a stop darker", measured
+  −0.07 stop = 0 sixths; Q4_K: omits the main change, shadows −30 % saturation), `h2_lut_look`
+  (Q4_K: "greener" highlights, tint −0.003, below the threshold). The tunes' misses are all small
+  colour-cast / saturation claims just below the checker's thresholds or an omitted change.
+- Stock: 35 of 36 set-2 rejections are model errors (words outside the controlled vocabulary such
+  as "with", "making", "respectively"; non-grammar sentences; too long; 3 sentences).
+- **One checker false-reject (a real checker bug, reported, not fixed):** `h2_noise_reduction_only`.
+  On this frame noise reduction changes 1 % of the pixels (shadows +⅓ stop at the ramp / patch
+  edge) and the template is "affects 1 % of the frame; inside it, shadows +⅓ stop; also reduces
+  noise; midtones and highlights untouched." `check_explanation_labeled` **rejects its own
+  template** (`Range`: "the text speaks about the whole picture, but the midtones are untouched":
+  the clause "also reduces noise" is read as a whole-picture claim). The stock model copied the
+  template verbatim and was rejected for it; both tunes passed by writing "reduces / removes noise
+  in the shadows". `second_set_is_fixed_distinct_and_its_templates_pass` pins this as the one known
+  template rejection, so a checker fix shows up there.
+
+**Conclusion:** the pass rate holds on unseen data: `qwen05-v1` Q8_0 is the best on both sets
+(74/75, no misses on set 2) and faster than `smol360-v1` (72/75); the gap is small (2 cases over 75)
+but consistent in direction on both sets, and the Qwen tune is also ~20 % faster per answer.
+Q4_K is not better than Q8_0 on either set.
 
 ## Converter validation
 
@@ -171,14 +234,17 @@ there). Tag e.g. `explainer-smol360-v1`. Assets:
 1. the GGUF (`<name>-q8_0.gguf`), 2. `tokenizer.json` (the base's, unchanged), 3. `LICENSE`
 (Apache-2.0: `train.py` copies the base's licence file, or writes the Apache-2.0 text from
 `tools/explainer-train/LICENSE-Apache-2.0.txt` when the base folder has none), 4. `NOTICE`
-(written by `train.py` from the manifest; check it), 5. `manifest.json`. All five are in the
-tuned folder `~/.local/share/filmcraft-fork/models/tuned/<name>/`.
+(written by `train.py` from the manifest; check it), 5. `manifest.json` (base repo name and data
+folder name, no local paths). All five are in the tuned folder
+`~/.local/share/filmcraft-fork/models/tuned/<name>/`. `manifest.private.json` (the same with the
+local paths; `train.py` writes it to the run dir only, and `qwen05-v1` / `smol360-v1` keep one in
+the tuned folder too) is **never** published.
 
 NOTICE text (as `train.py` writes it):
 
 ```text
 FilmCraft node explainer <name>
-A fine-tune of <base repo> (revision <base revision from manifest.json>), licensed under the
+A fine-tune of <base repo> (revision <commit from manifest.json base_revision>), licensed under the
 Apache License 2.0 (see LICENSE). Changes: LoRA fine-tuning (merged) on synthetic training data
 generated by FilmCraft's explain_traindata from measured grade facts (no third-party text);
 quantized to GGUF with FilmCraft's llm_quantize (the type is in the file name). Training data

@@ -265,6 +265,28 @@ fn add_nr_node(s: &mut Session, seq: ItemId) {
     .expect("nr");
 }
 
+/// A grade node with temporal noise reduction (luma 0.5, chroma 0.5, ±1 frame, motion 0.5) on
+/// every clip of the first video track (fork 6.7: `export-tnr`, `cache-tnr`).
+fn add_tnr_node(s: &mut Session, seq: ItemId) {
+    s.edit("tnr", |p: &mut Project, _| {
+        let q = p.sequence_mut(seq).expect("seq");
+        for it in &mut q.video_tracks[0].items {
+            let mut n = filmcraft_project::grade::GradeNode::new(1);
+            for (k, v) in [("tnr.luma", 0.5), ("tnr.chroma", 0.5), ("tnr.frames", 1.0), ("tnr.motion", 0.5)] {
+                n.params.insert(k.into(), filmcraft_project::Param::new(ParamValue::Float(v)));
+            }
+            it.grade = Some(filmcraft_project::grade::Grade { nodes: vec![n], bypass: false });
+        }
+        Ok(())
+    })
+    .expect("tnr");
+}
+
+/// Whether `--only` names a temporal-NR case (slow: only when asked for by name).
+fn asks_tnr(o: &Opts, name: &str) -> bool {
+    o.only.as_deref().is_some_and(|x| x.contains("tnr") && name.contains(x))
+}
+
 fn grade(s: &mut Session, seq: ItemId) {
     interpret_flog2(s, seq);
     s.edit("grade", |p: &mut Project, _| {
@@ -415,6 +437,51 @@ fn play_after(s: &Session, seq: ItemId, o: &Opts, name: &str, secs: f64, speed: 
     rows.push(play_row(name, &r, fps, &smp, &display.adapter));
 }
 
+/// [`play`] of a cuts sequence, adding per-cut drop counts: `cut_starts` are the sequence frames
+/// where each cut begins (ascending). A dropped frame is a due frame never on screen while due.
+fn play_cuts(s: &Session, seq: ItemId, o: &Opts, name: &str, secs: f64, cut_starts: &[i64], rows: &mut Vec<Value>) {
+    let fps = s.project.sequence(seq).map(|q| q.settings.frame_rate.as_f64()).unwrap_or(29.97);
+    let bench = new_bench(s, secs);
+    let mut display = Display::new(o.gpu);
+    let smp = Sampler::start();
+    let r = bench.play(s, seq, &mut display, 1.0, Tick::ZERO, name);
+    let smp = smp.finish();
+    let mut row = play_row(name, &r, fps, &smp, &display.adapter);
+    // missed frames per cut, and how far into its cut each one was (frames after the cut)
+    let mut per_cut = vec![0u32; cut_starts.len()];
+    let mut offsets = Vec::new();
+    for &f in &r.missed {
+        let Some(i) = cut_starts.iter().rposition(|&c| c <= f) else { continue };
+        if let Some(n) = per_cut.get_mut(i) {
+            *n += 1;
+        }
+        offsets.push(f - cut_starts.get(i).copied().unwrap_or(0));
+    }
+    // only the cuts the play actually reached
+    let played = rate_frames(fps, r.seconds);
+    let reached = cut_starts.iter().filter(|&&c| c < played).count().max(1);
+    per_cut.truncate(reached);
+    let within = |lo: i64, hi: i64| offsets.iter().filter(|&&x| x >= lo && x < hi).count();
+    let cuts_with_drops = per_cut.iter().filter(|&&n| n > 0).count();
+    eprintln!(
+        "xm5 {name}: {} missed frames over {reached} cuts ({cuts_with_drops} cuts drop), in cut frames 0-14: {}, 15-29: {}, 30+: {}; per cut {per_cut:?}",
+        r.missed.len(),
+        within(0, 15),
+        within(15, 30),
+        within(30, i64::MAX)
+    );
+    row["missed"] = json!(r.missed.len());
+    row["cuts"] = json!(reached);
+    row["cuts_with_drops"] = json!(cuts_with_drops);
+    row["missed_per_cut"] = json!(per_cut);
+    row["missed_at_cut_offset"] = json!({"0-14": within(0, 15), "15-29": within(15, 30), "30+": within(30, i64::MAX)});
+    rows.push(row);
+}
+
+fn rate_frames(fps: f64, secs: f64) -> i64 {
+    (fps * secs).floor() as i64
+}
+
 pub fn xm5(o: &Opts) -> Vec<Value> {
     let mut rows = Vec::new();
     let play_s = if o.quick { 8.0 } else { 60.0 };
@@ -524,18 +591,60 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
             // 20 cuts of 3 s, alternating A B C D, each from a different place in its clip
             let cuts: Vec<(ItemId, f64, f64)> = (0..20).map(|i| (ids[i % 4], 1.0 + (i / 4) as f64 * 5.3, 3.0)).collect();
             let seq = cuts_sequence(&mut s, 3840, 2160, &cuts, false);
+            let mut at = Tick::ZERO;
+            let starts: Vec<i64> = cuts
+                .iter()
+                .map(|c| {
+                    let f = FPS_29_97.frame_at(at);
+                    at += FPS_29_97.snap(Tick::from_seconds_f64(c.2));
+                    f
+                })
+                .collect();
             for _ in 0..o.repeat {
-                play(&s, seq, o, "xm5-multicut", if o.quick { 12.0 } else { 60.0 }, 1.0, Tick::ZERO, &mut rows);
+                play_cuts(&s, seq, o, "xm5-multicut", if o.quick { 12.0 } else { 60.0 }, &starts, &mut rows);
             }
         }
     }
-    if ["xm5-export-4k", "xm5-export-4k graded", "xm5-export-6k"].iter().any(|n| o.wants(n)) {
+    // (fork 6.5) realistic cut spacing: a cut every 2 / 3 / 4 / 5 s, A B C D in turn, each clip
+    // entered mid-GOP (0.45 s past a second; keyint is 1 s) at a different place every lap.
+    // `--only cutspacing` runs all four, `--only "cutspacing 3s"` one.
+    for spacing in [2.0f64, 3.0, 4.0, 5.0] {
+        let name = format!("xm5-cutspacing {spacing:.0}s");
+        if !o.wants(&name) {
+            continue;
+        }
+        let mut s = Session::default();
+        let ids: Option<Vec<ItemId>> = [PLAY, P2398, CLIP_B, LONG].iter().map(|n| import(&mut s, n)).collect();
+        let Some(ids) = ids else {
+            eprintln!("xm5 {name}: skipped (clips unavailable)");
+            continue;
+        };
+        let secs = if o.quick { 12.0 } else { 60.0 };
+        let n = (secs / spacing).ceil() as usize;
+        let cuts: Vec<(ItemId, f64, f64)> = (0..n).filter_map(|i| Some((*ids.get(i % 4)?, 0.45 + ((i / 4) as f64 * 3.7) % 20.0, spacing))).collect();
+        let rate = FPS_29_97;
+        let mut at = Tick::ZERO;
+        let mut starts = Vec::new();
+        for _ in &cuts {
+            starts.push(rate.frame_at(at));
+            at += rate.snap(Tick::from_seconds_f64(spacing));
+        }
+        let seq = cuts_sequence(&mut s, 3840, 2160, &cuts, false);
+        for _ in 0..o.repeat {
+            play_cuts(&s, seq, o, &name, secs, &starts, &mut rows);
+        }
+    }
+    if ["xm5-export-4k", "xm5-export-4k graded", "xm5-export-6k"].iter().any(|n| o.wants(n)) || asks_tnr(o, "xm5-export-tnr") {
         rows.extend(export(o));
     }
     // only when asked for by name: hours long
     if o.only.as_deref().is_some_and(|x| x.contains("soak")) {
         rows.extend(soak(o));
     }
+    // (fork 6.2) the same cases on automatic proxies (`--only proxies`)
+    rows.extend(proxy_cases(o));
+    // (fork 6.3) the render cache: only when asked for by name (they render the cache first)
+    rows.extend(cache_cases(o));
     if o.wants("422-play") {
         let mut s = Session::default();
         if let Some(a) = import(&mut s, C422) {
@@ -543,6 +652,162 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
             for _ in 0..o.repeat {
                 play(&s, seq, o, "xm5-422-play", if o.quick { 8.0 } else { 19.0 }, 1.0, Tick::ZERO, &mut rows);
             }
+        }
+    }
+    rows
+}
+
+// ------------------------------------------------------------------------------- render cache
+
+/// Whether `--only` names a render-cache case (they are slow: they render the cache first).
+fn asks_cache(o: &Opts, name: &str) -> bool {
+    o.only.as_deref().is_some_and(|x| (x.contains("cached") || x.contains("cache-while")) && name.contains(x))
+}
+
+/// Fill the render cache of the active sequence (the app's Smart mode) and wait for it, at most
+/// `budget`. Returns the cache status.
+fn fill_cache(s: &mut Session, budget: Duration) -> Value {
+    use filmcraft_engine::render_cache;
+    let t0 = Instant::now();
+    loop {
+        render_cache::tick(s, true);
+        if s.previews.cache.queued().is_empty() && s.background.is_idle() {
+            break;
+        }
+        if t0.elapsed() > budget {
+            eprintln!("xm5 cache: not finished after {:.0} s; playing what is cached", budget.as_secs_f64());
+            break;
+        }
+        let _ = s.background.wait_idle(Duration::from_secs(5));
+    }
+    let st = render_cache::status_json(s);
+    eprintln!(
+        "xm5 cache: {} parts, {:.2} GB in {:.0} s ({} failed{})",
+        st["parts"],
+        st["bytes"].as_f64().unwrap_or(0.0) / 1e9,
+        t0.elapsed().as_secs_f64(),
+        st["failed"],
+        st["lastError"].as_str().map(|e| format!(", last: {e}")).unwrap_or_default()
+    );
+    st
+}
+
+/// Delete the session's cache files (the bench leaves no gigabytes behind).
+fn drop_cache(s: &Session) {
+    s.background.cancel_kind(filmcraft_engine::background::JobKind::Cache);
+    let _ = s.background.wait_idle(Duration::from_secs(30));
+    s.previews.delete(None);
+    if let Some(d) = s.previews.dir() {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+fn note_cache(rows: &mut [Value], st: &Value, fill_s: f64) {
+    if let Some(r) = rows.last_mut() {
+        r["cache_parts"] = st["parts"].clone();
+        r["cache_bytes"] = st["bytes"].clone();
+        r["cache_fill_s"] = json!(fill_s);
+    }
+}
+
+/// `xm5-multicut cached`, `xm5-jkl L 2x cached` (play once the render cache is complete) and
+/// `xm5-cache-while-playing` (play-full while the cache renders: the worker must wait for the
+/// playback, as the UI hook makes it, so no frame drops: the GPU-stall guard).
+fn cache_cases(o: &Opts) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let fill_budget = Duration::from_secs(if o.quick { 600 } else { 1800 });
+    if asks_cache(o, "xm5-multicut cached") {
+        let mut s = Session::default();
+        let ids: Option<Vec<ItemId>> = [PLAY, P2398, CLIP_B, LONG].iter().map(|n| import(&mut s, n)).collect();
+        if let Some(ids) = ids {
+            let cuts: Vec<(ItemId, f64, f64)> = (0..20).filter_map(|i| Some((*ids.get(i % 4)?, 1.0 + (i / 4) as f64 * 5.3, 3.0))).collect();
+            let seq = cuts_sequence(&mut s, 3840, 2160, &cuts, false);
+            let mut at = Tick::ZERO;
+            let starts: Vec<i64> = cuts
+                .iter()
+                .map(|c| {
+                    let f = FPS_29_97.frame_at(at);
+                    at += FPS_29_97.snap(Tick::from_seconds_f64(c.2));
+                    f
+                })
+                .collect();
+            let t0 = Instant::now();
+            let st = fill_cache(&mut s, fill_budget);
+            let fill_s = t0.elapsed().as_secs_f64();
+            for _ in 0..o.repeat {
+                play_cuts(&s, seq, o, "xm5-multicut cached", if o.quick { 12.0 } else { 60.0 }, &starts, &mut rows);
+                note_cache(&mut rows, &st, fill_s);
+            }
+            drop_cache(&s);
+        } else {
+            eprintln!("xm5 multicut cached: skipped (clips unavailable)");
+        }
+    }
+    if asks_cache(o, "xm5-jkl L 2x cached") {
+        let mut s = Session::default();
+        if let Some(a) = import(&mut s, PLAY) {
+            let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, 60.0)], true);
+            let t0 = Instant::now();
+            let st = fill_cache(&mut s, fill_budget);
+            let fill_s = t0.elapsed().as_secs_f64();
+            let secs = if o.quick { 4.0 } else { 10.0 };
+            for _ in 0..o.repeat {
+                play_after(&s, seq, o, "xm5-jkl L 2x cached", secs, 2.0, Tick::ZERO, None, &mut rows);
+                note_cache(&mut rows, &st, fill_s);
+            }
+            drop_cache(&s);
+        } else {
+            eprintln!("xm5 jkl L 2x cached: skipped (clip unavailable)");
+        }
+    }
+    // (fork 6.7) fill the render cache of a clip with temporal noise reduction (every segment
+    // needs rendering) and play it back: the cache's fill time is the cost of TNR
+    if asks_tnr(o, "xm5-cache-tnr") {
+        let mut s = Session::default();
+        if let Some(a) = import(&mut s, PLAY) {
+            let secs = if o.quick { 6.0 } else { 20.0 };
+            let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, secs)], true);
+            add_tnr_node(&mut s, seq);
+            let t0 = Instant::now();
+            let st = fill_cache(&mut s, fill_budget);
+            let fill_s = t0.elapsed().as_secs_f64();
+            for _ in 0..o.repeat {
+                play(&s, seq, o, "xm5-cache-tnr", secs.min(if o.quick { 4.0 } else { 15.0 }), 1.0, Tick::ZERO, &mut rows);
+                note_cache(&mut rows, &st, fill_s);
+            }
+            drop_cache(&s);
+        } else {
+            eprintln!("xm5 cache-tnr: skipped (clip unavailable)");
+        }
+    }
+    if asks_cache(o, "xm5-cache-while-playing") {
+        use filmcraft_engine::background::Activity;
+        let mut s = Session::default();
+        if let Some(a) = import(&mut s, PLAY) {
+            let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, 60.0)], true);
+            let play_s = if o.quick { 8.0 } else { 60.0 };
+            for _ in 0..o.repeat {
+                // the cache is building a part (the burst of decoding + encoding that stalled
+                // compositing) when Play is pressed
+                filmcraft_engine::render_cache::tick(&mut s, true);
+                let t0 = Instant::now();
+                while s.previews.cache.building().is_none() && t0.elapsed() < Duration::from_secs(20) {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                let building = s.previews.cache.building().is_some();
+                // what the UI hook reports while the Program monitor plays
+                s.background.set_activity(Activity { playing: true, ..Default::default() });
+                play(&s, seq, o, "xm5-cache-while-playing", play_s, 1.0, Tick::ZERO, &mut rows);
+                s.background.set_activity(Activity::default());
+                let st = filmcraft_engine::render_cache::status_json(&s);
+                if let Some(r) = rows.last_mut() {
+                    r["cache_building_at_play"] = json!(building);
+                    r["cache_parts"] = st["parts"].clone();
+                }
+            }
+            drop_cache(&s);
+        } else {
+            eprintln!("xm5 cache-while-playing: skipped (clip unavailable)");
         }
     }
     rows
@@ -705,10 +970,17 @@ fn export(o: &Opts) -> Vec<Value> {
     if std::fs::create_dir_all(&dir).is_err() {
         return rows;
     }
-    let cases: [(&str, u32, u32, bool); 3] =
-        [("xm5-export-4k", 3840, 2160, false), ("xm5-export-4k graded", 3840, 2160, true), ("xm5-export-6k", 6240, 4160, false)];
+    // (the last: 4K with temporal noise reduction on the clip, fork 6.7; only when named)
+    let cases: [(&str, u32, u32, bool); 4] = [
+        ("xm5-export-4k", 3840, 2160, false),
+        ("xm5-export-4k graded", 3840, 2160, true),
+        ("xm5-export-6k", 6240, 4160, false),
+        ("xm5-export-tnr", 3840, 2160, false),
+    ];
     for (name, w, h, graded) in cases {
-        if !o.wants(name) {
+        let tnr = name.contains("tnr");
+        let wanted = if tnr { asks_tnr(o, name) } else { o.wants(name) };
+        if !wanted {
             continue;
         }
         let mut s = Session::default();
@@ -716,6 +988,9 @@ fn export(o: &Opts) -> Vec<Value> {
         let seq = cuts_sequence(&mut s, w, h, &[(a, 0.0, secs)], true);
         if graded {
             grade(&mut s, seq);
+        }
+        if tnr {
+            add_tnr_node(&mut s, seq);
         }
         let frames = s.project.sequence(seq).map(|q| q.settings.frame_rate.frame_at(q.duration())).unwrap_or(0);
         for _ in 0..o.repeat {
@@ -797,4 +1072,119 @@ fn soak(o: &Opts) -> Vec<Value> {
         "rss_growth_mb": grow("rss_mb"), "vram_growth_mb": grow("vram_mb"), "cache_vram_growth_mb": grow("cache_vram_mb"),
         "va_surfaces_growth": grow("va_surfaces"), "samples": samples, "load": load_avg(),
     })]
+}
+
+// ------------------------------------------------------------------------------------ proxies
+
+/// (fork 6.2) The playback cases on automatic proxies: `xm5-multicut proxies`, `xm5-422-play
+/// proxies`, `xm5-jkl L 2x proxies`. Only when asked for by a name with "proxies" in it (`--only
+/// proxies` runs all three). Each imports its clips (which queues their proxies, or attaches the
+/// ones a previous run left in the clips' `Proxies` folder), waits for the background worker to
+/// finish them (a `… proxies create` row says how long), then plays with Proxies ▸ On (the bench's
+/// frame server gives no paused / playing hint and nothing reports playback to the worker, so
+/// Auto would read the originals).
+fn proxy_cases(o: &Opts) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let asked = |name: &str| o.only.as_deref().is_some_and(|x| x.contains("proxies")) && o.wants(name);
+    if asked("xm5-multicut proxies") {
+        let mut s = Session::default();
+        s.auto_proxies.enabled = true;
+        let ids: Option<Vec<ItemId>> = [PLAY, P2398, CLIP_B, LONG].iter().map(|n| import(&mut s, n)).collect();
+        match ids {
+            Some(ids) if wait_for_proxies(&mut s, "xm5-multicut proxies", &mut rows) => {
+                // the cuts of `xm5-multicut`: 20 cuts of 3 s, A B C D in turn
+                let cuts: Vec<(ItemId, f64, f64)> = (0..20).filter_map(|i| Some((*ids.get(i % 4)?, 1.0 + (i / 4) as f64 * 5.3, 3.0))).collect();
+                let seq = cuts_sequence(&mut s, 3840, 2160, &cuts, false);
+                let mut at = Tick::ZERO;
+                let starts: Vec<i64> = cuts
+                    .iter()
+                    .map(|c| {
+                        let f = FPS_29_97.frame_at(at);
+                        at += FPS_29_97.snap(Tick::from_seconds_f64(c.2));
+                        f
+                    })
+                    .collect();
+                for _ in 0..o.repeat {
+                    play_cuts(&s, seq, o, "xm5-multicut proxies", if o.quick { 12.0 } else { 60.0 }, &starts, &mut rows);
+                }
+            }
+            Some(_) => {}
+            None => eprintln!("xm5-multicut proxies: skipped (clips unavailable)"),
+        }
+    }
+    if asked("xm5-422-play proxies") {
+        let mut s = Session::default();
+        s.auto_proxies.enabled = true;
+        match import(&mut s, C422) {
+            Some(a) if wait_for_proxies(&mut s, "xm5-422-play proxies", &mut rows) => {
+                let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, 20.0)], true);
+                for _ in 0..o.repeat {
+                    play(&s, seq, o, "xm5-422-play proxies", if o.quick { 8.0 } else { 19.0 }, 1.0, Tick::ZERO, &mut rows);
+                }
+            }
+            Some(_) => {}
+            None => eprintln!("xm5-422-play proxies: skipped (clip unavailable)"),
+        }
+    }
+    if asked("xm5-jkl L 2x proxies") {
+        let mut s = Session::default();
+        s.auto_proxies.enabled = true;
+        match import(&mut s, PLAY) {
+            Some(a) if wait_for_proxies(&mut s, "xm5-jkl L 2x proxies", &mut rows) => {
+                let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, 60.0)], true);
+                for _ in 0..o.repeat {
+                    play_after(&s, seq, o, "xm5-jkl L 2x proxies", if o.quick { 4.0 } else { 10.0 }, 2.0, Tick::ZERO, None, &mut rows);
+                }
+            }
+            Some(_) => {}
+            None => eprintln!("xm5-jkl L 2x proxies: skipped (clip unavailable)"),
+        }
+    }
+    rows
+}
+
+/// Wait (at most an hour) for the session's automatic proxies, then switch Proxies to On. Adds a
+/// `<case> create` row (seconds, proxies ready / failed, their files). False when none is usable.
+fn wait_for_proxies(s: &mut Session, case: &str, rows: &mut Vec<Value>) -> bool {
+    let t0 = Instant::now();
+    let mut last_note = Instant::now();
+    loop {
+        s.poll_persistence();
+        if s.auto_proxies.pending() == 0 {
+            break;
+        }
+        if t0.elapsed() > Duration::from_secs(3600) {
+            eprintln!("{case}: proxies not done after an hour; cancelling");
+            let _ = s.execute("media.cancelProxies", json!({}));
+            break;
+        }
+        if last_note.elapsed() > Duration::from_secs(10) {
+            let st = s.execute("media.proxyStatus", json!({})).unwrap_or_default();
+            eprintln!("{case}: making proxies, {:.0} % ({} queued, {} building)", st["progress"].as_f64().unwrap_or(0.0) * 100.0, st["queued"], st["building"]);
+            last_note = Instant::now();
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let st = s.execute("media.proxyStatus", json!({})).unwrap_or_default();
+    let files: Vec<String> = s
+        .project
+        .items
+        .values()
+        .filter_map(|i| match &i.as_media()?.proxy {
+            Some(filmcraft_project::MediaRef::File { path }) => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    let secs = t0.elapsed().as_secs_f64();
+    eprintln!("{case}: proxies ready in {secs:.1} s ({} ready, {} failed): {files:?}", st["ready"], st["failed"]);
+    rows.push(json!({"case": format!("{case} create"), "seconds": secs, "ready": st["ready"], "failed": st["failed"], "hevc_encode": st["hevcEncode"], "proxies": files, "status": st["items"]}));
+    if st["ready"].as_u64().unwrap_or(0) == 0 {
+        eprintln!("{case}: skipped (no proxy could be made)");
+        return false;
+    }
+    if let Err(e) = s.execute("media.proxyMode", json!({"mode": "on"})) {
+        eprintln!("{case}: {e}");
+        return false;
+    }
+    true
 }

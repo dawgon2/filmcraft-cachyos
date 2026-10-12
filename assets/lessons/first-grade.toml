@@ -18,9 +18,9 @@ target = "header.workspaces"
 expect = { element = "panel.ColorPrimaries" }
 
 [[step]]
-text = "Click the clip you want to grade in the timeline."
+text = "Click the clip you want to grade in the Clips strip (or the timeline)."
 why = "The controls always work on the selected clip."
-target = "timeline.tracks"
+target = ["clips.strip", "timeline.tracks"]
 expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
 already = "clipSelected"
 

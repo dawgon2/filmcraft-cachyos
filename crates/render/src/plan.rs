@@ -421,7 +421,7 @@ fn push_item(
     let ft = item.source_time_at(t);
     let mt = item.effect_time_at(t);
     // (cheap: no operations built; the grade is compiled once, below, when it renders)
-    let graded_item = crate::grade::changes_picture(project, item, mt);
+    let graded_item = crate::grade::changes_picture(project, item, mt, opts.temporal);
     let (op, own) = crate::opacity_blend(item, mt);
     let bl = blend.unwrap_or(own);
     // A multi-camera clip that only shows its angle (no effects, untransformed, same frame size)
@@ -540,7 +540,12 @@ fn push_item(
             };
             let mut ops: Option<Vec<FxOp>> = Some(input.clone().into_iter().collect());
             // (grain sizes scale with the working image: `px_scale`)
-            let graded = if grades { crate::grade::item_fx(project, item, mt, t, seq.settings.color.working, px_scale, lw, lh) } else { Vec::new() };
+            let mut graded = if grades { crate::grade::item_fx(project, item, mt, t, seq.settings.color.working, px_scale, lw, lh) } else { Vec::new() };
+            // temporal noise reduction (fork 6.7): the neighbouring source frames, drawn like this
+            // one (its signal for an input transform), and their flows; or the op removed
+            let to_signal = input.is_some();
+            let prep = |f: Arc<VideoFrame>| if to_signal { signal_frame(&f) } else { f };
+            crate::temporal::attach_frames(&mut graded, project, seq, item, t, opts, &src, &frame, want, n as u32, (lw, lh), &prep);
             if !graded.is_empty() {
                 match ops.as_mut() {
                     Some(v) if graded.iter().all(FxOp::gpu_ok) => v.extend(graded),
@@ -614,15 +619,9 @@ fn near_identity(m: &Affine) -> bool {
 /// A layer's working image with its effects applied, on the CPU (the reference for the GPU
 /// effect stage).
 pub fn effect_image(frame: &VideoFrame, fx: &LayerFx) -> crate::Image {
-    let (w, h, px) = frame.to_linear_f32_decimated(fx.decimation.max(1) as usize);
-    let mut img = crate::Image { w, h, px };
-    let (fw, fh) = (fx.size.0 as usize, fx.size.1 as usize);
-    if (fw, fh) != (w, h) && fw > 0 && fh > 0 && fw <= w && fh <= h {
-        img = img.transformed(fw, fh, &Affine::scale(fw as f64 / w as f64, fh as f64 / h as f64));
-    }
-    for op in &fx.ops {
-        op.apply(&mut img);
-    }
+    let mut img = crate::gpufx::working_image(frame, fx.decimation, (fx.size.0 as usize, fx.size.1 as usize));
+    // (temporal ops replay the earlier ops on their source-frame neighbours, as the GPU does)
+    crate::gpufx::apply_ops(&fx.ops, &mut img);
     img
 }
 

@@ -987,10 +987,14 @@ impl GopCache {
         // `key` (at the random-access picture of a wanted leading picture) left the picture out.
         let live = st.next != usize::MAX && st.next <= n;
         let running = live && st.start <= key;
-        // Decoding on through a short stretch into the next GOP is cheaper than a restart, and
-        // playback wants those frames anyway.
+        // Decoding on through a short stretch into the next GOP is cheaper than a restart when
+        // playback wants those frames. Not when they are all late (`late_before` at or past the
+        // sync sample: a cut back into this clip, or playback a GOP behind): nothing between
+        // would be shown and a restart costs nothing, so seek (fork 6.5: continuing through
+        // ~40 unwanted samples at re-entered cuts overloaded the decoder and dropped frames).
         // (Skimming steps over most of the GOP: a seek is cheaper.)
-        let near = skim.is_none() && st.next <= key && key - st.next <= CONTINUE_THROUGH;
+        let wanted_between = late_before.is_none_or(|l| l < s.pts(key));
+        let near = skim.is_none() && wanted_between && st.next <= key && key - st.next <= CONTINUE_THROUGH;
         let continuing = running && (st.next > key || near) && (i >= st.next || (st.start <= i && want_pts > st.out_max));
         // Skimming forward, frames are asked for by several workers at once and the decoder may
         // have passed this one (for a later frame, leaving out pictures nobody else wanted):
@@ -1411,6 +1415,32 @@ mod tests {
         assert_eq!(index_of(&c.frame(&s, 150_000).expect("frame")), 150);
         assert_eq!(s.resets.load(Ordering::Relaxed), 2);
         assert!(s.decodes.load(Ordering::Relaxed) <= 41 + 1);
+    }
+
+    #[test]
+    fn a_cut_back_into_a_clip_seeks_rather_than_decoding_unwanted_samples() {
+        // (fork 6.5) the decoder stopped at 25; a cut re-enters at 70 (sync sample 60) with
+        // everything before 70 late: restart at 60 instead of feeding 26..70
+        let s = samples(200, 30, 0, false);
+        let c = GopCache::new(None);
+        assert_eq!(index_of(&c.frame(&s, 25_000).expect("frame")), 25);
+        let before = s.decodes.load(Ordering::Relaxed);
+        assert_eq!(index_of(&c.frame_late(&s, 70_000, Some(70_000)).expect("frame")), 70);
+        assert_eq!(s.resets.load(Ordering::Relaxed), 2, "seeked to the sync sample");
+        let fed = s.decodes.load(Ordering::Relaxed) - before;
+        assert!(fed <= 11 + 1, "fed {fed}");
+        // the same jump with frames before the sync sample still wanted continues
+        let s2 = samples(200, 30, 0, false);
+        let c2 = GopCache::new(None);
+        assert_eq!(index_of(&c2.frame(&s2, 25_000).expect("frame")), 25);
+        assert_eq!(index_of(&c2.frame_late(&s2, 40_000, Some(27_000)).expect("frame")), 40);
+        assert_eq!(s2.resets.load(Ordering::Relaxed), 1, "continued through");
+        // late up to exactly the sync sample: nothing before it is wanted either
+        let s3 = samples(200, 30, 0, false);
+        let c3 = GopCache::new(None);
+        assert_eq!(index_of(&c3.frame(&s3, 25_000).expect("frame")), 25);
+        assert_eq!(index_of(&c3.frame_late(&s3, 62_000, Some(60_000)).expect("frame")), 62);
+        assert_eq!(s3.resets.load(Ordering::Relaxed), 2, "seeked at the boundary");
     }
 
     #[test]

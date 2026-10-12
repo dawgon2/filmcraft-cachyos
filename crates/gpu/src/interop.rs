@@ -69,6 +69,104 @@ pub fn can_import(device: &wgpu::Device) -> bool {
     EXTENSIONS.iter().all(|e| hal.enabled_device_extensions().contains(e))
 }
 
+/// Largest DMA-BUF [`alloc_dmabuf`] makes (a 16K 4:2:2 16-bit picture is 1 GiB).
+const MAX_ALLOC: u64 = 1 << 30;
+
+/// New memory of at least `size` bytes on `device` (made by [`create_device`]), exported as a
+/// DMA-BUF another device can import (fork 6.1b: Intel's media engine copies decoded 4:2:2
+/// pictures into it, untiled, for this GPU to read). System memory only: host-visible and
+/// host-coherent, never a discrete GPU's device-local memory (no resizable-BAR VRAM, which the
+/// other device could not reach coherently; an integrated GPU's device-local memory is system
+/// memory); cached when the device has such a type. Coherent host memory is snooped by
+/// this GPU, so writes the other device has finished (synced on its side) are seen. Refused
+/// (`Err`, the caller falls back) when the driver cannot export buffers as DMA-BUFs. The
+/// descriptor owns the memory: the Vulkan objects are freed at once, the buffer object lives
+/// while the descriptor (or an import of it) does.
+pub fn alloc_dmabuf(device: &wgpu::Device, size: u64) -> Result<std::os::fd::OwnedFd, String> {
+    if size == 0 || size > MAX_ALLOC {
+        return Err(format!("a DMA-BUF of {size} bytes"));
+    }
+    if !can_import(device) {
+        return Err("the device has no DMA-BUF extensions".into());
+    }
+    // SAFETY: the hal device is used only within this call, while `device` is alive.
+    let hal = unsafe { device.as_hal::<Vulkan>() }.ok_or("not a Vulkan device")?;
+    let dev = hal.raw_device().clone();
+    let instance = hal.shared_instance().raw_instance().clone();
+    let pd = hal.raw_physical_device();
+    let dma_buf = vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT;
+    let usage = vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST;
+    // can buffers be exported as DMA-BUFs at all, and must their memory be dedicated?
+    let query = vk::PhysicalDeviceExternalBufferInfo::default().usage(usage).handle_type(dma_buf);
+    let mut ext_props = vk::ExternalBufferProperties::default();
+    // SAFETY: a live instance (Vulkan >= 1.1, checked by `create_device`) and physical device;
+    // valid in / out structs.
+    unsafe { instance.get_physical_device_external_buffer_properties(pd, &query, &mut ext_props) };
+    let features = ext_props.external_memory_properties.external_memory_features;
+    if !features.contains(vk::ExternalMemoryFeatureFlags::EXPORTABLE) {
+        return Err("the driver cannot export buffers as DMA-BUFs".into());
+    }
+    let dedicated = features.contains(vk::ExternalMemoryFeatureFlags::DEDICATED_ONLY);
+    let mut external = vk::ExternalMemoryBufferCreateInfo::default().handle_types(dma_buf);
+    let info = vk::BufferCreateInfo::default().size(size).usage(usage).sharing_mode(vk::SharingMode::EXCLUSIVE).push_next(&mut external);
+    // SAFETY: a valid create info on a live device that enabled the external-memory extensions.
+    let buffer = unsafe { dev.create_buffer(&info, None) }.map_err(|e| format!("vkCreateBuffer: {e}"))?;
+    let destroy_buffer = || {
+        // SAFETY: the buffer was created above, never bound to memory or used; destroyed once.
+        unsafe { dev.destroy_buffer(buffer, None) }
+    };
+    // SAFETY: a valid buffer.
+    let req = unsafe { dev.get_buffer_memory_requirements(buffer) };
+    // SAFETY: a live instance and physical device.
+    let props = unsafe { instance.get_physical_device_memory_properties(pd) };
+    let types = props.memory_types.get(..(props.memory_type_count as usize).min(32)).unwrap_or(&[]);
+    let host = vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+    let cached = host | vk::MemoryPropertyFlags::HOST_CACHED;
+    // DEVICE_LOCAL is VRAM (resizable BAR) on a discrete GPU, never taken; an integrated GPU's
+    // memory is all system memory, marked device-local
+    // SAFETY: a live instance and physical device.
+    let integrated = unsafe { instance.get_physical_device_properties(pd) }.device_type == vk::PhysicalDeviceType::INTEGRATED_GPU;
+    let fits = |i: usize, want: vk::MemoryPropertyFlags| {
+        req.memory_type_bits & (1 << i) != 0
+            && types
+                .get(i)
+                .is_some_and(|t| t.property_flags.contains(want) && (integrated || !t.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)))
+    };
+    let Some(type_index) = (0..types.len()).find(|&i| fits(i, cached)).or_else(|| (0..types.len()).find(|&i| fits(i, host))) else {
+        destroy_buffer();
+        return Err("no host-coherent system memory type can be exported".into());
+    };
+    let mut export = vk::ExportMemoryAllocateInfo::default().handle_types(dma_buf);
+    let mut dedicated_info = vk::MemoryDedicatedAllocateInfo::default().buffer(buffer);
+    let mut alloc = vk::MemoryAllocateInfo::default().allocation_size(req.size.max(size)).memory_type_index(type_index as u32).push_next(&mut export);
+    if dedicated {
+        alloc = alloc.push_next(&mut dedicated_info);
+    }
+    // SAFETY: a valid allocation of an exportable memory type on a live device (dedicated to
+    // `buffer`, alive until after the memory is freed, when the driver requires it).
+    let memory = match unsafe { dev.allocate_memory(&alloc, None) } {
+        Ok(m) => m,
+        Err(e) => {
+            destroy_buffer();
+            return Err(format!("vkAllocateMemory (exportable): {e}"));
+        }
+    };
+    let fd_api = ash::khr::external_memory_fd::Device::new(&instance, &dev);
+    let get = vk::MemoryGetFdInfoKHR::default().memory(memory).handle_type(dma_buf);
+    // SAFETY: the memory was allocated above for export as a DMA-BUF; the new fd is ours.
+    let fd = unsafe { fd_api.get_memory_fd(&get) };
+    // SAFETY: frees the allocation made above, bound to nothing; an exported DMA-BUF keeps the
+    // buffer object (its payload) alive on its own.
+    unsafe { dev.free_memory(memory, None) };
+    destroy_buffer();
+    let fd = fd.map_err(|e| format!("vkGetMemoryFdKHR: {e}"))?;
+    if fd < 0 {
+        return Err("vkGetMemoryFdKHR returned no descriptor".into());
+    }
+    // SAFETY: a new descriptor returned to us by vkGetMemoryFdKHR, owned from here on.
+    Ok(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) })
+}
+
 /// One imported picture: the luma and chroma planes as textures over the decoder's memory.
 pub struct Imported {
     /// Dead once the decoder freed the memory: the import is dropped then.
@@ -207,6 +305,7 @@ impl Importer {
         let (fy, fc, wy, wc) = match format {
             GpuFormat::P010 => (vk::Format::R16_UNORM, vk::Format::R16G16_UNORM, wgpu::TextureFormat::R16Unorm, wgpu::TextureFormat::Rg16Unorm),
             GpuFormat::Nv12 => (vk::Format::R8_UNORM, vk::Format::R8G8_UNORM, wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm),
+            GpuFormat::Y210 => return self.import_packed(d, usage),
         };
         let (y_fourcc, c_fourcc) = layer_fourccs(format);
         if d.layer_formats != [y_fourcc, c_fourcc] {
@@ -226,6 +325,23 @@ impl Importer {
             last_used: 0,
             _textures: [luma, chroma],
         })
+    }
+
+    /// Packed 4:2:2 (`Y210`, one layer): the memory as one `Rgba16Unorm` texture of one texel per
+    /// two pixels (`Y0 Cb Y1 Cr` → R G B A), sampled only (fork 6.1b: Intel's linear copy, which
+    /// [`crate::unpack422`] splits into VRAM planes). Both views of the result are that texture.
+    fn import_packed(&self, d: &DmaBuf, usage: PlaneUse) -> Result<Imported, String> {
+        if usage != PlaneUse::Sampled {
+            return Err("packed 4:2:2 memory is only sampled".into());
+        }
+        let y210 = u32::from_le_bytes(*b"Y210");
+        if d.layer_formats != [y210, 0] || !d.layers[1].is_empty() {
+            return Err(format!("layer formats {:#x} / {:#x} are not packed Y210", d.layer_formats[0], d.layer_formats[1]));
+        }
+        let (w, h) = (d.width.max(1), d.height.max(1));
+        let packed = self.import_plane(d, 0, vk::Format::R16G16B16A16_UNORM, wgpu::TextureFormat::Rgba16Unorm, (w.div_ceil(2), h), usage, "decoded 4:2:2")?;
+        let view = packed.create_view(&Default::default());
+        Ok(Imported { alive: std::sync::Weak::new(), luma: view.clone(), chroma: view, last_used: 0, _textures: [packed.clone(), packed] })
     }
 
     fn import_plane(
@@ -250,6 +366,16 @@ impl Importer {
             return Err(format!("format modifier {modifier:#x} is compressed (not imported)"));
         }
         let object = d.objects.get(first.object).ok_or("plane of a missing buffer object")?;
+        // the rows must hold the texels, and the plane lie in its buffer (checked against the
+        // buffer's real size below): a description claiming otherwise would make the GPU read
+        // outside the memory. Untiled (LINEAR) memory is addressed exactly so; tiled layouts are
+        // at least as large.
+        let texel = u64::from(format.block_copy_size(None).ok_or("a format without a texel size")?);
+        let (pitch, offset) = (u64::from(first.pitch), u64::from(first.offset));
+        if pitch < u64::from(w).saturating_mul(texel) {
+            return Err(format!("row pitch {pitch} is less than {w} texels of {texel} bytes"));
+        }
+        let plane_end = pitch.checked_mul(u64::from(h)).and_then(|n| n.checked_add(offset)).ok_or("plane size overflows")?;
         // SAFETY: the hal device is used only within this call, while `self.device` is alive.
         let hal = unsafe { self.device.as_hal::<Vulkan>() }.ok_or("not a Vulkan device")?;
         let dev = hal.raw_device().clone();
@@ -296,10 +422,10 @@ impl Importer {
             let size = std::io::Seek::seek(&mut f, std::io::SeekFrom::End(0))?;
             Ok((std::os::fd::OwnedFd::from(f), size))
         }) {
-            Ok((fd, size)) if req.size <= size => fd,
+            Ok((fd, size)) if req.size <= size && plane_end <= size => fd,
             Ok((_, size)) => {
                 destroy_image(&dev);
-                return Err(format!("the image needs {} bytes, the buffer has {size}", req.size));
+                return Err(format!("the image needs {} bytes (plane ends at {plane_end}), the buffer has {size}", req.size));
             }
             Err(e) => {
                 destroy_image(&dev);
@@ -400,12 +526,14 @@ fn compressed_modifier(modifier: u64) -> bool {
     }
 }
 
-/// The DRM fourccs of the luma and chroma layers of `format` (`R16` / `GR32`, `R8` / `GR88`).
+/// The DRM fourccs of the luma and chroma layers of `format` (`R16` / `GR32`, `R8` / `GR88`;
+/// packed `Y210`: its one layer, then 0).
 fn layer_fourccs(format: GpuFormat) -> (u32, u32) {
     let fourcc = |c: &[u8; 4]| u32::from_le_bytes(*c);
     match format {
         GpuFormat::P010 => (fourcc(b"R16 "), fourcc(b"GR32")),
         GpuFormat::Nv12 => (fourcc(b"R8  "), fourcc(b"GR88")),
+        GpuFormat::Y210 => (fourcc(b"Y210"), 0),
     }
 }
 

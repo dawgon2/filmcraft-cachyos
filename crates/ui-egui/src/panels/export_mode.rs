@@ -395,6 +395,7 @@ fn settings_column(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         .active_sequence()
         .map(|q| (q.settings.width, q.settings.height, q.settings.frame_rate, q.settings.sample_rate))
         .unwrap_or((1920, 1080, FrameRate::FPS_24, 48_000));
+    let seq_hdr = app.session.active_sequence().is_some_and(|q| q.settings.color.working.is_hdr());
     let has_captions = app.session.active_sequence().is_some_and(|q| !q.caption_tracks.is_empty());
     let all_presets = app.session.export_presets.all();
     let favs: Vec<String> = all_presets.iter().filter(|p| app.session.export_presets.is_favorite(&p.name)).map(|p| p.name.clone()).collect();
@@ -471,7 +472,7 @@ fn settings_column(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ui.add_space(8.0);
         let s = &mut ex.settings;
         if s.has_video() && section(ui, &mut reg, &mut ex.open_sections, "video", tl!("Video"), &t) {
-            video_section(ui, &mut reg, s, &t, seq_w, seq_h);
+            video_section(ui, &mut reg, s, &t, seq_w, seq_h, seq_hdr);
         }
         if (s.has_audio()
             || !s.has_video()
@@ -555,7 +556,14 @@ fn settings_column(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     reg.flush(app);
 }
 
-fn video_section(ui: &mut egui::Ui, reg: &mut Reg, s: &mut ExportSettings, t: &Tokens, seq_w: u32, seq_h: u32) {
+/// Whether an export with these settings from a sequence with an HDR working space (`seq_hdr`)
+/// is promoted from H.265 Main (8-bit) to Main 10 (fork): HDR output is always 10-bit
+/// (`filmcraft_export::job::hevc_bit_depth_for`). `hdr_available` is asked last, and only then.
+fn hevc_promoted_to_main10(seq_hdr: bool, s: &ExportSettings, hdr_available: impl FnOnce(Format) -> bool) -> bool {
+    seq_hdr && !s.sdr && s.video_format() == Format::Hevc && s.hevc_bit_depth != 10 && hdr_available(Format::Hevc)
+}
+
+fn video_section(ui: &mut egui::Ui, reg: &mut Reg, s: &mut ExportSettings, t: &Tokens, seq_w: u32, seq_h: u32, seq_hdr: bool) {
     // frame size
     let mut match_size = s.frame_size.is_none();
     row(ui, t, tl!("Frame Size"), |ui| {
@@ -641,6 +649,13 @@ fn video_section(ui: &mut egui::Ui, reg: &mut Reg, s: &mut ExportSettings, t: &T
                             s.hevc_bit_depth = if i == 1 { 10 } else { 8 };
                         }
                     });
+                    // fork: an HDR sequence exports H.265 as Main 10 whatever the profile says; say so
+                    if hevc_promoted_to_main10(seq_hdr, s, filmcraft_engine::export::hdr_available) {
+                        row(ui, t, "", |ui| {
+                            let r = ui.label(egui::RichText::new(tl!("HDR export: written as Main 10 (10-bit)")).color(t.text_dim).size(11.5));
+                            reg.add("export.video.hevcMain10Note", r.rect, tl!("HDR export: written as Main 10 (10-bit)"));
+                        });
+                    }
                 }
             } else {
                 row(ui, t, tl!("Profile"), |ui| {
@@ -931,7 +946,7 @@ fn preview_column(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, seq_id:
     ui.painter().rect_filled(pic, 0.0, Color32::BLACK);
     if app.ui.export.settings.has_video() {
         let frame = rate.frame_at(app.session.playhead());
-        let key = FrameKey { target: Target::Sequence(seq_id), frame, size: 500, revision: app.session.revision, draft: false };
+        let key = FrameKey { target: Target::Sequence(seq_id), frame, size: 500, revision: app.session.revision, draft: false, temporal: false };
         let project = app.session.project.clone();
         app.frames.request(key, rate.tick_of(frame), 0.5, &project, 0);
         if let Some(img) = app.frames.get(&key) {
@@ -1360,4 +1375,35 @@ fn list_row(ui: &mut egui::Ui, t: &Tokens, selected: bool, text: &str, width: f3
     ui.painter().rect_filled(r, 3.0, bg);
     ui.painter().text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, text, Tokens::ui(12.5), if selected { Color32::WHITE } else { t.text });
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hdr_hevc_8_bit_is_promoted_to_main10() {
+        let hevc = |bits| ExportSettings { format: Format::Hevc, hevc_bit_depth: bits, ..Default::default() };
+        let yes = |_| true;
+        assert!(hevc_promoted_to_main10(true, &hevc(8), yes));
+        assert!(!hevc_promoted_to_main10(true, &hevc(10), yes), "already Main 10");
+        assert!(!hevc_promoted_to_main10(false, &hevc(8), yes), "SDR sequence keeps Main");
+        assert!(!hevc_promoted_to_main10(true, &ExportSettings { sdr: true, ..hevc(8) }, yes), "SDR asked for");
+        assert!(!hevc_promoted_to_main10(true, &hevc(8), |_| false), "no HDR encoder: tone-mapped SDR");
+        assert!(!hevc_promoted_to_main10(true, &ExportSettings { format: Format::H264, ..Default::default() }, yes), "H.264");
+    }
+
+    #[test]
+    fn the_hdr_encoder_is_asked_only_when_it_matters() {
+        let s = ExportSettings { format: Format::H264, ..Default::default() };
+        assert!(!hevc_promoted_to_main10(true, &s, |_| panic!("asked for H.264")));
+        assert!(!hevc_promoted_to_main10(false, &ExportSettings { format: Format::Hevc, ..Default::default() }, |_| panic!("asked for SDR")));
+    }
+
+    #[test]
+    fn the_main10_note_is_translated() {
+        for lang in [crate::i18n::Language::Es, crate::i18n::Language::ZhCn] {
+            assert!(lang.has("HDR export: written as Main 10 (10-bit)"), "{lang:?}");
+        }
+    }
 }

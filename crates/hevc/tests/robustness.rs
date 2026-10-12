@@ -45,7 +45,7 @@ fn to_hvcc(data: &[u8]) -> (Vec<u8>, Vec<Vec<u8>>) {
 
 #[test]
 fn hvcc_input_matches_reference() {
-    for name in ["medium", "intra_main10"] {
+    for name in ["medium", "intra_main10", "medium_422"] {
         let f = common::fixture(name);
         let Some((hevc, yuv)) = common::ensure(f) else { return };
         let (hvcc, samples) = to_hvcc(&std::fs::read(hevc).unwrap());
@@ -57,7 +57,7 @@ fn hvcc_input_matches_reference() {
         }
         pics.extend(dec.flush());
         let reference = std::fs::read(yuv).unwrap();
-        common::compare(&pics, &reference, f.width as usize, f.height as usize, f.bit_depth).unwrap();
+        common::compare_fixture(&pics, &reference, f).unwrap();
         let mut pts: Vec<i64> = pics.iter().map(|p| p.pts).collect();
         pts.sort();
         assert_eq!(pts, (0..samples.len() as i64).map(|i| i * 1000).collect::<Vec<_>>());
@@ -78,7 +78,7 @@ fn xorshift(seed: &mut u64) -> u64 {
 /// Damaged streams must never panic or hang; errors are fine.
 #[test]
 fn corrupted_streams_do_not_panic() {
-    for name in ["medium", "bframes", "intra_main10", "rect_amp", "weightp"] {
+    for name in ["medium", "bframes", "intra_main10", "rect_amp", "weightp", "medium_422", "bframes_422", "intra_422", "slices4_422", "weightp_422"] {
         let f = common::fixture(name);
         let Some((hevc, _)) = common::ensure(f) else { return };
         let data = std::fs::read(hevc).unwrap();
@@ -119,4 +119,57 @@ fn garbage_input_is_rejected_gracefully() {
         }
     }
     assert!(Decoder::from_hvcc(&[1, 2, 3]).is_err());
+}
+
+/// The SPS of an Annex-B stream.
+fn first_sps(data: &[u8]) -> filmcraft_hevc::params::Sps {
+    let nal = annexb_nals(data).into_iter().find(|n| n.first().is_some_and(|b| (b >> 1) & 0x3f == 33)).unwrap();
+    filmcraft_hevc::params::Sps::parse(&filmcraft_bitstream::unescape_rbsp(&nal[2..])).unwrap()
+}
+
+/// 4:2:2 is accepted only without range-extension tools; other chroma formats are refused with
+/// `Error::Unsupported`, never a panic.
+#[test]
+fn chroma_422_support_gate() {
+    let f = common::fixture("intra_422");
+    let Some((hevc, _)) = common::ensure(f) else { return };
+    let sps = first_sps(&std::fs::read(hevc).unwrap());
+    assert_eq!((sps.chroma_format_idc, sps.range_extension), (2, false));
+    sps.check_supported().unwrap();
+    for idc in [0, 3] {
+        let mut s = sps.clone();
+        s.chroma_format_idc = idc;
+        assert!(matches!(s.check_supported(), Err(filmcraft_hevc::Error::Unsupported(_))), "chroma_format_idc {idc}");
+    }
+    let mut s = sps.clone();
+    s.range_ext.implicit_rdpcm = true;
+    s.range_ext.cabac_bypass_alignment = true;
+    match s.check_supported() {
+        Err(filmcraft_hevc::Error::Unsupported(m)) => assert!(m.contains("implicit_rdpcm") && m.contains("cabac_bypass_alignment"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Every access unit of 4:2:2 streams cut short at several points: errors are fine, panics and
+/// hangs are not (single- and frame-threaded).
+#[test]
+fn truncated_422_access_units_do_not_panic() {
+    for name in ["intra_422", "bframes_422", "odd_422_1918x1078"] {
+        let f = common::fixture(name);
+        let Some((hevc, _)) = common::ensure(f) else { return };
+        let data = std::fs::read(hevc).unwrap();
+        let aus = common::split_access_units(&data);
+        for frac in [1usize, 3, 5, 7] {
+            for threads in [1, 3] {
+                let mut dec = Decoder::with_threads(threads);
+                for (i, au) in aus.iter().enumerate() {
+                    // the first access unit keeps its parameter sets; slice data is cut at frac/8
+                    let cut = if i == 0 { au.len() * (8 + frac) / 16 } else { au.len() * frac / 8 };
+                    let _ = dec.decode(&au[..cut.max(1)], i as i64);
+                }
+                let _ = dec.flush();
+                let _ = dec.take_error();
+            }
+        }
+    }
 }

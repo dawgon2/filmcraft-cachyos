@@ -106,7 +106,8 @@ fn analysis(s: &Session, item: ItemId, source_in: Tick, dur: Tick) -> Result<Arc
     if let Some((_, a)) = cache().lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(k, _)| *k == key) {
         return Ok(a.clone());
     }
-    let provider = s.media.provider(s.project.clone(), s.services.clone());
+    // the original, never a proxy: the analysis is cached
+    let provider = s.media.full_res_provider(s.project.clone(), s.services.clone());
     let src = filmcraft_render::SourceProvider::source(&provider, item).ok_or_else(|| EngineError::Other("the clip's media is offline".into()))?;
     let buf = src.audio(m0, len.max(0) as usize, sr).map_err(|e| EngineError::Other(format!("reading the clip's audio: {e}")))?;
     let refs: Vec<&[f32]> = buf.channels.iter().map(Vec::as_slice).collect();

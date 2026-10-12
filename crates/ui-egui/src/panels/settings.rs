@@ -570,6 +570,57 @@ fn mb(bytes: u64) -> String {
     if bytes >= 1 << 30 { format!("{:.1} GB", bytes as f64 / (1u64 << 30) as f64) } else { format!("{:.1} MB", bytes as f64 / (1u64 << 20) as f64) }
 }
 
+/// Settings ▸ Media Cache ▸ Render Cache (fork 6.3): what the render cache holds and is doing,
+/// with Pause / Resume and Delete Unused (commands `cache.pause`, `cache.resume`,
+/// `cache.clearUnused`).
+fn render_cache_rows(app: &mut FilmcraftApp, ui: &mut Ui) {
+    let t = app.tokens;
+    // `cache.status` reads the whole index: at most twice a second (a button press refreshes it)
+    let key = egui::Id::new("settings.renderCache.status");
+    let now = ui.input(|i| i.time);
+    let st = match ui.data(|d| d.get_temp::<(f64, Value)>(key)) {
+        Some((at, v)) if now - at < 0.5 && now >= at => v,
+        _ => {
+            let v = app.session.execute("cache.status", json!({})).unwrap_or_default();
+            ui.data_mut(|d| d.insert_temp(key, (now, v.clone())));
+            v
+        }
+    };
+    let parts = st["parts"].as_u64().unwrap_or(0);
+    let size = mb(st["bytes"].as_u64().unwrap_or(0));
+    let limit = mb(st["budgetBytes"].as_u64().unwrap_or(0));
+    note(ui, &t, &tlf!("In this project's render cache: {parts} part(s), {size} of {limit}.", parts, size, limit));
+    let paused = st["paused"].as_bool().unwrap_or(false);
+    let queued = st["queued"].as_u64().unwrap_or(0);
+    let doing = match st["rendering"]["percent"].as_f64() {
+        Some(p) => tlf!("Building a part ({percent} %); {queued} queued.", percent = format!("{p:.0}"), queued),
+        None if paused => tl!("Paused.").to_string(),
+        None if st["mode"] == "off" => tl!("Off: nothing new is cached.").to_string(),
+        None if st["limitReached"] == true => tl!("The size limit is reached: raise it, or Delete Unused, to cache more.").to_string(),
+        None if queued > 0 => tlf!("{queued} part(s) queued: the cache renders while you are not playing, scrubbing or exporting.", queued),
+        None => tl!("Up to date.").to_string(),
+    };
+    note(ui, &t, &doing);
+    ui.horizontal(|ui| {
+        let (id, label, cmd) =
+            if paused { ("settings.renderCache.resume", tl!("Resume"), "cache.resume") } else { ("settings.renderCache.pause", tl!("Pause"), "cache.pause") };
+        if button(app, ui, id, label, false) {
+            let _ = app.session.execute(cmd, json!({}));
+            ui.data_mut(|d| d.remove::<(f64, Value)>(key));
+        }
+        if button(app, ui, "settings.renderCache.clearUnused", tl!("Delete Unused"), false) {
+            match app.session.execute("cache.clearUnused", json!({})) {
+                Ok(v) => app.ui.status = tlf!("Deleted {n} render cache file(s)", n = v["deleted"].as_u64().unwrap_or(0)),
+                Err(e) => app.ui.status = e.to_string(),
+            }
+            ui.data_mut(|d| d.remove::<(f64, Value)>(key));
+        }
+    });
+    if st["rendering"].is_object() || queued > 0 {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+    }
+}
+
 fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str) {
     let t = app.tokens;
     match name {
@@ -623,6 +674,7 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
             let files = d.cache_info["files"].as_u64().unwrap_or(0);
             note(ui, &t, &tlf!("Currently: {loc} — {files} file(s), {size}", loc, files, size));
         }
+        "renderCacheInfo" => render_cache_rows(app, ui),
         "outputMapping" => {
             let ch = d.devices.as_ref().map(|x| x.output_channels).unwrap_or(0);
             let l = get(&d.values, "audioHardware.mapLeft").as_u64().unwrap_or(0) + 1;

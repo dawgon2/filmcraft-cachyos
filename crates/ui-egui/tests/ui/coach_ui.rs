@@ -569,7 +569,7 @@ fn walked() -> (Driver, BTreeSet<String>) {
         d.click("colorDialog.cancel");
     }
     // Settings pages the guide names
-    for page in ["playback", "memory", "color", "general"] {
+    for page in ["playback", "memory", "media", "color", "general", "mediaCache"] {
         try_exec(&mut d, &format!("app.settings.{page}"), json!({}));
         snap(&mut d, &mut seen);
     }
@@ -591,7 +591,25 @@ fn walked() -> (Driver, BTreeSet<String>) {
 
 /// Guide ids the walk doesn't reach, each with the reason. Each must still be known to the app's
 /// check (a dynamic id) or a literal automation id in the UI source.
-const NOT_WALKED: &[(&str, &str)] = &[("export.video.hevcEncoder", "Export page: only shown when the format is HEVC")];
+const NOT_WALKED: &[(&str, &str)] = &[
+    ("export.video.hevcEncoder", "Export page: only shown when the format is HEVC"),
+    ("export.video.hevcMain10Note", "Export page: only shown for an 8-bit HEVC export of an HDR sequence"),
+    ("export.fileName", "Export page: the walk stays in Edit / Color"),
+    ("export.location", "Export page: the walk stays in Edit / Color"),
+    ("export.preset", "Export page: the walk stays in Edit / Color"),
+    ("export.format", "Export page: the walk stays in Edit / Color"),
+    ("export.button", "Export page: the walk stays in Edit / Color"),
+    ("export.sendToQueue", "Export page: the walk stays in Edit / Color"),
+    ("export.queue.start", "Export page: the walk stays in Edit / Color"),
+    ("export.preset.more", "Export page: the walk stays in Edit / Color"),
+    ("presetManager.saveName", "Export page: the Preset Manager"),
+    ("presetManager.save", "Export page: the Preset Manager"),
+    ("export.video.bitrateMode", "Export page: the walk stays in Edit / Color"),
+    ("export.video.crf", "Export page: only shown in CRF mode"),
+    ("export.video.hevcProfile", "Export page: the walk stays in Edit / Color"),
+    ("lumetri.match.comparisonView", "Lumetri Color: the walk uses the node grader"),
+    ("lumetri.match.apply", "Lumetri Color: the walk uses the node grader"),
+];
 
 fn ui_source() -> String {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

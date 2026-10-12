@@ -71,6 +71,10 @@ pub enum GpuFormat {
     Nv12,
     /// 10-bit 4:2:0 in 16-bit samples (MSB-aligned): luma plane, interleaved CbCr plane.
     P010,
+    /// 10-bit 4:2:2 packed in one plane, per two pixels `Y0 Cb Y1 Cr` in 16-bit samples
+    /// (MSB-aligned): Intel's media engine hands decoded 4:2:2 pictures over this way (fork 6.1b,
+    /// a linear copy made for the compositing GPU). The [`DmaBuf`] has one layer (`Y210`).
+    Y210,
 }
 
 /// A buffer object of a DMA-BUF export: an owned file descriptor on Unix (none can exist elsewhere).
@@ -88,10 +92,11 @@ pub struct DmaBufPlane {
     pub pitch: u32,
 }
 
-/// A picture's memory as Linux DMA-BUFs (one single-plane layer per picture plane: luma, chroma).
+/// A picture's memory as Linux DMA-BUFs (one single-plane layer per picture plane: luma, chroma;
+/// packed formats ([`GpuFormat::Y210`]) have one layer, the second is empty with format 0).
 #[derive(Clone, Debug)]
 pub struct DmaBuf {
-    /// DRM fourcc of each layer (`R16` / `GR32` for P010, `R8` / `GR88` for NV12).
+    /// DRM fourcc of each layer (`R16` / `GR32` for P010, `R8` / `GR88` for NV12, `Y210` / 0).
     pub layer_formats: [u32; 2],
     /// Format modifier (tiling) of the memory.
     pub modifier: u64,
@@ -103,6 +108,29 @@ pub struct DmaBuf {
     /// The buffer objects, open for as long as this description (or a clone) lives; importers
     /// duplicate them. Owned descriptors: a description cannot name an fd it does not own.
     pub objects: std::sync::Arc<[DmaBufObject]>,
+}
+
+/// The compositor refused a packed 4:2:2 GPU picture ([`GpuFormat::Y210`]: no 16-bit normalized
+/// textures, a failed import or unpack) this session: decoders stop handing such pictures over
+/// (their copy would only be read back) and read them back to memory instead (fork 6.1b).
+static PACKED_422_REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Record that the compositor cannot take packed 4:2:2 GPU pictures (logged once).
+pub fn refuse_packed_422(why: &str) {
+    if !PACKED_422_REFUSED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        log::warn!("the GPU compositor cannot take 4:2:2 pictures from the decoder ({why}); they are read back to memory from now on");
+    }
+}
+
+/// Whether [`refuse_packed_422`] was called this session.
+pub fn packed_422_refused() -> bool {
+    PACKED_422_REFUSED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Tests: forget [`refuse_packed_422`].
+#[doc(hidden)]
+pub fn reset_packed_422_refusal() {
+    PACKED_422_REFUSED.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// A decoded picture held in GPU memory (see [`PixelData::Gpu`]). Implemented by the platform
@@ -119,8 +147,8 @@ pub trait GpuSurface: Send + Sync + std::fmt::Debug {
     fn crop_origin(&self) -> (u32, u32);
     /// The memory as DMA-BUFs (None: not exportable here); the picture has finished decoding.
     fn dmabuf(&self) -> Option<DmaBuf>;
-    /// Read the visible picture back to memory: [`PixelData::Yuv16Bi`] (P010) or
-    /// [`PixelData::Yuv8`] (NV12).
+    /// Read the visible picture back to memory: [`PixelData::Yuv16Bi`] (P010: 4:2:0, Y210: 4:2:2)
+    /// or [`PixelData::Yuv8`] (NV12).
     fn download(&self, width: u32, height: u32) -> Result<PixelData, String>;
     /// Bytes of GPU memory it occupies.
     fn gpu_bytes(&self) -> usize;
@@ -196,6 +224,7 @@ impl VideoFrame {
             PixelData::Gpu(s) => match s.format() {
                 GpuFormat::Nv12 => "YUV 4:2:0 8-bit (GPU)".into(),
                 GpuFormat::P010 => "YUV 4:2:0 10-bit (GPU)".into(),
+                GpuFormat::Y210 => "YUV 4:2:2 10-bit (GPU)".into(),
             },
         }
     }

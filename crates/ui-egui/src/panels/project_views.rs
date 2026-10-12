@@ -36,13 +36,32 @@ pub fn item_icon(k: &ItemKind) -> Icon {
 pub struct Badge {
     pub offline: bool,
     pub offline_text: &'static str,
+    /// A proxy is attached.
     pub proxy: bool,
-    /// Proxies are enabled (the badge is lit).
+    /// Proxies are in use (Settings ▸ Media ▸ Proxies is Auto or On: the badge is lit).
     pub proxy_on: bool,
+    /// The automatic proxy's job (fork 6.2).
+    pub proxy_job: ProxyJobBadge,
+    /// 4:2:2 H.265 without a proxy, decoded in software (no 4:2:2 hardware decoder, fork 6.1b):
+    /// "4:2:2: software decode, proxies recommended" (fork 6.1).
+    pub chroma_422: bool,
+    /// ...because hardware 4:2:2 decoding failed earlier this session (fork 6.1b).
+    pub chroma_422_failed: bool,
+}
+
+/// A clip's automatic proxy job, for its badge.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProxyJobBadge {
+    None,
+    Queued,
+    /// Percent done.
+    Building(u8),
+    Failed(String),
 }
 
 pub fn media_badge(app: &FilmcraftApp, it: &filmcraft_project::ProjectItem) -> Badge {
-    let mut b = Badge { offline: false, offline_text: "", proxy: false, proxy_on: false };
+    let mut b =
+        Badge { offline: false, offline_text: "", proxy: false, proxy_on: false, proxy_job: ProxyJobBadge::None, chroma_422: false, chroma_422_failed: false };
     let target = match &it.kind {
         ItemKind::Subclip { parent, .. } => app.session.project.item(*parent),
         _ => Some(it),
@@ -58,21 +77,84 @@ pub fn media_badge(app: &FilmcraftApp, it: &filmcraft_project::ProjectItem) -> B
         b.offline_text = if st.reason == filmcraft_render::offline::OfflineReason::Unreadable { tl!("Unreadable") } else { tl!("Media missing") };
     }
     b.proxy = m.proxy.is_some();
-    b.proxy_on = app.session.media.use_proxies();
+    b.proxy_on = app.session.media.proxy_mode() != filmcraft_engine::media_pool::ProxyMode::Off;
+    b.proxy_job = match app.session.auto_proxies.state(id) {
+        None => ProxyJobBadge::None,
+        Some(filmcraft_engine::proxy_jobs::ProxyState::Queued) => ProxyJobBadge::Queued,
+        Some(filmcraft_engine::proxy_jobs::ProxyState::Building { fraction }) => ProxyJobBadge::Building((fraction.clamp(0.0, 1.0) * 100.0) as u8),
+        Some(filmcraft_engine::proxy_jobs::ProxyState::Failed { error }) => ProxyJobBadge::Failed(error),
+    };
+    b.chroma_422 = !b.proxy && filmcraft_engine::proxy_jobs::software_422(&m.info);
+    b.chroma_422_failed = b.chroma_422 && filmcraft_engine::proxy_jobs::hardware_422_failed();
     b
 }
 
-fn paint_badges(ui: &egui::Ui, b: &Badge, at: egui::Pos2, t: &Tokens) {
+/// One small badge: automation suffix, text, fill, and what it means (hover text and
+/// automation label).
+struct Pill {
+    id: &'static str,
+    text: String,
+    fill: Color32,
+    label: String,
+}
+
+const BADGE_422: Color32 = Color32::from_rgb(0xc8, 0x8a, 0x1e);
+
+/// The proxy and 4:2:2 badges of `b`, left to right.
+fn pills(b: &Badge, t: &Tokens) -> Vec<Pill> {
+    let mut out = Vec::new();
+    let grey = Color32::from_gray(70);
+    match &b.proxy_job {
+        ProxyJobBadge::Building(pct) => {
+            out.push(Pill { id: "proxy", text: format!("P {pct}%"), fill: grey, label: tlf!("Building proxy: {pct} %", pct = pct) });
+        }
+        ProxyJobBadge::Queued => out.push(Pill { id: "proxy", text: "P …".into(), fill: grey, label: tl!("Proxy queued").to_string() }),
+        ProxyJobBadge::Failed(e) => {
+            out.push(Pill { id: "proxy", text: "P !".into(), fill: OFFLINE, label: tlf!("Proxy failed: {error}", error = e) });
+        }
+        ProxyJobBadge::None if b.proxy => {
+            out.push(Pill { id: "proxy", text: "P".into(), fill: if b.proxy_on { t.accent } else { grey }, label: tl!("Proxy attached").to_string() });
+        }
+        ProxyJobBadge::None => {}
+    }
+    if b.chroma_422 {
+        let label = if b.chroma_422_failed {
+            tl!("4:2:2: software decode (hardware 4:2:2 decode failed earlier in this session), proxies recommended")
+        } else {
+            tl!("4:2:2: software decode, proxies recommended")
+        };
+        out.push(Pill { id: "c422", text: "4:2:2".into(), fill: BADGE_422, label: label.to_string() });
+    }
+    out
+}
+
+/// Paint `pills` from `at` (left edge, vertical centre) rightwards, or leftwards from `at` when
+/// `right_aligned`. Returns each badge's automation suffix, rectangle and label.
+fn paint_pills(ui: &egui::Ui, pills: Vec<Pill>, at: egui::Pos2, right_aligned: bool, hover_id: egui::Id) -> Vec<(&'static str, Rect, String)> {
+    let mut out = Vec::new();
+    let mut x = at.x;
+    let list: Vec<Pill> = if right_aligned { pills.into_iter().rev().collect() } else { pills };
+    for p in list {
+        let g = ui.painter().layout_no_wrap(p.text.clone(), Tokens::ui(10.0), Color32::WHITE);
+        let w = (g.size().x + 6.0).max(16.0);
+        let r =
+            if right_aligned { Rect::from_min_size(pos2(x - w, at.y - 7.0), vec2(w, 14.0)) } else { Rect::from_min_size(pos2(x, at.y - 7.0), vec2(w, 14.0)) };
+        ui.painter().rect_filled(r, 2.0, p.fill);
+        ui.painter().galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
+        let _ = ui.interact(r, hover_id.with(p.id), Sense::hover()).on_hover_text(&p.label);
+        x = if right_aligned { r.min.x - 3.0 } else { r.max.x + 3.0 };
+        out.push((p.id, r, p.label));
+    }
+    out
+}
+
+fn paint_badges(ui: &egui::Ui, b: &Badge, at: egui::Pos2, t: &Tokens, hover_id: egui::Id) -> Vec<(&'static str, Rect, String)> {
     let mut x = at.x;
     if b.offline {
         icons::paint(ui.painter(), Rect::from_center_size(pos2(x + 7.0, at.y), vec2(13.0, 13.0)), Icon::Offline, OFFLINE);
         x += 18.0;
     }
-    if b.proxy {
-        let pr = Rect::from_min_size(pos2(x, at.y - 7.0), vec2(16.0, 14.0));
-        ui.painter().rect_filled(pr, 2.0, if b.proxy_on { t.accent } else { Color32::from_gray(70) });
-        ui.painter().text(pr.center(), Align2::CENTER_CENTER, "P", Tokens::ui(10.0), Color32::WHITE);
-    }
+    paint_pills(ui, pills(b, t), pos2(x, at.y), false, hover_id)
 }
 
 fn matches_filter(app: &FilmcraftApp, id: ItemId, filter: &str) -> bool {
@@ -724,7 +806,10 @@ fn list_bin(app: &mut FilmcraftApp, ui: &mut egui::Ui, bin: &Bin, depth: usize, 
                 if badge.offline { OFFLINE } else { t.text },
             );
             if nr.max.x + 40.0 < name_r.max.x {
-                paint_badges(ui, &badge, pos2(nr.max.x + 6.0, r.center().y), &t);
+                let pre = format!("{}.item.{}", v.prefix, id.0);
+                for (sfx, br, label) in paint_badges(ui, &badge, pos2(nr.max.x + 6.0, r.center().y), &t, egui::Id::new(&pre)) {
+                    app.auto.add(&format!("{pre}.{sfx}"), br, &label);
+                }
             }
         }
         x += name_w;
@@ -839,11 +924,9 @@ fn card(app: &mut FilmcraftApp, ui: &mut egui::Ui, r: Rect, id: ItemId, pre: &st
         ui.painter().text(pos2(band.min.x + 24.0, band.center().y), Align2::LEFT_CENTER, badge.offline_text, Tokens::ui(10.5), Color32::WHITE);
         app.auto.add(&format!("{pre}.item.{}.offline", id.0), band, badge.offline_text);
     }
-    if badge.proxy {
-        let pr = Rect::from_min_size(pos2(th.max.x - 22.0, th.min.y + 4.0), vec2(18.0, 14.0));
-        ui.painter().rect_filled(pr, 2.0, if badge.proxy_on { t.accent } else { Color32::from_gray(70) });
-        ui.painter().text(pr.center(), Align2::CENTER_CENTER, "P", Tokens::ui(10.0), Color32::WHITE);
-        app.auto.add(&format!("{pre}.item.{}.proxy", id.0), pr, "Proxy attached");
+    let card_id = format!("{pre}.item.{}", id.0);
+    for (sfx, br, label) in paint_pills(ui, pills(&badge, &t), pos2(th.max.x - 4.0, th.min.y + 11.0), true, egui::Id::new(&card_id)) {
+        app.auto.add(&format!("{card_id}.{sfx}"), br, &label);
     }
     let f = font(app);
     let ty = th.max.y + 11.0;

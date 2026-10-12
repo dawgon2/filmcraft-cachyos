@@ -414,6 +414,14 @@ pub struct GradePicker {
     pub add: bool,
 }
 
+/// A grade node being renamed in place (`grade.labelNode` on commit) and the text typed so far.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GradeRename {
+    pub clip: u64,
+    pub node: u64,
+    pub text: String,
+}
+
 /// A keyframe selected in the Effect Controls keyframe lane: clip, effect index, parameter (of an
 /// effect mask when `mask` is set) and the keyframe's media time. The panel drops references that
 /// no longer match a keyframe (deleted, moved, another clip selected).
@@ -499,6 +507,10 @@ pub struct UiState {
     /// Qualifier ▸ Pick / Add; Esc disarms). Never saved.
     #[serde(skip)]
     pub grade_picker: Option<GradePicker>,
+    /// The grade node being renamed in the Nodes strip (Enter or a click away keeps the name, Esc
+    /// cancels). Never saved.
+    #[serde(skip)]
+    pub grade_rename: Option<GradeRename>,
     /// The Grading Coach's "Ask the coach" box (question, answer, highlighted step). Never saved.
     #[serde(skip)]
     pub coach_ask: CoachAsk,
@@ -1013,6 +1025,7 @@ impl Default for UiState {
             status: String::new(),
             eyedropper: None,
             grade_picker: None,
+            grade_rename: None,
             coach_ask: CoachAsk::default(),
             keyframe_selection: Vec::new(),
             essential_sound_tab: "Edit".into(),

@@ -18,9 +18,9 @@ target = "header.workspaces"
 expect = { element = "panel.Gallery" }
 
 [[step]]
-text = "Select the reference shot (the one that already looks right) in the timeline, and park the playhead on a good frame."
+text = "Select the reference shot (the one that already looks right) in the Clips strip (or the timeline), and park the playhead on a good frame."
 why = "The still is taken from the selected clip at the playhead."
-target = "timeline.tracks"
+target = ["clips.strip", "timeline.tracks"]
 expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
 
 [[step]]
@@ -30,9 +30,9 @@ target = "stills.grab"
 expect = { command = "stills.grab" }
 
 [[step]]
-text = "Now select the shot you want to match in the timeline."
+text = "Now select the shot you want to match in the Clips strip (or the timeline)."
 why = "This is the clip you will change. The reference stays as it is."
-target = "timeline.tracks"
+target = ["clips.strip", "timeline.tracks"]
 expect = { command = "timeline.select", params = { clips = [{ any = true }] } }
 
 [[step]]

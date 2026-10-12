@@ -149,6 +149,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             let mut session = Session::default();
+            // automatic proxies (fork 6.2) only in the desktop app: a CLI / headless session that
+            // exits would leave half-written proxies in the media folders
+            session.auto_proxies.enabled = true;
             if let Some(dir) = data_dir.clone().or_else(default_data_dir) {
                 let mut cfg = AutosaveConfig::new(dir);
                 cfg.local_offset = local_offset;

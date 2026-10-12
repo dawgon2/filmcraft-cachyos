@@ -174,3 +174,16 @@ pub fn xorshift(seed: &mut u64) -> u64 {
     *seed ^= *seed << 17;
     *seed
 }
+
+/// Hardware decoding tests share the video engine: a damaged-stream test can make Intel's engine
+/// reset (i915 "GPU HANG", recovered in 1–7 s), corrupting pictures other tests decode at that
+/// moment. Damaged-stream tests take the engine exclusively, the others shared.
+static ENGINE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+pub fn engine_shared() -> std::sync::RwLockReadGuard<'static, ()> {
+    ENGINE.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+pub fn engine_exclusive() -> std::sync::RwLockWriteGuard<'static, ()> {
+    ENGINE.write().unwrap_or_else(std::sync::PoisonError::into_inner)
+}

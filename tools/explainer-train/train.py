@@ -21,9 +21,11 @@ bf16 (GPU) or float32 (`--device cpu`, the slow fallback), evaluates the validat
 `--eval-every` steps, keeps the best adapter (early stopping with `--patience`), merges it into
 the base and writes `model.safetensors` (the base's tensor names) + `config.json` + the tokenizer
 files + `LICENSE` + `NOTICE` to `--out`, and `manifest.json` (hyper-parameters, base revision,
-data stats, loss curve, timings) to both `--run-dir` and `--out`. `LICENSE` is the base's licence
-file, or the Apache-2.0 text kept next to this script (`LICENSE-Apache-2.0.txt`) when the base
-folder has none (every catalogue base is Apache-2.0).
+data stats, loss curve, timings; base repo and data folder name, no local paths) to both
+`--run-dir` and `--out`, plus `manifest.private.json` (the same with the local paths) to
+`--run-dir` only. `LICENSE` is the base's licence file, or the Apache-2.0 text kept next to this
+script (`LICENSE-Apache-2.0.txt`) when the base folder has none (every catalogue base is
+Apache-2.0).
 """
 
 import argparse
@@ -278,18 +280,20 @@ def main():
         shutil.copy2(Path(__file__).resolve().parent / "LICENSE-Apache-2.0.txt", a.out / "LICENSE")
     revision = (a.base / "REVISION").read_text().strip() if (a.base / "REVISION").exists() else "unknown"
     base_repo = a.base_repo or KNOWN_REPOS.get(a.base.resolve().name, a.base.resolve().name)
+    # REVISION holds "<repo> <commit>"; NOTICE names the commit only
+    commit = revision.split()[-1] if revision.split() else "unknown"
     data_seed = None
     if (a.data / "data-stats.json").exists():
         data_seed = json.loads((a.data / "data-stats.json").read_text()).get("seed")
-    (a.out / "NOTICE").write_text(NOTICE.format(name=a.out.resolve().name, repo=base_repo, revision=revision, seed=data_seed if data_seed is not None else "unknown"))
+    (a.out / "NOTICE").write_text(NOTICE.format(name=a.out.resolve().name, repo=base_repo, revision=commit, seed=data_seed if data_seed is not None else "unknown"))
     stats = {}
     if (a.data / "data-stats.json").exists():
         stats = json.loads((a.data / "data-stats.json").read_text())
     manifest = {
-        "base": str(a.base),
+        "base": base_repo,
         "base_revision": revision,
         "family": m.c.family,
-        "data": str(a.data),
+        "data": a.data.resolve().name,
         "data_stats": {k: stats.get(k) for k in ("seed", "grades", "per_grade", "train_examples", "val_examples")},
         "examples": {"train": len(train), "val": len(val), "mean_tokens": round(mean_len, 1)},
         "hyper": {k: getattr(a, k) for k in ("epochs", "batch", "accum", "lr", "warmup", "rank", "alpha", "dropout", "weight_decay", "max_len", "eval_every", "patience", "seed")},
@@ -307,8 +311,12 @@ def main():
         "minutes": {"load": round(t_load / 60, 2), "train": round(train_min, 2), "total": round((time.time() - t_start) / 60, 2)},
         "samples": samples,
     }
+    # the published manifest names the base repo and data folder only; the run dir also keeps the
+    # local paths in manifest.private.json (never published)
     for d in (a.run_dir, a.out):
         (d / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    private = {**manifest, "base": str(a.base), "data": str(a.data)}
+    (a.run_dir / "manifest.private.json").write_text(json.dumps(private, indent=2))
     print(f"wrote {a.out}", flush=True)
 
 

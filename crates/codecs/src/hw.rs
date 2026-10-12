@@ -38,6 +38,37 @@ pub fn set_hw_backend(name: &'static str) {
     *BACKEND.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(name);
 }
 
+static HEVC_422_PROBE: std::sync::Mutex<Option<fn() -> Option<bool>>> = std::sync::Mutex::new(None);
+static HEVC_422_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Record how to tell whether HEVC Main 4:2:2 10 decodes in hardware (`filmcraft_platform::register`;
+/// fork 6.1b: VA-API on a display with that profile). The probe must not block: `None` while the
+/// answer is still being worked out.
+pub fn set_hevc_422_probe(probe: fn() -> Option<bool>) {
+    *HEVC_422_PROBE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(probe);
+}
+
+/// A 4:2:2 stream failed in the hardware decoder this session (it went on in software).
+pub fn note_hevc_422_failure() {
+    HEVC_422_FAILED.store(true, Ordering::Relaxed);
+}
+
+/// Whether a 4:2:2 stream failed in hardware this session ([`note_hevc_422_failure`]).
+pub fn hevc_422_failed() -> bool {
+    HEVC_422_FAILED.load(Ordering::Relaxed)
+}
+
+/// Whether HEVC Main 4:2:2 10 clips decode in hardware (non-blocking): `Some(false)` when hardware
+/// decoding is off, no probe is registered or a 4:2:2 stream failed in hardware this session;
+/// otherwise the registered probe's answer, `None` while it is not known yet.
+pub fn hevc_422_in_hardware() -> Option<bool> {
+    if !hardware_decoding() || hevc_422_failed() {
+        return Some(false);
+    }
+    let probe = *HEVC_422_PROBE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    probe.map_or(Some(false), |f| f())
+}
+
 /// The registered hardware decoder backend, if any ([`set_hw_backend`]).
 pub fn hw_backend() -> Option<&'static str> {
     *BACKEND.lock().unwrap_or_else(std::sync::PoisonError::into_inner)

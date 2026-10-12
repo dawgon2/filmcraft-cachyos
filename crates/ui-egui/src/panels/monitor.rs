@@ -161,6 +161,17 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
     } else {
         (None, video_area)
     };
+    // Split screen (Color page): several clips side by side instead of the one picture; while
+    // playing, the normal picture plays
+    let split = if which == Which::Program && show_picture && !compare && !multicam && !app.playback.playing {
+        crate::panels::color_clips::split_tiles(app)
+    } else {
+        (Vec::new(), None)
+    };
+    if !split.0.is_empty() {
+        crate::panels::color_clips::split_screen(app, ui, video_area, &split.0, split.1);
+    }
+    let show_picture = show_picture && split.0.is_empty();
     // ---- picture, at its display aspect (non-square pixels are stretched on screen)
     let ppp = ctx.pixels_per_point();
     let display_w = (frame_size.0 as f64 * monitor_view::pixel_aspect(app, which)) as f32;
@@ -196,7 +207,18 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
         // faster than real time, playback shows the frames of a skimming grid
         let frame = if playing { app.frames.playback_frame(target, rate.frame_at(time), app.playback.speed) } else { rate.frame_at(time) };
         let draft = crate::frames::draft_playback(playing, scale, app.session.prefs.playback.draft_decode);
-        let key = FrameKey { target, frame, size: size_key, revision: rev, draft };
+        // Temporal noise reduction (fork 6.7): only the paused Program frame, never while
+        // playing or scrubbing (a pointer held down: the playhead or a value being dragged)
+        let temporal = which == Which::Program
+            && matches!(target, Target::Sequence(_) | Target::SequencePlan(_))
+            && crate::frames::temporal_frame(playing, ctx.input(|i| i.pointer.any_down()), {
+                let seq = match target {
+                    Target::Sequence(s) | Target::SequencePlan(s) => s,
+                    _ => filmcraft_project::ItemId(u64::MAX),
+                };
+                filmcraft_render::grade::temporal_at(&app.session.project, seq, rate.tick_of(frame))
+            });
+        let key = FrameKey { target, frame, size: size_key, revision: rev, draft, temporal };
         let project = app.session.project.clone();
         if playing {
             let preroll = which == Which::Program && app.playback.preroll.is_some();
@@ -206,7 +228,14 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
                 app.playback.preroll_ready = app.frames.preroll_ready(key, app.playback.speed, rate.frame_at(duration) - 1);
             }
         } else {
-            app.frames.request(key, rate.tick_of(frame), scale, &project, 0);
+            if temporal {
+                // the frame without temporal NR first (fast, the frame on screen): shown until the
+                // temporal one, asked for right after it, is ready
+                app.frames.request(FrameKey { temporal: false, ..key }, rate.tick_of(frame), scale, &project, 0);
+                app.frames.request(key, rate.tick_of(frame), scale, &project, 1);
+            } else {
+                app.frames.request(key, rate.tick_of(frame), scale, &project, 0);
+            }
         }
         let asked = asked_before(app, prefix, key, playing);
         let tex_name = if channel { format!("monitor-{prefix}-{display:?}") } else { format!("monitor-{prefix}") };
@@ -215,6 +244,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
                 .frames
                 .get_plan(&key)
                 .map(|p| (key, p))
+                // (this frame without temporal NR before any earlier frame)
+                .or_else(|| plain_key(key).and_then(|k| app.frames.get_plan(&k).map(|p| (k, p))))
                 .or_else(|| app.frames.nearest_plan(key, 6))
                 .or_else(|| asked.iter().find_map(|k| app.frames.get_plan(k).map(|p| (*k, p))));
             match found {
@@ -249,7 +280,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
         if let Some(ra) = ref_area {
             // the reference frame (CPU path)
             let rf = rate.frame_at(Tick(mv.compare_ref.unwrap_or(time.0)));
-            let rkey = FrameKey { target: cpu_target, frame: rf, size: size_key, revision: rev, draft: false };
+            let rkey = FrameKey { target: cpu_target, frame: rf, size: size_key, revision: rev, draft: false, temporal: false };
             app.frames.request(rkey, rate.tick_of(rf), scale, &project, 1);
             let rpic = fit(ra, display_w, frame_size.1 as f32);
             ui.painter().rect_filled(rpic, 0.0, t.monitor_bg);
@@ -476,6 +507,11 @@ fn asked_before(app: &mut FilmcraftApp, prefix: &str, key: FrameKey, playing: bo
     before
 }
 
+/// The same frame without temporal noise reduction, for a temporal key (fork 6.7).
+fn plain_key(key: FrameKey) -> Option<FrameKey> {
+    key.temporal.then_some(FrameKey { temporal: false, ..key })
+}
+
 /// A monitor texture from the CPU frame path: the exact frame, else the nearest cached one before
 /// it, else the newest ready one of `asked` (see [`asked_before`]), with the display mode's
 /// channel mapping. Returns the texture and the frame it shows.
@@ -491,6 +527,8 @@ fn cpu_texture(
         .frames
         .get(&key)
         .map(|img| (key, img))
+        // (this frame without temporal NR before any earlier frame)
+        .or_else(|| plain_key(key).and_then(|k| app.frames.get(&k).map(|img| (k, img))))
         .or_else(|| (1..=6).map(|d| FrameKey { frame: key.frame.saturating_sub(d), ..key }).find_map(|k| app.frames.get(&k).map(|img| (k, img))))
         .or_else(|| asked.iter().find_map(|k| app.frames.get(k).map(|img| (*k, img))));
     match found {
@@ -577,7 +615,7 @@ fn eyedropper(app: &mut FilmcraftApp, ui: &mut egui::Ui, resp: &egui::Response, 
         let frame = rate.frame_at(time);
         // a revision of its own, so this render never replaces what the monitor caches
         let revision = app.session.revision ^ 0x5eed_d70b_0000_0000 ^ armed.clip.rotate_left(17) ^ armed.effect as u64;
-        let key = FrameKey { target, frame, size: (EYEDROPPER_SCALE * 1000.0) as u32, revision, draft: false };
+        let key = FrameKey { target, frame, size: (EYEDROPPER_SCALE * 1000.0) as u32, revision, draft: false, temporal: false };
         ctx.data_mut(|d| d.insert_temp(pending_id, EyedropperPick { uv, key, time: rate.tick_of(frame), project: std::sync::Arc::new(project) }));
     }
     let Some(pick) = ctx.data(|d| d.get_temp::<EyedropperPick>(pending_id)) else { return };

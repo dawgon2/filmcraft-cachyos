@@ -99,6 +99,7 @@ fn canonical(grade: &Grade) -> Vec<u8> {
         let encoded: Vec<(&'static str, Vec<u8>)> = NODE_PARAMS.iter().filter_map(|p| canon_param(n, p).map(|e| (p.key, e))).collect();
         let present = |k: &str| encoded.iter().any(|(key, _)| *key == k);
         let nr_on = present("nr.luma") || present("nr.chroma");
+        let tnr_on = present("tnr.luma") || present("tnr.chroma");
         let lut_on = !n.lut.is_empty() && lut_mix_on(n);
         let mut nc = Canon::default();
         let mut any = false;
@@ -110,6 +111,7 @@ fn canonical(grade: &Grade) -> Vec<u8> {
         for (key, e) in &encoded {
             let live = match *key {
                 "nr.size" => nr_on,
+                "tnr.frames" | "tnr.motion" => tnr_on,
                 "lut.mix" => lut_on,
                 k => controlling_key(k).is_none_or(present),
             };

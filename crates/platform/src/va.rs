@@ -34,6 +34,19 @@ fn lib() -> Result<&'static sys::Va, String> {
 }
 
 /// libva's description of a status code.
+/// libva's error messages for displays opened here: to the log (debug: a node without a working
+/// driver is expected while searching for the 4:2:2 display), never to stderr.
+unsafe extern "C" fn on_va_error(_user: *mut std::ffi::c_void, message: *const std::ffi::c_char) {
+    let _ = std::panic::catch_unwind(|| {
+        if message.is_null() {
+            return;
+        }
+        // SAFETY: libva passes a NUL-terminated message that is valid for the duration of the call.
+        let text = unsafe { CStr::from_ptr(message) }.to_string_lossy();
+        log::debug!("libva: {}", text.trim_end());
+    });
+}
+
 fn status_text(l: &sys::Va, st: sys::VAStatus) -> String {
     // SAFETY: vaErrorStr takes any status value and returns a pointer to a static string (or null).
     let p = unsafe { l.vaErrorStr(st) };
@@ -48,6 +61,9 @@ fn check(l: &sys::Va, st: sys::VAStatus, what: &str) -> Result<(), String> {
     if st == 0 { Ok(()) } else { Err(format!("{what}: {}", status_text(l, st))) }
 }
 
+/// The HEVC Main 4:2:2 10 display ([`Display::for_hevc_422`]), searched once.
+static HEVC_422: OnceLock<Result<Arc<Display>, String>> = OnceLock::new();
+
 /// An initialised VA display on a DRM render node.
 pub struct Display {
     lib: &'static sys::Va,
@@ -59,9 +75,10 @@ pub struct Display {
     profiles: Vec<(sys::VAProfile, Vec<sys::VAEntrypoint>)>,
 }
 
-// SAFETY: a VADisplay may be used from any thread: libva and Mesa's VA frontend serialise access to
-// a display internally (per-display mutex). FilmCraft never shares a context between threads
-// without its own lock.
+// SAFETY: a VADisplay may be used from any thread: libva serialises calls per display, and both
+// drivers FilmCraft uses do too: Mesa's VA frontend (radeonsi, AMD) holds a per-display mutex and
+// Intel's iHD media driver a per-display context mutex around every entry point (the 4:2:2
+// display, fork 6.1b). FilmCraft never shares a context between threads without its own lock.
 unsafe impl Send for Display {}
 // SAFETY: as for `Send`; `&Display` only issues thread-safe libva calls.
 unsafe impl Sync for Display {}
@@ -118,12 +135,72 @@ impl Display {
         }
     }
 
+    /// The display that decodes HEVC Main 4:2:2 10 (fork Phase 6.1b):
+    /// `FILMCRAFT_VAAPI_422_DEVICE` when set, else [`Display::get`] when its driver has the
+    /// profile, else the first render node whose driver advertises `VAProfileHEVCMain422_10`
+    /// with the VLD entry point (on this machine Intel's media engine: AMD's VCN has no 4:2:2
+    /// decoding). Chosen once; an error says why no node qualifies.
+    pub fn for_hevc_422() -> Result<Arc<Display>, String> {
+        HEVC_422
+            .get_or_init(|| {
+                let (profile, vld) = (sys::VAProfile_VAProfileHEVCMain422_10, sys::VAEntrypoint_VAEntrypointVLD);
+                let lib = lib()?;
+                if let Some(node) = std::env::var("FILMCRAFT_VAAPI_422_DEVICE").ok().filter(|v| !v.is_empty()) {
+                    let d = Display::open(lib, &node).map_err(|e| format!("{node}: {e}"))?;
+                    if !d.supports(profile, vld) {
+                        return Err(format!("{node} ({}) has no HEVC Main 4:2:2 10 decoder", d.vendor));
+                    }
+                    log::info!("VA-API HEVC 4:2:2: {} on {}", d.vendor, d.node);
+                    return Ok(Arc::new(d));
+                }
+                let mut why = Vec::new();
+                if let Ok(d) = Display::get() {
+                    if d.supports(profile, vld) {
+                        log::info!("VA-API HEVC 4:2:2: {} on {}", d.vendor, d.node);
+                        return Ok(d);
+                    }
+                    why.push(format!("{}: no HEVC Main 4:2:2 10 decoder", d.node));
+                }
+                let skip = Display::get().ok().map(|d| d.node.clone());
+                for node in crate::ffmpeg::render_nodes() {
+                    if skip.as_deref() == Some(node.as_str()) {
+                        continue;
+                    }
+                    match Display::open(lib, &node) {
+                        Ok(d) if d.supports(profile, vld) => {
+                            log::info!("VA-API HEVC 4:2:2: {} on {}", d.vendor, d.node);
+                            return Ok(Arc::new(d));
+                        }
+                        Ok(d) => why.push(format!("{node}: no HEVC Main 4:2:2 10 decoder ({})", d.vendor)),
+                        Err(e) => why.push(format!("{node}: {e}")),
+                    }
+                }
+                Err(if why.is_empty() { "no DRM render node".to_string() } else { why.join("; ") })
+            })
+            .clone()
+    }
+
+    /// Whether [`Display::for_hevc_422`] found a display, without waiting: `None` until its
+    /// search (vaInitialize on each render node) has finished.
+    pub fn hevc_422_ready() -> Option<bool> {
+        HEVC_422.get().map(Result::is_ok)
+    }
+
     fn open(lib: &'static sys::Va, node: &str) -> Result<Display, String> {
         let file = std::fs::OpenOptions::new().read(true).write(true).open(node).map_err(|e| e.to_string())?;
         // SAFETY: the fd is a valid open DRM node, kept open by `file` for the display's lifetime.
         let dpy = unsafe { lib.vaGetDisplayDRM(file.as_raw_fd()) };
         if dpy.is_null() {
             return Err("vaGetDisplayDRM failed".into());
+        }
+        // libva prints driver-loading failures ("iHD_drv_video.so init failed" while probing a node
+        // for the 4:2:2 display) to stderr unless callbacks are set: route errors to the log and
+        // turn info messages off, as upstream's `vaapi::va` does (CLI stderr stays clean).
+        // SAFETY: `dpy` is a display from vaGetDisplayDRM; a null info callback turns libva's info
+        // messages off, and `on_va_error` matches `VAMessageCallback` and never unwinds.
+        unsafe {
+            lib.vaSetInfoCallback(dpy, None, std::ptr::null_mut());
+            lib.vaSetErrorCallback(dpy, Some(on_va_error), std::ptr::null_mut());
         }
         let (mut major, mut minor) = (0, 0);
         // SAFETY: `dpy` is a fresh display; the out-pointers are valid locals.
@@ -276,6 +353,9 @@ param_buffer! {
     sys::VAPictureParameterBufferHEVC => sys::VABufferType_VAPictureParameterBufferType,
     sys::VAIQMatrixBufferHEVC => sys::VABufferType_VAIQMatrixBufferType,
     sys::VASliceParameterBufferHEVC => sys::VABufferType_VASliceParameterBufferType,
+    // range-extension profiles (Main 4:2:2 10): base + rext (+ scc) in one buffer (fork 6.1b)
+    sys::VAPictureParameterBufferHEVCExtension => sys::VABufferType_VAPictureParameterBufferType,
+    sys::VASliceParameterBufferHEVCExtension => sys::VABufferType_VASliceParameterBufferType,
     sys::VAEncPackedHeaderParameterBuffer => sys::VABufferType_VAEncPackedHeaderParameterBufferType,
     MiscRateControl => sys::VABufferType_VAEncMiscParameterBufferType,
     MiscHrd => sys::VABufferType_VAEncMiscParameterBufferType,
@@ -392,6 +472,60 @@ impl Context {
         let r = d.check(unsafe { d.lib.vaRenderPicture(d.dpy, self.id, ids.as_mut_ptr(), n) }, "vaRenderPicture");
         // SAFETY: ends the picture begun above (also after a render error, so the context stays usable).
         let e = d.check(unsafe { d.lib.vaEndPicture(d.dpy, self.id) }, "vaEndPicture");
+        r.and(e)
+    }
+
+    /// Copy the rectangle `region` (x, y, w, h) of `src` to the top-left corner of `target` with
+    /// the video processor (this context must be of a `VAEntrypointVideoProc` config): both
+    /// surfaces of this display and of one format, no scaling, no colour conversion (the same
+    /// colour standard on both sides). Fork 6.1b: a decoded (tiled) 4:2:2 picture into a linear
+    /// surface another GPU can read. Not waited for: sync `target` before reading it.
+    pub fn process_copy(&self, src: &Surface, region: (u32, u32, u32, u32), target: &Surface) -> Result<(), String> {
+        let d = &self.display;
+        if !Arc::ptr_eq(&src.pool.display, d) || !Arc::ptr_eq(&target.pool.display, d) {
+            return Err("a surface of another display".into());
+        }
+        if src.pool.fourcc != target.pool.fourcc {
+            return Err(format!("copying fourcc {:#x} into {:#x}", src.pool.fourcc, target.pool.fourcc));
+        }
+        let (x, y, w, h) = region;
+        let (tw, th) = target.pool.size;
+        if !rect_fits(region, src.pool.size) || w > tw || h > th {
+            return Err(format!("a {w}x{h} copy at ({x}, {y}) from {:?} into {tw}x{th}", src.pool.size));
+        }
+        let small = |v: u32| i16::try_from(v).map_err(|_| format!("{v} does not fit a VA rectangle"));
+        let size = |v: u32| u16::try_from(v).map_err(|_| format!("{v} does not fit a VA rectangle"));
+        let from = sys::VARectangle { x: small(x)?, y: small(y)?, width: size(w)?, height: size(h)? };
+        let to = sys::VARectangle { x: 0, y: 0, width: size(w)?, height: size(h)? };
+        let bt709 = sys::_VAProcColorStandardType_VAProcColorStandardBT709;
+        let pp = sys::VAProcPipelineParameterBuffer {
+            surface: src.id,
+            surface_region: &from,
+            output_region: &to,
+            surface_color_standard: bt709,
+            output_color_standard: bt709,
+            filter_flags: sys::VA_FILTER_SCALING_FAST,
+            ..Default::default()
+        };
+        // SAFETY: `pp` is a live VAProcPipelineParameterBuffer that libva copies; its region
+        // pointers (`from`, `to`) stay valid on this stack frame until vaEndPicture below, the
+        // last call that may read them; every other pointer field is null with a zero count.
+        let buffer = unsafe {
+            self.create_buffer(
+                sys::VABufferType_VAProcPipelineParameterBufferType,
+                (&pp as *const sys::VAProcPipelineParameterBuffer).cast(),
+                std::mem::size_of::<sys::VAProcPipelineParameterBuffer>(),
+            )
+        }?;
+        // SAFETY: a valid context and target surface of this display.
+        d.check(unsafe { d.lib.vaBeginPicture(d.dpy, self.id, target.id) }, "vaBeginPicture (video processing)")?;
+        let mut ids = [buffer.id];
+        // SAFETY: one buffer created on this context; libva reads it (and the regions it points
+        // to, alive here) during the call.
+        let r = d.check(unsafe { d.lib.vaRenderPicture(d.dpy, self.id, ids.as_mut_ptr(), 1) }, "vaRenderPicture (video processing)");
+        // SAFETY: ends the picture begun above (also after a render error).
+        let e = d.check(unsafe { d.lib.vaEndPicture(d.dpy, self.id) }, "vaEndPicture (video processing)");
+        drop(buffer);
         r.and(e)
     }
 
@@ -566,6 +700,227 @@ impl CodedBuffer {
     }
 }
 
+/// Allocates linear DMA-BUF memory of at least the given number of bytes (another device's, for
+/// [`LinearAlloc::Imported`]); the caller owns the descriptor.
+pub type DmaBufAlloc = Arc<dyn Fn(u64) -> Result<std::os::fd::OwnedFd, String> + Send + Sync>;
+
+/// Ways of getting untiled VA surfaces, tried in this order until the export says LINEAR
+/// ([`LinearCopy::new`]).
+#[derive(Clone)]
+pub enum LinearAlloc {
+    /// Asked of the driver: `VASurfaceAttribDRMFormatModifiers` [LINEAR] with the VPP-write +
+    /// export usage hint (iHD 26.3 ignores it and Y-tiles Y210 surfaces whatever is asked).
+    Modifier,
+    /// Memory from another allocator (the compositing GPU's), imported as a DRM PRIME 2 surface
+    /// with the LINEAR modifier and 256-byte-aligned rows.
+    Imported(DmaBufAlloc),
+}
+
+impl std::fmt::Debug for LinearAlloc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            LinearAlloc::Modifier => "Modifier",
+            LinearAlloc::Imported(_) => "Imported",
+        })
+    }
+}
+
+impl LinearAlloc {
+    fn is_imported(&self) -> bool {
+        matches!(self, LinearAlloc::Imported(_))
+    }
+}
+
+/// A DMA-BUF mapped for CPU reads: `DMA_BUF_IOCTL_SYNC` (start, read) on creation, (end, read)
+/// and unmap on drop.
+struct Mapping<'a> {
+    fd: &'a std::os::fd::OwnedFd,
+    ptr: *mut std::ffi::c_void,
+    len: usize,
+}
+
+/// `struct dma_buf_sync` and its ioctl (`linux/dma-buf.h`: `_IOW('b', 0, struct dma_buf_sync)`).
+#[repr(C)]
+struct DmaBufSync {
+    flags: u64,
+}
+const DMA_BUF_IOCTL_SYNC: libc::c_ulong = 0x4008_6200;
+const DMA_BUF_SYNC_READ: u64 = 1;
+const DMA_BUF_SYNC_END: u64 = 4;
+
+/// Largest DMA-BUF mapped (a 16K 4:2:2 16-bit picture is 1 GiB).
+const MAX_MAPPING: u64 = 1 << 30;
+
+impl<'a> Mapping<'a> {
+    fn new(fd: &'a std::os::fd::OwnedFd) -> Result<Mapping<'a>, String> {
+        let raw = fd.as_raw_fd();
+        // SAFETY: seeking a valid open descriptor (DMA-BUFs report their size at the end).
+        let end = unsafe { libc::lseek(raw, 0, libc::SEEK_END) };
+        let size = u64::try_from(end).map_err(|_| format!("the DMA-BUF's size is unknown ({})", std::io::Error::last_os_error()))?;
+        if size == 0 || size > MAX_MAPPING {
+            return Err(format!("a DMA-BUF of {size} bytes"));
+        }
+        let len = usize::try_from(size).map_err(|_| "DMA-BUF size")?;
+        // SAFETY: a new read-only shared mapping of `len` bytes of a valid descriptor at offset 0;
+        // the kernel chooses the address. Checked for MAP_FAILED below.
+        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_SHARED, raw, 0) };
+        if ptr == libc::MAP_FAILED || ptr.is_null() {
+            return Err(format!("mmap of the DMA-BUF: {}", std::io::Error::last_os_error()));
+        }
+        let m = Mapping { fd, ptr, len };
+        m.sync(DMA_BUF_SYNC_READ)?;
+        Ok(m)
+    }
+
+    fn sync(&self, flags: u64) -> Result<(), String> {
+        let mut s = DmaBufSync { flags };
+        // SAFETY: DMA_BUF_IOCTL_SYNC on a valid DMA-BUF descriptor with a valid `dma_buf_sync`.
+        let r = unsafe { libc::ioctl(self.fd.as_raw_fd(), DMA_BUF_IOCTL_SYNC, &mut s as *mut DmaBufSync) };
+        if r != 0 { Err(format!("DMA_BUF_IOCTL_SYNC: {}", std::io::Error::last_os_error())) } else { Ok(()) }
+    }
+
+    /// Copy `out.len()` bytes at byte `start` of the mapping into `out`.
+    fn copy_out(&self, start: u64, out: &mut [u8]) -> Result<(), String> {
+        let start = usize::try_from(start).map_err(|_| "offset")?;
+        if start.checked_add(out.len()).is_none_or(|e| e > self.len) {
+            return Err(format!("{} bytes at {start} outside the {}-byte DMA-BUF", out.len(), self.len));
+        }
+        // SAFETY: `start..start + out.len()` lies in the mapping (checked above), which stays mapped
+        // while `self` lives; the bytes are copied (no reference into memory another device could
+        // write is formed) into `out`, which does not overlap the mapping.
+        unsafe { std::ptr::copy_nonoverlapping((self.ptr as *const u8).add(start), out.as_mut_ptr(), out.len()) };
+        Ok(())
+    }
+}
+
+impl Drop for Mapping<'_> {
+    fn drop(&mut self) {
+        let _ = self.sync(DMA_BUF_SYNC_READ | DMA_BUF_SYNC_END);
+        // SAFETY: unmaps the mapping made in `new`, once; no copy of the pointer outlives `self`.
+        unsafe { libc::munmap(self.ptr, self.len) };
+    }
+}
+
+/// Bytes per pixel of a packed fourcc linear surfaces can be imported in (Y210: 16-bit Y Cb Y Cr
+/// per two pixels).
+fn packed_bytes_per_pixel(fourcc: u32) -> Option<u32> {
+    (fourcc == sys::VA_FOURCC_Y210).then_some(4)
+}
+
+/// Linear surfaces are this many pixels wide (a multiple): with 16-bit 4:2:2 (4 bytes per pixel)
+/// their rows are then a multiple of 256 bytes, the row alignment AMD's GPUs require of linear
+/// images they import.
+const LINEAR_WIDTH_ALIGN: u32 = 64;
+
+/// The video-processing context of `display`, made once and kept for the process: iHD keeps a
+/// pointer to the last context that rendered into a surface, and syncing a pooled surface after
+/// the video-processing context that wrote it was destroyed crashed inside vaSyncSurface (6.1b
+/// hand-off, iHD 26.3), so these contexts are never destroyed. One copy at a time per display.
+fn vpp_context(display: &Arc<Display>) -> Result<&'static Mutex<Context>, String> {
+    static CONTEXTS: Mutex<Vec<(usize, &'static Mutex<Context>)>> = Mutex::new(Vec::new());
+    let key = Arc::as_ptr(display) as usize;
+    let mut g = CONTEXTS.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, c)) = g.iter().find(|(k, _)| *k == key) {
+        return Ok(c);
+    }
+    if g.len() >= 8 {
+        return Err("too many displays with video processing".into());
+    }
+    // no render-target format attribute: iHD's video processor refuses YUV422_10 there, and the
+    // surfaces carry their formats; the context holds its config and display (kept alive with it)
+    let config = Arc::new(Config::with_attribs(display, sys::VAProfile_VAProfileNone, sys::VAEntrypoint_VAEntrypointVideoProc, &[])?);
+    let context: &'static Mutex<Context> = Box::leak(Box::new(Mutex::new(Context::new(&config, 0, 0)?)));
+    g.push((key, context));
+    Ok(context)
+}
+
+/// Copies decoded pictures into linear (untiled), exportable surfaces with the video processor of
+/// their display (fork 6.1b, owner §1a.30): Intel's media engine decodes 4:2:2 into tiled
+/// memory AMD's GPU cannot read, so each picture is copied once on Intel's side, synced and handed
+/// over as a DMA-BUF instead of being read back to memory.
+pub struct LinearCopy {
+    context: &'static Mutex<Context>,
+    pool: Arc<SurfacePool>,
+    /// The visible size copied (the surfaces may be wider, [`LINEAR_WIDTH_ALIGN`]).
+    pub size: (u32, u32),
+}
+
+impl LinearCopy {
+    /// A copier for `width`×`height` pictures of `fourcc` (render-target format `rt_format`) on
+    /// `display`, or why it cannot be made (no video processor, surfaces refused).
+    /// `import`: where linear memory comes from when the driver does not make linear surfaces
+    /// itself ([`LinearAlloc::Imported`]).
+    pub fn new(display: &Arc<Display>, rt_format: u32, fourcc: u32, width: u32, height: u32, import: Option<DmaBufAlloc>) -> Result<LinearCopy, String> {
+        if !display.supports(sys::VAProfile_VAProfileNone, sys::VAEntrypoint_VAEntrypointVideoProc) {
+            return Err(format!("the VA-API driver on {} has no video processor", display.node));
+        }
+        if width == 0 || height == 0 || width > 16384 || height > 16384 {
+            return Err(format!("picture size {width}x{height}"));
+        }
+        let context = vpp_context(display)?;
+        let padded = width.div_ceil(LINEAR_WIDTH_ALIGN).saturating_mul(LINEAR_WIDTH_ALIGN);
+        // the first way of asking that gives an exportable linear surface (probed on a surface of
+        // a private pool, freed after; remembered per display, format and size)
+        static FOUND: Mutex<Vec<(String, u32, (u32, u32), bool)>> = Mutex::new(Vec::new());
+        let key = (display.node.clone(), fourcc, (padded, height));
+        let ways: Vec<LinearAlloc> = std::iter::once(LinearAlloc::Modifier).chain(import.map(LinearAlloc::Imported)).collect();
+        let known = FOUND.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|f| (&f.0, f.1, f.2) == (&key.0, key.1, key.2)).map(|f| f.3);
+        if let Some(imported) = known
+            && let Some(how) = ways.iter().find(|w| w.is_imported() == imported)
+        {
+            let pool = SurfacePool::shared_linear(display, rt_format, fourcc, padded, height, how.clone());
+            return Ok(LinearCopy { context, pool, size: (width, height) });
+        }
+        let mut tried = Vec::new();
+        for how in ways {
+            let probe = Arc::new(SurfacePool {
+                display: display.clone(),
+                rt_format,
+                fourcc,
+                size: (padded, height),
+                linear: Some(how.clone()),
+                free: Mutex::new(Vec::new()),
+                count: Default::default(),
+            });
+            match probe.get().and_then(|s| s.export().map(|e| e.dmabuf.modifier)) {
+                Ok(0) => {
+                    log::info!("VA-API: linear {padded}x{height} surfaces of fourcc {fourcc:#x} on {} ({how:?})", display.node);
+                    let mut found = FOUND.lock().unwrap_or_else(PoisonError::into_inner);
+                    if found.len() < 16 {
+                        found.push((key.0, key.1, key.2, how.is_imported()));
+                    }
+                    let pool = SurfacePool::shared_linear(display, rt_format, fourcc, padded, height, how);
+                    return Ok(LinearCopy { context, pool, size: (width, height) });
+                }
+                Ok(m) => tried.push(format!("{how:?}: modifier {m:#x}")),
+                Err(e) => tried.push(format!("{how:?}: {e}")),
+            }
+        }
+        Err(format!("no linear surfaces on {} ({})", display.node, tried.join("; ")))
+    }
+
+    /// The rectangle `region` (x, y, w, h; at most [`LinearCopy::size`]) of `src` copied to the
+    /// top-left of a linear surface, finished (synced) and exported: the result is ready for
+    /// another device to read. An error leaves nothing pending (the surface goes back synced).
+    pub fn copy(&self, src: &Surface, region: (u32, u32, u32, u32)) -> Result<Surface, String> {
+        if region.2 > self.size.0 || region.3 > self.size.1 {
+            return Err(format!("a {}x{} region for a {}x{} copier", region.2, region.3, self.size.0, self.size.1));
+        }
+        let target = self.pool.get()?;
+        let done = self.context.lock().unwrap_or_else(PoisonError::into_inner).process_copy(src, region, &target);
+        // whatever happened, nothing may still write into the surface once it is handed out or
+        // returns to the pool
+        let synced = target.sync();
+        done?;
+        synced?;
+        let e = target.export()?;
+        if e.dmabuf.modifier != 0 {
+            return Err(format!("the driver made a tiled surface (modifier {:#x}) where a linear one was asked for", e.dmabuf.modifier));
+        }
+        Ok(target)
+    }
+}
+
 /// A libva buffer of a context, destroyed on drop (before the context: it borrows it, so a
 /// destroyed buffer id can never hit a later buffer that reused it).
 pub struct Buffer<'a> {
@@ -594,6 +949,10 @@ pub struct SurfacePool {
     pub rt_format: u32,
     pub fourcc: u32,
     pub size: (u32, u32),
+    /// Surfaces are asked for untiled (`DRM_FORMAT_MOD_LINEAR`) this way, for export to another
+    /// GPU, which cannot read the driver's tiling (fork 6.1b: Intel → AMD hand-off of 4:2:2
+    /// pictures). Whether the driver honoured it shows in the export's modifier.
+    pub linear: Option<LinearAlloc>,
     free: Mutex<Vec<(sys::VASurfaceID, Arc<SurfaceMem>)>>,
     count: std::sync::atomic::AtomicUsize,
 }
@@ -627,9 +986,30 @@ fn cap(n: i32, max: usize, what: &str) -> Result<usize, String> {
     usize::try_from(n.max(0)).ok().filter(|&n| n <= max).ok_or_else(|| format!("the driver reports {n} {what} (at most {max} handled)"))
 }
 
+/// (rows, bytes per row) of each plane of a `w`×`h` image of `fourcc`: NV12 / P010 (luma, then
+/// interleaved chroma at half height), Y210 (one packed plane: Y0 Cb Y1 Cr, 16 bits each, per
+/// two pixels).
+fn plane_rows(fourcc: u32, w: u32, h: u32) -> Result<Vec<(usize, usize)>, String> {
+    let (w, h) = (w as usize, h as usize);
+    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    Ok(match fourcc {
+        sys::VA_FOURCC_NV12 => vec![(h, w), (ch, cw * 2)],
+        sys::VA_FOURCC_P010 => vec![(h, w * 2), (ch, cw * 4)],
+        sys::VA_FOURCC_Y210 => vec![(h, cw * 8)],
+        _ => return Err(format!("reading surfaces of fourcc {fourcc:#x}")),
+    })
+}
+
 /// Whether the rectangle (x, y, w, h) is non-empty and lies inside a surface of `size`.
 fn rect_fits((x, y, w, h): (u32, u32, u32, u32), size: (u32, u32)) -> bool {
     w > 0 && h > 0 && x.checked_add(w).is_some_and(|r| r <= size.0) && y.checked_add(h).is_some_and(|b| b <= size.1)
+}
+
+impl SurfacePool {
+    /// The display the surfaces belong to.
+    pub fn display(&self) -> &Arc<Display> {
+        &self.display
+    }
 }
 
 impl Drop for SurfacePool {
@@ -656,12 +1036,26 @@ impl SurfacePool {
     /// The process's pool for this format and size on `display` (made on first use; the
     /// [`SHARED_POOLS`] most recently used ones are kept alive with their spare surfaces).
     pub fn shared(display: &Arc<Display>, rt_format: u32, fourcc: u32, width: u32, height: u32) -> Arc<SurfacePool> {
+        SurfacePool::shared_with(display, rt_format, fourcc, (width, height), None)
+    }
+
+    /// [`SurfacePool::shared`] for untiled surfaces, asked for as `how` ([`SurfacePool::linear`]).
+    pub fn shared_linear(display: &Arc<Display>, rt_format: u32, fourcc: u32, width: u32, height: u32, how: LinearAlloc) -> Arc<SurfacePool> {
+        SurfacePool::shared_with(display, rt_format, fourcc, (width, height), Some(how))
+    }
+
+    fn shared_with(display: &Arc<Display>, rt_format: u32, fourcc: u32, size: (u32, u32), linear: Option<LinearAlloc>) -> Arc<SurfacePool> {
         static POOLS: Mutex<Vec<Arc<SurfacePool>>> = Mutex::new(Vec::new());
         let mut g = POOLS.lock().unwrap_or_else(PoisonError::into_inner);
-        let found = g.iter().position(|p| Arc::ptr_eq(&p.display, display) && p.rt_format == rt_format && p.fourcc == fourcc && p.size == (width, height));
+        let kind = |l: &Option<LinearAlloc>| l.as_ref().map(LinearAlloc::is_imported);
+        let found = g.iter().position(|p| {
+            Arc::ptr_eq(&p.display, display) && p.rt_format == rt_format && p.fourcc == fourcc && p.size == size && kind(&p.linear) == kind(&linear)
+        });
         let pool = match found {
             Some(i) => g.remove(i),
-            None => SurfacePool::new(display, rt_format, fourcc, width, height),
+            None => {
+                Arc::new(SurfacePool { display: display.clone(), rt_format, fourcc, size, linear, free: Mutex::new(Vec::new()), count: Default::default() })
+            }
         };
         g.push(pool.clone());
         if g.len() > SHARED_POOLS {
@@ -671,33 +1065,105 @@ impl SurfacePool {
     }
 
     pub fn new(display: &Arc<Display>, rt_format: u32, fourcc: u32, width: u32, height: u32) -> Arc<SurfacePool> {
-        Arc::new(SurfacePool { display: display.clone(), rt_format, fourcc, size: (width, height), free: Mutex::new(Vec::new()), count: Default::default() })
+        Arc::new(SurfacePool {
+            display: display.clone(),
+            rt_format,
+            fourcc,
+            size: (width, height),
+            linear: None,
+            free: Mutex::new(Vec::new()),
+            count: Default::default(),
+        })
     }
 
     /// The spare surface returned longest ago, or a new one. Oldest first: a surface's last frame
     /// may still be sampled by GPU work already submitted when it comes back, and the decoder
     /// overwrites it on reuse; the longer it rests, the more surely that work has finished.
     pub fn get(self: &Arc<Self>) -> Result<Surface, String> {
-        {
+        let spare = {
             let mut free = self.free.lock().unwrap_or_else(PoisonError::into_inner);
-            if !free.is_empty() {
-                let (id, mem) = free.remove(0);
+            if free.is_empty() { None } else { Some(free.remove(0)) }
+        };
+        if let Some((id, mem)) = spare {
+            // A spare can come back with work pending (a picture dropped after a failed decode, a
+            // DPB picture evicted before output): wait for it, so the next decode or write into
+            // it never races that work (Intel has two video engines, fork 6.1b). Usually a no-op.
+            let d = &self.display;
+            // SAFETY: a valid surface of this display, not in use by any `Surface`.
+            let st = unsafe { d.lib.vaSyncSurface(d.dpy, id) };
+            if st == 0 {
                 return Ok(Surface { id, mem, pool: self.clone() });
             }
+            log::warn!("VA-API: a spare surface did not sync ({}); replaced", status_text(d.lib, st));
+            self.destroy(id);
         }
         static MEMORY_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let d = &self.display;
         let mut id = sys::VA_INVALID_SURFACE;
-        let mut attr = sys::VASurfaceAttrib {
-            type_: sys::VASurfaceAttribType_VASurfaceAttribPixelFormat,
+        let int = |type_: sys::VASurfaceAttribType, i: i32| sys::VASurfaceAttrib {
+            type_,
             flags: sys::VA_SURFACE_ATTRIB_SETTABLE,
-            value: sys::VAGenericValue {
-                type_: sys::VAGenericValueType_VAGenericValueTypeInteger,
-                value: sys::_VAGenericValue__bindgen_ty_1 { i: self.fourcc as i32 },
-            },
+            value: sys::VAGenericValue { type_: sys::VAGenericValueType_VAGenericValueTypeInteger, value: sys::_VAGenericValue__bindgen_ty_1 { i } },
         };
-        // SAFETY: one surface into a valid out-pointer, one valid attribute.
-        d.check(unsafe { d.lib.vaCreateSurfaces(d.dpy, self.rt_format, self.size.0, self.size.1, &mut id, 1, &mut attr, 1) }, "vaCreateSurfaces")?;
+        // untiled: the one modifier allowed is LINEAR (0), for a surface written by the video
+        // processor and exported
+        let mut linear_modifier: u64 = 0;
+        let mut modifiers = sys::VADRMFormatModifierList { num_modifiers: 1, modifiers: &mut linear_modifier };
+        let mut attrs = vec![int(sys::VASurfaceAttribType_VASurfaceAttribPixelFormat, self.fourcc as i32)];
+        // imported linear memory: one object, one packed layer, rows of the (256-byte multiple)
+        // width; our descriptor is closed once the driver has imported it
+        let mut external = sys::VADRMPRIMESurfaceDescriptor::default();
+        let mut _memory: Option<std::os::fd::OwnedFd> = None;
+        if let Some(LinearAlloc::Imported(alloc)) = &self.linear {
+            let bpp = packed_bytes_per_pixel(self.fourcc).ok_or_else(|| format!("importing surfaces of fourcc {:#x}", self.fourcc))?;
+            let pitch = self.size.0.checked_mul(bpp).ok_or("pitch overflows")?;
+            let bytes = pitch.checked_mul(self.size.1).ok_or("surface size overflows")?;
+            let fd = alloc(u64::from(bytes))?;
+            let raw = std::os::fd::AsRawFd::as_raw_fd(&fd);
+            _memory = Some(fd);
+            external.fourcc = self.fourcc;
+            external.width = self.size.0;
+            external.height = self.size.1;
+            external.num_objects = 1;
+            external.objects[0] = sys::_VADRMPRIMESurfaceDescriptor__bindgen_ty_1 { fd: raw, size: bytes, drm_format_modifier: 0 };
+            external.num_layers = 1;
+            // the DRM fourcc of packed Y210 is the VA one ('Y210')
+            external.layers[0] = sys::_VADRMPRIMESurfaceDescriptor__bindgen_ty_2 {
+                drm_format: self.fourcc,
+                num_planes: 1,
+                object_index: [0; 4],
+                offset: [0; 4],
+                pitch: [pitch, 0, 0, 0],
+            };
+            attrs.push(int(sys::VASurfaceAttribType_VASurfaceAttribMemoryType, sys::VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2 as i32));
+            attrs.push(sys::VASurfaceAttrib {
+                type_: sys::VASurfaceAttribType_VASurfaceAttribExternalBufferDescriptor,
+                flags: sys::VA_SURFACE_ATTRIB_SETTABLE,
+                value: sys::VAGenericValue {
+                    type_: sys::VAGenericValueType_VAGenericValueTypePointer,
+                    value: sys::_VAGenericValue__bindgen_ty_1 { p: (&mut external as *mut sys::VADRMPRIMESurfaceDescriptor).cast() },
+                },
+            });
+        }
+        if let Some(LinearAlloc::Modifier) = &self.linear {
+            let hint = (sys::VA_SURFACE_ATTRIB_USAGE_HINT_VPP_WRITE | sys::VA_SURFACE_ATTRIB_USAGE_HINT_EXPORT) as i32;
+            attrs.push(int(sys::VASurfaceAttribType_VASurfaceAttribUsageHint, hint));
+            attrs.push(sys::VASurfaceAttrib {
+                type_: sys::VASurfaceAttribType_VASurfaceAttribDRMFormatModifiers,
+                flags: sys::VA_SURFACE_ATTRIB_SETTABLE,
+                value: sys::VAGenericValue {
+                    type_: sys::VAGenericValueType_VAGenericValueTypePointer,
+                    value: sys::_VAGenericValue__bindgen_ty_1 { p: (&mut modifiers as *mut sys::VADRMFormatModifierList).cast() },
+                },
+            });
+        }
+        let n = attrs.len() as u32;
+        // SAFETY: one surface into a valid out-pointer; `n` valid attributes; the modifier list
+        // (and the modifier it points to), the external descriptor and the memory's fd (owned by
+        // `_memory`) live on this stack frame until the call returns; libva reads them only
+        // during it (the driver imports the memory into its own handle and keeps no pointer).
+        let st = unsafe { d.lib.vaCreateSurfaces(d.dpy, self.rt_format, self.size.0, self.size.1, &mut id, 1, attrs.as_mut_ptr(), n) };
+        d.check(st, "vaCreateSurfaces")?;
         self.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         LIVE_SURFACES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mem =
@@ -748,8 +1214,8 @@ impl Surface {
         &self.mem
     }
 
-    /// The surface's memory as DMA-BUF layers (luma, chroma) for reading, exported once per
-    /// surface.
+    /// The surface's memory as DMA-BUF layers (luma, chroma; Y210: the one packed layer) for
+    /// reading, exported once per surface.
     pub fn export(&self) -> Result<Arc<Export>, String> {
         self.export_with(false)
     }
@@ -786,8 +1252,11 @@ impl Surface {
         if fds.len() != nobj || nobj == 0 {
             return Err("the export has no buffer objects".into());
         }
-        if desc.num_layers != 2 {
-            return Err(format!("{} layers (expected luma and chroma)", desc.num_layers));
+        // packed 4:2:2 (Y210) is one layer; the planar formats are luma and chroma
+        let packed = self.pool.fourcc == sys::VA_FOURCC_Y210;
+        let want = if packed { 1 } else { 2 };
+        if desc.num_layers != want {
+            return Err(format!("{} layers (expected {want})", desc.num_layers));
         }
         let modifier = desc.objects[0].drm_format_modifier;
         if desc.objects[..nobj].iter().any(|o| o.drm_format_modifier != modifier) {
@@ -805,9 +1274,9 @@ impl Surface {
                 })
                 .collect()
         };
-        let layers = [layer(&desc.layers[0])?, layer(&desc.layers[1])?];
+        let layers = [layer(&desc.layers[0])?, if packed { Vec::new() } else { layer(&desc.layers[1])? }];
         let dmabuf = filmcraft_frame::DmaBuf {
-            layer_formats: [desc.layers[0].drm_format, desc.layers[1].drm_format],
+            layer_formats: [desc.layers[0].drm_format, if packed { 0 } else { desc.layers[1].drm_format }],
             modifier,
             layers,
             width: desc.width,
@@ -829,7 +1298,7 @@ impl Surface {
 
     /// Fill the whole surface from memory: `f(image bytes, plane offsets, plane pitches)` writes
     /// the planes of an image of the pool's format and size (`P010` / `NV12`: luma, then
-    /// interleaved chroma), which is then copied into the surface. The surface must not be in use
+    /// interleaved chroma; `Y210`: one packed plane), which is then copied into the surface. The surface must not be in use
     /// by the GPU.
     pub fn write(&self, f: impl FnOnce(&mut [u8], [usize; 2], [usize; 2]) -> Result<(), String>) -> Result<(), String> {
         let d = &self.pool.display;
@@ -841,8 +1310,9 @@ impl Surface {
         let mut image: sys::VAImage = Default::default();
         // SAFETY: a valid format struct and out-pointer.
         d.check(unsafe { l.vaCreateImage(d.dpy, &mut format, wi, hi, &mut image) }, "vaCreateImage")?;
+        let planes = plane_rows(self.pool.fourcc, w, h)?.len();
         let result = (|| {
-            if image.num_planes < 2 || (image.width as u32) < w || (image.height as u32) < h {
+            if (image.num_planes as usize) < planes || (image.width as u32) < w || (image.height as u32) < h {
                 return Err("the driver made an image smaller than the surface".to_string());
             }
             let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
@@ -881,18 +1351,56 @@ impl Surface {
         formats.into_iter().find(|f| f.fourcc == self.pool.fourcc).ok_or_else(|| "the driver has no image format for the surface".to_string())
     }
 
+    /// [`Surface::read`] of a linear surface over imported memory (packed formats: one plane): its
+    /// DMA-BUF mapped for reading between `DMA_BUF_IOCTL_SYNC` start / end, each row of the
+    /// rectangle copied out of the mapping (bounds-checked against the buffer's real size).
+    fn read_mapped(&self, (x, y, w, h): (u32, u32, u32, u32), mut f: impl FnMut(usize, usize, &[u8])) -> Result<(), String> {
+        let bpp = u64::from(packed_bytes_per_pixel(self.pool.fourcc).ok_or("mapped reads of planar surfaces")?);
+        let e = self.export()?;
+        let d = &e.dmabuf;
+        if d.modifier != 0 {
+            return Err(format!("mapping tiled memory (modifier {:#x})", d.modifier));
+        }
+        let [plane] = d.layers[0].as_slice() else { return Err("a packed layer of several planes".into()) };
+        let object = d.objects.get(plane.object).ok_or("plane of a missing buffer object")?;
+        let map = Mapping::new(object)?;
+        let (pitch, offset) = (u64::from(plane.pitch), u64::from(plane.offset));
+        let row_bytes = u64::from(w).checked_mul(bpp).ok_or("row size overflows")?;
+        let row_len = usize::try_from(row_bytes).map_err(|_| "row size")?;
+        let mut row = vec![0u8; row_len];
+        for r in 0..h {
+            let start = u64::from(y + r)
+                .checked_mul(pitch)
+                .and_then(|o| o.checked_add(offset))
+                .and_then(|o| o.checked_add(u64::from(x).checked_mul(bpp)?))
+                .ok_or("row offset overflows")?;
+            map.copy_out(start, &mut row)?;
+            f(0, r as usize, &row);
+        }
+        Ok(())
+    }
+
     /// Copy the rectangle (x, y, w, h) of this surface to memory, as the image format `fourcc`
-    /// (`P010` / `NV12`): `f(plane index, row bytes)` for every row of the luma plane then the
-    /// chroma plane. Syncs first.
+    /// (`P010` / `NV12` / `Y210`): `f(plane index, row index, row bytes)` for every row of the luma
+    /// plane then the chroma plane (Y210: the one packed plane, x even). Syncs first.
     pub fn read(&self, rect: (u32, u32, u32, u32), mut f: impl FnMut(usize, usize, &[u8])) -> Result<(), String> {
         let (x, y, w, h) = rect;
         if !rect_fits(rect, self.pool.size) {
             return Err(format!("rectangle {w}x{h} at ({x}, {y}) outside the {}x{} surface", self.pool.size.0, self.pool.size.1));
         }
+        // packed 4:2:2 holds a chroma pair per two pixels: the rectangle starts on a pair
+        if self.pool.fourcc == sys::VA_FOURCC_Y210 && x % 2 != 0 {
+            return Err(format!("a Y210 rectangle at odd x {x}"));
+        }
         self.sync()?;
+        // over imported (foreign) memory iHD's vaGetImage reads zeros: map the memory instead
+        if matches!(self.pool.linear, Some(LinearAlloc::Imported(_))) {
+            return self.read_mapped(rect, f);
+        }
         let d = &self.pool.display;
         let l = d.lib;
         let fourcc = self.pool.fourcc;
+        let rows = plane_rows(fourcc, w, h)?;
         let mut format = self.image_format()?;
         let int = |v: u32| i32::try_from(v).map_err(|_| format!("{v} does not fit libva's int"));
         let (xi, yi, wi, hi) = (int(x)?, int(y)?, int(w)?, int(h)?);
@@ -904,16 +1412,20 @@ impl Surface {
             // SAFETY: the image was created above with the requested size; the rectangle lies in the
             // surface (`rect_fits`).
             d.check(unsafe { l.vaGetImage(d.dpy, self.id, xi, yi, w, h, image.image_id) }, "vaGetImage")?;
+            // checked before mapping: every return after vaMapBuffer goes through vaUnmapBuffer
+            if (image.num_planes as usize) < rows.len() {
+                return Err(format!("an image of {} planes ({} expected)", image.num_planes, rows.len()));
+            }
             let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
             // SAFETY: the image's buffer, mapped for reading into a valid out-pointer.
             d.check(unsafe { l.vaMapBuffer(d.dpy, image.buf, &mut ptr) }, "vaMapBuffer")?;
             if ptr.is_null() {
+                // SAFETY: the buffer was mapped (successfully, if without memory): unmap it.
+                unsafe { l.vaUnmapBuffer(d.dpy, image.buf) };
                 return Err("vaMapBuffer returned no memory".to_string());
             }
             // SAFETY: the mapping covers `data_size` bytes until vaUnmapBuffer below.
             let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, image.data_size as usize) };
-            let bpp = if fourcc == sys::VA_FOURCC_P010 { 2 } else { 1 };
-            let rows = [(h as usize, w as usize * bpp), (h.div_ceil(2) as usize, w.div_ceil(2) as usize * 2 * bpp)];
             let mut ok = true;
             for (plane, &(nrows, row_bytes)) in rows.iter().enumerate() {
                 let (off, pitch) = (image.offsets[plane] as usize, image.pitches[plane] as usize);

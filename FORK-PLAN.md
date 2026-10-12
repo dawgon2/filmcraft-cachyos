@@ -81,17 +81,31 @@ the agent's own recorded interpretations, not the owner's words.
    **Current order (owner, 2026-10-11, replaces both lines above; the only valid order):** G0 ✓ →
    G1 ✓ → **U0** (first upstream merge, [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md), tag
    `upstream-sync-1`) → **G2** (GRADE-PLAN items 1–10) → **G2b** (G2.11 local AI explanations + G2.12 Grading
-   Coach, moved right after G2 by the owner 2026-10-11; tag `grade-2b`) → **6** (incl. 6.1, 4:2:2 on the built-in HEVC decoder) → Y1 → **6E**
+   Coach, moved right after G2 by the owner 2026-10-11; tag `grade-2b`) → **6** (incl. 6.1, 4:2:2 on the built-in HEVC decoder) → **G2c** (WB picker, §1a.38) → Y1 → **6E**
    (owner, 2026-10-11: all of Phase 6, 6.1 and 6E moved after G2; tags `grade-2`, `phase-6`) → **U0.2**
    (one VA-API stack: upstream's decoder + the fork's zero-copy path,
    [`UPSTREAM-PLAN.md`](UPSTREAM-PLAN.md) U0 stage 2; moved out of U0 by the owner 2026-10-11, then
    from before Phase 8 to right after 6E by the owner 2026-10-11 so the larger upstream contributions
    (zero-copy VA-API display, §1a.25) can start sooner; tag `upstream-sync-2`) → Y3 → **C1 → C2**
    ([`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md), tags `comp-1`, `comp-2`; moved before Phase 7 by
-   the owner 2026-10-11 so Phase 7's soak and real-edit check cover them) → 7 (+ Y4) → **D**
-   ([`DECODER-PLAN.md`](DECODER-PLAN.md): the 4:2:2 HEVC decoder made faster than ffmpeg on this
-   PC; tag `decoder-1`) → 8 → Y2 → H1 → H2 → H3. The plan
-   is complete when H3 is done; then stop (§1a.22 lists what never starts without the owner).
+   the owner 2026-10-11 so Phase 7's soak and real-edit check cover them) → 7 (+ Y4) → Y2 → H1 →
+   H2 → H3 → **D** ([`DECODER-PLAN.md`](DECODER-PLAN.md): the 4:2:2 HEVC decoder made faster than
+   ffmpeg on this PC; tag `decoder-1`) → **8** (deferred). **Revised by the owner 2026-10-12
+   (§1a.34):** D moved after H3 (still wanted, for PCs without 4:2:2 hardware, but less urgent
+   now that 6.1b decodes 4:2:2 on Intel); Phase 8 deferred to the end because other developers
+   are likely building backends upstream (check upstream first, §1a.34). **Revised by the owner
+   2026-10-12 (§1a.35), the current order:** … 6 → **G2c** → Y1 → 6E → U0.2 → **A1** → Y3 → C1 → C2 → **AI1** → **A2**
+   → **G3** → 7 (+ Y4) → Y2 → H1 → H2 → H3 → **C3 → C4 → G4 → A3 → R1 → R2** → D → 8 (deferred); R1 / R2 (CinemaDNG, ProRes RAW):
+   [`RAW-PLAN.md`](RAW-PLAN.md), tags `raw-1/2`, added by the owner 2026-10-12 (§1a.36); AI1 (portable
+   fast inference, retires the x86-64-v3 flag): [`AI-PLAN.md`](AI-PLAN.md), tag `ai-1` (§1a.37). A phases:
+   [`AUDIO-PLAN.md`](AUDIO-PLAN.md) (tags `audio-1/2/3`); G3 Magic Mask and G4 advanced grading:
+   [`GRADE-PLAN.md`](GRADE-PLAN.md); C3 / C4: [`COMPOSITOR-PLAN.md`](COMPOSITOR-PLAN.md).
+   **Revised by the owner 2026-10-12 (§1a.39):** [`RESOLVE-UI-PLAN.md`](RESOLVE-UI-PLAN.md)
+   **RS1 + RS2** (Resolve default workflow, Project Manager home screen) run as a lane *alongside*
+   Phase 6 (UI / engine only; they don't hold up Phase 6 and Phase 6 doesn't wait for them; tag
+   `resolve-ui-1` when accepted, shipped in the next published build); **RS3** (page chrome and
+   layouts) is its own phase right after **G2c**, before Y1 (tag `resolve-ui-2`). The plan
+   is complete when 8 is done; then stop (§1a.22 lists what never starts without the owner).
 7. **Benchmark passes.** Quick passes (the key 6.2K playback and decode scenarios, `--quick`, one
    run each, labelled "quick pass") for phases whose main result is known (Phases 1, 3, 6, 8 and
    in-between steps); **the full `xm5` suite at Phase 2, 4, 5 and 7 acceptance**, and whenever a
@@ -190,7 +204,7 @@ the agent's own recorded interpretations, not the owner's words.
     [FilmCraft] / [Fork] / [Standard]). Backfill G0 / G1's pages. A phase isn't accepted while
     pages for features it shipped are still "to write".
 22. **Never without the owner:** [`PLUGIN-PLAN.md`](PLUGIN-PLAN.md) (all of it), COMPOSITOR-PLAN
-    C3 and later, OpenFX, and anything else a plan marks "needs the owner". GRADE-PLAN G2 includes
+    C5 and later (C3 / C4 approved 2026-10-12, §1a.35), camera RAW (§1a.35), OpenFX, and anything else a plan marks "needs the owner". GRADE-PLAN G2 includes
     the node explainer (G2.10), optional local AI explanations (G2.11) and the Grading Coach
     (G2.12), all approved.
 23. **Runs and the cloud (owner, 2026-10-11).** The app's scheduled task runs every 5 minutes (one
@@ -226,6 +240,221 @@ the agent's own recorded interpretations, not the owner's words.
     upstream first and drop it if upstream already has it. The larger candidates (zero-copy VA-API
     display, GPU ColorOps, node grader) wait until after U0.2 and need the owner to talk to the
     maintainers first.
+26. **Explainer release files (owner, 2026-10-11 23:10).** At the Phase 6 boundary (after the
+    `phase-6` tag and build, before Y1), fix the tuned explainers' release files so they are ready
+    when the owner says "publish" (still no release before that word). In
+    `~/.local/share/filmcraft-fork/models/tuned/{qwen05-v1,smol360-v1}/`: (a) write the missing
+    `NOTICE` from `train.py`'s template (both folders predate it; base repo and revision from
+    `manifest.json`, seed 1); (b) add `LICENSE` to `smol360-v1` (the base's, or
+    `tools/explainer-train/LICENSE-Apache-2.0.txt`); (c) make the published `manifest.json` free of
+    local paths (`base` / `data` → the base repo name and the data folder name; keep a private
+    copy with the full paths), and change `train.py` so future runs write it that way. Don't
+    retrain or touch the GGUFs (their SHA-256 is pinned in `crates/llm/src/models.rs`). Recommended
+    with it (owner not yet asked): the second held-out set from TRAINING.md, and publishing only
+    `qwen05-v1` Q8_0.
+    **Done 2026-10-11** (owner moved it forward): `NOTICE` in both folders (from `train.py`'s
+    template, commit-only revision, seed 1), `smol360-v1/LICENSE` (Apache-2.0 text; the base folder
+    has none; `qwen05-v1`'s is the base's Apache-2.0), `manifest.json` path-free in both (originals
+    kept as `manifest.private.json`, not published); `train.py` now writes it that way (private copy
+    in the run dir only) and puts only the commit in NOTICE. Release folders ready for "publish".
+27. **SmolLM2 is the explainer base (owner, 2026-10-12).** The AI explainer goes forward on
+    **SmolLM2** (`smol360-v1` and its successors), chosen for its open training data and recipe
+    (Hugging Face publishes both; Qwen publishes weights only). Measured gap when decided: 72/75 vs
+    Qwen's 74/75 over both held-out sets, ~0.6 s slower (owner: negligible). Further training work
+    (v2+: more epochs, more near-threshold colour / saturation examples, sweeps) is on SmolLM2
+    only; the bigger open-data step if capacity runs out is SmolLM2-1.7B. **Qwen (`qwen05-v1`) is
+    frozen:** keep its files, catalogue entry and release folder, but don't retrain, tune or
+    publish it unless the owner says so. When a SmolLM2 tune ships, put it first in
+    `TUNED_PREFERENCE` (`crates/llm/src/models.rs`) so the app picks it by default; the publish
+    candidate is the SmolLM2 tune.
+28. **The AI should help with the whole process (owner, 2026-10-12).** Owner's vision: the AI
+    is an assistant that helps someone through their entire grading (and later editing)
+    process, not just a node-sentence rewriter. Trigger: Ask the coach answered "what is the
+    best order for nodes? What should I tackle first, and what should I tackle last?" with "The
+    guide doesn't cover this yet." although `docs/guide/color/nodes.md` "A starter tree" and
+    `recipes.md` answer it (`coach.ask`: coverage 0.667, confidence 0.163, under the threshold;
+    the coach as built is keyword search only and never uses the model, unlike GRADE-PLAN
+    G2.12's "uses G2.11's local model if installed"). Status: direction recorded, **not yet
+    planned or scheduled**. Next: (a) small fix: the coach must answer workflow / "what order"
+    questions the guide covers (retrieval + a regression question set); (b) a plan for a
+    process assistant (model-backed answers grounded in the guide and the current project's
+    facts, still checked so it can't invent controls), written for the owner to place. Owner-reported
+    failures are collected in [`docs/fork/COACH-QUESTIONS.md`](docs/fork/COACH-QUESTIONS.md) (owner, 2026-10-12:
+    "another example of a question the AI needs to train on"); both (a) and (b) must cover them.
+29. **4:2:2 HEVC in hardware on the Intel media engine (owner, 2026-10-12).** Found in the
+    owner's chat: the i5-11600K's **Intel UHD 750** (`renderD128`, iHD driver) advertises
+    `VAProfileHEVCMain422_10` (and `Main422_12`) VLD decode. ffmpeg as a test oracle only,
+    `-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -f null` on
+    `target/fixtures/xm5/xm5_422_2997_20s.mov` (6240×4160 Main 4:2:2 10, 599 frames): **61 / 60
+    fps (2.03× / 2.01× realtime)**, 2 runs, with a build running; decode only, frames not yet
+    verified. That is faster than VCN decodes 4:2:0 (~41–43 fps). The owner: "I wanted to get rid
+    of ffmpeg. I'm all for hardware encoding [decoding] if we can develop it ourself or if there's a
+    way that fits with what's allowed for filmcraft." So: **the 4:2:2 fast path is FilmCraft's
+    own in-process VA-API decoder (`crates/platform/src/va_hevc.rs`: our parser and DPB, libva
+    only decodes) opened on a VA display that supports Main 4:2:2 10 (the Intel one here)**.
+    That fits CLAUDE.md's platform rule (OS media API via Rust bindings in `crates/platform`,
+    optional, behind the trait, our decoder as the fallback) and §1a.24 (no ffmpeg in the
+    product). The built-in software 4:2:2 decoder (merged `92054234`) stays as the **fallback and
+    the bit-exact reference**. Its multithreading is no longer what makes 4:2:2 playable, so it
+    comes after the hardware lane, sized as a fallback; check with the owner (OWNER-QUESTIONS)
+    before a large multithreading effort. Phase 6.1 is revised accordingly (§5). Side benefit:
+    the owner's Dell OptiPlex Micro 7010 (i5-13500T, UHD 770, the same Gen12 media generation)
+    should get the same path.
+30. **4:2:2 handoff and 4:2:2 masters on Intel (owner, 2026-10-12).** (a) **The Intel → AMD
+    GPU-to-GPU hand-off is part of 6.1b, not a fallback idea:** a 6.2K 4:2:2 10-bit frame is
+    ~104 MB, so reading it back to memory and uploading it costs ~300+ MB of CPU memory traffic
+    per frame (≈ 10 GB/s at 1×, ≈ 20 GB/s at 2×), which can't hold 2× and loads the CPU at 1×.
+    The hand-off: the Intel media engine copies the decoded surface to a linear surface (its own
+    VPP / copy engine; AMD can't read Intel tiling), exports it as a DMA-BUF
+    (`vaExportSurfaceHandle`), and the AMD device imports it through the existing
+    `crates/gpu/src/interop.rs` path (LINEAR modifier; biplanar P210-style layers if the driver
+    offers them, else packed Y210) and copies it into VRAM once per frame with its copy engine.
+    No CPU copy. Measure the read-back path first (a baseline for the before / after numbers),
+    then build the hand-off; read-back stays as the fallback. Watch pitch alignment (AMD
+    LINEAR needs 256-byte pitch), synchronisation (`vaSyncSurface` before the hand-off) and
+    whether AMD lists LINEAR for the 16-bit formats. (b) **4:2:2 10-bit HEVC master preset on
+    the Intel encoder** (`VAProfileHEVCMain422_10` EncSlice, `renderD128`): goes in **6E**, not
+    Phase 6 (EXPORT-PLAN 6E.4); proxies, the render cache and YouTube stay 4:2:0.
+31. **Builds have a memory ceiling (owner, 2026-10-12 02:45).** At 02:23 systemd-oomd killed the
+    whole Claude app (28 GB RAM + 28 GB swap in its scope) while lanes B and C both built and
+    tested `filmcraft-ui-egui`. Every cargo command now goes through
+    `~/Apps/filmcraft-builds/fc-cargo.sh` (scheduled-task prompt §2d): all builds share
+    `filmcraft-build.slice` (`~/.config/systemd/user/`, 20 GB RAM + 4 GB swap, throttled above
+    18 GB), so running out kills one build (exit 137), not the app; only one UI-crate build / test
+    at a time. Owner: fine "as long as it's not slowing me down".
+    **Jobs capped at 10 (owner, 2026-10-12 02:55):** two more runs hit the slice at 12 jobs
+    (02:47 and 02:53, 18.1 / 18.2 GB peak in 3–4 min, killed by systemd-oomd, nothing else
+    harmed), so `fc-cargo.sh` now sets `CARGO_BUILD_JOBS=10` unless the caller sets it or `-j`.
+    If 10 still hits the limit, lower it again and log the peak here. The Dell (§1a.32) is an
+    option for long test runs, not the default home for the heaviest ones (owner: its 16 GB
+    may not cope either, and it's his TV box).
+32. **The Dell lane: a second machine for Intel tests and long runs (owner, 2026-10-12).** The
+    owner's **Dell OptiPlex Micro 7010** (`user@dell`, <lan-address>): i5-13500T (20
+    threads), **Intel UHD 770** (Gen12 media engine, iHD, same generation as the UHD 750), 16 GB
+    RAM, budget Micron 2450 256 GB NVMe (~170 MB/s sustained writes), CachyOS. It is also the
+    owner's TV / gaming box.
+    - **Access:** `ssh dell` from this PC (key `~/.ssh/id_ed25519_dell`; key-only, LAN-only
+      firewall). The Dell's login shell is fish: send scripts as `ssh dell 'bash -s' <<'EOF' … EOF`.
+      `sudo` there needs the owner. No GitHub credentials on the Dell (if a Claude session ever
+      runs there, give it a deploy key for the fork repo only, never the account).
+    - **Setup (done 2026-10-12):** Rust 1.99 via rustup (clippy, rustfmt, wasm32); repo at
+      `~/Projects/filmcraft-main`, synced by pushing from this PC:
+      `git push ssh://dell~/Projects/filmcraft-main hevc-vaapi` (updates its working
+      tree; keep that tree clean). `target/fixtures` copied with `rsync -a` (16 GB, 3.5 min);
+      re-sync after new fixtures. Dell-only `~/.cargo/config.toml`: `jobs = 12`, dev
+      `debug = "line-tables-only"` (the repo is untouched). No craft-fonts (as on this PC).
+    - **Measured 2026-10-12:** full `cargo build --workspace --all-targets` **392 s** (the first
+      build with default settings: 2631 s, I/O-bound on the SSD, 44 GB of output; now 18 GB);
+      rebuild after touching `crates/platform/src/va_hevc.rs` **12 s**; `cargo test --workspace`
+      **380 s**, all green except `media_ui::offline_badges_proxy_toggle_and_dialogs`, which waits
+      a fixed ~8 s for two ProRes proxies and times out under full-suite load (passes alone in
+      1.35 s). That test should wait on a longer deadline; fix it with the next UI-test change.
+    - **Use it for:** (1) Intel-path tests on a second Intel GPU, first of all 6.1b's 4:2:2
+      VA-API decode (parity against the software decoder on the UHD 770); (2) long tests / soaks
+      that would tie up this PC, especially while it benchmarks; (3) "weaker PC" checks
+      (proxies, graceful frame skipping). Run jobs detached
+      (`setsid nohup script > /dev/null 2>&1 < /dev/null &`), logs in `~/fork-logs/`, poll.
+    - **Not for:** benchmarks that need the RX 6700 XT, routine builds (this PC is faster),
+      anything that needs `sudo`. Before a heavy job check the owner isn't using it
+      (`pgrep -x 'steam|eden|kodi|azahar'`, or a full-screen session); if so, wait or skip. Its
+      builds don't count toward this PC's build slice (§1a.31).
+33. **Publish after every phase to `cachyos` (owner, 2026-10-12).** The owner: "we can go ahead
+    and start publishing everything after each phase to the
+    https://github.com/dawgon2/filmcraft-cachyos fork, including the ai". This replaces the
+    "no release before 'publish'" waits of §1a.26 and the "tuned explainers wait" parts of
+    §1a.27. **Models:** both `qwen05-v1` and the SmolLM2 tune are published (owner: "keeping both
+    for now"); only SmolLM2 gets new versions (§1a.27), Qwen stays frozen as published.
+    **Never publish personal or private information (owner, 2026-10-12).** So `hevc-vaapi`'s
+    history is never pushed to `cachyos` (old commits hold home paths, the owner's name and the
+    Dell's LAN details; §1a.19 forbids rewriting it). Instead:
+    - **Code:** one sanitised snapshot commit per phase tag on branch **`fork`** of `cachyos`,
+      made by `~/Apps/filmcraft-builds/publish-snapshot.sh <clone> <tag> <previous snapshot>`
+      (replaces home paths, the owner's name, user / host names and LAN addresses; refuses if
+      anything private is left; author `dawgon2 <dawgon22@gmail.com>`, the owner's GitHub email,
+      fine to publish). Work in a `git clone --shared` scratch copy, never in the live tree.
+      Public tags are **`fork-<tag>`** (not `<tag>`, so fetching `cachyos` can't clash with the
+      private tags). The first snapshot's parent is upstream `8fcad73` (identical to the fork's
+      root `ec4cd6c7`); the `upstream-sync-1` snapshot also has upstream `4e2d0bc2` as a parent.
+    - **Build:** release builds embed absolute paths, so the public build is made on the Dell
+      (§1a.32) in a worktree at `/var/tmp/filmcraft` (outside any home folder: some paths come
+      from `CARGO_MANIFEST_DIR` and aren't remapped) with
+      `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-cpu=x86-64-v3
+      --remap-path-prefix=…"` (script `~/fork-logs/release-build.sh` on the Dell), then
+      `strings` must show no owner user name and no `/home/<name>` other than `/home/user`. The
+      private `~/Apps/filmcraft-builds/<tag>/` binaries contain home paths: never upload them.
+    - **Release:** `gh release create fork-<tag> --target fork` with the phase `NOTES.md`
+      (checked for private details) and the scrubbed Linux build tarball.
+    - **Explainers:** each model version is its own release `explainer-<name>` (TRAINING.md
+      "Publishing": GGUF, tokenizer.json, LICENSE, NOTICE, manifest.json; never
+      `manifest.private.json`).
+    **Done 2026-10-12 (owner: publish the backlog now):** branch `fork` with snapshots of
+    `phase-1` … `grade-2b` (only `CLAUDE.md`'s name line differed), tags `fork-phase-1` …
+    `fork-grade-2b`, source-only releases for `fork-phase-1` … `fork-grade-2` (their private
+    builds hold home paths), `fork-grade-2b` with the scrubbed Dell build, and releases
+    `explainer-smol360-v1` / `explainer-qwen05-v1` (GGUF checksums match `models.rs`).
+    **Next (code, a small lane):** point both tuned catalogue entries in
+    `crates/llm/src/models.rs` at their release assets (`FORK_RELEASES` + `explainer-<name>/`,
+    as TRAINING.md says) so the app can download them, and drop "Local file until published"
+    from the descriptions. Never push `upstream`, never open PRs (§1a.25 unchanged).
+34. **Phase D later, Phase 8 deferred (owner, 2026-10-12).** (a) **D** (DECODER-PLAN) is still
+    wanted ("a useful optimization for people without the capabilities"), but after the more
+    important steps: it now runs after H3. (b) **Phase 8** (the backup backend, Auto / VA-API /
+    Vulkan setting): deferred to the end, "due to the likely backend development by others"
+    (upstream already has VA-API H.264 / HEVC and NVDEC, UPSTREAM-PLAN). Before starting it,
+    re-check upstream and take what exists; Phase 8 shrinks to what is still missing. (c) Note
+    for **6.1b** vs **U0.2**: U0.2 plans to retire the fork's `va_hevc.rs` decode core in favour
+    of upstream's `vaapi/` decoder (UPSTREAM-PLAN). Keep 6.1b's 4:2:2 additions small and
+    self-contained (profile, surface format, RExt buffers, display choice) so U0.2 can port them
+    onto upstream's decoder, and check upstream's `vaapi/` for 4:2:2 first.
+35. **Audio, Magic Mask, advanced grading and C3 / C4 (owner, live, 2026-10-12).** (a) New
+    [`AUDIO-PLAN.md`](AUDIO-PLAN.md): **A1** Linux playback reliability (gaps.md G17, "definitely
+    needs to be tackled") right after U0.2; **A2** ML voice isolation (pure-Rust DeepFilterNet on
+    candle) + one-click voice clean-up after C2. **Model download: the owner consents, but only
+    when A2 starts.** The one-click clean-up ships only if it measures as good as the manual
+    chain (AUDIO-PLAN A2 gate). **A3** mixer basics later (after G4). (b) **Magic Mask** = GRADE-PLAN
+    **G3**, after A2 (reuses its ML runtime), before Phase 7; its model download still needs the
+    owner's yes when G3 starts. (c) Colour warper, HDR zone wheels, 3D qualifier, planar-tracked
+    windows = GRADE-PLAN **G4**, later (after C4). (d) COMPOSITOR-PLAN **C3** (tracking, planar
+    tracker, paint, roto) and **C4** (expressions, macros, templates) approved, after H3; **C5**
+    (3D, particles) stays deferred: "maybe in the latter reaches", reconsider after C4. (e) The
+    owner may reorder any of this. (f) *(agent)* Camera RAW (BRAW, R3D, ARRIRAW) is not planned:
+    the only routes are the vendors' free closed SDKs loaded at run time (fork-only, needs the
+    owner) — none of the owner's cameras shoot RAW. CinemaDNG and ProRes RAW: see §1a.36.
+36. **CinemaDNG, ProRes RAW and keeping fork-only code separable (owner, live, 2026-10-12).**
+    (a) [`RAW-PLAN.md`](RAW-PLAN.md): **R1** CinemaDNG in pure Rust (upstream-contributable) and
+    **R2** ProRes RAW through the system ffmpeg, after A3, before D. (b) The owner: ProRes RAW must
+    be added "in a way that makes it very easy to separate from what I'm committing to pull
+    requests". So R2 lives entirely in one fork-only crate, reaches shared code through **one**
+    `#[cfg(feature = "fork-ffmpeg")]` line marked `// FORK-ONLY`, lands in commits prefixed
+    `FORK-ONLY:`, is listed in [`docs/fork/FORK-ONLY.md`](docs/fork/FORK-ONLY.md), and its gate
+    proves `cargo xtask ci` is green with the feature off and the crate removed. (c) *(agent)* The
+    same pattern applies to any **new** fork-only code from now on; the older ffmpeg fallbacks are
+    listed in FORK-ONLY.md and still removed by hand in the contribution pipeline.
+37. **AI1: local AI fast on every CPU (owner, live, 2026-10-12).** [`AI-PLAN.md`](AI-PLAN.md) AI1
+    right after C2, before A2 / G3: own quantized forward pass with run-time CPU dispatch
+    (OWNER-QUESTIONS Q8 option (c)), drop the `x86-64-v3` build flag, streaming + background
+    pre-generation, try a SmolLM2-135M tune. Everything stays local (models optional, downloaded
+    on demand).
+38. **White-balance picker (owner, live, 2026-10-12).** "A color dropper tool for white balance
+    that automatically balances it and the greens / purples": GRADE-PLAN **G2c**, right after
+    Phase 6, before Y1. Click / drag on something neutral → the node's temperature *and* tint are
+    solved so it becomes neutral; plus Auto balance and Lumetri's WB Selector.
+39. **Resolve style is the fork's default; Project Manager home screen (owner, live,
+    2026-10-12): [`RESOLVE-UI-PLAN.md`](RESOLVE-UI-PLAN.md).** (a) The Settings ▸ Workflow switch
+    (§1a.17, GRADE-PLAN G1.8) defaults to **Resolve** in the fork, for fresh installs and once
+    for the owner's existing prefs (RS1, fork-only feature `fork-resolve-default`, §1a.36
+    pattern). (b) **Premiere style stays a full option**: the owner doesn't want to stray from
+    upstream, so nothing Premiere-style is removed, and every RS step is tested in both
+    workflows. (c) What the owner likes most about Resolve: the **Project Manager home screen**
+    at launch, showing your projects to pick one to go into (RS2; generic, upstream-contributable
+    with an "At startup show" preference). (d) RS3: Resolve page chrome and page layouts.
+    (e) The owner's Resolve 21 screenshots are in `plan/resolve/screenshots/` (gitignored, never
+    commit them: Blackmagic UI). (f) *(agent)* RS1 + RS2 run as a lane next to Phase 6 (UI
+    only, no decode / render overlap); RS3 right after G2c (§1a.6). (g) **Resolve terminology
+    (owner, live, 2026-10-12):** "Resolve calls the sequence the timeline": in the Resolve
+    workflow every label uses Resolve's words (Timeline, Media Pool, Inspector, Compound Clip,
+    Deliver, …; RESOLVE-UI-PLAN RS2b, same lane as RS1 + RS2). Only on-screen words change,
+    never command ids, files or the protocol.
 
 ## 2. The machine and the footage (don't re-research these)
 
@@ -237,6 +466,8 @@ Record the CPU, RAM and storage in the benchmark doc during Phase 0 (`lscpu`, `f
 - HEVC decode: Main and Main10 (8- and 10-bit), **4:2:0 only**, up to 8K. 6240×4160 fits.
 - **No 4:2:2 or 4:4:4 HEVC/H.264 decode or encode in hardware.** Resolve on Windows with this GPU
   can't hardware-decode 4:2:2 HEVC either; this is the silicon, not the OS.
+  **But the CPU's Intel UHD 750 can** (§1a.29): iHD advertises HEVC Main 4:2:2 10/12 decode,
+  ~60 fps on the synthetic 6.2K 4:2:2 clip (ffmpeg oracle, 2026-10-12).
 - HEVC encode: up to 7680×4352 on current kernels (`drm/amdgpu/nv: update VCN 3 max HEVC encoding
   resolution`), so 6.2K masters can be hardware-encoded. Verify with `vainfo` and the kernel's
   reported caps.
@@ -466,6 +697,31 @@ the way Resolve users do:
    WPP / tile parallelism where the stream allows), delivered as a 4:2:2 frame. Show a clear
    "4:2:2: software decode, proxies recommended" badge on the clip. Record decode fps at 6.2K
    (synthetic); proxies (6.2) make editing smooth regardless.
+   **Revised (owner, 2026-10-12, §1a.29): the software decoder is now the fallback and the
+   reference; the fast path is hardware on the Intel media engine (6.1b).** The Main 4:2:2 10
+   decoding above is done and bit-exact (`92054234`); its multithreading comes after 6.1b,
+   sized as a fallback (ask the owner before a large effort).
+   **6.1b, 4:2:2 on VA-API with FilmCraft's own decoder (no ffmpeg):**
+   - Display choice: a `Display` for HEVC Main 4:2:2 10 that picks the render node whose driver
+     advertises `VAProfileHEVCMain422_10` VLD (override `FILMCRAFT_VAAPI_422_DEVICE`), following
+     `Display::for_encode` (Phase 5.2d). 4:2:0 stays on `Display::get` (AMD).
+   - `va_hevc.rs`: accept `chroma_format_idc` 2 at 10-bit (today rejected at the two 4:2:0
+     checks): profile `Main422_10`, `VA_RT_FORMAT_YUV422_10`, the surface fourcc the driver
+     exports (`Y210` is bound in `va_sys.rs`), the range-extension picture / slice parameter
+     buffers that profile needs, read back to a `Chroma::C422` frame. ABI tests for any new
+     structs (`vaapi/abi_tests.rs`).
+   - Bit-exact against the built-in software decoder on the 4:2:2 fixtures and the 6.2K xm5 clip
+     (skip cleanly when no device has the profile); hostile-input tests as for 4:2:0.
+   - Getting the picture to the AMD GPU (owner §1a.30): measure read-back to memory first (as
+     `va_hevc` does now; the baseline), then build the **DMA-BUF hand-off Intel → AMD** (Intel
+     copy to a linear surface, export, import through `crates/gpu/src/interop.rs`, one VRAM copy
+     on the AMD copy engine). Read-back stays as the fallback. Record decode-to-screen fps for
+     both at 1× and 2×.
+   - Fallback chain for 4:2:2: Intel VA-API → built-in software decoder, with a logged reason;
+     `perf.stats` names the backend; the clip badge says which path is active (hardware: no
+     warning; software: "4:2:2: software decode, proxies recommended").
+   - Record decode fps and `xm5-422-play` with and without proxies (AMD composite, Intel decode),
+     2–3 runs each, idle machine.
 2. **Auto proxies on import** for 4:2:2 clips (and optionally all 6.2K clips): decode once, write
    1/2-size proxies with the hardware HEVC encoder (4:2:0 10-bit), or ProRes 422 Proxy. Proxy
    creation (`crates/engine/src/proxies.rs`) and ingest must use the fast decode paths. Export
@@ -1580,3 +1836,264 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   the owner says "publish"; host dawgon2/filmcraft-cachyos). Opus review: approve; follow-ups in
   lane I. Note for the owner: `~/Apps/filmcraft-train/runs/convcheck/` holds ~2.5 GB of
   converter check files that can be deleted (outside the repo, so the agent leaves them).
+- **2026-10-11 22:30, Phase G2b accepted, tagged `grade-2b`, built.** Acceptance (GRADE-PLAN
+  "Phase G2b"): with the FilmCraft-tuned explainer the AI text passes the fact check on 35/36
+  held-out cases (the miss falls back to the template) and falls back cleanly without a model;
+  all seven lessons complete end to end through the control channel; 30 beginner questions pass
+  the control-name check (29/30 top-1 section; 8/8 off-topic questions fall back). `cargo xtask
+  ci` green: 3215 tests, 2343 s (full rebuild after the x86-64-v3 flag). Build
+  `~/Apps/filmcraft-builds/grade-2b/` (filmcraft, filmcraft-cli, NOTES.md), `latest` →
+  `grade-2b`, launcher valid; smoke test: `filmcraft-cli exec ai.models` with the fork data dir
+  reports inference on, not a slow build, tuned Qwen 0.5B selected automatically. HANDOFF
+  rewritten for **Phase 6** (6.5 multicut bisect first). Session ran live (owner present):
+  mode FULL → STEADY (weekly U 31 → 40 % vs line 36 → 42 %).
+- **2026-10-12 00:05, Phase 6 step 6.5 (first half): the multicut "regression" is noise plus a
+  small Mesa effect, not code.** Scheduled run; mode FULL (weekly U 43–44 % vs line 46 %). 24
+  full `xm5-multicut` runs (60 s, 20 cuts, synthetic) with the saved bench binaries on the same
+  fixtures: phase4 [290, 244], phase5 [307, 280], grade0 [297, 295], grade1 [318, 283], u0
+  [268, 250], grade2 [266, 229] → all binaries in one band, **mean 258, sd 31, range 207–318**;
+  no binary is consistently worse. The recorded 237 (Phase 4, 2026-10-09) and 302–338 (later)
+  were single samples. Isolating the system update of 2026-10-10 00:37 (Mesa 26.2.2 → 26.2.4,
+  kernel 7.2.4 → 7.2.9, amdgpu firmware 20260810 → 20260916): old Mesa 26.2.2 + LLVM 22 loaded
+  from the pacman cache into a scratch dir (`LD_LIBRARY_PATH`, `LIBVA_DRIVERS_PATH`,
+  `VK_DRIVER_FILES`; no sudo), interleaved 3 rounds: phase4 new [265, 245, 213] vs old [207,
+  220, 218]; grade2 new [262, 275, 247] vs old [237, 243, 241] → **Mesa 26.2.4 costs ~25 drops
+  (~10 %)**, kernel / firmware not separable without a reboot (not needed: the fix is Phase 6's
+  proxies / render cache either way, since cuts every 3 s on 6.2K originals are decoder-bound).
+  Decision: no bisect of code; compare multicut numbers only as means of ≥ 3 runs from now on.
+  Results in `target/bench/6.5-bisect/`. Gotcha: `bench-u0` was built in a since-removed
+  worktree and regenerates fixtures under that path (35 min); run old bench binaries with
+  `FILMCRAFT_XM5_DIR=$PWD/target/fixtures/xm5`. Also written: `docs/fork/PHASE6-DESIGN.md`
+  (4:2:2 decoder readiness scout + Fable design for proxies and the render cache, with lanes).
+- **2026-10-12 00:10, G2.11b second held-out explainer set (owner-approved follow-up).**
+  `eval_cases_v2` (another 96 × 64 frame, seed 2, 40 grades; 1 dropped as exact data-v1 facts → 39;
+  7/39 near-duplicates vs 12/36 in set 1): `qwen05-v1` Q8_0 39/39 (both sets 74/75), `smol360-v1`
+  38/39 (72/75), Q4_K 37/39, stock SmolLM2-1.7B 3/39. Tune misses are all model errors; one checker
+  bug found and reported, not fixed (it rejects its own noise-reduction template, "also reduces
+  noise" read as whole-picture). Details: `docs/fork/TRAINING.md` "Second held-out set".
+- **2026-10-12 00:25, 6.5 (second half): drops per cut spacing on 6.2K originals (synthetic,
+  `bench-6.5`, AMD, 2 runs each, 60 s).** New cases `xm5-cutspacing 2s|3s|4s|5s` (A B C D in
+  turn, each clip entered mid-GOP at 0.45 + (lap·3.7 mod 20) s) and per-cut accounting in every
+  cuts case (`missed` = due frames never on screen, `missed_per_cut`, offset into the cut):
+  | spacing | dropped (meter) | missed | cuts with drops | where |
+  |---|---|---|---|---|
+  | 2 s | 609 / 588 | 561 / 526 | 26–27 of 30 | ~25 per cut from the 2nd lap on: decoder can't keep up |
+  | 3 s | 57 / 55 | 21 / 18 (55 traced) | 10–13 of 20 | 0–3 per cut, first 15 frames |
+  | 4 s | 36 / 49 | 14 / 19 | 5–8 of 15 | first 15 frames |
+  | 5 s | 36 / 34 | 20 / 13 | 4–5 of 12 | first 15 frames |
+  | multicut (3 s, legacy) | ~258 | 202 / 210 / 219 | 13–14 of 20 | same cuts every run: [5,1,10,8, 0,18,0,0, 3,23,1,1, 31,19,37,29, 0,16,0,0] |
+  So "normal editing" at 3–5 s cuts drops 0–5 frames at some cuts (always in the first half
+  second), 2 s cuts saturate VCN, and the legacy multicut has specific bad entries (the lap at
+  16.9 s and the 23.976 clip) that a similar 3 s pattern doesn't: Fable diagnostician on it
+  (traces `target/bench/xm5-6.5-*-trace.log`). Zero drops at cuts stays the job of proxies / the
+  render cache (6.2 / 6.3 / 6.6).
+- **2026-10-12 01:00, 6.5 done: root cause of the cut drops found and fixed (`9b4bfe66`).** Fable
+  diagnostician from the per-cut traces: the GOP cache's `CONTINUE_THROUGH` (48 samples,
+  `crates/codecs/src/gop.rs`) kept a clip's running decoder going forward on a cut back into the
+  same clip, although every picture before the new in-point was late: ~30–40 unwanted reference
+  pictures per re-entered cut (multicut re-enters each clip 2.3 s past where it left it; the 3 s
+  spacing pattern only 0.7 s, hence the difference). It predicted the GOP seek count (14) and the
+  bad cuts exactly. Fix: continue only when `late_before` is before the sync sample (sequential
+  playback unchanged); test `a_cut_back_into_a_clip_seeks_rather_than_decoding_unwanted_samples`
+  (fails without the fix); Fable review: approve. **Synthetic, AMD, 2 runs each:** multicut
+  dropped ~258 → **63 / 70** (missed 22 / 29, seeks 20–21); cutspacing 2 s ~600 → 90 / 138; 3 s
+  → 33 / 39 (missed 0 / 2); 4 s 37 / 37; 5 s 33 / 34; play-full 0 / 0; jkl L 2× 0 / 1. The
+  remaining drops sit in the first 15 frames of a few cuts (cold first lap, CLIP_B bursts with
+  the known GPU-wait stall). This also explains the HANDOFF dead end "earlier prefetch of the
+  next cut made drops worse" (it triggered the same continue-through sooner). Zero drops at cuts
+  is still owed by 6.2 / 6.3 / 6.6 (proxies / render cache).
+- **2026-10-12 01:20, owner decision §1a.29 (planning chat): 4:2:2 on the Intel media engine.**
+  The UHD 750 (iHD, `renderD128`) advertises HEVC Main 4:2:2 10 decode; ffmpeg oracle on
+  `xm5_422_2997_20s.mov` (6.2K, 599 frames): 61 / 60 fps, 2 runs, build running, frames not
+  verified. Phase 6.1 revised: 6.1b = 4:2:2 through our own `va_hevc.rs` on that display; the
+  built-in software decoder (`92054234`) becomes the fallback and bit-exact reference. No code yet.
+- **2026-10-12 01:40, 6.1 part 1 merged (`92054234`): Main 4:2:2 10 in the built-in HEVC
+  decoder.** Opus leaf lane (worktree): RExt SPS/PPS flags stored individually (`hevcinfo`
+  example), 4:2:2 decode core (Table 8-3 mode mapping, stacked chroma TBs with the second cbf,
+  QpC = Min(qPi, 51), 4:2:2 deblocking / SAO / PCM geometry, MC with 1/4-pel vertical chroma,
+  full-height chroma frames), `Picture::chroma_format` → `Chroma::C422` in `codecs`, gating
+  (4:2:2 only without RExt tools; 4:4:4 / monochrome / RExt tools → `Unsupported`), hostile-input
+  tests. 18 new x265 4:2:2 10-bit fixtures in `target/fixtures/hevc/*_422*` (intra, B-pyramid,
+  odd size, slices + WPP, deblock / SAO at QP 30, chroma QP offsets, AMP, CTU 16, TU 4,
+  transform skip, weighted prediction, constrained intra, lossless CUs, scaling lists):
+  **bit-exact against ffmpeg (oracle only)** at 1, 3 and all threads; the 6.2K xm5 4:2:2 clip
+  uses no RExt tool and its first frames are byte-identical. Fable review: approve; the
+  reviewer's reading of Table 8-3 (11→11, 14→16) fails all 18 fixtures while 11→12, 14→17 is
+  bit-exact (evidence in `35b15540`). Decode speed 6.2K 4:2:2: ~14 fps (frame threads, release,
+  shared machine, synthetic) → proxies needed for real-time. hevc + codecs: 254 tests green.
+  Still owed for 6.1: renderer check of C422 frames + `xm5-422-play`, the "4:2:2: software
+  decode, proxies recommended" badge (with lane B), 4:2:2 proxies (6.2).
+- **2026-10-12 01:55, 6.1 renderer check (synthetic, quick):** `xm5-422-play --quick` now
+  decodes the 6.2K 4:2:2 clip through the app's frame path (before: unsupported). Every frame
+  renders, but ~1 s late: 0 / 240 shown on time, CPU 256–287 ms per frame, RSS **7.9–8.9 GB**
+  (16-bit 6.2K 4:2:2 frames are ~104 MB each; frame-threaded decode keeps several in flight plus
+  the GOP cache). So C422 frames work end to end; real-time needs the proxies (6.2). Follow-up:
+  cap the software decoder's frames in flight / GOP-cache bytes for 6.2K 4:2:2 so an import
+  can't push the machine into swap (seen: kswapd active). Trace:
+  `target/bench/xm5-6.1-422-trace.log`.
+- **2026-10-12 02:30, 6.2 / 6.3 lane A merged** (Opus lane, Fable review: approve after fixes).
+  `crates/engine/src/background.rs`: one background media worker (`Session::background`;
+  priority queue proxies → cache, 4:2:2 first, `rank`; stepped `BackgroundJob`s; waits while
+  playing / scrubbing / exporting, resumes after a delay; cancel / pause / resume / status /
+  `take_finished`; every step under `catch_unwind`; `recover()` path). Preview segment hash v2
+  leaves out `MediaClip.proxy` (previews always render from originals). `HEVC_HALF` proxy preset
+  + `auto_proxy_preset` / `transcode_settings` (proxy presets render on the GPU, Auto);
+  `cancel::with_cancel` / `with_pace` restore by Drop guard. media + render + engine: 1008 tests
+  green. **Note:** the engine / media / render part landed inside the live owner session's commit
+  `18fa4a29` (shared git index: its commit swept my staged files); the UI `observe` hook is its
+  own commit. Lesson: stage and commit in one command (`git commit -- <paths>`).
+- **2026-10-12 02:31, scheduled run (mode STEADY: U 51 % / line 53 %; Fable 42 %).** No lock
+  left by the 02:23 run (the OOM kill took the whole app). Cloud work merged (`47a835aa`,
+  reviewed: the export dialog's Main 10 note calls `hdr_available` per frame, which is a
+  constant probe on Linux and a warmed one on Windows, fine): EXPORT-UI-1 (H.265 HDR → Main 10
+  note, `export.video.hevcMain10Note`), KEYMAP-1 (every built-in preset × platform conflict test;
+  no binding changed), REVIEW-1 (`docs/fork/CONTRIBUTION-CANDIDATES.md`), GUIDE-4 `export.md`,
+  GUIDE-5 recipe 8, GUIDE-6 `color/lumetri.md`. Verified on PC: engine coach / shortcuts /
+  workflow 56 ok, ui-egui lib 143 ok, `--test ui -- coach export_ui i18n` 31 ok. Owed: export
+  page screenshot with an HDR sequence (folded into the phase-6 screenshot pass). CLOUD-QUEUE
+  refilled (GUIDE-7 editing, GUIDE-8 scopes, COACH-WALK-1, Y1-PREP h264 field map, I18N-2).
+  Lanes B (proxies) and C (render cache) recovered by two Opus agents in their worktrees
+  (through `fc-cargo.sh`).
+- **2026-10-12 03:05, 6.2 auto proxies merged** (lane B, recovered after the OOM kill; Opus
+  finisher + Opus review "approve after fixes", fixes `3989b146`; merge `2798066e`).
+  `crates/engine/src/proxy_jobs.rs`: half-size proxies as background-worker jobs (H.265 Main 10
+  on VA-API, ProRes 422 Proxy fallback, one retry), for 4:2:2 long-GOP clips always and ≥ 4K
+  long-GOP clips while `media.autoProxies` is on; on import / open (reattach) / relink; only in
+  the desktop app (`AutoProxies::enabled`, headless and CLI queue nothing); jobs deduped by output
+  file; proxy links set outside the undo history (`set_links`: redo survives); never deletes a
+  file any item uses as original media; `.partial` → rename. Proxy mode Auto / On / Off
+  (`enableProxies` migrates), Settings ▸ Media ▸ Proxies; commands `media.proxyMode`,
+  `media.autoProxies`, `media.cancelProxies`, `media.proxyStatus`, `media.createProxies
+  {preset:"auto"}`; Project panel badges (proxy queued / building / failed; amber "4:2:2:
+  software decode, proxies recommended"); remix analysis and colour match read originals; guide
+  `proxies.md`; bench `xm5-multicut proxies`, `xm5-422-play proxies`, `xm5-jkl L 2x proxies`
+  (not run yet). Tests: engine 691, ui-egui lib 143, ui coach / media / export_ui / settings 70,
+  clippy + fmt clean. **Owed:** frame server sets the per-frame motion hint (Auto uses one shared
+  playing / scrubbing flag today); proxy bench numbers; 4:2:2 proxy creation speed at 6.2K.
+- **2026-10-12 03:28, 6.3 render cache merged** (lane C, recovered after the OOM kill; Opus
+  finisher + Opus review "approve after fixes", fixes `8a3c815b`; merge `cd0bb40b`). Engine
+  (`render_cache.rs`): Smart / All / Off queue on the background worker (near the playhead
+  first, then red / yellow / graded stretches), 2 s H.265 10-bit parts on VA-API (ProRes 422 HQ
+  fallback; cancelled parts don't count as H.265 failures), parts named by the v3 segment hash
+  (now includes source size + mtime), `index.json` (bytes from the file system, names validated,
+  per-file owner = project path: clean-up only touches this project's files), size limit with
+  10 % hysteresis that never evicts the active sequence's parts (stops and reports
+  `limitReached` instead), orphaned `.part` clean-up, job tracking by JobId; queues only after
+  ~1 s without playing / scrubbing / exporting. Commands `cache.status|setMode|pause|resume|
+  clearUnused`; Settings ▸ Media Cache ▸ Render Cache (status ≤ 2 Hz, Pause / Resume / Delete
+  Unused); timeline "Building" state; the frame server opens the next cached part early; guide
+  `render-cache.md`; bench `xm5-multicut cached`, `xm5-jkl L 2x cached`,
+  `xm5-cache-while-playing` (not run yet). Tests: engine 707, render 300, ui-egui lib 143, ui
+  coach / cache / settings / timeline / media / export_ui 122, clippy + fmt clean. **Owed:**
+  bench numbers (6.6), a screenshot of Settings ▸ Media Cache and the Building bar, a way to claim
+  old unowned cache folders (`cache.claimFolder`; v2 caches are now stale and never deleted
+  automatically), the in-place re-export is picked up on the next edit / reopen.
+  **Owner request (live, 03:15): use the Dell for the Intel 4:2:2 work.** The 6.1b lane (Opus,
+  worktree here) now builds and tests on the Dell (branch `lane-6-1b` pushed there, worktree
+  `~/Projects/fc-6-1b`), final parity on both Intel GPUs + the AMD 4:2:0 check on this PC.
+- **2026-10-12 03:45–04:05, 6.6 quick passes (synthetic clips, `--quick`, one run each, machine
+  idle after the owner closed the app; JSON `target/bench/xm5-6.6-{proxies,cached,cache-while}-quick.json`):**
+  with automatic proxies: `xm5-multicut proxies` 360 / **0** dropped (0 of 5 cuts drop),
+  `xm5-422-play proxies` 240 / **0** (before: 0 / 240 on time from the software decoder),
+  `xm5-jkl L 2x proxies` 120 / **0** (new picture every p50 33 / p95 34 / max 49 ms). Proxy
+  creation: 4 × 4:2:0 6.2K clips in 473 s, the 20 s 4:2:2 clip in 51 s. With the render cache:
+  `xm5-multicut cached` 360 / **0** (40 parts, 0.24 GB in 77 s), `xm5-jkl L 2x cached` 120 /
+  **0**, `xm5-cache-while-playing` 240 / **0** (the worker waits while playing). So Phase 6's
+  acceptance targets (zero drops at cuts, 4:2:2 with proxies, L 2×) hold in quick passes
+  (synthetic). Note: RSS 7.9 GB in `xm5-422-play proxies` comes from the earlier software
+  decode in the same process (proxy creation), not from playback (memory cap still owed).
+- **2026-10-12 04:05, 6.1b review:** lane done (Opus; edits here, builds / Intel tests on the
+  Dell; branch `worktree-agent-ae8a1bf9feca4a020`, `b02900a1`, `a6642f55`): `Display::
+  for_hevc_422()` (+ `FILMCRAFT_VAAPI_422_DEVICE`), Y210 surfaces, base + rext parameter
+  buffers in one `…HEVCExtension` buffer (ABI-tested against libva 2.24), read-back to 4:2:2
+  frames, software fallback, badge only on the software path. **Bit-exact** on all 18 4:2:2
+  fixtures + the first 10 pictures of the 6.2K xm5 4:2:2 clip on both Intel GPUs (Dell UHD 770,
+  this PC's UHD 750); 41 4:2:0 fixtures still bit-exact on AMD. Single synthetic run on the
+  UHD 750 with read-back: 8.2 fps hardware vs 3.6 fps software (debug build). Damaged streams
+  reset Intel's engine (kernel-logged GPU hang, recovers in 1–7 s; the 4:2:0 path does the same):
+  the 4:2:2 stream stops using hardware after its first failed picture until the next seek.
+  Opus FFI review: approve after fixes (unmap before destroy on an error path, sync pooled
+  surfaces before reuse / grey writes, warm the 4:2:2 display probe off the UI thread, 4:2:0
+  grey fallback, SAFETY comment, per-stream failure flag); fixes in progress.
+- **2026-10-12, live session (owner Q&A on Resolve parity): plans added.** AUDIO-PLAN.md (A1–A3),
+  GRADE-PLAN G3 (Magic Mask) and G4 (advanced grading), COMPOSITOR-PLAN C3 / C4 approved, new
+  order in §1a.6, decisions in §1a.35. No code changed.
+- **2026-10-12 04:15, 6.1b merged** (`b63dcb38`; review fixes `c7dc529f`: plane checks before
+  `vaMapBuffer`, every pooled spare synced before reuse (failed sync → fresh surface), grey
+  stand-in synced first and falls back to the unwritten surface on 4:2:0, 4:2:2 display search
+  warmed on a background thread (UI probe non-blocking: badge only once software decode is
+  known), SAFETY comment covers iHD, session-wide failure flag noted in the badge tooltip,
+  damaged-sample `vaapi.rs` tests take the engine exclusively). Post-merge on this PC: codecs +
+  engine 707, platform all green (incl. `va_hevc_422` 5/5 on the UHD 750, `vaapi.rs` 15/15),
+  ui-egui lib 143, ui media 17, clippy + fmt clean. Dell worktree / branches removed.
+  **Owed:** the Intel → AMD DMA-BUF hand-off (§1a.30), decode-to-screen fps at 1× / 2× with
+  hardware 4:2:2 (release build), software-decoder multithreading (fallback; ask before a large
+  effort).
+- **6.7 lane A (TNR kernel) done** (`40e4dd90`, Opus): CPU σ ratio ±1 0.50 / 0.59 (background /
+  disc), ±2 0.38 / 0.50, ghost index 0.049, edge growth +0.12 / +0.17 px; GPU parity ≤ 7.7e-7
+  rel on AMD and Intel. Timings (synthetic, single run): CPU flow 640×427 pair 352 ms one way
+  (dev profile), AMD blend at 6224×4152 37 ms (±1) / 55 ms (±2). In Opus review.
+- **2026-10-12, live session: RAW-PLAN added** (R1 CinemaDNG, R2 ProRes RAW fork-only), §1a.36
+  fork-only separation rule, `docs/fork/FORK-ONLY.md` manifest. No code changed.
+- **2026-10-12, live session: AI-PLAN added** (AI1 portable fast inference, after C2), §1a.37.
+  No code changed.
+- **2026-10-12 04:33, 6.7 lane A merged** (`51822334`; Opus review fixes `b1da23e7`): FX VRAM
+  budget (4 GiB default, `FILMCRAFT_FX_VRAM_MB` / `set_fx_vram_budget`; over budget → ±1, then
+  skipped with a warning), CPU `plan::effect_image` replays earlier ops on neighbours
+  (`gpufx::apply_ops`), flow scale must be within 1e-3…1e4, `tnr::fixture` behind a render
+  `test-support` feature, more GPU tests. **Never-crash fix:** `GpuCompositor::effect_image` /
+  `read_output` read back in row bands within `max_buffer_size` (u64 math); a 6224×4152 test
+  hit the wgpu validation panic before and passes now on both GPUs. Post-merge: render + gpu +
+  export on AMD, gpu on Intel: 507 passed; clippy, fmt, `xtask wasm`, `xtask layers` green.
+- **2026-10-12, live session: GRADE-PLAN G2c added** (white-balance picker + auto balance, after
+  Phase 6), §1a.38. No code changed.
+- **2026-10-12 05:17, 6.1b DMA-BUF hand-off Intel → AMD merged** (`f6d5230c`; Opus lane, Opus
+  FFI review → fixes `30aca650`). iHD always tiles Y210, so the linear memory comes from Vulkan
+  (`interop::alloc_dmabuf`: host-visible + host-coherent, never a discrete GPU's device-local
+  memory, external-buffer query first, dedicated allocation when required), imported by iHD as a
+  DRM PRIME 2 Y210 surface, VPP copy, sync, export; AMD imports it as Rgba16Unorm and a compute
+  pass (`gpu/src/unpack422.rs`) unpacks to R16 / RG16 planes. CPU read-back maps the linear
+  DMA-BUF (`DMA_BUF_IOCTL_SYNC`) so the decoded surface goes back to the pool right after the
+  copy. Fallbacks: env `FILMCRAFT_NO_GPU_IMPORT`, no VPP / linear surface / failed copy or export
+  → read-back per stream; a compositor refusal sets a process-wide flag → all streams read back
+  (logged once). Parity: 18 4:2:2 fixtures + 6.2K xm5 first pictures, AMD and Intel compositing;
+  pool-reuse stress test. Timings (release, 6240×4160, synthetic, other lane building): decode →
+  GPU frame **44–47 ms hand-off vs 103–146 ms read-back + upload** (~21–22 fps). Post-merge:
+  platform + gpu + frame 183 passed (AMD + Intel), clippy, fmt, wasm green. Owed: decode-to-
+  screen fps at 1× / 2× in the app; Dell check; the VPP context is leaked once per display on
+  purpose (destroying it crashed iHD's vaSyncSurface).
+- **2026-10-12 05:39, 6.7 temporal NR integration merged** (`92a69304`; Opus lane, Opus review →
+  fixes `bd167932`). Node params `tnr.luma|chroma|frames|motion` (missing = identity, schema
+  v16), first active node only (provisional, owner Q9), outside the node's mask; neighbours at
+  t ± k inside the clip or its active transition, through retiming (interpolated frames skipped),
+  never across a cut; flow LRU keyed by media ref + identity + size + mtime with in-flight
+  dedupe; runs at export (so render-cache parts) and on the paused Program frame (non-TNR frame
+  first, then TNR); TNR-only clips keep the plain fast paths while playing; Noise tab rows
+  `grade.param.tnr.*`; guide `color/noise.md` temporal section; bench `xm5-export-tnr`,
+  `xm5-cache-tnr` (not run). Post-merge: project / render / export / engine / gpu on AMD,
+  `tnr_render` on Intel, ui-egui lib + ui coach / grade / color / export_ui / monitor / media,
+  **workspace clippy** and fmt all green. Owed: Export Frame (`file.exportFrame`) without TNR;
+  6.2K numbers.
+- **2026-10-12 05:52, Phase 6 acceptance: export from 4:2:2 originals keeps the source chroma**
+  (synthetic). (a) The 6.2K xm5 4:2:2 clip → `filmcraft-cli export --preset "Apple ProRes 422 HQ"`
+  (2 s, 60 frames, 26.7 s): ProRes HQ, `yuv422p10le`, 6240×4160. PSNR vs the source is low on
+  every plane (Y 26 dB) because the sequence's colour pipeline transforms values, so PSNR isn't
+  the test; the clip also has too little vertical chroma detail to tell 4:2:2 from 4:2:0. (b)
+  Decisive fixture (`target/fixtures/hevc422-chroma-rows.mov`, x265 lossless 4:2:2 10-bit,
+  chroma alternating every row, generated with ffmpeg as a fixture tool): source Cb rows 312 /
+  712, Cr 662 / 362; export Cb 327 / 698, Cr 651 / 375 → the row-rate chroma survives (93 % of
+  the amplitude; a 4:2:0 path would give ~512 / 512). Owed: turn (b) into an automated test in
+  `crates/export` / engine export tests.
+- **2026-10-12 05:56, Phase 6 quick pass (synthetic, `--quick`, one run each, idle PC,
+  `target/bench/xm5-phase6-quick-*.json`), on original media (no proxies / cache):**
+  play-full 237 / 3 dropped; multicut 333 / 27 (4 of 5 cuts drop, 21 in the first 15 frames);
+  jkl L 2× 58 / 12 (p50 66 ms); **422-play 213 / 27** (before 6.1b: 0 / 240 on time from the
+  software decoder) with Intel hardware decode + DMA-BUF hand-off; scrub p50 609 / p95 776 ms (was
+  709 / 810); decode 4:2:0 39.6 fps, **4:2:2 32.6 fps** (software ~14). With proxies / the render
+  cache (03:45–04:05 passes): 0 dropped in multicut, 422-play and L 2×, so Phase 6's acceptance
+  holds through proxies / cache as planned; drops on originals stay decoder-bound (§1a.15).
+- **2026-10-12 07:13, Phase 6 accepted:** `cargo xtask ci` green (tests 1652 s, total 1691 s; first
+  run failed only `filmcraft-cli closed_stdout_ends_quietly`: the 6.1b background 4:2:2 display
+  search made libva print "iHD_drv_video.so init failed" to stderr; fixed in `22cd7a43` by routing
+  libva messages to the log as upstream does; that test is the regression test). Guide
+  `hardware.md` updated for 4:2:2 on the Intel engine. Tag `phase-6`.

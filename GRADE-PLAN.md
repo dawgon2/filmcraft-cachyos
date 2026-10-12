@@ -88,6 +88,10 @@ an old project loads unchanged; play-graded 6.2K quick pass shows no regression.
    stable seed per frame (deterministic, so golden tests work); offered as a node option.
 7. Scopes follow the grade output (they already sample the composite, so check it only).
 8. **Resolve workflow setting (owner, 2026-10-11):** Settings ▸ **Workflow: Premiere / Resolve**.
+   *(Owner, 2026-10-12, FORK-PLAN §1a.39: Resolve is the fork's default, Premiere stays an
+   option; the home screen, page chrome and page layouts continue in
+   [`RESOLVE-UI-PLAN.md`](RESOLVE-UI-PLAN.md). Reference screenshots of every Color palette:
+   `plan/resolve/screenshots/`.)*
    Resolve switches, in one go:
    - **Pages:** a page bar at the bottom (Media, Cut / Edit, Color, Fairlight, Deliver) mapped to
      FilmCraft workspaces (`crates/ui-egui/src/dock.rs` `workspace()`); the **Color page** layout:
@@ -238,7 +242,71 @@ lesson can be completed end to end through the control channel (each step's high
 real widget and its completion condition fires), and the coach's answers on a fixed set of 30
 beginner questions pass the control-name check. Tag `grade-2b`, build per FORK-PLAN §1a.9.
 
-### Phase G3 and later: deferred (§6)
+### Phase G2c: white-balance picker and auto balance (owner, 2026-10-12; ≈ 6–12 h)
+
+Added by the owner 2026-10-12: "a color dropper tool for white balance that automatically
+balances it and the greens / purples". Runs right after FORK-PLAN Phase 6, before Y1 (§1a.6,
+§1a.38). Today there is no white-balance picker anywhere (the qualifier picker and Effect
+Controls' colour eyedropper exist and are reused).
+1. **WB picker on a grade node** (Primaries, next to Temperature / Tint): click a point, or drag a
+   box, on something that should be grey or white in the Program monitor. The sample is averaged
+   over the box (5 × 5 px for a click) **at the node's input**, so picking again gives the same
+   result instead of compounding. Clipped (near white), near-black and strongly saturated samples
+   are rejected with a message ("pick something grey or white").
+2. **Solve both axes at once:** find the node's **temperature (blue / amber) and tint (green /
+   magenta)** that make the sample neutral (R = G = B in the working space), by numerically
+   inverting the node's existing temperature / tint operation (no new grading maths). Two
+   controls, two chromaticity coordinates, so it's exact within the slider ranges; if the cast
+   needs more than the range, clamp and say so. One undo step; the sliders show the result and
+   stay adjustable.
+3. **Auto balance** (button, no click): estimate the neutral from the frame (robust grey-world
+   over mid-tone, low-saturation pixels, excluding clipped areas), then the same solver. Also
+   in **Lumetri ▸ Basic Correction** as Premiere's **WB Selector** (sets Lumetri's Temperature /
+   Tint the same way; Premiere parity, a candidate to contribute upstream).
+4. Commands `grade.wb.pick` (point or rect, uv), `grade.wb.auto`, `lumetri.wb.pick`; automation
+   ids on every button; the Coach / guide (`color/primaries.md`) explain when to use it.
+
+**Accept:** synthetic grey-chart frames with known casts (warm, cool, green, magenta and
+combinations, in F-Log2 and Rec.709) come out neutral within ΔE 2000 < 1 on the picked patch;
+picking twice changes nothing; auto balance lands within ΔE < 3 on the charts; clipped / black /
+NaN / out-of-frame picks never crash and explain. Tag `grade-2c`.
+
+### Phase G3: Magic Mask, ML subject isolation (owner, 2026-10-12; ≈ 40–80 h)
+
+Added by the owner 2026-10-12 ("definitely something useful"); runs after AI-PLAN AI1 and AUDIO-PLAN A2,
+whose run-time-dispatched candle inference layer this reuses (FORK-PLAN §1a.6, §1a.35).
+1. **Spike first:** pick a permissively licensed (Apache-2.0 / MIT) promptable segmentation model
+   with video propagation (e.g. the SAM 2 family) that candle can run; measure per-frame time on
+   the i5-11600K CPU (candle has no AMD GPU backend) at preview and full resolution. Write the
+   choice and numbers in §7. **The model download needs the owner's yes when G3 starts** (his
+   A2 consent covers only the audio model).
+2. **Tool:** on a grade node, click / scribble on a person or object (or "person" / "face" /
+   "clothing" quick modes if the model supports them); the mask propagates forward and back as a
+   background job (`catch_unwind`, cancellable), cached per frame like the render cache, and
+   becomes a matte for the node exactly like a window or qualifier (`FxOp::Masked`), with
+   refine controls (grow / shrink, soften, invert, clean black / white) and per-frame strokes to
+   fix drift.
+3. Commands `grade.magicMask.*`; the mask is stored per node (stroke prompts + cached mattes,
+   regenerable), so projects stay small and load without the model.
+
+**Accept:** on test clips with a known matte (synthetic composites of a person over varied
+backgrounds, plus `~/Videos` clips judged by eye, §5) the mask's IoU stays above a target set in
+the spike over 10 s of movement; a fix stroke updates only the affected frames; no model or a
+corrupt model never crashes and says why. Tag `grade-3`.
+
+### Phase G4: advanced grading tools (owner, 2026-10-12: later; ≈ 50–90 h)
+
+Runs after COMPOSITOR-PLAN C4 (its planar tracker is reused here); the order can change.
+1. **Colour warper:** hue / saturation mesh (and chroma / luma) with draggable points, compiled
+   to a 2D LUT `ColorOp` in the fused pass.
+2. **HDR-style zone wheels:** extra tonal zones (dark / shadow / light / highlight / specular)
+   with adjustable ranges and falloff, plus global, as a corrector option on a node.
+3. **3D qualifier:** strokes in the image pick a volume in colour space (soft, despill), as an
+   alternative key to the HSL qualifier.
+4. **Planar-tracked windows:** windows follow C3's planar tracker (signs, screens, walls).
+Tag `grade-4`.
+
+### Later still: deferred (§6)
 
 ## 4. Order against FORK-PLAN (owner's decision)
 
@@ -267,8 +335,8 @@ backends). **Current order: FORK-PLAN §1a.6** (G0 ✓ → G1 ✓ → U0 ✓ →
 ## 6. Deferred (advanced / pro)
 
 Parallel, layer, splitter / combiner nodes, key mixer, outside nodes (now scheduled: COMPOSITOR-PLAN C2, after C1); HDR wheels, colour warper,
-3D qualifier; planar tracking; grade groups (pre / post clip), timeline
-grades; halation, glow; Magic Mask (ML, conflicts with pure Rust); ACES, Dolby Vision; matching
+3D qualifier, planar tracking (now scheduled: G4, owner 2026-10-12); grade groups (pre / post clip), timeline
+grades; halation, glow; Magic Mask (now scheduled: G3, owner 2026-10-12; pure-Rust candle inference); ACES, Dolby Vision; matching
 every control's exact feel to Resolve. The §2 data model keeps all of these possible.
 
 ## 7. How the work is run (subagents and sessions)

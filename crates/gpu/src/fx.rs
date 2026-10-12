@@ -11,6 +11,13 @@
 //! Box blurs (Gaussian Blur, Camera Blur, the blur inside Unsharp / Sharpen) run per pixel for
 //! radii up to [`BOX_PER_PIXEL_MAX`] and as a running sum per row / column above, so a huge
 //! radius costs O(1) per pixel like on the CPU (radii are capped by `gaussian_boxes`).
+//!
+//! Temporal noise reduction (`FxOp::TemporalDenoise`, fork 6.7) also draws each neighbouring
+//! source frame into a scratch texture, replays the passes of the ops before it there (so the
+//! neighbour is in the same state as the layer's image), converts it to (Y, Cb, Cr, α)
+//! (`OP_TEMPORAL_INIT`), uploads the flows as `Rg32Float` textures and blends everything in one
+//! `temporal_accumulate` pass (accumulation and finish fused: the luma and chroma sums and their
+//! two weights are five values, more than one storage texture holds).
 
 use std::collections::{HashMap, HashSet};
 
@@ -54,6 +61,9 @@ const OP_MEDIAN_MASK: u32 = 30;
 const OP_VIDEO_LIMITER: u32 = 31;
 const OP_DENOISE: u32 = 32;
 const OP_DENOISE_YCC: u32 = 33;
+const OP_TEMPORAL_INIT: u32 = 34;
+/// Neighbour slots of the temporal pass (`tnr::MAX_NEIGHBOURS`).
+const TEMPORAL_SLOTS: usize = 4;
 // (Lumetri is not one op: it is a colour chain, `FxOp::ColorChain`, fork ADR 0003)
 /// Step codes of colour-chain passes: plain, key (writes the mask), masked (reads it).
 const CHAIN_KEY: u32 = 1;
@@ -79,8 +89,13 @@ pub(crate) struct FxStage {
     bgl: wgpu::BindGroupLayout,
     /// Draws a layer's source into a working texture (`composite.wgsl` `fs`, no blending).
     source: wgpu::RenderPipeline,
+    /// The temporal blend (`temporal_accumulate`) and its second bind group's layout.
+    temporal: wgpu::ComputePipeline,
+    tbgl: wgpu::BindGroupLayout,
     pool: HashMap<(u32, u32), Vec<Target>>,
     used: HashSet<(u32, u32)>,
+    /// GPU memory one layer's working textures may take ([`FX_VRAM_BUDGET`]).
+    budget: u64,
 }
 
 /// Which compute pipeline a pass runs.
@@ -92,21 +107,40 @@ enum Pipe {
     ChainKey,
     ChainMasked,
     Mask,
+    Temporal,
 }
 
 /// One compute pass of a job.
 struct Dispatch {
     pipe: Pipe,
     bg: wgpu::BindGroup,
+    /// Group 1 (the temporal pass only).
+    bg1: Option<wgpu::BindGroup>,
     groups: (u32, u32),
+}
+
+/// One recorded piece of a job, in order.
+enum Work {
+    /// Draw a source frame (layer bind group) into a working texture.
+    Source {
+        bg: wgpu::BindGroup,
+        target: wgpu::TextureView,
+    },
+    Compute(Dispatch),
+}
+
+/// A temporal op of a job: its drawable neighbours (source bind group and sanitised flows, in
+/// `tnr::select` order), the passes to replay on them, and the constants.
+struct TemporalSpec {
+    nbrs: Vec<(wgpu::BindGroup, filmcraft_render::flow::FlowField, filmcraft_render::flow::FlowField)>,
+    pre: Vec<Step>,
+    params: filmcraft_render::tnr::TnrParams,
 }
 
 /// The recorded work of one layer's effects (bind groups made; recorded into the frame's encoder
 /// right before the layer is drawn, so layers can share pooled textures).
 pub(crate) struct FxJob {
-    source_bg: wgpu::BindGroup,
-    source_target: wgpu::TextureView,
-    dispatches: Vec<Dispatch>,
+    work: Vec<Work>,
     /// The texture holding the result.
     pub(crate) result: wgpu::TextureView,
     pub(crate) result_texture: wgpu::Texture,
@@ -129,6 +163,8 @@ struct Step {
     save: bool,
     /// The mask mix: reads the saved image.
     restore: bool,
+    /// The temporal blend of `TemporalSpec` n (a combine: src = current YCC, aux = original).
+    temporal: Option<usize>,
 }
 
 fn step(code: u32, i1: [u32; 4], p: &[f32]) -> Step {
@@ -136,7 +172,7 @@ fn step(code: u32, i1: [u32; 4], p: &[f32]) -> Step {
     for (d, s) in q.iter_mut().zip(p) {
         *d = *s;
     }
-    Step { run: false, code, i1, p: q, combine: false, unsharp_blur: false, program: None, save: false, restore: false }
+    Step { run: false, code, i1, p: q, combine: false, unsharp_blur: false, program: None, save: false, restore: false, temporal: None }
 }
 
 /// Box passes along x (vertical = false) or y for the radii (radius 0 is a no-op on the CPU).
@@ -299,8 +335,72 @@ fn steps(op: &FxOp) -> Vec<Step> {
                 out.push(f);
             }
         }
+        // (built by `FxStage::job`, which has the neighbours' bind groups)
+        FxOp::TemporalDenoise { .. } => {}
     }
     out
+}
+
+/// Bytes per working-texture texel (`FX_FORMAT`).
+const FX_TEXEL_BYTES: u64 = 16;
+
+/// Default GPU memory the effect stage's working textures of one layer may take (bytes): above
+/// it, temporal noise reduction degrades to ±1 frame, then is skipped. 4 GiB fits ±2 at 6.2K
+/// (8 textures of 413 MB). Override with the `FILMCRAFT_FX_VRAM_MB` environment variable or
+/// `GpuCompositor::set_fx_vram_budget`.
+pub const FX_VRAM_BUDGET: u64 = 4 << 30;
+
+/// [`FX_VRAM_BUDGET`], or `FILMCRAFT_FX_VRAM_MB` (megabytes) when set to a number.
+pub fn fx_vram_budget_default() -> u64 {
+    std::env::var("FILMCRAFT_FX_VRAM_MB").ok().and_then(|v| v.trim().parse::<u64>().ok()).map_or(FX_VRAM_BUDGET, |mb| mb.saturating_mul(1 << 20))
+}
+
+/// The main passes of `fx` and its temporal ops, with temporal radii capped at `cap` (0: the
+/// temporal ops are left out). `neighbours[j]` is aligned with `tnr::select` at the op's own
+/// radius; capping drops the farther neighbours from that list.
+fn plan_steps(fx: &LayerFx, neighbours: &[Vec<Option<wgpu::BindGroup>>], max: u32, cap: u8) -> (Vec<Step>, Vec<TemporalSpec>) {
+    let mut all: Vec<Step> = Vec::new();
+    let mut specs: Vec<TemporalSpec> = Vec::new();
+    for (j, op) in fx.ops.iter().enumerate() {
+        let FxOp::TemporalDenoise { luma, chroma, radius, motion, inputs } = op else {
+            all.extend(steps(op));
+            continue;
+        };
+        let (Some(inp), Some(params)) = (inputs, filmcraft_render::tnr::params(*luma, *chroma, *motion)) else { continue };
+        let bgs = neighbours.get(j);
+        let nbrs: Vec<_> = filmcraft_render::tnr::select(inp, *radius)
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, &i)| {
+                let n = inp.neighbours.get(i)?;
+                let bg = bgs?.get(slot)?.as_ref()?;
+                if n.offset.unsigned_abs() > cap {
+                    return None;
+                }
+                let (f, b) = (n.flow.sanitized(), n.back.sanitized());
+                (f.w as u32 <= max && f.h as u32 <= max).then(|| (bg.clone(), f, b))
+            })
+            .take(TEMPORAL_SLOTS)
+            .collect();
+        if nbrs.is_empty() {
+            continue;
+        }
+        let pre: Vec<Step> = fx.ops.get(..j).unwrap_or_default().iter().filter(|o| !matches!(o, FxOp::TemporalDenoise { .. })).flat_map(steps).collect();
+        specs.push(TemporalSpec { nbrs, pre, params });
+        let mut init = step(OP_TEMPORAL_INIT, [0; 4], &[]);
+        init.unsharp_blur = true;
+        all.push(init);
+        let mut acc = step(0, [0; 4], &[]);
+        acc.combine = true;
+        acc.temporal = Some(specs.len() - 1);
+        all.push(acc);
+    }
+    (all, specs)
+}
+
+/// Working textures a list of passes needs (ping-pong, Unsharp's original, a masked save).
+fn textures_for(steps: &[Step]) -> usize {
+    2 + usize::from(steps.iter().any(|s| s.combine)) + usize::from(steps.iter().any(|s| s.save))
 }
 
 impl FxStage {
@@ -406,6 +506,29 @@ impl FxStage {
             multiview_mask: None,
             cache: None,
         });
+        // the temporal pass: group 1 = its constants, the neighbours' (Y, Cb, Cr, α) and their
+        // forward / backward flows (`Rg32Float`, read with textureLoad)
+        let mut tentries = vec![wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+            count: None,
+        }];
+        tentries.extend((1..=(3 * TEMPORAL_SLOTS) as u32).map(tex));
+        let tbgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fx-temporal"), entries: &tentries });
+        let tpl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("fx-temporal"),
+            bind_group_layouts: &[Some(&bgl), Some(&tbgl)],
+            immediate_size: 0,
+        });
+        let temporal = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("fx-temporal"),
+            layout: Some(&tpl),
+            module: &shader,
+            entry_point: Some("temporal_accumulate"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
         Self {
             px: compute("fx_px"),
             run: compute("fx_run"),
@@ -416,9 +539,17 @@ impl FxStage {
             no_program,
             bgl,
             source,
+            temporal,
+            tbgl,
             pool: HashMap::new(),
+            budget: fx_vram_budget_default(),
             used: HashSet::new(),
         }
+    }
+
+    /// Set the working-texture budget (bytes; see [`FX_VRAM_BUDGET`]).
+    pub(crate) fn set_budget(&mut self, bytes: u64) {
+        self.budget = bytes;
     }
 
     /// Start a frame: pooled textures of sizes no layer uses by [`end_frame`](Self::end_frame)
@@ -462,15 +593,18 @@ impl FxStage {
     }
 
     /// Prepare the passes of `fx`, whose source draw uses `source_bg` (a layer bind group whose
-    /// uniforms map the frame onto the working image). None when the working image does not fit
-    /// in a texture (the layer is then drawn without its effects — never larger than the source
-    /// frame, which would not have uploaded either).
+    /// uniforms map the frame onto the working image). `neighbours[j]`: for a temporal op at
+    /// `fx.ops[j]`, the source bind groups of its `tnr::select`ed neighbours (same mapping as
+    /// `source_bg`; None where a neighbour can't be drawn, which skips it). None when the working
+    /// image does not fit in a texture (the layer is then drawn without its effects — never
+    /// larger than the source frame, which would not have uploaded either).
     pub(crate) fn job(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         fx: &LayerFx,
         source_bg: wgpu::BindGroup,
+        neighbours: &[Vec<Option<wgpu::BindGroup>>],
         dummy: &wgpu::TextureView,
     ) -> Option<FxJob> {
         let (w, h) = (fx.size.0.max(1), fx.size.1.max(1));
@@ -478,17 +612,49 @@ impl FxStage {
         if w > max || h > max {
             return None;
         }
-        let all: Vec<Step> = fx.ops.iter().flat_map(steps).collect();
-        let n = 2 + usize::from(all.iter().any(|s| s.combine)) + usize::from(all.iter().any(|s| s.save));
-        let targets = self.targets(device, (w, h), n);
+        // the working textures must fit the budget: temporal ops degrade to ±1, then are skipped
+        let px_bytes = u64::from(w) * u64::from(h) * FX_TEXEL_BYTES;
+        let wanted = fx.ops.iter().any(|o| matches!(o, FxOp::TemporalDenoise { inputs: Some(_), .. }));
+        let mut chosen = None;
+        for cap in [filmcraft_render::tnr::MAX_RADIUS, 1, 0] {
+            let (all, specs) = plan_steps(fx, neighbours, max, cap);
+            let n_main = textures_for(&all);
+            // per temporal op: a (Y, Cb, Cr, α) texture per neighbour plus scratch for its replay
+            let extra = specs.iter().map(|t| t.nbrs.len() + if t.pre.is_empty() { 1 } else { textures_for(&t.pre) }).max().unwrap_or(0);
+            let bytes = px_bytes.saturating_mul((n_main + extra) as u64);
+            if bytes <= self.budget || cap == 0 {
+                if wanted && cap < filmcraft_render::tnr::MAX_RADIUS {
+                    log::warn!(
+                        "temporal noise reduction at {w}×{h}: working textures over the {} MB GPU budget; {}",
+                        self.budget >> 20,
+                        if cap == 0 { "skipped (identity)" } else { "limited to ±1 frame" }
+                    );
+                }
+                chosen = Some((all, specs, n_main, extra));
+                break;
+            }
+        }
+        let (all, specs, n_main, extra) = chosen?;
+        let targets = self.targets(device, (w, h), n_main + extra);
         let views: Vec<wgpu::TextureView> = targets.iter().map(|t| t.1.clone()).collect();
-        let mut dispatches = Vec::with_capacity(all.len());
-        let mut cur = 0usize;
+        let main: Vec<usize> = (0..n_main).collect();
+        let spare: Vec<usize> = (n_main..n_main + extra).collect();
+        let mut work = vec![Work::Source { bg: source_bg, target: views.first()?.clone() }];
+        let cx = RouteCx { device, queue, views: &views, size: (w, h), dummy, specs: &specs, spare: &spare };
+        let cur = self.route(&cx, &all, &main, 0, &mut work)?;
+        Some(FxJob { work, result: views.get(cur)?.clone(), result_texture: targets.get(cur)?.0.clone() })
+    }
+
+    /// Route `steps` through the working textures `slots` (indices into `cx.views`) starting
+    /// from the image in `start`; the passes are appended to `work`. The index holding the
+    /// result.
+    fn route(&self, cx: &RouteCx<'_>, steps: &[Step], slots: &[usize], start: usize, work: &mut Vec<Work>) -> Option<usize> {
+        let mut cur = start;
         // Unsharp: the image its blur started from (kept while its blur passes run)
         let mut orig: Option<usize> = None;
         // a masked effect: the image before it (kept until its mask mix)
         let mut saved: Option<usize> = None;
-        for s in &all {
+        for s in steps {
             if s.save {
                 saved = Some(cur);
                 continue;
@@ -498,67 +664,21 @@ impl FxStage {
                 orig = Some(cur);
             }
             let keep = if s.unsharp_blur || s.combine { orig } else { None };
-            let dst = (0..n).find(|k| *k != cur && Some(*k) != keep && Some(*k) != saved)?;
+            let dst = slots.iter().copied().find(|k| *k != cur && Some(*k) != keep && Some(*k) != saved)?;
             let aux = match (s.combine, orig, s.restore, saved) {
-                (true, Some(o), _, _) => views.get(o)?,
-                (_, _, true, Some(v)) => views.get(v)?,
-                _ => dummy,
+                (true, Some(o), _, _) => cx.views.get(o)?,
+                (_, _, true, Some(v)) => cx.views.get(v)?,
+                _ => cx.dummy,
             };
-            let mut bytes = Vec::with_capacity(128);
-            for v in [s.code, w, h, 0].iter().chain(&s.i1) {
-                bytes.extend_from_slice(&v.to_le_bytes());
-            }
-            for v in &s.p {
-                bytes.extend_from_slice(&v.to_le_bytes());
-            }
-            let buf = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("fx-u"),
-                size: bytes.len() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            queue.write_buffer(&buf, 0, &bytes);
-            let program = s.program.as_ref().map(|p| {
-                let b = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("fx-program"),
-                    size: (p.len().max(4) * 4) as u64,
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                let bytes: Vec<u8> = p.iter().flat_map(|v| v.to_le_bytes()).collect();
-                queue.write_buffer(&b, 0, &bytes);
-                b
-            });
-            let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("fx"),
-                layout: &self.bgl,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(views.get(cur)?) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(views.get(dst)?) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(aux) },
-                    wgpu::BindGroupEntry { binding: 4, resource: program.as_ref().unwrap_or(&self.no_program).as_entire_binding() },
-                ],
-            });
-            let groups = if s.run {
-                let lines = if s.i1[2] != 0 { w } else { h };
-                (lines.div_ceil(64), 1)
-            } else {
-                (w.div_ceil(16), h.div_ceil(16))
-            };
-            let pipe = if s.program.is_some() {
-                match s.code {
-                    CHAIN_KEY => Pipe::ChainKey,
-                    CHAIN_MASKED => Pipe::ChainMasked,
-                    MASK_MIX | MASK_SCALE => Pipe::Mask,
-                    _ => Pipe::Chain,
+            let (src_v, dst_v) = (cx.views.get(cur)?, cx.views.get(dst)?);
+            match s.temporal {
+                Some(t) => {
+                    let spec = cx.specs.get(t)?;
+                    let nbr = self.temporal_neighbours(cx, spec, work)?;
+                    work.push(Work::Compute(self.temporal_dispatch(cx, spec, src_v, dst_v, aux, &nbr)?));
                 }
-            } else if s.run {
-                Pipe::Run
-            } else {
-                Pipe::Px
-            };
-            dispatches.push(Dispatch { pipe, bg, groups });
+                None => work.push(Work::Compute(self.dispatch(cx, s, src_v, dst_v, aux))),
+            }
             cur = dst;
             if s.combine {
                 orig = None;
@@ -567,50 +687,231 @@ impl FxStage {
                 saved = None;
             }
         }
-        Some(FxJob {
-            source_bg,
-            source_target: views.first()?.clone(),
-            dispatches,
-            result: views.get(cur)?.clone(),
-            result_texture: targets.get(cur)?.0.clone(),
-        })
+        Some(cur)
     }
 
-    /// Record a job (source draw, then its compute passes) into `enc`.
+    /// One pass of `s` from `src` into `dst` (`aux`: the image a combine or mask mix reads).
+    fn dispatch(&self, cx: &RouteCx<'_>, s: &Step, src: &wgpu::TextureView, dst: &wgpu::TextureView, aux: &wgpu::TextureView) -> Dispatch {
+        let (device, queue, (w, h)) = (cx.device, cx.queue, cx.size);
+        let mut bytes = Vec::with_capacity(128);
+        for v in [s.code, w, h, 0].iter().chain(&s.i1) {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in &s.p {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fx-u"),
+            size: bytes.len() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&buf, 0, &bytes);
+        let program = s.program.as_ref().map(|p| {
+            let b = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("fx-program"),
+                size: (p.len().max(4) * 4) as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let bytes: Vec<u8> = p.iter().flat_map(|v| v.to_le_bytes()).collect();
+            queue.write_buffer(&b, 0, &bytes);
+            b
+        });
+        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fx"),
+            layout: &self.bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(src) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(dst) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(aux) },
+                wgpu::BindGroupEntry { binding: 4, resource: program.as_ref().unwrap_or(&self.no_program).as_entire_binding() },
+            ],
+        });
+        let groups = if s.run {
+            let lines = if s.i1[2] != 0 { w } else { h };
+            (lines.div_ceil(64), 1)
+        } else {
+            (w.div_ceil(16), h.div_ceil(16))
+        };
+        let pipe = if s.program.is_some() {
+            match s.code {
+                CHAIN_KEY => Pipe::ChainKey,
+                CHAIN_MASKED => Pipe::ChainMasked,
+                MASK_MIX | MASK_SCALE => Pipe::Mask,
+                _ => Pipe::Chain,
+            }
+        } else if s.run {
+            Pipe::Run
+        } else {
+            Pipe::Px
+        };
+        Dispatch { pipe, bg, bg1: None, groups }
+    }
+
+    /// Draw each neighbour of `spec` into scratch, replay the passes before the temporal op on
+    /// it and convert it to (Y, Cb, Cr, α) into its own texture. Those textures' indices.
+    fn temporal_neighbours(&self, cx: &RouteCx<'_>, spec: &TemporalSpec, work: &mut Vec<Work>) -> Option<Vec<usize>> {
+        let k = spec.nbrs.len();
+        let (slots, scratch) = (cx.spare.get(..k)?, cx.spare.get(k..)?);
+        let first = *scratch.first()?;
+        for ((bg, _, _), &slot) in spec.nbrs.iter().zip(slots) {
+            work.push(Work::Source { bg: bg.clone(), target: cx.views.get(first)?.clone() });
+            let end = self.route(cx, &spec.pre, scratch, first, work)?;
+            let init = step(OP_TEMPORAL_INIT, [0; 4], &[]);
+            work.push(Work::Compute(self.dispatch(cx, &init, cx.views.get(end)?, cx.views.get(slot)?, cx.dummy)));
+        }
+        Some(slots.to_vec())
+    }
+
+    /// The temporal blend: `src` = the current image as (Y, Cb, Cr, α), `aux` = the original,
+    /// `nbr` = the neighbours' converted textures (indices into `cx.views`).
+    fn temporal_dispatch(
+        &self,
+        cx: &RouteCx<'_>,
+        spec: &TemporalSpec,
+        src: &wgpu::TextureView,
+        dst: &wgpu::TextureView,
+        aux: &wgpu::TextureView,
+        nbr: &[usize],
+    ) -> Option<Dispatch> {
+        let (device, queue) = (cx.device, cx.queue);
+        let base = self.dispatch(cx, &step(0, [0; 4], &[]), src, dst, aux);
+        let p = &spec.params;
+        // TU: n = (count, luma on, chroma on, 0), k = (luma k, chroma k, agree k, 0),
+        // gi[4] = (grid w, grid h, 0, 0), gs[4] = (scale x, scale y, 0, 0)
+        let mut bytes: Vec<u8> = Vec::with_capacity(160);
+        for v in [spec.nbrs.len() as u32, u32::from(p.luma_k.is_some()), u32::from(p.chroma_k.is_some()), 0] {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in [p.luma_k.unwrap_or(0.0), p.chroma_k.unwrap_or(0.0), p.agree_k, 0.0] {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        for i in 0..TEMPORAL_SLOTS {
+            let (gw, gh) = spec.nbrs.get(i).map_or((1, 1), |n| (n.1.w as u32, n.1.h as u32));
+            for v in [gw, gh, 0, 0] {
+                bytes.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        for i in 0..TEMPORAL_SLOTS {
+            let [sx, sy] = spec.nbrs.get(i).map_or([1.0; 2], |n| n.1.scale);
+            for v in [sx, sy, 0.0, 0.0] {
+                bytes.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fx-temporal-u"),
+            size: bytes.len() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&buf, 0, &bytes);
+        let flow_view = |f: &filmcraft_render::flow::FlowField| {
+            let (fw, fh) = (f.w.max(1) as u32, f.h.max(1) as u32);
+            let t = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("fx-flow"),
+                size: wgpu::Extent3d { width: fw, height: fh, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rg32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let data: Vec<u8> = f.uv.iter().flat_map(|v| v.iter().flat_map(|c| c.to_le_bytes())).collect();
+            if data.len() == (fw as usize) * (fh as usize) * 8 {
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo { texture: &t, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                    &data,
+                    wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(fw * 8), rows_per_image: Some(fh) },
+                    wgpu::Extent3d { width: fw, height: fh, depth_or_array_layers: 1 },
+                );
+            }
+            t.create_view(&Default::default())
+        };
+        let mut views: Vec<wgpu::TextureView> = Vec::with_capacity(3 * TEMPORAL_SLOTS);
+        for i in 0..TEMPORAL_SLOTS {
+            views.push(match nbr.get(i) {
+                Some(&v) => cx.views.get(v)?.clone(),
+                None => cx.dummy.clone(),
+            });
+        }
+        for i in 0..TEMPORAL_SLOTS {
+            match spec.nbrs.get(i) {
+                Some((_, f, b)) => {
+                    views.push(flow_view(f));
+                    views.push(flow_view(b));
+                }
+                None => {
+                    views.push(cx.dummy.clone());
+                    views.push(cx.dummy.clone());
+                }
+            }
+        }
+        let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() }];
+        entries.extend(views.iter().enumerate().map(|(i, v)| wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(v) }));
+        let bg1 = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fx-temporal"), layout: &self.tbgl, entries: &entries });
+        Some(Dispatch { pipe: Pipe::Temporal, bg1: Some(bg1), ..base })
+    }
+
+    /// Record a job (source draws and compute passes, in order) into `enc`.
     pub(crate) fn record(&self, enc: &mut wgpu::CommandEncoder, job: &FxJob) {
-        {
-            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("fx-source"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &job.source_target,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.source);
-            pass.set_bind_group(0, &job.source_bg, &[]);
-            pass.draw(0..6, 0..1);
-        }
-        if job.dispatches.is_empty() {
-            return;
-        }
-        let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("fx"), timestamp_writes: None });
-        for d in &job.dispatches {
-            pass.set_pipeline(match d.pipe {
-                Pipe::Px => &self.px,
-                Pipe::Run => &self.run,
-                Pipe::Chain => &self.chain,
-                Pipe::ChainKey => &self.chain_key,
-                Pipe::ChainMasked => &self.chain_masked,
-                Pipe::Mask => &self.mask,
-            });
-            pass.set_bind_group(0, &d.bg, &[]);
-            pass.dispatch_workgroups(d.groups.0, d.groups.1, 1);
+        let mut i = 0;
+        while let Some(w) = job.work.get(i) {
+            match w {
+                Work::Source { bg, target } => {
+                    let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("fx-source"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: target,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(&self.source);
+                    pass.set_bind_group(0, bg, &[]);
+                    pass.draw(0..6, 0..1);
+                    i += 1;
+                }
+                Work::Compute(_) => {
+                    let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("fx"), timestamp_writes: None });
+                    while let Some(Work::Compute(d)) = job.work.get(i) {
+                        pass.set_pipeline(match d.pipe {
+                            Pipe::Px => &self.px,
+                            Pipe::Run => &self.run,
+                            Pipe::Chain => &self.chain,
+                            Pipe::ChainKey => &self.chain_key,
+                            Pipe::ChainMasked => &self.chain_masked,
+                            Pipe::Mask => &self.mask,
+                            Pipe::Temporal => &self.temporal,
+                        });
+                        pass.set_bind_group(0, &d.bg, &[]);
+                        if let Some(b) = &d.bg1 {
+                            pass.set_bind_group(1, b, &[]);
+                        }
+                        pass.dispatch_workgroups(d.groups.0, d.groups.1, 1);
+                        i += 1;
+                    }
+                }
+            }
         }
     }
+}
+
+/// What routing passes needs besides the steps.
+struct RouteCx<'a> {
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    views: &'a [wgpu::TextureView],
+    size: (u32, u32),
+    dummy: &'a wgpu::TextureView,
+    specs: &'a [TemporalSpec],
+    /// Textures beyond the main chain's (the temporal neighbours' and their scratch).
+    spare: &'a [usize],
 }

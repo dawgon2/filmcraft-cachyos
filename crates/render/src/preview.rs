@@ -13,10 +13,10 @@
 //! visible layer (bottom to top, with its track index) the track item (source in, speed, reverse,
 //! frame hold, effects with every keyframe…, its timeline offset from the segment start) and its
 //! source (the media reference and stream info, interpretation, nested sequences recursively,
-//! adjustment layer settings). Ids, names, labels, markers, link/group membership and source
-//! In/Out marks are excluded because they don't change pixels. Because positions are relative, a
-//! ripple edit that moves a segment along the timeline keeps its hash (and its preview); only the
-//! segments whose content changed get a new hash. Effects that print absolute sequence time (the
+//! adjustment layer settings). Ids, names, labels, markers, link/group membership, source In/Out
+//! marks and an attached proxy are excluded because they don't change the rendered pixels.
+//! Because positions are relative, a ripple edit that moves a segment along the timeline keeps
+//! its hash (and its preview); only the segments whose content changed get a new hash. Effects that print absolute sequence time (the
 //! Timecode effect) also hash the absolute start frame. The hash is computed from the serde JSON
 //! form of those values, so it is stable across save/load and across processes.
 //!
@@ -44,7 +44,13 @@ use filmcraft_time::{FrameRate, Tick};
 use serde::Serialize;
 
 /// Bump when the hash layout or the preview format changes (invalidates every preview).
-pub const HASH_VERSION: &str = "filmcraft-preview-v1";
+///
+/// v2 (fork 6.3): the media's attached proxy is no longer hashed, so attaching or detaching a
+/// proxy keeps every preview (previews and the render cache always render from the original).
+///
+/// v3 (fork 6.3 review): a source file's size and modification time are hashed with its path, so
+/// a file re-exported in place invalidates its previews.
+pub const HASH_VERSION: &str = "filmcraft-preview-v3";
 
 /// Multiple of the frame duration a frame may take before a segment is marked red. Playback
 /// renders ahead on several worker threads (2–6), so a frame can take somewhat longer than its
@@ -315,6 +321,14 @@ fn hash_item(h: &mut Fnv128, project: &Project, it: &TrackItem, origin: Tick, de
     hash_source(h, project, it.item, depth);
 }
 
+/// A source file's size and modification time (nanoseconds since 1970); zeros when it can't be
+/// read (offline, or no file system).
+pub fn file_identity(path: &str) -> (u64, u128) {
+    let Ok(md) = std::fs::metadata(path) else { return (0, 0) };
+    let mtime = md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    (md.len(), mtime)
+}
+
 fn hash_source(h: &mut Fnv128, project: &Project, id: ItemId, depth: u32) {
     let Some(pi) = project.item(id) else {
         h.json(&"missing");
@@ -330,7 +344,14 @@ fn hash_source(h: &mut Fnv128, project: &Project, id: ItemId, depth: u32) {
             c.mark_in = None;
             c.mark_out = None;
             c.markers.clear();
+            // previews render from the original, never the proxy: attaching / detaching one
+            // must not invalidate them (the original's identity stays in the hash)
+            c.proxy = None;
             h.json(&("media", &c));
+            if let filmcraft_project::MediaRef::File { path } = &c.media {
+                // the same path re-exported in place is another picture
+                h.json(&file_identity(path));
+            }
             if matches!(c.media, filmcraft_project::MediaRef::Generator(_)) {
                 // generators may draw their name (demo footage)
                 h.json(&pi.name);
@@ -453,16 +474,22 @@ fn decode_cost_ms(project: &Project, id: ItemId, depth: u32) -> f64 {
                 .iter()
                 .filter(|t| t.enabled)
                 .flat_map(|t| t.items.iter())
-                .map(|it| decode_cost_ms(project, it.item, depth + 1) + item_fx_cost(it, 1.0))
+                .map(|it| decode_cost_ms(project, it.item, depth + 1) + item_fx_cost(project, it, 1.0))
                 .fold(0.0, f64::max);
             10.0 + id_cost
         }
     }
 }
 
-fn item_fx_cost(it: &TrackItem, px: f64) -> f64 {
-    it.effects.iter().filter(|e| e.enabled && e.def().is_some_and(|d| !d.intrinsic)).map(|e| effect_cost_ms(&e.effect) * px).sum()
+fn item_fx_cost(project: &Project, it: &TrackItem, px: f64) -> f64 {
+    let fx: f64 = it.effects.iter().filter(|e| e.enabled && e.def().is_some_and(|d| !d.intrinsic)).map(|e| effect_cost_ms(&e.effect) * px).sum();
+    // temporal noise reduction (fork 6.7) never plays live: the segment needs rendering
+    fx + if crate::grade::ever_temporal(project, it) { TEMPORAL_NR_COST_MS * px.max(1.0) } else { 0.0 }
 }
+
+/// Estimated cost of temporal noise reduction per frame (flows + neighbour draws): far beyond
+/// real time, so a segment with it is always marked for rendering.
+const TEMPORAL_NR_COST_MS: f64 = 400.0;
 
 fn cpu_layer(project: &Project, it: &TrackItem) -> bool {
     let fx = it.effects.iter().any(|e| e.enabled && e.def().is_some_and(|d| !d.intrinsic)) || it.has_opacity_masks();
@@ -473,11 +500,11 @@ fn cpu_layer(project: &Project, it: &TrackItem) -> bool {
 
 fn layer_cost(project: &Project, it: &TrackItem, px: f64, force_cpu: bool) -> f64 {
     if project.item(it.item).is_some_and(|p| matches!(p.kind, ItemKind::AdjustmentLayer { .. })) {
-        return 10.0 * px + item_fx_cost(it, px);
+        return 10.0 * px + item_fx_cost(project, it, px);
     }
     let decode = decode_cost_ms(project, it.item, 0);
     let path = if force_cpu || cpu_layer(project, it) { 10.0 * px } else { 0.5 };
-    decode + path + item_fx_cost(it, px)
+    decode + path + item_fx_cost(project, it, px)
 }
 
 fn estimate_cost(project: &Project, seq: &Sequence, layers: &[Layer]) -> f64 {

@@ -3437,6 +3437,7 @@
 	Encoder	编码器
 	Hardware (H.265 has no software encoder)	硬件（H.265 无软件编码器）
 	Hardware (AV1 has no software encoder)	硬件（AV1 无软件编码器）
+	HDR export: written as Main 10 (10-bit)	HDR 导出：以 Main 10（10 位）写入
 	Text Properties	文本属性
 	Text Box Height	文本框高度
 	Paragraph Text	段落文本
@@ -3585,6 +3586,14 @@
 	NR luma	亮度降噪
 	NR chroma	色度降噪
 	NR radius	降噪半径
+# fork 6.7: temporal noise reduction
+	Temporal	时域
+	Temporal NR luma	时域亮度降噪
+	Temporal NR chroma	时域色度降噪
+	Temporal NR frames	时域降噪帧数
+	Temporal NR motion	时域降噪运动容差
+	Shown on the paused frame, at export and in the render cache; not while playing.	在暂停的帧、导出和渲染缓存中显示；播放时不显示。
+	Temporal NR only runs on the first active node: these values are ignored here.	时域降噪只在第一个启用的节点上运行：此处的值将被忽略。
 # fork G2.5 / G2.6: soft clip and node LUT
 	Soft clip	柔和剪切
 	Highlight roll-off	高光柔和滚降
@@ -3719,3 +3728,46 @@
 	Got it	知道了
 	Turn hints off	关闭提示
 	Grading Lessons…	调色课程…
+	1 clip	1 个剪辑
+	{n} clips	{n} 个剪辑
+	Adjacent Clips	相邻剪辑
+	Disabled	已停用
+	Mini timeline	迷你时间轴
+	No video clips in this sequence	此序列中没有视频剪辑
+	Selected Clips	所选剪辑
+	Show several clips side by side in the Program monitor (Ctrl+Alt+W)	在节目监视器中并排显示多个剪辑 (Ctrl+Alt+W)
+	Split Screen	分屏
+	Split Screen Off	关闭分屏
+	Proxies	代理
+	Auto (proxies while playing, original when paused)	自动（播放时用代理，暂停时用原始素材）
+	Always use proxies	始终使用代理
+	Never use proxies	从不使用代理
+	Create proxies automatically for 4K and larger long-GOP clips	为 4K 及以上的长 GOP 剪辑自动创建代理
+	Building proxy: {pct} %	正在创建代理：{pct} %
+	Proxy queued	代理已排队
+	Proxy failed: {error}	代理创建失败：{error}
+	Proxy attached	已附加代理
+	4:2:2: software decode, proxies recommended	4:2:2：软件解码，建议使用代理
+	Building the render cache	正在生成渲染缓存
+	In this project's render cache: {parts} part(s), {size} of {limit}.	此项目的渲染缓存：{parts} 个片段，{size} / {limit}。
+	Building a part ({percent} %); {queued} queued.	正在生成片段（{percent} %）；{queued} 个排队中。
+	Paused.	已暂停。
+	Off: nothing new is cached.	关闭：不缓存新内容。
+	{queued} part(s) queued: the cache renders while you are not playing, scrubbing or exporting.	{queued} 个片段排队中：渲染缓存在您不播放、不拖动播放头、不导出时进行。
+	Up to date.	已是最新。
+	Pause	暂停
+	Resume	继续
+	Delete Unused	删除未使用的文件
+	Deleted {n} render cache file(s)	已删除 {n} 个渲染缓存文件
+	Render Cache	渲染缓存
+	Render cache	渲染缓存
+	Render cache size limit	渲染缓存大小上限
+	Smart	智能
+	Render Cache Status	渲染缓存状态
+	Set Render Cache Mode	设置渲染缓存模式
+	Pause Render Cache	暂停渲染缓存
+	Resume Render Cache	继续渲染缓存
+	Delete Unused Render Cache Files	删除未使用的渲染缓存文件
+	Cache	缓存
+	The size limit is reached: raise it, or Delete Unused, to cache more.	已达到大小上限：提高上限或删除未使用的文件即可缓存更多内容。
+	4:2:2: software decode (hardware 4:2:2 decode failed earlier in this session), proxies recommended	4:2:2：软件解码（本次会话中 4:2:2 硬件解码曾失败），建议使用代理

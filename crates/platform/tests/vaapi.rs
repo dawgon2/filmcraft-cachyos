@@ -6,7 +6,7 @@
 //! 2160p) must be identical (bit-exact planes, colour, pixel aspect, pts and presentation
 //! order), also after `reset` + reseek and a mid-stream `flush`; a forced mid-stream failure must
 //! continue in software with the software decoder's exact output; what the hardware path does not
-//! take (interlaced and 10-bit H.264, 4:2:2 HEVC) is declined; damaged samples and parameter sets give
+//! take (interlaced and 10-bit H.264, 4:2:2 HEVC without a 4:2:2 display) is declined; damaged samples and parameter sets give
 //! errors or fall back, never crash or hang. Skips without ffmpeg (fixture generator) or without a
 //! VA-API driver.
 #![cfg(target_os = "linux")]
@@ -198,6 +198,7 @@ fn parity_streaming(name: &str, s: &Stream) {
 
 #[test]
 fn bit_exact_with_the_software_decoder() {
+    let _engine = engine_shared();
     let ff = filmcraft_testkit::require_ffmpeg!();
     let streams = small_streams(&ff);
     assert!(streams.len() > H264.len(), "fixtures");
@@ -232,6 +233,7 @@ fn large(size: &str) {
 
 #[test]
 fn h264_1080p_and_2160p_are_bit_exact() {
+    let _engine = engine_shared();
     large("1920x1080");
     large("3840x2160");
 }
@@ -266,6 +268,7 @@ fn large_hevc(size: &str, pix_fmt: &str) {
 
 #[test]
 fn hevc_main_and_main10_1080p_and_2160p_are_bit_exact() {
+    let _engine = engine_shared();
     for size in ["1920x1080", "3840x2160"] {
         large_hevc(size, "yuv420p");
         large_hevc(size, "yuv420p10le");
@@ -274,6 +277,7 @@ fn hevc_main_and_main10_1080p_and_2160p_are_bit_exact() {
 
 #[test]
 fn mid_stream_failure_continues_in_software() {
+    let _engine = engine_shared();
     let ff = filmcraft_testkit::require_ffmpeg!();
     for (name, s) in small_streams(&ff) {
         let name = name.as_str();
@@ -302,9 +306,10 @@ fn mid_stream_failure_continues_in_software() {
 }
 
 /// What the hardware path does not take is declined (the software decoders keep it): interlaced
-/// and 10-bit H.264, and HEVC (not decoded through VA-API yet).
+/// and 10-bit H.264, and HEVC 4:2:2 without a display that has Main 4:2:2 10.
 #[test]
 fn declines_what_the_hardware_path_does_not_take() {
+    let _engine = engine_shared();
     let ff = filmcraft_testkit::require_ffmpeg!();
     let src = "testsrc2=s=640x360:r=24:d=1";
     let cases: [(&str, Vec<&str>); 2] = [
@@ -320,7 +325,10 @@ fn declines_what_the_hardware_path_does_not_take() {
     let args = ["-f", "lavfi", "-i", src, "-c:v", "libx265", "-tag:v", "hvc1", "-x265-params", "log-level=error:keyint=12", "-pix_fmt", "yuv422p10le"];
     if let Some(path) = fixture(&ff, "va_hevc_422.mp4", &args) {
         let s = read_stream(&path);
-        assert!(filmcraft_platform::vaapi_factory(&s.entry).is_none(), "HEVC 4:2:2: declined");
+        // taken only where a display has HEVC Main 4:2:2 10 (fork 6.1b, tests/va_hevc_422.rs)
+        let taken = filmcraft_platform::vaapi_factory(&s.entry).and_then(Result::ok).map(|d| d.name().to_string());
+        let want = filmcraft_platform::hevc_422_in_hardware().then(|| filmcraft_platform::va_hevc::NAME_422.to_string());
+        assert_eq!(taken, want, "HEVC 4:2:2: declined without a 4:2:2 display");
     }
     // Settings ▸ Playback ▸ Hardware decoding Off
     let Some(path) = named(&ff, "h264_high.mp4") else { return };
@@ -347,6 +355,7 @@ fn bounded(what: &str, limit: Duration, f: impl FnOnce() + Send + 'static) {
 
 #[test]
 fn damaged_samples_and_parameter_sets_never_crash_or_hang() {
+    let _engine = engine_exclusive();
     let ff = filmcraft_testkit::require_ffmpeg!();
     for (name, s) in small_streams(&ff) {
         let name = name.as_str();
@@ -424,6 +433,7 @@ fn damaged_samples_and_parameter_sets_never_crash_or_hang() {
 /// fails nor leaks VA-API objects into the next one.
 #[test]
 fn repeated_initialisation() {
+    let _engine = engine_shared();
     let ff = filmcraft_testkit::require_ffmpeg!();
     let Some(path) = named(&ff, "h264_high.mp4") else { return };
     let s = read_stream(&path);
@@ -440,6 +450,7 @@ fn repeated_initialisation() {
 /// pictures.
 #[test]
 fn concurrent_decoders() {
+    let _engine = engine_shared();
     let ff = filmcraft_testkit::require_ffmpeg!();
     let mut paths: Vec<_> = named(&ff, "h264_high.mp4").into_iter().collect();
     for (name, profile, params) in H264.iter().take(3) {
@@ -470,6 +481,7 @@ fn concurrent_decoders() {
 /// A decoder used and moved between threads (decoders migrate between frame workers).
 #[test]
 fn decoder_moves_between_threads() {
+    let _engine = engine_shared();
     let ff = filmcraft_testkit::require_ffmpeg!();
     let Some(path) = named(&ff, "h264_high.mp4") else { return };
     let s = read_stream(&path);
@@ -524,6 +536,7 @@ mod pipe {
 
     #[test]
     fn bit_exact_with_the_software_decoders() {
+        let _engine = engine_shared();
         let ff = filmcraft_testkit::require_ffmpeg!();
         for (name, _) in FIXTURES {
             let Some(path) = named(&ff, name) else { continue };
@@ -563,6 +576,7 @@ mod pipe {
 
     #[test]
     fn mid_stream_failure_continues_in_software() {
+        let _engine = engine_shared();
         let ff = filmcraft_testkit::require_ffmpeg!();
         for (name, _) in FIXTURES {
             let Some(path) = named(&ff, name) else { continue };
@@ -607,6 +621,7 @@ mod pipe {
 
     #[test]
     fn damaged_samples_and_parameter_sets_never_crash_or_hang() {
+        let _engine = engine_exclusive();
         let ff = filmcraft_testkit::require_ffmpeg!();
         for (name, _) in FIXTURES {
             let Some(path) = named(&ff, name) else { continue };
@@ -683,6 +698,7 @@ mod pipe {
     /// (or an error from it) takes the stream; never a hardware decoder that then fails.
     #[test]
     fn hevc_422_is_declined() {
+        let _engine = engine_shared();
         let ff = filmcraft_testkit::require_ffmpeg!();
         let args = [
             "-f",
@@ -702,7 +718,13 @@ mod pipe {
         ];
         let Some(path) = fixture(&ff, "hevc_422_10.mp4", &args) else { return };
         let s = read_stream(&path);
-        assert!(filmcraft_platform::vaapi_factory(&s.entry).is_none(), "4:2:2 declined");
+        if filmcraft_platform::hevc_422_in_hardware() {
+            // a display with HEVC Main 4:2:2 10 (fork 6.1b, tests/va_hevc_422.rs): the in-process decoder takes it
+            let d = filmcraft_platform::vaapi_factory(&s.entry).expect("taken").expect("decoder");
+            assert_eq!(d.name(), filmcraft_platform::va_hevc::NAME_422);
+        } else {
+            assert!(filmcraft_platform::vaapi_factory(&s.entry).is_none(), "4:2:2 declined");
+        }
     }
 
     /// Regression: picture conversion used rayon's global pool, so while every global worker was a
@@ -711,6 +733,7 @@ mod pipe {
     /// and fast with the global pool saturated by blocked tasks.
     #[test]
     fn decodes_while_the_global_rayon_pool_is_blocked() {
+        let _engine = engine_shared();
         let ff = filmcraft_testkit::require_ffmpeg!();
         let Some(path) = named(&ff, "hevc_main.mp4") else { return };
         let s = read_stream(&path);
@@ -742,6 +765,7 @@ mod pipe {
     /// is the software decoder's sequence either way.
     #[test]
     fn in_process_failure_continues_on_the_pipe_then_in_software() {
+        let _engine = engine_shared();
         let ff = filmcraft_testkit::require_ffmpeg!();
         for (name, _) in FIXTURES.iter().filter(|f| f.0.starts_with("hevc")) {
             let Some(path) = named(&ff, name) else { continue };

@@ -151,7 +151,11 @@ pub fn eval_cases() -> Vec<EvalCase> {
         ("curve_s_opposite_signs", node(&[("curve.master", ParamValue::Curve(vec![[0.0, 0.0], [0.25, 0.15], [0.75, 0.85], [1.0, 1.0]]))])),
         ("tiny_gain_zero_coverage", node(&[gain(0.002)])),
     ];
-    let src = frame();
+    measure_all(&frame(), list.into_iter().map(|(l, n)| (l.to_string(), n)).collect())
+}
+
+/// Grade every node on `src` and measure it ([`explain_node`], template for "Node 1").
+fn measure_all(src: &Image, list: Vec<(String, GradeNode)>) -> Vec<EvalCase> {
     list.into_iter()
         .map(|(label, n)| {
             let mut out = src.clone();
@@ -159,11 +163,180 @@ pub fn eval_cases() -> Vec<EvalCase> {
             for op in compile_fx(&g, Tick(0), WS, GradeCtx::default(), src.w, src.h) {
                 op.apply(&mut out);
             }
-            let facts = explain_node(&n, Tick(0), &src, &out, WS);
+            let facts = explain_node(&n, Tick(0), src, &out, WS);
             let template = facts.sentence("Node 1");
-            EvalCase { label: label.to_string(), facts, template }
+            EvalCase { label, facts, template }
         })
         .collect()
+}
+
+// ---- the second held-out set ------------------------------------------------------------------
+
+/// The seed of [`eval_cases_v2`]'s control values.
+pub const V2_SEED: u64 = 2;
+const W2: usize = 96;
+const H2: usize = 64;
+/// Patch colours of the second frame (linear Rec. 709; none is in the training generator's palette).
+const SKIN2: [f32; 3] = [0.38, 0.21, 0.14];
+const TEAL2: [f32; 3] = [0.03, 0.12, 0.16];
+const FOLIAGE2: [f32; 3] = [0.08, 0.16, 0.03];
+const RED2: [f32; 3] = [0.42, 0.07, 0.06];
+
+/// SplitMix64 (the training generator's generator, its own seed here).
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    /// Uniform in [a, b).
+    fn range(&mut self, a: f64, b: f64) -> f64 {
+        a + (b - a) * ((self.next() >> 11) as f64 / (1u64 << 53) as f64)
+    }
+    fn f32(&mut self, a: f64, b: f64) -> f32 {
+        self.range(a, b) as f32
+    }
+}
+
+/// The second frame, laid out unlike the first (and unlike every training frame, which are all
+/// 120 × 60 with a horizontal ramp on top): 96 × 64, a vertical grey ramp on the left 40 columns
+/// (another curve), and a 2 × 2 grid of patches on the right (skin, teal / foliage, red).
+fn frame_v2() -> Image {
+    let mut img = Image::new(W2, H2);
+    for y in 0..H2 {
+        for x in 0..W2 {
+            let c = if x < 40 {
+                let t = (y as f32 + 0.5) / H2 as f32;
+                let v = 0.004 + 0.85 * t.powf(1.6);
+                [v, v, v]
+            } else {
+                match ((x - 40) / 28, y / 32) {
+                    (0, 0) => SKIN2,
+                    (_, 0) => TEAL2,
+                    (0, _) => FOLIAGE2,
+                    _ => RED2,
+                }
+            };
+            let i = (y * W2 + x) * 4;
+            if let Some(px) = img.px.get_mut(i..i + 4) {
+                px.copy_from_slice(&[c[0], c[1], c[2], 1.0]);
+            }
+        }
+    }
+    img
+}
+
+fn rect_window(x0: f64, y0: f64, x1: f64, y1: f64, inverted: bool) -> Mask {
+    let mut m = Mask::new("w", MaskPath::rect(x0, y0, x1, y1));
+    m.feather = Param::new(ParamValue::Float(0.0));
+    m.inverted = inverted;
+    m
+}
+
+/// A second evaluation set (the follow-up of TRAINING.md "Held-out integrity"): the control
+/// families of [`eval_cases`] (plus a few neighbours: contrast pivot, a channel curve, a real look
+/// LUT, lift master) on another frame ([`frame_v2`]), with control values drawn from seed
+/// [`V2_SEED`]. Labels start with `h2_`. Cases whose compact facts equal a training example must
+/// still be dropped against the actual training data (`explain_score --set 2 --dump-cases …
+/// --dedupe train.jsonl`); this list is the full candidate set, in a fixed order.
+pub fn eval_cases_v2() -> Vec<EvalCase> {
+    let mut r = Rng(V2_SEED ^ 0x6865_6c64_6f75_7432);
+    let gain = |v: f32| color("gain", [0.0, 0.0, 0.0, v]);
+    let qual = |hue_of: [f32; 3], width: f64, extra: &[(&'static str, ParamValue)]| {
+        let hue = qualifier_hsl(WS, hue_of)[0];
+        let mut p =
+            vec![float("qual.on", 1.0), float("qual.hue", f64::from(hue)), float("qual.hueWidth", width), float("qual.satLow", 0.12), float("qual.soft", 0.03)];
+        p.extend(extra.iter().cloned());
+        node(&p)
+    };
+    let look = crate::luts::builtins().iter().find(|b| b.id.starts_with("look-")).map(|b| format!("builtin:{}", b.id)).unwrap_or_default();
+    let w2 = W2 as f64;
+    let h2 = H2 as f64;
+    // every value is drawn in this order, so the list is fixed for a given seed
+    let list: Vec<(&str, GradeNode)> = vec![
+        ("identity", GradeNode::new(1)),
+        ("warm_gain", node(&[color("gain", [r.f32(0.04, 0.12), r.f32(0.01, 0.05), 0.0, 0.0])])),
+        ("cool_lift", node(&[color("lift", [0.0, r.f32(0.0, 0.03), r.f32(0.03, 0.07), 0.0])])),
+        ("gain_up", node(&[gain(r.f32(0.12, 0.25))])),
+        ("gain_down", node(&[gain(r.f32(-0.5, -0.25))])),
+        ("contrast_up", node(&[float("contrast", r.range(1.2, 1.5))])),
+        ("contrast_down", node(&[float("contrast", r.range(0.55, 0.8))])),
+        ("contrast_pivot", node(&[float("contrast", r.range(1.2, 1.5)), float("pivot", r.range(0.3, 0.6))])),
+        ("saturation_up", node(&[float("saturation", r.range(1.3, 1.8))])),
+        ("saturation_down", node(&[float("saturation", r.range(0.6, 0.85))])),
+        ("saturation_extreme_down", node(&[float("saturation", r.range(0.0, 0.1))])),
+        ("temperature_warm", node(&[float("temperature", r.range(20.0, 50.0))])),
+        ("temperature_cool", node(&[float("temperature", r.range(-70.0, -30.0))])),
+        ("tint_green", node(&[float("tint", r.range(-50.0, -20.0))])),
+        ("warm_tint_magenta", node(&[float("temperature", r.range(10.0, 30.0)), float("tint", r.range(20.0, 50.0))])),
+        ("qualifier_skin_gain", qual(SKIN2, r.range(0.04, 0.08), &[gain(r.f32(0.2, 0.4))])),
+        ("qualifier_teal_warm", qual(TEAL2, r.range(0.05, 0.1), &[float("temperature", r.range(30.0, 60.0))])),
+        ("qualifier_foliage_desaturate", qual(FOLIAGE2, r.range(0.05, 0.1), &[float("saturation", r.range(0.3, 0.6))])),
+        ("window_top_gain", {
+            let mut n = node(&[gain(r.f32(0.2, 0.4))]);
+            n.windows.push(rect_window(0.0, 0.0, w2, h2 / 2.0, false));
+            n
+        }),
+        ("window_inverted_cool", {
+            let mut n = node(&[float("temperature", r.range(-60.0, -30.0))]);
+            n.windows.push(rect_window(0.0, 0.0, 40.0, h2, true));
+            n
+        }),
+        ("disabled_contrast", {
+            let mut n = node(&[float("contrast", r.range(1.2, 1.5))]);
+            n.enabled = false;
+            n
+        }),
+        ("showing_matte", qual(RED2, r.range(0.04, 0.08), &[float("qual.show", 1.0), gain(r.f32(0.2, 0.4))])),
+        ("grain_only", node(&[float("grain.strength", r.range(0.3, 0.8))])),
+        ("noise_reduction_only", node(&[float("nr.luma", r.range(0.3, 0.8)), float("nr.chroma", r.range(0.3, 0.8))])),
+        ("curve_lift_shadows", {
+            let x = r.f32(0.2, 0.3);
+            let y = x + r.f32(0.06, 0.1);
+            node(&[("curve.master", ParamValue::Curve(vec![[0.0, 0.0], [x, y], [1.0, 1.0]]))])
+        }),
+        ("curve_compress_highlights", {
+            let x = r.f32(0.7, 0.8);
+            let y = x - r.f32(0.08, 0.14);
+            node(&[("curve.master", ParamValue::Curve(vec![[0.0, 0.0], [x, y], [1.0, 1.0]]))])
+        }),
+        ("curve_red_channel", node(&[("curve.r", ParamValue::Curve(vec![[0.0, 0.0], [0.5, 0.5 + r.f32(0.05, 0.1)], [1.0, 1.0]]))])),
+        (
+            "split_tone_warm_shadows",
+            node(&[color("lift", [r.f32(0.03, 0.06), r.f32(0.01, 0.03), 0.0, 0.0]), color("gain", [0.0, r.f32(0.01, 0.03), r.f32(0.06, 0.12), 0.0])]),
+        ),
+        ("extreme_brighten", node(&[gain(r.f32(1.2, 1.5))])),
+        ("extreme_darken", node(&[gain(r.f32(-0.8, -0.65))])),
+        ("gamma_midtones_down", node(&[color("gamma", [0.0, 0.0, 0.0, r.f32(-0.35, -0.2)])])),
+        ("offset_warm", node(&[color("offset", [r.f32(0.02, 0.04), r.f32(0.0, 0.01), 0.0, 0.0])])),
+        (
+            "contrast_sat_cool",
+            node(&[float("contrast", r.range(1.1, 1.3)), float("saturation", r.range(1.1, 1.3)), float("temperature", r.range(-30.0, -15.0))]),
+        ),
+        ("qualifier_skin_inverted", qual(SKIN2, r.range(0.04, 0.08), &[float("qual.invert", 1.0), float("saturation", r.range(0.5, 0.7))])),
+        ("lut_look", {
+            let mut n = node(&[float("lut.mix", r.range(0.5, 1.0))]);
+            n.lut = look.clone();
+            n
+        }),
+        ("highlight_rolloff", node(&[float("hl.rolloff", r.range(0.5, 1.0)), float("hl.knee", r.range(0.6, 0.8))])),
+        ("qualifier_and_window", {
+            let mut n = qual(SKIN2, r.range(0.04, 0.08), &[gain(r.f32(0.2, 0.4))]);
+            n.windows.push(rect_window(40.0, 0.0, 54.0, h2, false));
+            n
+        }),
+        ("curve_s", {
+            let d = r.f32(0.06, 0.12);
+            node(&[("curve.master", ParamValue::Curve(vec![[0.0, 0.0], [0.25, 0.25 - d], [0.75, 0.75 + d], [1.0, 1.0]]))])
+        }),
+        ("tiny_gain", node(&[gain(r.f32(0.001, 0.003))])),
+        ("lift_master_down", node(&[color("lift", [0.0, 0.0, 0.0, r.f32(-0.08, -0.04)])])),
+    ];
+    measure_all(&frame_v2(), list.into_iter().map(|(l, n)| (format!("h2_{l}"), n)).collect())
 }
 
 #[cfg(test)]
@@ -459,6 +632,39 @@ mod tests {
         for c in &cases {
             assert_eq!(check_explanation_labeled(&c.facts, None, Some(1), &c.template), Ok(()), "{}: {}", c.label, c.template);
         }
+    }
+
+    #[test]
+    fn second_set_is_fixed_distinct_and_its_templates_pass() {
+        let cases = eval_cases_v2();
+        assert_eq!(cases.len(), 40);
+        assert_eq!(cases, eval_cases_v2(), "deterministic");
+        let labels: std::collections::BTreeSet<_> = cases.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels.len(), cases.len(), "unique labels");
+        let first = eval_cases();
+        let mut rejected = Vec::new();
+        for c in &cases {
+            assert!(c.label.starts_with("h2_"), "{}", c.label);
+            assert!(first.iter().all(|f| f.label != c.label), "{}", c.label);
+            assert_eq!(check_grammar(&c.template), Ok(()), "{}", c.template);
+            if let Err(e) = check_explanation_labeled(&c.facts, None, Some(1), &c.template) {
+                rejected.push(format!("{}: {e}: {}", c.label, c.template));
+            }
+        }
+        // Known checker / template disagreement (reported, not fixed here): on this frame noise
+        // reduction changes 1 % of the frame (the shadows), and the checker reads the template's
+        // "also reduces noise" as a whole-picture claim while the midtones are untouched.
+        assert!(rejected.len() == 1 && rejected.iter().all(|r| r.starts_with("h2_noise_reduction_only:")), "{}", rejected.join("\n"));
+        // another frame: the visible changes measure differently from the first set's
+        let visible: Vec<&EvalCase> = cases.iter().filter(|c| c.facts.enabled && !c.facts.showing_matte && c.facts.visible()).collect();
+        assert!(visible.len() >= 30, "{} visible cases", visible.len());
+        assert!(visible.iter().all(|c| first.iter().all(|f| f.facts != c.facts)), "a visible case repeats the first set's facts");
+        // every kind is represented: changes, a disabled node, a matte view, a no-op
+        assert!(cases.iter().any(|c| !c.facts.enabled));
+        assert!(cases.iter().any(|c| c.facts.showing_matte));
+        assert!(cases.iter().any(|c| c.facts.enabled && !c.facts.showing_matte && !c.facts.visible()));
+        // the LUT case uses a real look, so it changes the picture
+        assert!(cases.iter().any(|c| c.label == "h2_lut_look" && c.facts.visible()));
     }
 
     #[test]

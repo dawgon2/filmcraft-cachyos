@@ -470,9 +470,211 @@ pub fn interpolate(a: &Image, b: &Image, t: f32) -> Image {
     out
 }
 
+// ---- public dense-flow API (fork 6.7: temporal noise reduction reuses the estimator) ----
+
+/// The largest flow grid side [`FlowField::is_valid`] accepts (larger grids are hostile input).
+pub const MAX_GRID_SIDE: usize = 8192;
+/// What a non-finite (or absurd) flow component becomes in [`FlowField::sanitized`]: far outside
+/// any frame, so whatever uses the vector sees "no match" instead of NaN.
+pub const FLOW_SENTINEL: f32 = 1.0e6;
+/// The smallest and largest image-pixels-per-grid-pixel scale [`FlowField::is_valid`] accepts.
+pub const MIN_SCALE: f32 = 1.0e-3;
+pub const MAX_SCALE: f32 = 1.0e4;
+
+/// A dense motion field on a grid covering an image: grid pixel `(i, j)` (row-major in `uv`)
+/// sits at image position `((i + 0.5)·scale[0], (j + 0.5)·scale[1])`, and its vector is the
+/// displacement in **grid** pixels (multiply by `scale` for image pixels). So image point `p`
+/// maps to grid coordinates `p / scale − 0.5`. A field from [`estimate`] maps `a` onto `b`:
+/// `a(p) ≈ b(p + f(p))`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FlowField {
+    pub w: usize,
+    pub h: usize,
+    /// Image pixels per grid pixel along x and y.
+    pub scale: [f32; 2],
+    pub uv: Vec<[f32; 2]>,
+}
+
+impl FlowField {
+    /// All-zero motion on a `w`×`h` grid with `scale` image pixels per grid pixel.
+    pub fn zero(w: usize, h: usize, scale: f32) -> Self {
+        let n = if w <= MAX_GRID_SIDE && h <= MAX_GRID_SIDE { w.saturating_mul(h) } else { 0 };
+        Self { w: if n == 0 { 0 } else { w }, h: if n == 0 { 0 } else { h }, scale: [scale; 2], uv: vec![[0.0; 2]; n] }
+    }
+
+    /// Whether the field is usable: a non-empty grid of at most [`MAX_GRID_SIDE`] per side whose
+    /// vector count matches and whose scale is finite and within [`MIN_SCALE`]…[`MAX_SCALE`]
+    /// (a denormal or huge scale would turn image positions into infinite grid coordinates).
+    pub fn is_valid(&self) -> bool {
+        self.w > 0
+            && self.h > 0
+            && self.w <= MAX_GRID_SIDE
+            && self.h <= MAX_GRID_SIDE
+            && self.uv.len() == self.w * self.h
+            && self.scale.iter().all(|s| s.is_finite() && (MIN_SCALE..=MAX_SCALE).contains(s))
+    }
+
+    /// The same field with every component finite: non-finite values become [`FLOW_SENTINEL`],
+    /// finite ones are clamped to ±[`FLOW_SENTINEL`] (the CPU and the GPU both use this form).
+    pub fn sanitized(&self) -> FlowField {
+        let c = |v: f32| if v.is_finite() { v.clamp(-FLOW_SENTINEL, FLOW_SENTINEL) } else { FLOW_SENTINEL };
+        FlowField { w: self.w, h: self.h, scale: self.scale, uv: self.uv.iter().map(|v| [c(v[0]), c(v[1])]).collect() }
+    }
+
+    #[inline]
+    fn at(&self, x: i64, y: i64) -> [f32; 2] {
+        if self.w == 0 || self.h == 0 {
+            return [0.0; 2];
+        }
+        let x = x.clamp(0, self.w as i64 - 1) as usize;
+        let y = y.clamp(0, self.h as i64 - 1) as usize;
+        self.uv.get(y * self.w + x).copied().unwrap_or([0.0; 2])
+    }
+
+    /// Bilinear sample at grid coordinates (clamped at the edges; non-finite coordinates read
+    /// the origin). The arithmetic the GPU's `flow_sample` repeats.
+    #[inline]
+    pub fn sample(&self, x: f32, y: f32) -> [f32; 2] {
+        let (x, y) = (if x.is_finite() { x } else { 0.0 }, if y.is_finite() { y } else { 0.0 });
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let (x0, y0) = (x0 as i64, y0 as i64);
+        let (a, b, c, d) = (self.at(x0, y0), self.at(x0 + 1, y0), self.at(x0, y0 + 1), self.at(x0 + 1, y0 + 1));
+        let mut o = [0.0; 2];
+        for k in 0..2 {
+            let top = a[k] + (b[k] - a[k]) * fx;
+            let bot = c[k] + (d[k] - c[k]) * fx;
+            o[k] = top + (bot - top) * fy;
+        }
+        o
+    }
+
+    /// The field re-labelled for an image of `to` pixels when it was estimated on one of `from`
+    /// pixels (e.g. a small luma draw for a full-size working image): the grid is unchanged, the
+    /// scale grows by `to / from`. Unchanged when either size is empty.
+    pub fn for_image(&self, from: (usize, usize), to: (usize, usize)) -> FlowField {
+        let mut f = self.clone();
+        if from.0 > 0 && from.1 > 0 && to.0 > 0 && to.1 > 0 {
+            f.scale = [self.scale[0] * to.0 as f32 / from.0 as f32, self.scale[1] * to.1 as f32 / from.1 as f32];
+        }
+        f
+    }
+
+    fn from_flow(f: Flow, scale: f32) -> Self {
+        FlowField { w: f.w, h: f.h, scale: [scale; 2], uv: f.uv }
+    }
+}
+
+/// The flow luma of `img` (square-root luma, box-reduced to at most [`WORK_W`] wide) and its
+/// reduction factor (image pixels per luma pixel).
+pub fn flow_luma(img: &Image) -> (Gray, usize) {
+    let s = img.w.div_ceil(WORK_W).max(1);
+    (work_luma(img, s), s)
+}
+
+/// The square-root luma value [`flow_luma`] uses for one premultiplied linear pixel (for callers
+/// that build the luma plane themselves, e.g. from a small GPU draw).
+pub fn flow_luma_value(p: [f32; 4]) -> f32 {
+    luma(p)
+}
+
+fn usable(img: &Image) -> bool {
+    img.w > 0 && img.h > 0 && img.px.len() == img.w.saturating_mul(img.h).saturating_mul(4)
+}
+
+/// Dense flow mapping `a` onto `b` (`a(p) ≈ b(p + f(p))`), estimated as for Optical Flow
+/// interpolation (pyramidal Lucas–Kanade at ≤ [`WORK_W`] px). None for empty or size-mismatched
+/// images.
+pub fn estimate(a: &Image, b: &Image) -> Option<FlowField> {
+    if (a.w, a.h) != (b.w, b.h) || !usable(a) || !usable(b) {
+        return None;
+    }
+    let ((ga, s), (gb, _)) = (flow_luma(a), flow_luma(b));
+    estimate_luma(ga, gb, s as f32)
+}
+
+/// [`estimate`] both ways, sharing the luma pyramids: (a → b, b → a).
+pub fn estimate_pair(a: &Image, b: &Image) -> Option<(FlowField, FlowField)> {
+    if (a.w, a.h) != (b.w, b.h) || !usable(a) || !usable(b) {
+        return None;
+    }
+    let ((ga, s), (gb, _)) = (flow_luma(a), flow_luma(b));
+    let (pa, pb) = (pyramid(ga), pyramid(gb));
+    let (f, g) = (dense_flow(&pa, &pb)?, dense_flow(&pb, &pa)?);
+    Some((FlowField::from_flow(f, s as f32), FlowField::from_flow(g, s as f32)))
+}
+
+/// Flow between two flow-luma planes of equal size (see [`flow_luma_value`]); `scale` = image
+/// pixels per luma pixel. None for empty, oversized or mismatched planes.
+pub fn estimate_luma(a: Gray, b: Gray, scale: f32) -> Option<FlowField> {
+    let n = a.w.checked_mul(a.h)?;
+    if (a.w, a.h) != (b.w, b.h) || n == 0 || a.w > MAX_GRID_SIDE || a.h > MAX_GRID_SIDE || a.px.len() != n || b.px.len() != n {
+        return None;
+    }
+    let f = dense_flow(&pyramid(a), &pyramid(b))?;
+    Some(FlowField::from_flow(f, scale))
+}
+
+/// Two flows chained: `f1` maps t → t+1, `f2` maps t+1 → t+2 (same grid); the result maps
+/// t → t+2: `f(p) = f1(p) + f2(p + f1(p))`. None when the grids differ or either is invalid.
+pub fn chain(f1: &FlowField, f2: &FlowField) -> Option<FlowField> {
+    if !f1.is_valid() || !f2.is_valid() || (f1.w, f1.h) != (f2.w, f2.h) || f1.scale != f2.scale {
+        return None;
+    }
+    let (f1, f2) = (f1.sanitized(), f2.sanitized());
+    let w = f1.w;
+    let uv = f1
+        .uv
+        .par_iter()
+        .enumerate()
+        .map(|(i, u)| {
+            let (x, y) = ((i % w) as f32, (i / w) as f32);
+            let v = f2.sample(x + u[0], y + u[1]);
+            [u[0] + v[0], u[1] + v[1]]
+        })
+        .collect();
+    Some(FlowField { w, h: f1.h, scale: f1.scale, uv })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_flow_api_estimates_chains_and_rejects_hostile_fields() {
+        let (a, b, c) = (texture(160, 96, 0.0, 0.0), texture(160, 96, 3.0, -2.0), texture(160, 96, 6.0, -4.0));
+        let (f, g) = estimate_pair(&a, &b).expect("pair");
+        let f2 = estimate(&b, &c).expect("flow");
+        let fc = chain(&f, &f2).expect("chain");
+        // interior vectors: (3, −2) and (6, −4) image pixels (scale 1 at 160 px)
+        let probe = |ff: &FlowField| ff.sample(80.0, 48.0);
+        let (v, w2, back) = (probe(&f), probe(&fc), probe(&g));
+        assert!((v[0] - 3.0).abs() < 0.2 && (v[1] + 2.0).abs() < 0.2, "{v:?}");
+        assert!((w2[0] - 6.0).abs() < 0.3 && (w2[1] + 4.0).abs() < 0.3, "{w2:?}");
+        assert!((back[0] + 3.0).abs() < 0.2 && (back[1] - 2.0).abs() < 0.2, "{back:?}");
+        // hostile
+        assert!(estimate(&a, &texture(80, 96, 0.0, 0.0)).is_none());
+        assert!(estimate(&Image::new(0, 0), &Image::new(0, 0)).is_none());
+        let mut bad = f.clone();
+        bad.uv.pop();
+        assert!(!bad.is_valid() && chain(&bad, &f).is_none());
+        let mut nan = f.clone();
+        nan.uv[0] = [f32::NAN, f32::INFINITY];
+        assert_eq!(nan.sanitized().uv[0], [FLOW_SENTINEL, FLOW_SENTINEL]);
+        assert!(chain(&nan, &f).is_some_and(|c| c.uv.iter().all(|v| v[0].is_finite() && v[1].is_finite())));
+        assert!(!FlowField::zero(MAX_GRID_SIDE + 1, 2, 1.0).is_valid());
+        assert!(!FlowField { scale: [f32::NAN, 1.0], ..f.clone() }.is_valid());
+        // denormal, tiny, zero, negative and huge scales are rejected; the limits are accepted
+        for s in [f32::MIN_POSITIVE / 4.0, 1e-30, 9.9e-4, 0.0, -1.0, 1.1e4, f32::INFINITY] {
+            assert!(!FlowField { scale: [1.0, s], ..f.clone() }.is_valid(), "{s}");
+            assert!(chain(&FlowField { scale: [s; 2], ..f.clone() }, &FlowField { scale: [s; 2], ..f.clone() }).is_none(), "{s}");
+        }
+        assert!(FlowField { scale: [MIN_SCALE, MAX_SCALE], ..f.clone() }.is_valid());
+        // a wide image is estimated at the working width and labelled with its scale
+        let wide = estimate(&texture(1400, 60, 0.0, 0.0), &texture(1400, 60, 12.0, 0.0)).expect("wide");
+        assert_eq!((wide.w, wide.scale), (467, [3.0, 3.0]));
+        assert_eq!(wide.for_image((1400, 60), (2800, 120)).scale, [6.0, 6.0]);
+    }
 
     /// A smooth, textured, premultiplied opaque picture sampled with the content offset by `(dx, dy)`.
     fn texture(w: usize, h: usize, dx: f32, dy: f32) -> Image {

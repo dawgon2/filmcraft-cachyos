@@ -48,6 +48,8 @@ pub mod lut;
 pub mod mask;
 pub mod scopes;
 mod transition;
+#[cfg(target_os = "linux")]
+pub mod unpack422;
 mod yuv;
 pub use export_renderer::ExportRenderer;
 pub use lut::GpuLut;
@@ -88,7 +90,9 @@ pub struct GpuCompositor {
     /// Copy of the accumulator under a blend-mode layer (allocated on first use).
     backdrop: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
     output: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
-    accum_readback_buf: Option<(wgpu::Buffer, u64)>,
+    /// Staging buffers of the accumulator read-back, one per band of rows (each within the
+    /// device's largest buffer): (buffer, size in bytes).
+    accum_readback_buf: Vec<(wgpu::Buffer, u64)>,
     uploads: HashMap<(usize, u32, u32), Uploaded>,
     clock: u64,
     dummy: wgpu::TextureView,
@@ -117,6 +121,10 @@ pub struct GpuCompositor {
     /// Imports hardware-decoded pictures in place (Linux, a device from `interop::create_device`).
     #[cfg(target_os = "linux")]
     importer: Option<interop::Importer>,
+    /// Splits imported packed 4:2:2 pictures into VRAM planes (made on first use; inner None:
+    /// the device cannot, they are read back).
+    #[cfg(target_os = "linux")]
+    unpack422: Option<Option<unpack422::Unpack422>>,
     /// GPU pictures drawn in place / read back to memory first (stats).
     pub gpu_frames_in_place: u64,
     pub gpu_frames_read_back: u64,
@@ -464,7 +472,7 @@ impl GpuCompositor {
             accum: None,
             backdrop: None,
             output: None,
-            accum_readback_buf: None,
+            accum_readback_buf: Vec::new(),
             uploads: HashMap::new(),
             clock: 0,
             dummy,
@@ -482,6 +490,8 @@ impl GpuCompositor {
             unorm16,
             #[cfg(target_os = "linux")]
             importer: interop::Importer::new(device),
+            #[cfg(target_os = "linux")]
+            unpack422: None,
             gpu_frames_in_place: 0,
             gpu_frames_read_back: 0,
         }
@@ -556,13 +566,18 @@ impl GpuCompositor {
         let up = match &f.data {
             PixelData::Gpu(s) => {
                 let (bits, texel) = match s.format() {
-                    filmcraft_frame::GpuFormat::P010 => (10u32, 65535.0 / 64.0),
+                    filmcraft_frame::GpuFormat::P010 | filmcraft_frame::GpuFormat::Y210 => (10u32, 65535.0 / 64.0),
                     filmcraft_frame::GpuFormat::Nv12 => (8, 255.0),
                 };
+                // 4:2:2 chroma is full height
+                let chroma_size = if s.format() == filmcraft_frame::GpuFormat::Y210 { (w.div_ceil(2), h) } else { (w.div_ceil(2), h.div_ceil(2)) };
                 #[cfg(target_os = "linux")]
-                let imported = match self.importer.as_mut() {
-                    Some(i) if s.crop_origin() == (0, 0) => i.import(s.as_ref()).map(|(a, b)| (a.clone(), b.clone())),
-                    _ => None,
+                let imported = if s.crop_origin() != (0, 0) {
+                    None
+                } else if s.format() == filmcraft_frame::GpuFormat::Y210 {
+                    self.import_422(s, (w, h))
+                } else {
+                    self.importer.as_mut().and_then(|i| i.import(s.as_ref()).map(|(a, b)| (a.clone(), b.clone())))
                 };
                 #[cfg(not(target_os = "linux"))]
                 let imported: Option<(wgpu::TextureView, wgpu::TextureView)> = None;
@@ -575,7 +590,7 @@ impl GpuCompositor {
                             code_scale: (1u32 << bits) as f32,
                             texel_scale: texel,
                             alpha_scale: 0.0,
-                            chroma: (w.div_ceil(2), h.div_ceil(2)),
+                            chroma: chroma_size,
                             last_used: self.clock,
                             _pixels: f.data.clone(),
                         }
@@ -751,6 +766,33 @@ impl GpuCompositor {
         key
     }
 
+    /// A packed 4:2:2 GPU picture (Intel's linear copy, fork 6.1b) imported and unpacked once
+    /// into VRAM planes (luma, interleaved chroma), or None (read it back instead). The picture
+    /// is kept alive until the unpacking has finished on the GPU, so its memory is never reused
+    /// by the decoder while being read.
+    #[cfg(target_os = "linux")]
+    fn import_422(&mut self, s: &Arc<dyn filmcraft_frame::GpuSurface>, size: (u32, u32)) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
+        if self.unpack422.is_none() {
+            self.unpack422 = Some(unpack422::Unpack422::new(&self.device));
+        }
+        // any refusal tells the decoders to stop handing such pictures over (process-wide)
+        let refuse = |why: &str| {
+            filmcraft_frame::refuse_packed_422(why);
+            None
+        };
+        let Some(unpack) = self.unpack422.as_mut().and_then(Option::as_mut) else {
+            return refuse("no 16-bit normalized textures");
+        };
+        let Some(importer) = self.importer.as_mut() else { return refuse("no DMA-BUF import") };
+        let Some((packed, _)) = importer.import(s.as_ref()) else { return refuse("the import failed") };
+        let Some(out) = unpack.run(&self.device, &self.queue, packed, size) else {
+            return refuse("unpacking failed (size beyond the device's limits)");
+        };
+        let hold = s.clone();
+        self.queue.on_submitted_work_done(move || drop(hold));
+        Some((out.luma, out.chroma))
+    }
+
     /// The source description of an uploaded frame.
     fn src_info(&self, f: &VideoFrame, key: (usize, u32, u32)) -> Option<SrcInfo> {
         let up = self.uploads.get(&key)?;
@@ -786,6 +828,47 @@ impl GpuCompositor {
         } else {
             Self::uniforms(src, &filmcraft_geom::Affine::scale(1.0 / n, 1.0 / n), 1.0, Blend::Normal, out)
         }
+    }
+
+    /// The bind group drawing `frame` onto the effect working image of `fx` (as the layer's own
+    /// source draw). None when the frame could not be uploaded.
+    fn fx_source_bg(&mut self, frame: &VideoFrame, fx: &filmcraft_render::plan::LayerFx) -> Option<wgpu::BindGroup> {
+        let key = self.upload(frame, None);
+        let src = self.src_info(frame, key)?;
+        let views = self.uploads.get(&key)?.views.clone();
+        let su = self.fx_source_uniforms(&src, frame, fx);
+        let sbuf = self.uniform_buffer(&su);
+        Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fx-source"),
+            layout: &self.layer_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: sbuf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&views[0]) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&views[1]) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&views[2]) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&views[3]) },
+            ],
+        }))
+    }
+
+    /// For each op of `fx`: the source bind groups of a temporal op's selected neighbours
+    /// (`tnr::select` order; None for one that is not a source frame), empty for other ops.
+    fn fx_neighbour_sources(&mut self, fx: &filmcraft_render::plan::LayerFx) -> Vec<Vec<Option<wgpu::BindGroup>>> {
+        use filmcraft_render::gpufx::{FxOp, NeighbourPicture};
+        let mut out = Vec::with_capacity(fx.ops.len());
+        for op in &fx.ops {
+            let mut v = Vec::new();
+            if let FxOp::TemporalDenoise { radius, inputs: Some(inp), .. } = op {
+                for i in filmcraft_render::tnr::select(inp, *radius) {
+                    v.push(match inp.neighbours.get(i).map(|n| &n.picture) {
+                        Some(NeighbourPicture::Frame { frame, .. }) => self.fx_source_bg(frame, fx),
+                        _ => None,
+                    });
+                }
+            }
+            out.push(v);
+        }
+        out
     }
 
     /// A layer's uniforms with the resample quality: Lanczos-3 when minifying with Maximum Render
@@ -966,22 +1049,11 @@ impl GpuCompositor {
             let job = match &l.fx {
                 Some(lfx) => {
                     // the source drawn onto the working image (box-decimated by n, as the CPU decodes)
-                    let su = self.fx_source_uniforms(&src, &l.frame, lfx);
-                    let sbuf = self.uniform_buffer(&su);
-                    let sbg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("fx-source"),
-                        layout: &self.layer_bgl,
-                        entries: &[
-                            wgpu::BindGroupEntry { binding: 0, resource: sbuf.as_entire_binding() },
-                            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&views[0]) },
-                            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&views[1]) },
-                            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&views[2]) },
-                            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&views[3]) },
-                        ],
-                    });
-                    match self.fx.as_mut() {
-                        Some(f) => f.job(&self.device, &self.queue, lfx, sbg, &self.dummy),
-                        None => None,
+                    let sbg = self.fx_source_bg(&l.frame, lfx);
+                    let nbrs = self.fx_neighbour_sources(lfx);
+                    match (self.fx.as_mut(), sbg) {
+                        (Some(f), Some(sbg)) => f.job(&self.device, &self.queue, lfx, sbg, &nbrs, &self.dummy),
+                        _ => None,
                     }
                 }
                 None => None,
@@ -1198,58 +1270,29 @@ impl GpuCompositor {
     /// applied, read back as linear premultiplied RGBA f32 (what `LayerFx` ops produce on the
     /// CPU from the same frame). None when the working image does not fit in a texture.
     pub fn effect_image(&mut self, frame: &VideoFrame, fx: &filmcraft_render::plan::LayerFx) -> Option<(u32, u32, Vec<f32>)> {
-        let key = self.upload(frame, None);
-        let src = self.src_info(frame, key)?;
-        let views = self.uploads.get(&key)?.views.clone();
         let (w, h) = (fx.size.0.max(1), fx.size.1.max(1));
-        let su = self.fx_source_uniforms(&src, frame, fx);
-        let sbuf = self.uniform_buffer(&su);
-        let sbg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fx-source"),
-            layout: &self.layer_bgl,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: sbuf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&views[0]) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&views[1]) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&views[2]) },
-                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&views[3]) },
-            ],
-        });
+        let sbg = self.fx_source_bg(frame, fx)?;
+        let nbrs = self.fx_neighbour_sources(fx);
         let stage = self.fx.as_mut()?;
         stage.begin_frame();
-        let job = stage.job(&self.device, &self.queue, fx, sbg, &self.dummy)?;
-        let row = (w * 16).div_ceil(256) * 256;
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fx-readback"),
-            size: (row * h) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let job = stage.job(&self.device, &self.queue, fx, sbg, &nbrs, &self.dummy)?;
         let mut enc = self.device.create_command_encoder(&Default::default());
         stage.record(&mut enc, &job);
-        enc.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo { texture: &job.result_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },
-            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-        );
+        let bands = record_readback(&self.device, &mut enc, &job.result_texture, (w, h), 16);
         self.queue.submit([enc.finish()]);
         stage.end_frame();
-        let slice = buf.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().ok()?.ok()?;
-        let data = slice.get_mapped_range().ok()?;
-        let mut out = Vec::with_capacity((w * h * 4) as usize);
-        for y in 0..h {
-            let r = data.get((y * row) as usize..(y * row + w * 16) as usize)?;
-            out.extend(r.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
-        }
-        drop(data);
-        buf.unmap();
+        let bytes = map_readback(&self.device, &bands?, (w, h), 16)?;
+        let out = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
         Some((w, h, out))
+    }
+
+    /// Set the GPU memory one layer's effect working textures may take (bytes; default
+    /// [`fx::FX_VRAM_BUDGET`] or `FILMCRAFT_FX_VRAM_MB`). Above it, temporal noise reduction
+    /// degrades to ±1 frame, then is skipped.
+    pub fn set_fx_vram_budget(&mut self, bytes: u64) {
+        if let Some(f) = self.fx.as_mut() {
+            f.set_budget(bytes);
+        }
     }
 
     /// Start reading back the scope samples of the last composited picture (at most `max_w` ×
@@ -1356,62 +1399,95 @@ impl GpuCompositor {
         self.map_accumulator(size)
     }
 
-    /// Record a copy of the accumulator into the staging buffer (grown when too small, reused
-    /// otherwise); returns its width, height and row pitch in bytes.
-    fn copy_accumulator(&mut self, enc: &mut wgpu::CommandEncoder) -> Option<(u32, u32, u32)> {
+    /// Record a copy of the accumulator into the staging buffers (one per band of rows that fits
+    /// the device's largest buffer; grown when too small, reused otherwise); returns its width,
+    /// height, row pitch in bytes and rows per band.
+    fn copy_accumulator(&mut self, enc: &mut wgpu::CommandEncoder) -> Option<(u32, u32, u32, u32)> {
         let (_, _, (w, h)) = self.accum.as_ref()?;
         let (w, h) = (*w, *h);
-        let row = w.checked_mul(8)?.div_ceil(256).checked_mul(256)?;
-        let needed = u64::from(row) * u64::from(h);
-        if self.accum_readback_buf.as_ref().is_none_or(|(_, size)| *size < needed) {
-            let b = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("accum-readback"),
-                size: needed,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            self.accum_readback_buf = Some((b, needed));
+        let (row, per) = readback_bands(&self.device, w, h, 8)?;
+        let n = h.div_ceil(per) as usize;
+        let needed = u64::from(row) * u64::from(per);
+        self.accum_readback_buf.truncate(n);
+        for i in 0..n {
+            if self.accum_readback_buf.get(i).is_none_or(|(_, size)| *size < needed) {
+                let b = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("accum-readback"),
+                    size: needed,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                match self.accum_readback_buf.get_mut(i) {
+                    Some(slot) => *slot = (b, needed),
+                    None => self.accum_readback_buf.push((b, needed)),
+                }
+            }
         }
         let (tex, _, _) = self.accum.as_ref()?;
-        let (buf, _) = self.accum_readback_buf.as_ref()?;
-        enc.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyBufferInfo { buffer: buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },
-            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-        );
-        Some((w, h, row))
+        for (i, (buf, _)) in self.accum_readback_buf.iter().enumerate() {
+            let y0 = per.checked_mul(i as u32)?;
+            let rows = per.min(h.saturating_sub(y0));
+            if rows == 0 {
+                break;
+            }
+            enc.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d { x: 0, y: y0, z: 0 }, aspect: wgpu::TextureAspect::All },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: buf,
+                    layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(rows) },
+                },
+                wgpu::Extent3d { width: w, height: rows, depth_or_array_layers: 1 },
+            );
+        }
+        Some((w, h, row, per))
     }
 
     /// Wait for the staging buffer filled by [`copy_accumulator`](Self::copy_accumulator) and
     /// convert its half floats to f32.
-    fn map_accumulator(&self, (w, h, row): (u32, u32, u32)) -> Option<(u32, u32, Vec<f32>)> {
-        if w == 0 || h == 0 {
+    fn map_accumulator(&self, (w, h, row, per): (u32, u32, u32, u32)) -> Option<(u32, u32, Vec<f32>)> {
+        if w == 0 || h == 0 || per == 0 {
             return None;
         }
         let t = std::time::Instant::now();
-        let (buf, _) = self.accum_readback_buf.as_ref()?;
-        let slice = buf.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
+        let n = (h.div_ceil(per) as usize).min(self.accum_readback_buf.len());
+        let bufs = self.accum_readback_buf.get(..n)?;
+        let len = (w as usize).checked_mul(h as usize)?.checked_mul(4)?;
+        let mut rx = Vec::with_capacity(n);
+        for (buf, _) in bufs {
+            let (tx, r) = std::sync::mpsc::channel();
+            buf.slice(..).map_async(wgpu::MapMode::Read, move |res| {
+                let _ = tx.send(res);
+            });
+            rx.push(r);
+        }
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().ok()?.ok()?;
+        // (only buffers whose mapping succeeded are unmapped below; nothing returns early while
+        // any is mapped, so the reused staging buffers are never left mapped)
+        let ok: Vec<bool> = rx.iter().map(|r| matches!(r.recv(), Ok(Ok(())))).collect();
+        let mapped = ok.iter().all(|m| *m);
         export_renderer::timing::add_map_wait(t.elapsed());
         let t = std::time::Instant::now();
-        let (width, row) = (w as usize, row as usize);
-        let mut out = filmcraft_frame::pool::take_f32_overwritten(width.checked_mul(h as usize)?.checked_mul(4)?);
-        let data = slice.get_mapped_range().ok()?;
-        // every row must be there: the pooled output holds stale values until written
-        let converted = out.chunks_exact_mut(width * 4).enumerate().all(|(y, dst)| {
-            let Some(src) = data.get(y * row..y * row + width * 8) else { return false };
-            for (d, s) in dst.iter_mut().zip(src.as_chunks::<2>().0) {
-                *d = f16_to_f32_fast(u16::from_le_bytes(*s));
+        let (width, row, per) = (w as usize, row as usize, per as usize);
+        let mut out = filmcraft_frame::pool::take_f32_overwritten(len);
+        let mut converted = mapped;
+        if mapped {
+            let datas: Vec<_> = bufs.iter().filter_map(|(b, _)| b.slice(..).get_mapped_range().ok()).collect();
+            // every row must be there: the pooled output holds stale values until written
+            converted = datas.len() == n
+                && out.chunks_exact_mut(width * 4).enumerate().all(|(y, dst)| {
+                    let (band, r) = (y / per, y % per);
+                    let Some(src) = datas.get(band).and_then(|d| d.get(r * row..r * row + width * 8)) else { return false };
+                    for (d, s) in dst.iter_mut().zip(src.as_chunks::<2>().0) {
+                        *d = f16_to_f32_fast(u16::from_le_bytes(*s));
+                    }
+                    true
+                });
+        }
+        for ((buf, _), m) in bufs.iter().zip(&ok) {
+            if *m {
+                buf.unmap();
             }
-            true
-        });
-        drop(data);
-        buf.unmap();
+        }
         export_renderer::timing::add_convert(t.elapsed());
         converted.then_some((w, h, out))
     }
@@ -1419,36 +1495,89 @@ impl GpuCompositor {
     /// Read the output back as RGBA8 (tests / screenshots / thumbnails).
     pub fn read_output(&self) -> Option<(u32, u32, Vec<u8>)> {
         let (tex, _, (w, h)) = self.output.as_ref()?;
-        let row = (w * 4).div_ceil(256) * 256;
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let (w, h) = (*w, *h);
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        let bands = record_readback(&self.device, &mut enc, tex, (w, h), 4);
+        self.queue.submit([enc.finish()]);
+        let out = map_readback(&self.device, &bands?, (w, h), 4)?;
+        Some((w, h, out))
+    }
+}
+
+/// Row pitch (bytes, 256-aligned) of a `w`-texel row of `bpp` bytes per texel, and the rows per
+/// read-back band so that one band fits the device's largest buffer. None when even one row
+/// does not fit (or the numbers overflow).
+fn readback_bands(device: &wgpu::Device, w: u32, h: u32, bpp: u32) -> Option<(u32, u32)> {
+    let row = u64::from(w).checked_mul(u64::from(bpp))?.div_ceil(256).checked_mul(256)?;
+    let max = device.limits().max_buffer_size;
+    if row == 0 || row > max || h == 0 {
+        return None;
+    }
+    let rows = (max / row).min(u64::from(h)).max(1);
+    Some((u32::try_from(row).ok()?, u32::try_from(rows).ok()?))
+}
+
+/// One read-back band: a mappable buffer holding `rows` rows of pitch `row`.
+struct Band {
+    buf: wgpu::Buffer,
+    rows: u32,
+    row: u32,
+}
+
+/// Record copies of `tex` (`w`×`h`, `bpp` bytes per texel) into mappable buffers, one per band
+/// of rows, each within the device's largest buffer size.
+fn record_readback(device: &wgpu::Device, enc: &mut wgpu::CommandEncoder, tex: &wgpu::Texture, (w, h): (u32, u32), bpp: u32) -> Option<Vec<Band>> {
+    let (row, per) = readback_bands(device, w, h, bpp)?;
+    let mut bands = Vec::new();
+    let mut y0 = 0u32;
+    while y0 < h {
+        let rows = per.min(h - y0);
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("readback"),
-            size: (row * h) as u64,
+            size: u64::from(row) * u64::from(rows),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let mut enc = self.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(*h) } },
-            wgpu::Extent3d { width: *w, height: *h, depth_or_array_layers: 1 },
+            wgpu::TexelCopyTextureInfo { texture: tex, mip_level: 0, origin: wgpu::Origin3d { x: 0, y: y0, z: 0 }, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(rows) } },
+            wgpu::Extent3d { width: w, height: rows, depth_or_array_layers: 1 },
         );
-        self.queue.submit([enc.finish()]);
-        let slice = buf.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().ok()?.ok()?;
-        let data = slice.get_mapped_range().ok()?;
-        let mut out = Vec::with_capacity((w * h * 4) as usize);
-        for y in 0..*h {
-            out.extend_from_slice(&data[(y * row) as usize..(y * row + w * 4) as usize]);
-        }
-        drop(data);
-        buf.unmap();
-        Some((*w, *h, out))
+        bands.push(Band { buf, rows, row });
+        y0 += rows;
     }
+    Some(bands)
+}
+
+/// Wait for the bands of [`record_readback`] (submitted) and return the rows tightly packed.
+fn map_readback(device: &wgpu::Device, bands: &[Band], (w, h): (u32, u32), bpp: u32) -> Option<Vec<u8>> {
+    let width = (w as usize).checked_mul(bpp as usize)?;
+    let mut rx = Vec::with_capacity(bands.len());
+    for b in bands {
+        let (tx, r) = std::sync::mpsc::channel();
+        b.buf.slice(..).map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
+        rx.push(r);
+    }
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    let mut ok = true;
+    for r in &rx {
+        ok &= matches!(r.recv(), Ok(Ok(())));
+    }
+    if !ok {
+        return None;
+    }
+    // (one-shot buffers: dropped mapped, which frees them)
+    let mut out = Vec::with_capacity(width.checked_mul(h as usize)?);
+    for b in bands {
+        let data = b.buf.slice(..).get_mapped_range().ok()?;
+        for y in 0..b.rows as usize {
+            let start = y.checked_mul(b.row as usize)?;
+            out.extend_from_slice(data.get(start..start.checked_add(width)?)?);
+        }
+    }
+    (out.len() == width * h as usize).then_some(out)
 }
 
 /// Shader source: kind (0 RGBA8 sRGB, 1 linear premultiplied RGBA, 2 YUV), sampling scales, dimensions, color.

@@ -169,6 +169,9 @@ impl Pipeline {
             captions: settings.burn_captions,
             working_output: hdr_out,
             high_quality: settings.max_render_quality || q.settings.max_render_quality,
+            // temporal noise reduction (fork 6.7) renders here: every export, and so every
+            // render-cache part (they are exports of a segment)
+            temporal: true,
             ..Default::default()
         };
         let effects = settings.effects.clone();
@@ -530,4 +533,132 @@ pub enum GpuOut {
     Bytes(Vec<u8>),
     /// In the encoder's input memory (fork Phase 5.2c).
     Picture(std::sync::Arc<dyn crate::GpuPicture>),
+}
+
+/// Temporal noise reduction (fork 6.7) at export: the export renders it, and its frame is the
+/// Program monitor's paused frame (the frame server's options with temporal access).
+#[cfg(test)]
+mod temporal_tests {
+    use super::*;
+    use filmcraft_frame::{AudioBuffer, VideoFrame};
+    use filmcraft_media::{FrameRequest, MediaInfo, MediaKind, MediaSource, VideoStreamInfo};
+    use filmcraft_project::grade::{Grade, GradeNode};
+    use filmcraft_project::{ItemKind, Label, MediaClip, MediaRef, Param, ParamValue, SequenceSettings, TrackKind};
+    use filmcraft_render::SourceMap;
+    use filmcraft_time::{Tick, TimeRange};
+
+    const W: u32 = 96;
+    const H: u32 = 64;
+    const FRAMES: i64 = 8;
+
+    /// A textured bar moving 2 px a frame over a static texture, with per-frame noise.
+    struct Moving {
+        info: MediaInfo,
+    }
+
+    impl MediaSource for Moving {
+        fn info(&self) -> &MediaInfo {
+            &self.info
+        }
+        fn video_frame(&self, req: FrameRequest) -> filmcraft_media::Result<Arc<VideoFrame>> {
+            let f = FrameRate::FPS_24.frame_at(req.time).clamp(0, FRAMES - 1);
+            let mut seed = 0x2545_f491_4f6c_dd1du64 ^ (f as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            let mut px = Vec::with_capacity((W * H * 4) as usize);
+            for y in 0..H as i64 {
+                for x in 0..W as i64 {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    let noise = (seed >> 56) as i64 % 21 - 10;
+                    let base = 90 + ((x * 7 + y * 3) % 40);
+                    let bar = (x - 20 - 2 * f).rem_euclid(W as i64) < 16;
+                    let v = (if bar { base + 90 } else { base } + noise).clamp(0, 255) as u8;
+                    px.extend_from_slice(&[v, v.saturating_sub(10), v / 2 + 40, 255]);
+                }
+            }
+            Ok(Arc::new(VideoFrame::rgba8(W, H, px)))
+        }
+        fn audio(&self, _start: i64, frames: usize, sample_rate: u32) -> filmcraft_media::Result<AudioBuffer> {
+            Ok(AudioBuffer::silence(sample_rate, 2, frames))
+        }
+    }
+
+    fn project(tnr: bool) -> (Arc<Project>, ItemId, SourceMap) {
+        let r = FrameRate::FPS_24;
+        let info = MediaInfo {
+            name: "moving-export-tnr".into(),
+            kind: MediaKind::Movie,
+            duration: r.tick_of(FRAMES),
+            video: Some(VideoStreamInfo {
+                width: W,
+                height: H,
+                frame_rate: r,
+                par: (1, 1),
+                codec: "test".into(),
+                pixel_format: "RGBA 8-bit".into(),
+                color: filmcraft_color::ColorInfo::SRGB_FULL,
+                has_alpha: false,
+                bitrate: None,
+                hdr: None,
+            }),
+            audio_streams: Vec::new(),
+            container: "test".into(),
+            start_timecode: None,
+            file_size: None,
+        };
+        let mut p = Project::new("tnr");
+        let clip = MediaClip {
+            media: MediaRef::File { path: "moving.mov".into() },
+            info: info.clone(),
+            interpret: Default::default(),
+            mark_in: None,
+            mark_out: None,
+            markers: vec![],
+            offline: false,
+            proxy: None,
+            identity: None,
+        };
+        let id = p.add_item("moving", Label::Iris, ItemKind::Media(clip), None);
+        let seq = p.new_sequence("s", SequenceSettings { width: W, height: H, frame_rate: r, ..Default::default() }, 1, 0, None);
+        let mut it = p.make_track_item(id, TrackKind::Video, Tick::ZERO, TimeRange::new(Tick::ZERO, r.tick_of(FRAMES)), r).unwrap();
+        for e in &mut it.effects {
+            filmcraft_project::resolve_auto_points(e, (W, H), (W, H));
+        }
+        if tnr {
+            let mut n = GradeNode::new(1);
+            for (k, v) in [("tnr.luma", 1.0), ("tnr.chroma", 1.0), ("tnr.frames", 2.0)] {
+                n.params.insert(k.into(), Param::new(ParamValue::Float(v)));
+            }
+            it.grade = Some(Grade { nodes: vec![n], bypass: false });
+        }
+        p.sequence_mut(seq).unwrap().video_tracks[0].items.push(it);
+        let mut m = SourceMap::default();
+        m.0.insert(id, Arc::new(Moving { info }) as Arc<dyn MediaSource>);
+        (Arc::new(p), seq, m)
+    }
+
+    #[test]
+    fn export_renders_temporal_nr_like_the_paused_program_frame() {
+        let settings = ExportSettings { gpu_rendering: GpuRendering::Off, ..Default::default() };
+        let (p, seq, m) = project(true);
+        let pipe = Pipeline::new(p.clone(), seq, &settings, false).unwrap();
+        assert!(pipe.opts.temporal, "every export (and render-cache part) has temporal access");
+        let f = 4;
+        let (exported, _) = pipe.frame(f, &m);
+        let t = pipe.rate.tick_of(f);
+        // the frame server's options for the paused Program frame (`frames.rs`)
+        let paused = RenderOptions { scale: 1.0, captions: true, temporal: true, ..Default::default() };
+        let viewer = filmcraft_render::render_sequence(&p, seq, t, paused, &m).over_black_rgba8();
+        assert_eq!(exported, viewer, "export frame == paused viewer frame");
+        // ...and the GPU plan's CPU reference matches it (the GPU path: lane A's parity tests)
+        let plan = filmcraft_render::plan::execute_cpu(&filmcraft_render::plan::plan_frame(&p, seq, t, paused, &m)).over_black_rgba8();
+        let worst = plan.iter().zip(&viewer).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+        assert!(worst <= 1, "plan vs CPU: {worst} code values");
+        // while playing the clip shows without it, and an export without tnr is that picture
+        let live = filmcraft_render::render_sequence(&p, seq, t, RenderOptions { temporal: false, ..paused }, &m).over_black_rgba8();
+        assert_ne!(exported, live, "temporal NR changed the exported frame");
+        let (q, qseq, qm) = project(false);
+        let plain = Pipeline::new(q, qseq, &settings, false).unwrap().frame(f, &qm).0;
+        assert_eq!(plain, live);
+    }
 }

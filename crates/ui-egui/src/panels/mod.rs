@@ -4,6 +4,7 @@
 pub mod audio_fx_editor;
 pub mod clip_dialogs;
 pub mod coach;
+pub mod color_clips;
 pub mod color_dialogs;
 pub mod dialogs;
 pub mod effect_controls;
@@ -103,6 +104,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, p: PanelKind, rect: Rect)
         PanelKind::ColorNodes => grade::show_nodes(app, ui, rect),
         PanelKind::ColorPrimaries => grade::show_primaries(app, ui, rect),
         PanelKind::Gallery => stills::show(app, ui, rect),
+        PanelKind::ColorClips => color_clips::show(app, ui, rect),
         PanelKind::Events => events::events(app, ui, rect),
         PanelKind::Progress => events::progress(app, ui, rect),
         PanelKind::ReferenceMonitor => reference::show(app, ui, rect),
