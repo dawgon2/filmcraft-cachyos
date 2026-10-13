@@ -85,7 +85,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             "Paste Attributes…",
             &["Edit"],
             Some("Cmd+Alt+V"),
-            r#"{"clips":[id]?,"motion":bool=true,"opacity":bool=true,"timeRemapping":bool=true,"volume":bool=true,"channelVolume":bool=true,"panner":bool=true,"effects":bool|[effectId]=true,"grade":bool=true,"scaleTimes":bool=true}"#,
+            r#"{"clips":[id]?,"motion":bool=true,"opacity":bool=true,"timeRemapping":bool=true,"volume":bool=true,"channelVolume":bool=true,"panner":bool=true,"effects":bool|[effectId]=true,"grade":bool=true,"temporalNr":bool=true,"scaleTimes":bool=true}"#,
             can_paste_attributes,
             paste_attributes,
         ),
@@ -1042,7 +1042,10 @@ fn paste_attributes(s: &mut Session, p: &Value) -> Result<Value> {
     let want_grade = bool_p(p, "grade").unwrap_or(true);
     let src_v = s.state.clipboard.iter().find(|c| c.0 == TrackKind::Video).map(|c| c.2.clone());
     let src_a = s.state.clipboard.iter().find(|c| c.0 == TrackKind::Audio).map(|c| c.2.clone());
+    let want_tnr = bool_p(p, "temporalNr").unwrap_or(true);
     let targets = with_links(s, &clips_p(s, p));
+    // clips that take a temporal NR (media / subclips); others never receive one
+    let tnr_ok: Vec<ClipId> = if want_tnr { targets.iter().copied().filter(|c| crate::tnr::takes_tnr(s, *c)).collect() } else { Vec::new() };
     let n = s.edit_sequence("Paste Attributes", |q, _, _| {
         let mut n = 0;
         for c in &targets {
@@ -1067,6 +1070,9 @@ fn paste_attributes(s: &mut Session, p: &Value) -> Result<Value> {
             }
             if want_grade && kind == TrackKind::Video && src.grade.is_some() {
                 dst.grade = src.grade.clone();
+            }
+            if kind == TrackKind::Video && src.temporal_nr.is_some() && tnr_ok.contains(c) {
+                dst.temporal_nr = src.temporal_nr.clone();
             }
             if *dst != before {
                 n += 1;

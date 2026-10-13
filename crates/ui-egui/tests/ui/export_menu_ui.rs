@@ -22,7 +22,9 @@ struct Driver {
 
 impl Driver {
     /// `save_to: None` is a cancelled save panel.
-    fn new(session: Session, save_to: Option<std::path::PathBuf>, asked: Asked) -> Self {
+    fn new(mut session: Session, save_to: Option<std::path::PathBuf>, asked: Asked) -> Self {
+        // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
+        session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         let (tx, rx) = channel();
         let mut app = FilmcraftApp::new(session).with_control(rx);
         app.hooks.pick_save_as = Some(Box::new(move |filter, exts, suggested| {

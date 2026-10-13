@@ -27,9 +27,11 @@ it was.
 3. Check the result:
    - A **page bar** appears along the bottom of the window: **Media**, **Edit**, **Color**,
      **Fairlight**, **Deliver** (ids {ui:page.media}, {ui:page.edit}, {ui:page.color},
-     {ui:page.fairlight}, {ui:page.deliver}). Each opens a FilmCraft workspace: Media is
-     "Assembly", Edit is "Editing", Color is "Color Grading", Fairlight is "Audio"; Deliver
-     opens Export.
+     {ui:page.fairlight}, {ui:page.deliver}), with Project Manager and Settings on its right.
+     Each page is a built-in workspace laid out like Resolve's page (Media Page, Edit Page,
+     Color Grading, Fairlight Page, Deliver Page); Deliver holds the export settings and queue.
+     The Premiere header gives way to the menus and a toolbar of panel buttons for the page.
+     The whole story is in [pages.md](pages.md).
    - The keyboard preset becomes **DaVinci Resolve Compatible**.
    - The Color page is the **Color Grading** workspace: the node grader's Gallery, Nodes and
      Primaries panels around the viewer, with Lumetri Scopes below. Lumetri Color is not gone:
@@ -50,12 +52,47 @@ the new build starts, through the same switch as above, so your previous keyboar
 theme are remembered and come back when you choose **Premiere Pro**. After that, your choice is
 final: a Premiere workflow you picked yourself is never switched again. An unreadable preferences
 file starts over in Resolve. Upstream FilmCraft builds (without the fork feature) keep Premiere as
-the default and never migrate.
+the default and never migrate. A session without a data directory (the headless `filmcraft-cli`,
+its MCP server, or the app when it has no data folder) also starts in Resolve, with the DaVinci
+Resolve Compatible keys and the Resolve theme, so `settings.getWorkflow` and the keyboard agree.
 
 The Resolve workflow shows the **Resolve** dark theme (near-black bars, cool grey panels, an
 orange-red accent). Choosing **Premiere Pro** puts back the dark theme you had. Settings ▸
 Appearance ▸ Dark Theme (and View ▸ Appearance ▸ **Resolve**, `view.theme.resolve`) lets either
-workflow use any theme. A highlight colour you set yourself still replaces the Resolve accent.
+workflow use any theme, and each workflow remembers its own: pick the Resolve theme while in
+Premiere, or Darkest while in Resolve, and that choice comes back every time you return to that
+workflow (switching only swaps between the two remembered themes). A highlight colour you set yourself still replaces the Resolve accent.
+
+### Terminology follows the workflow
+
+**[Resolve-style]** wording, **[Fork]** mechanism (RESOLVE-UI-PLAN RS2b). In the Resolve workflow
+the menus, panel titles and labels use Resolve's word for each thing; the Premiere workflow keeps
+the wording below in its right-hand column. Only the words change: command ids (`sequence.*`
+stays `sequence.*`), automation ids, project files and the control protocol are the same in both
+workflows, so a project opens identically in either. Switching the workflow
+(`settings.setWorkflow`) relabels everything at once, with no restart. In other interface
+languages the Resolve word is used only where the overlay has one; every other string shows its
+normal translation.
+
+| Resolve workflow | Premiere workflow |
+|---|---|
+| Timeline (File ▸ New ▸ Timeline…, Timeline Settings…, the Timeline menu) | Sequence |
+| Compound Clip (New Compound Clip…) | Nest |
+| Media Pool | Project panel |
+| Source Viewer / Timeline Viewer | Source Monitor / Program Monitor |
+| Inspector | Effect Controls |
+| Mixer | Audio Track Mixer |
+| Render Settings, Render Queue (Add to Render Queue) | Export Options, export queue (Send to Queue) |
+| Blade Tool | Razor Tool |
+| Adjustment Clip… | Adjustment Layer… |
+| Render Cache (Render Cache In to Out) | Render In to Out, render previews |
+| Working Folders | Scratch Disks |
+
+If you know Premiere, read "Timeline" as "Sequence" everywhere in this guide; where a page names a
+renamed thing it gives both terms, for example "Timeline (Premiere: Sequence)". The Export mode
+is the Deliver page in this workflow ([pages.md](pages.md)), and the collect / consolidate
+"Project Manager…" item is relabelled by the Project Manager home screen (RS2), not by this
+overlay.
 
 ### What happens to your shortcuts
 
@@ -87,7 +124,7 @@ full list.
 ### If you know Resolve
 
 The pages are FilmCraft workspaces, not separate programs, so edits, colour and export share one
-project and one undo history. The keymap is a convenience, not a copy of Resolve.
+project and one undo history; each page's layout can be rearranged and saved ([pages.md](pages.md)). The keymap is a convenience, not a copy of Resolve.
 
 ## Import X-M5 clips
 

@@ -113,11 +113,13 @@ fn create_and_edit_masks_on_the_monitor() {
     d.exec("effects.setParam", json!({"clip": id, "effect": "gaussian_blur", "param": "blurriness", "value": 30.0}));
     d.frames(4);
     // ellipse mask from the Effect Controls icon
-    // fold Motion and Time Remapping so the Gaussian Blur rows are on screen
+    // fold Motion, Time Remapping and Temporal NR so the Gaussian Blur rows are on screen
     for fx in ["motion", "time_remap"] {
         d.ok("ui.click", json!({"id": format!("effectControls.effect.{fx}")}));
         d.frames(2);
     }
+    d.ok("ui.click", json!({"id": "effectControls.tnr"}));
+    d.frames(2);
     d.ok("ui.click", json!({"id": "effectControls.gaussian_blur.mask.ellipse"}));
     d.frames(3);
     let m = d.masks();
@@ -168,12 +170,17 @@ fn create_and_edit_masks_on_the_monitor() {
     d.shot("mask-edited");
 
     // Inverted checkbox (fold Opacity so the row is on screen)
+    // (and scroll one row: the folded Temporal NR section takes one, fork 6.7b)
     d.ok("ui.click", json!({"id": "effectControls.effect.opacity"}));
+    d.frames(2);
+    d.ok("ui.scroll", json!({"id": "effectControls.lane", "dy": -60.0}));
     d.frames(2);
     d.ok("ui.click", json!({"id": "effectControls.gaussian_blur.mask0.inverted"}));
     d.frames(2);
     assert_eq!(d.masks()[0]["inverted"], true);
     d.shot("mask-inverted");
+    d.ok("ui.scroll", json!({"id": "effectControls.lane", "dy": 60.0}));
+    d.frames(2);
     d.ok("ui.click", json!({"id": "effectControls.effect.opacity"}));
     d.frames(2);
 
@@ -246,6 +253,8 @@ fn presets_bin_drag_and_save_dialog() {
         d.ok("ui.click", json!({"id": format!("effectControls.effect.{fx}")}));
         d.frames(2);
     }
+    d.ok("ui.click", json!({"id": "effectControls.tnr"}));
+    d.frames(2);
     d.ok("ui.click", json!({"id": "effectControls.effect.brightness_contrast", "button": "right"}));
     d.frames(2);
     d.ok("ui.click", json!({"id": "effectControls.effect.brightness_contrast.savePreset"}));

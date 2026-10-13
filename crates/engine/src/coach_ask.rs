@@ -73,6 +73,8 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("export.md", include_str!("../../../docs/guide/export.md")),
     ("glossary.md", include_str!("../../../docs/guide/glossary.md")),
     ("hardware.md", include_str!("../../../docs/guide/hardware.md")),
+    ("pages.md", include_str!("../../../docs/guide/pages.md")),
+    ("projects.md", include_str!("../../../docs/guide/projects.md")),
     ("proxies.md", include_str!("../../../docs/guide/proxies.md")),
     ("render-cache.md", include_str!("../../../docs/guide/render-cache.md")),
     ("color/README.md", include_str!("../../../docs/guide/color/README.md")),
@@ -92,6 +94,13 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
 /// Pages that are about the guide itself (how it is written), not about the app: not searched.
 const NOT_INDEXED: &[&str] = &["README.md"];
 
+/// Sections that are never an answer (page, heading): the glossary's table of Resolve / Premiere
+/// names has no steps and outranks the entry it points to (its useful names are synonyms).
+const NOT_ANSWERS: &[(&str, &str)] = &[("glossary.md", "At a glance")];
+
+/// The body of a section that isn't written yet (`*To write.*`): not an answer.
+const STUB: &str = "To write.";
+
 /// The provenance tags the guide uses.
 pub const TAGS: &[&str] = &["[Resolve-style]", "[FilmCraft]", "[Fork]", "[Standard]"];
 
@@ -110,7 +119,8 @@ const STOPWORDS: &[&str] = &[
     "making", "may", "me", "might", "more", "most", "much", "must", "my", "need", "now", "of", "on", "one", "or", "our", "out", "please", "really", "she",
     "should", "so", "some", "than", "that", "the", "their", "them", "then", "there", "these", "they", "thing", "this", "those", "to", "too", "ui", "up", "use",
     "using", "very", "want", "was", "way", "we", "went", "were", "what", "when", "where", "which", "who", "why", "will", "with", "without", "would", "you",
-    "your",
+    "your", // contractions written without the apostrophe, and words that only frame a question
+    "no", "not", "vs", "whats", "thats", "hows", "wheres", "dont", "cant", "im", "ive", "isnt", "wont", "ok", "okay", "yes",
 ];
 
 /// Beginner words → the guide's terms (each side tokenised like everything else).
@@ -188,6 +198,35 @@ const SYNONYMS: &[(&str, &str)] = &[
     ("remove", "delete"),
     ("delete", "remove"),
     ("undo", "undo"),
+    // CO1 (docs/fork/coach-eval/DIAGNOSIS.md §4 layer 2), each kept only when the eval set
+    // didn't drop. Not `start` (it pulls "Start a lesson"), not `difference / between / vs` →
+    // compare (drags "X vs Y" questions to any section that compares), not `album` → gallery
+    // (the guide has no albums: that question must decline).
+    ("order", "order starter tree"),
+    ("first", "order starter tree"),
+    ("last", "order starter tree"),
+    ("tackle", "order starter tree"),
+    ("begin", "order starter tree"),
+    ("gradient", "linear graduated"),
+    ("pop", "contrast saturation"),
+    ("punch", "contrast saturation"),
+    ("dark", "gamma gain lift"),
+    ("reduce", "reduction"),
+    ("reduction", "reduce"),
+    ("soften", "soft"),
+    ("layout", "workflow page"),
+    ("instead", "qualifier window"),
+    // Resolve's and Premiere's names (glossary.md › At a glance)
+    ("power", "window"),
+    ("corrector", "node"),
+    ("optimized", "proxy"),
+    ("smart", "render cache"),
+    ("comparison", "wipe split compare"),
+    // typos and cut-off words from real questions
+    ("qualifer", "qualifier"),
+    ("stil", "still"),
+    ("cli", "clip"),
+    ("fa", "face"),
 ];
 
 // ---------- tokenising ----------
@@ -254,7 +293,11 @@ pub fn tokenize(text: &str, max_chars: usize) -> Vec<String> {
             if w.chars().count() <= MAX_WORD && !stopwords().contains(w.as_str()) && (w.chars().count() >= 2) {
                 let w = normalise(&w);
                 if !stopwords().contains(w.as_str()) {
-                    out.push(stem(&w));
+                    // a stem can be a stop word too ("whats" → "what")
+                    let s = stem(&w);
+                    if !stopwords().contains(s.as_str()) {
+                        out.push(s);
+                    }
                 }
             }
         }
@@ -323,6 +366,9 @@ pub struct Section {
     pub provenance: Vec<&'static str>,
     /// The section's markdown, its `###` subsections included.
     pub body: String,
+    /// For a page's first `##` section, the page's introduction (the text under its `#` title):
+    /// searched with the section, never shown.
+    pub intro: String,
 }
 
 fn heading_level(line: &str) -> Option<(usize, &str)> {
@@ -348,6 +394,8 @@ pub fn split_page(page: &'static str, src: &str) -> Vec<Section> {
     let mut cur: Option<Section> = None;
     let mut fence = false;
     let mut want_tags = false;
+    // whether `cur` is the page's introduction (the text before its first `##`)
+    let mut in_intro = false;
     for line in src.lines() {
         if line.trim_start().starts_with("```") {
             fence = !fence;
@@ -357,12 +405,27 @@ pub fn split_page(page: &'static str, src: &str) -> Vec<Section> {
             Some((1, t)) => {
                 page_title = t.to_string();
                 want_tags = true;
-                cur = Some(Section { page, page_title: page_title.clone(), heading: page_title.clone(), provenance: Vec::new(), body: String::new() });
+                cur = Some(Section {
+                    page,
+                    page_title: page_title.clone(),
+                    heading: page_title.clone(),
+                    provenance: Vec::new(),
+                    body: String::new(),
+                    intro: String::new(),
+                });
+                in_intro = true;
                 continue;
             }
             Some((2, t)) => {
-                out.extend(cur.take());
-                cur = Some(Section { page, page_title: page_title.clone(), heading: t.to_string(), provenance: Vec::new(), body: String::new() });
+                // the introduction is folded into the first section: its words rank that
+                // section, the answer is the section
+                let mut intro = String::new();
+                match cur.take() {
+                    Some(p) if in_intro => intro = p.body,
+                    p => out.extend(p),
+                }
+                in_intro = false;
+                cur = Some(Section { page, page_title: page_title.clone(), heading: t.to_string(), provenance: Vec::new(), body: String::new(), intro });
                 want_tags = true;
                 continue;
             }
@@ -392,6 +455,8 @@ pub fn split_page(page: &'static str, src: &str) -> Vec<Section> {
     }
     // a page's untagged introduction (a status line) and empty sections aren't answers
     out.retain(|s| !s.body.trim().is_empty() && !s.provenance.is_empty());
+    // nor are stubs and the sections listed in NOT_ANSWERS
+    out.retain(|s| s.body.trim().trim_matches('*').trim() != STUB && !NOT_ANSWERS.contains(&(s.page, s.heading.as_str())));
     out
 }
 
@@ -487,7 +552,7 @@ fn guide() -> &'static Guide {
     static G: OnceLock<Guide> = OnceLock::new();
     G.get_or_init(|| {
         let sections: Vec<Section> = GUIDE_PAGES.iter().filter(|(p, _)| !NOT_INDEXED.contains(p)).flat_map(|(p, src)| split_page(p, src)).collect();
-        let index = Index::build(sections.iter().map(|s| (s.heading.clone(), format!("{}\n{}", s.page_title, s.body))));
+        let index = Index::build(sections.iter().map(|s| (s.heading.clone(), format!("{}\n{}\n{}", s.page_title, s.intro, s.body))));
         let lessons = Index::build(crate::coach::bundled().iter().map(|l| {
             let steps: Vec<&str> = l.steps.iter().flat_map(|s| [s.text.as_str(), s.why.as_str()]).collect();
             (l.title.clone(), format!("{} {}", l.summary, steps.join(" ")))

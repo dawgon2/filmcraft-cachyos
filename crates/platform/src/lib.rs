@@ -6,7 +6,8 @@
 //! (`avcC`) and HEVC (`hvcC`) streams, 8- and 10-bit, 4:2:0 and 4:2:2; Media Foundation / DXVA on
 //! Windows; NVDEC ([`nvdec`], NVIDIA's driver) and VA-API on Linux for H.264 and HEVC: the fork's
 //! in-process HEVC decoder ([`va_hevc`], frames left on the GPU for zero-copy display), upstream's
-//! in-process H.264 / HEVC decoder ([`vaapi`]) and the system ffmpeg run as a child process
+//! in-process H.264 / HEVC decoder ([`vaapi`]; H.264 with the fork's zero-copy output first,
+//! [`va_accel`], then reading pictures back) and the system ffmpeg run as a child process
 //! ([`vaapi_pipe`]) behind them; on other systems (and on Linux with none of these) registration
 //! does nothing and reports [`Availability::Unavailable`]. It also registers a hardware H.264
 //! encoder factory (`filmcraft_export::register_encoder`) that only acts when an export asks for
@@ -57,6 +58,8 @@ pub mod nvenc;
 #[allow(unsafe_code)]
 pub mod va;
 #[cfg(target_os = "linux")]
+pub mod va_accel;
+#[cfg(target_os = "linux")]
 pub mod va_enc;
 #[cfg(target_os = "linux")]
 pub mod va_hevc;
@@ -74,6 +77,7 @@ pub mod videotoolbox;
 #[allow(unsafe_code)]
 pub mod videotoolbox_encode;
 
+pub use biplanar::Geometry;
 pub use hybrid::HybridDecoder;
 
 /// What [`register`] made available.
@@ -290,8 +294,11 @@ pub fn media_foundation_factory(entry: &filmcraft_isobmff::SampleEntry) -> Optio
 ///
 /// 1. the fork's in-process HEVC decoder ([`va_hevc::NativeVaDecoder`], frames left on the GPU
 ///    for zero-copy display);
-/// 2. upstream's in-process decoder ([`vaapi::VaDecoder`], H.264 and HEVC);
-/// 3. the ffmpeg pipe ([`vaapi_pipe::VaapiDecoder`], H.264 and HEVC).
+/// 2. upstream's in-process H.264 decoder with the fork's zero-copy output
+///    ([`VaDecoder::zero_copy`](vaapi::VaDecoder::zero_copy), Y1; declines when the surfaces
+///    cannot be exported or `FILMCRAFT_NO_GPU_IMPORT` is set);
+/// 3. upstream's in-process decoder, pictures read back ([`vaapi::VaDecoder`], H.264 and HEVC);
+/// 4. the ffmpeg pipe ([`vaapi_pipe::VaapiDecoder`], H.264 and HEVC).
 ///
 /// `None` when none takes the stream (other codecs keep the software decoders, and every stream
 /// while Hardware decoding is Off).
@@ -303,6 +310,8 @@ pub fn vaapi_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft
     }
     let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(entry)?.ok()?;
     let codec = entry.codec.name();
+    let zero_copy =
+        |info: filmcraft_codecs::hw::NalStreamInfo| -> Hw { vaapi::VaDecoder::zero_copy(info).map(|d| Box::new(d) as Box<dyn filmcraft_codecs::VideoDecoder>) };
     let upstream =
         |info: filmcraft_codecs::hw::NalStreamInfo| -> Hw { vaapi::VaDecoder::new(info).map(|d| Box::new(d) as Box<dyn filmcraft_codecs::VideoDecoder>) };
     let pipe = |info: filmcraft_codecs::hw::NalStreamInfo| -> Hw {
@@ -312,7 +321,7 @@ pub fn vaapi_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft
         vaapi_pipe::VaapiDecoder::new(info).map(|d| Box::new(d) as Box<dyn filmcraft_codecs::VideoDecoder>)
     };
     // the chain, first taker first; the ones after it become the hybrid's fallbacks
-    let mut chain: Vec<Box<dyn FnOnce(filmcraft_codecs::hw::NalStreamInfo) -> Hw + Send>> = vec![Box::new(upstream), Box::new(pipe)];
+    let mut chain: Vec<Box<dyn FnOnce(filmcraft_codecs::hw::NalStreamInfo) -> Hw + Send>> = vec![Box::new(zero_copy), Box::new(upstream), Box::new(pipe)];
     let mut whys = Vec::new();
     let mut primary: Option<Box<dyn filmcraft_codecs::VideoDecoder>> = match va_hevc::NativeVaDecoder::new(info.clone()) {
         Ok(d) => Some(Box::new(d)),

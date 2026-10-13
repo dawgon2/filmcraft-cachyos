@@ -82,19 +82,72 @@ command (control channel, MCP or command list).
 
 ## A starter tree for F-Log2
 
-**[Fork]**
+**[Resolve-style] [Fork]**
 
-Order matters because each node sees what the one before produced. A sensible start:
+There is no single correct node order. What every order has in common: **each node sees the
+picture the node before it produced**, so the order decides what each later correction works
+on. Below is one simple, common starting point; the next sections show other orders and *why*
+a colourist would choose them.
 
-1. **Balance**: Temperature / Tint and Offset, so whites are white and greys are grey.
+A short serial tree that works for most F-Log2 shots (one job per node, so you can switch one
+off to see what it did):
+
+1. **Balance** (first): Temperature / Tint and Offset, so whites are white and greys are grey.
+   It goes first because every later node then works on a neutral picture: a brightness change
+   on a colour cast pushes the cast further.
 2. **Exposure**: Gain (brights) and Gamma (mids), until face and sky sit where you want.
 3. **Contrast**: Contrast and Pivot, or a gentle S in the Curves tab.
-4. **Saturation**: one slider, last of the technical steps.
-5. **Look**: anything creative, plus film grain.
+4. **Saturation**: one slider, after step 3, because a steeper tone curve also makes colours
+   look more saturated.
+5. **Secondaries** (optional): a qualifier or window node for skin, sky or one object
+   ([secondaries.md](secondaries.md)). It comes after the primaries so it selects colours that
+   already look right; selecting from the flat log picture is harder.
+6. **Look** (last or near last): anything creative, plus film grain on the very last node.
 
 The input conversion before node 1 and the Rec. 709 conversion after the last node are
-automatic. Qualifier-based secondaries (skin, sky) will sit between 4 and 5 once G2 lands. The
-app does not create this tree for you; build it with **+ Serial**.
+automatic ([color-management.md](color-management.md)). The app does not build this tree for
+you; add nodes with **+ Serial**.
+
+## Other node orders, and why you'd choose them
+
+**[Resolve-style] [Standard]**
+
+These are all in use; pick by how you work and what the footage needs.
+
+- **Beginner: three nodes.** Balance → Exposure / contrast → Look. Fewer nodes, less to keep
+  track of; you lose the ability to switch off exposure and contrast separately. Good for a
+  first edit or when shots need little work.
+- **Typical: the six-step tree above.** One job per node, so a client note ("less contrast")
+  touches one node, and copying a grade to the next shot copies a readable structure.
+- **Noise reduction first.** Spatial NR on node 1 (Noise tab) cleans the picture before any
+  contrast or saturation boost makes the noise more visible, and qualifiers key more cleanly on
+  a clean picture. Some colourists put it last instead so it only runs once the look is set
+  (NR is slow; on a slow machine they disable it while grading). Temporal NR isn't a node here:
+  it is a clip setting that always runs before the grade ([noise.md](noise.md)).
+- **Exposure before balance.** Some people set exposure first because colour casts are easier
+  to judge at the right brightness. It works when the cast is small; with a strong cast,
+  balance first is safer (see the starter tree).
+- **LUT / colour-space bookends.** In Resolve many colourists start the tree with a colour
+  space conversion node and end it with one, so every node in between works in one space. Here
+  the input transform (F-Log2 → working space) and the output transform are automatic, so the
+  bookends are already there. A creative LUT on a node ([finishing.md](finishing.md)) works on
+  the working signal (DaVinci Intermediate in a DaVinci Wide Gamut sequence): use one made for
+  that signal, or a Rec. 709 LUT only in a Rec. 709 sequence. Corrections *before* the LUT node
+  change what goes into it (the LUT reacts strongly); trims *after* it only adjust its result.
+- **Highlight soft clip near the end.** It shapes the brightest values after everything else
+  has pushed them, so later nodes can't clip them again.
+- **Grain last.** Grain added before other nodes gets graded too (its contrast and colour
+  change); last, it looks the same on every shot.
+- **Pro trees with parallel and layer nodes** (Resolve, and here after phase C2): balance and
+  exposure in series, then several secondaries side by side in a parallel node so each one
+  keys from the same picture and none affects the others' selection, then a look node. More
+  flexible and easier to match across many shots, but more to manage. Here only serial nodes
+  exist today; a qualifier node placed after the primaries does the same job one at a time.
+
+**Footage makes a difference too.** Log footage (F-Log2) needs balance and exposure before any
+look; Rec. 709 footage often needs only a small balance and a look. Noisy low-light shots
+benefit from NR early. With mixed cameras, balance each camera's shots to match first (a
+balance node per shot), then share the look node across all of them.
 
 ## Undo
 

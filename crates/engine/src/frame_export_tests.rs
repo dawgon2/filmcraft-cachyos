@@ -152,3 +152,31 @@ fn an_earlier_deferred_read_does_not_fail_the_export() {
     assert!(!filmcraft_media::pending::is_set());
     std::fs::remove_file(path).unwrap();
 }
+
+/// Fork 6.7b: Export Frame renders with temporal access, so a clip's temporal NR is in the still
+/// (as in the export) and the still differs from the live (playback) frame.
+#[test]
+fn export_frame_includes_temporal_nr() {
+    let (mut s, _item) = session();
+    s.execute("timeline.selectAll", json!({})).ok();
+    let seq = s.state.active_sequence.unwrap();
+    let clip = s.project.sequence(seq).unwrap().video_tracks[0].items[0].id.0;
+    s.execute("tnr.set", json!({"clip": clip, "param": "luma", "value": 1.0})).unwrap();
+    s.execute("tnr.set", json!({"clip": clip, "param": "chroma", "value": 1.0})).unwrap();
+    s.set_playhead(FrameRate::FPS_24.tick_of(30));
+    let provider = s.media.full_res_provider(s.project.clone(), s.services.clone());
+    let at = |temporal: bool| {
+        let o = filmcraft_render::RenderOptions { captions: true, temporal, ..Default::default() };
+        filmcraft_render::render_sequence(&s.project, seq, s.playhead(), o, &provider).to_rgba8()
+    };
+    let (live, cleaned) = (at(false), at(true));
+    assert_ne!(live, cleaned, "temporal NR changes this frame");
+    let dir = std::env::temp_dir().join(format!("fc-frame-tnr-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("program.png");
+    s.execute("file.exportFrame", json!({"target":"program","path":path.to_string_lossy()})).unwrap();
+    let image = image::load_from_memory(&std::fs::read(&path).unwrap()).unwrap().to_rgba8();
+    assert_eq!(image.into_raw(), cleaned);
+    drop(s);
+    std::fs::remove_dir_all(dir).unwrap();
+}

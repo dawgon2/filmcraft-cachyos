@@ -119,6 +119,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("page.color", "Color Page", [], None),
     uic!("page.fairlight", "Fairlight Page", [], None),
     uic!("page.deliver", "Deliver Page", [], None),
+    // fork RS2: the Project Manager home screen's Close / Esc (`projects.show` opens it)
+    uic!("projects.close", "Close Project Manager", [], None),
     uic!("window.workspace.effects", "Effects", ["Window", "Workspaces"], Some("Alt+Shift+4")),
     uic!("window.workspace.audio", "Audio", ["Window", "Workspaces"], Some("Alt+Shift+5")),
     uic!("window.workspace.captionsandgraphics", "Captions and Graphics", ["Window", "Workspaces"], Some("Alt+Shift+6")),
@@ -246,6 +248,10 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
         if params.get("path").is_none() {
             return crate::panels::frame_export::open(app, ctx, &params);
         }
+    }
+    // fork RS2: the Project Manager home screen (dialogs and pickers for the `projects.*` commands)
+    if let Some(r) = crate::panels::home::route(app, id, &params) {
+        return r;
     }
     if id == "perf.stats" {
         // the engine's counters plus playback, frame workers and UI timings
@@ -645,8 +651,19 @@ pub struct MenuItem {
 pub const MENUS: [&str; 9] = ["File", "Edit", "Clip", "Sequence", "Markers", "Graphics and Titles", "View", "Window", "Help"];
 
 pub fn menu_items(app: &FilmcraftApp) -> Vec<MenuItem> {
+    // labels follow the workflow's terminology (Resolve: "Timeline" for "Sequence")
+    crate::i18n::terms::set_resolve(app.resolve_workflow());
     let mut v = menu_items_for(&app.session);
     for it in &mut v {
+        // fork RS2: in the Resolve workflow File ▸ Project Manager is the home screen and the
+        // collect / consolidate tool is Media Management (Resolve's names); ids don't change
+        if app.resolve_workflow() {
+            match it.id.as_str() {
+                "projects.show" => it.label = "Project Manager".into(),
+                "file.projectManager" => it.label = "Media Management…".into(),
+                _ => {}
+            }
+        }
         it.label = app.ui.language.tr(&it.label).to_string();
         match it.id.as_str() {
             "app.language.english" => it.checked = Some(app.ui.language == crate::i18n::Language::En),

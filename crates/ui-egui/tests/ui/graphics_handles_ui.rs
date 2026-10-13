@@ -21,6 +21,8 @@ struct Driver {
 impl Driver {
     fn new() -> Self {
         let mut s = Session::default();
+        // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
+        s.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         s.execute("file.openDemoProject", json!({})).unwrap();
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(s).with_control(rx);

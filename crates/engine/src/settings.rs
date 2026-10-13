@@ -80,6 +80,14 @@ pub struct GeneralPrefs {
     pub show_mask_tracker_preview: bool,
     /// Most recently opened / saved projects (newest first; not shown in the dialog).
     pub recent_projects: Vec<String>,
+    /// "At startup show" (fork RS2): Project Manager, Last project or New empty project; `None`
+    /// (`"workflowDefault"`) = the Project Manager in the Resolve workflow, At Startup in Premiere.
+    #[serde(with = "crate::projects::startup_show_serde")]
+    pub startup_show: Option<crate::projects::StartupShow>,
+    /// "Projects folder" of the Project Manager home screen (fork RS2); `None` (`""`) =
+    /// `~/Videos/FilmCraft Projects`, created on first use.
+    #[serde(with = "crate::projects::folder_serde")]
+    pub projects_folder: Option<PathBuf>,
 }
 
 impl Default for GeneralPrefs {
@@ -102,6 +110,8 @@ impl Default for GeneralPrefs {
             show_project_bin_in_tab: true,
             show_mask_tracker_preview: true,
             recent_projects: Vec::new(),
+            startup_show: None,
+            projects_folder: None,
         }
     }
 }
@@ -722,6 +732,8 @@ const fn float(min: f64, max: f64, decimals: usize, unit: &'static str) -> Kind 
 }
 
 const STARTUP: &[(&str, &str)] = &[("showHome", "Show Home"), ("openMostRecent", "Open Most Recent"), ("emptyProject", "Start with an Empty Project")];
+const STARTUP_SHOW: &[(&str, &str)] =
+    &[("workflowDefault", "Workflow default"), ("projectManager", "Project Manager"), ("lastProject", "Last project"), ("newEmpty", "New empty project")];
 const OPENING: &[(&str, &str)] = &[("showOpenDialog", "Show Open Dialog"), ("showHome", "Show Home")];
 const BIN_OPEN: &[(&str, &str)] = &[("openInPlace", "Open in place"), ("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
 const PROJECT_OPEN: &[(&str, &str)] = &[("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
@@ -831,6 +843,9 @@ static CATEGORIES: &[Category] = &[
             // fork GRADE-PLAN G1.8: switched at once through `settings.setWorkflow`, not OK
             Row::Custom("workflow"),
             f("general.atStartup", "At Startup", Kind::Choice(STARTUP), true),
+            // fork RS2: the Project Manager home screen
+            f("general.startupShow", "At startup show", Kind::Choice(STARTUP_SHOW), true),
+            f("general.projectsFolder", "Projects folder", Kind::Path, true),
             f("general.whenOpeningProject", "When Opening a Project", Kind::Choice(OPENING), false),
             Row::Group(
                 "Bins",
@@ -1693,20 +1708,25 @@ impl Session {
                     next.workflow_return_preset = back;
                 }
                 self.shortcuts.load_preset(RESOLVE_PRESET).map_err(|e| bad(CMD, e))?;
-                // the Resolve look; the dark theme in use is remembered for the way back
-                if next.appearance.dark_theme != RESOLVE_THEME {
-                    next.workflow_return_theme = std::mem::replace(&mut next.appearance.dark_theme, RESOLVE_THEME.into());
+                // each workflow keeps its own dark theme (`workflow_return_theme` holds the other
+                // one's): Premiere's is remembered for the way back, even when it is the Resolve
+                // theme, and Resolve's last one comes back (the Resolve theme the first time)
+                let mine = std::mem::replace(&mut next.workflow_return_theme, next.appearance.dark_theme.clone());
+                let want = if DARK_THEMES.iter().any(|(v, _)| *v == mine) { mine } else { RESOLVE_THEME.to_string() };
+                if next.appearance.dark_theme != want {
+                    next.appearance.dark_theme = want;
                     next.appearance.sync_color_theme();
                 }
             }
             Workflow::Premiere => {
                 let want = std::mem::take(&mut next.workflow_return_preset);
-                // the Resolve look goes back to the remembered dark theme; another theme chosen by
-                // hand while in Resolve stays
-                let back = std::mem::take(&mut next.workflow_return_theme);
-                if next.appearance.dark_theme == RESOLVE_THEME {
-                    let ok = back != RESOLVE_THEME && DARK_THEMES.iter().any(|(v, _)| *v == back);
-                    next.appearance.dark_theme = if ok { back } else { AppearancePrefs::default().dark_theme };
+                // Premiere's remembered dark theme comes back (the default when there is none); the
+                // one used in Resolve is remembered for the next switch ("" = the Resolve theme)
+                let resolve_side = if next.appearance.dark_theme == RESOLVE_THEME { String::new() } else { next.appearance.dark_theme.clone() };
+                let back = std::mem::replace(&mut next.workflow_return_theme, resolve_side);
+                let back = if DARK_THEMES.iter().any(|(v, _)| *v == back) { back } else { AppearancePrefs::default().dark_theme };
+                if next.appearance.dark_theme != back {
+                    next.appearance.dark_theme = back;
                     next.appearance.sync_color_theme();
                 }
                 // another preset chosen by hand while in Resolve stays

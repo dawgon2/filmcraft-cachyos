@@ -360,7 +360,24 @@ param_buffer! {
     MiscRateControl => sys::VABufferType_VAEncMiscParameterBufferType,
     MiscHrd => sys::VABufferType_VAEncMiscParameterBufferType,
     MiscFrameRate => sys::VABufferType_VAEncMiscParameterBufferType,
+    // upstream's hand-written decode structs (`vaapi/ffi.rs`, layouts checked against the header
+    // in `vaapi/abi_tests.rs`), filled by its front ends: the fork's zero-copy accelerator
+    // (`va_accel.rs`, Y1) hands them to this context
+    crate::vaapi::ffi::VAPictureParameterBufferH264 => sys::VABufferType_VAPictureParameterBufferType,
+    crate::vaapi::ffi::VAIQMatrixBufferH264 => sys::VABufferType_VAIQMatrixBufferType,
+    crate::vaapi::ffi::VASliceParameterBufferH264 => sys::VABufferType_VASliceParameterBufferType,
+    crate::vaapi::ffi::VAPictureParameterBufferHEVC => sys::VABufferType_VAPictureParameterBufferType,
+    crate::vaapi::ffi::VAIQMatrixBufferHEVC => sys::VABufferType_VAIQMatrixBufferType,
+    crate::vaapi::ffi::VASliceParameterBufferHEVC => sys::VABufferType_VASliceParameterBufferType,
 }
+
+// the two bindings agree on the HEVC decode structs they both have (the H.264 ones exist only in
+// `vaapi/ffi.rs`, header-checked there)
+const _: () = {
+    assert!(std::mem::size_of::<crate::vaapi::ffi::VAPictureParameterBufferHEVC>() == std::mem::size_of::<sys::VAPictureParameterBufferHEVC>());
+    assert!(std::mem::size_of::<crate::vaapi::ffi::VAIQMatrixBufferHEVC>() == std::mem::size_of::<sys::VAIQMatrixBufferHEVC>());
+    assert!(std::mem::size_of::<crate::vaapi::ffi::VASliceParameterBufferHEVC>() == std::mem::size_of::<sys::VASliceParameterBufferHEVC>());
+};
 
 /// `VAEncMiscParameterBuffer` followed by its payload, as libva lays it out (a `type` word, then
 /// the payload struct; both 4-byte aligned, so `repr(C)` adds no padding between them).

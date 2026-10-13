@@ -3594,7 +3594,6 @@
 	Temporal NR frames	时域降噪帧数
 	Temporal NR motion	时域降噪运动容差
 	Shown on the paused frame, at export and in the render cache; not while playing.	在暂停的帧、导出和渲染缓存中显示；播放时不显示。
-	Temporal NR only runs on the first active node: these values are ignored here.	时域降噪只在第一个启用的节点上运行：此处的值将被忽略。
 # fork G2.5 / G2.6: soft clip and node LUT
 	Soft clip	柔和剪切
 	Highlight roll-off	高光柔和滚降
@@ -3780,3 +3779,80 @@
 	Pick White Balance	拾取白平衡
 	Auto White Balance	自动白平衡
 	Auto White Balance (Lumetri)	自动白平衡（Lumetri）
+# fork RS2: the Project Manager home screen
+	Can't read	无法读取
+	Can't read: {error}	无法读取：{error}
+	Can't read {name}: {error}	无法读取 {name}：{error}
+	Create	创建
+	Date created	创建日期
+	Date modified	修改日期
+	Exporting {name} to {dest}	正在将 {name} 导出到 {dest}
+	Folder name	文件夹名称
+	Frame rate	帧速率
+	Grid view	网格视图
+	List view	列表视图
+	Local	本地
+	Move to Trash	移到废纸篓
+	Move to Trash…	移到废纸篓…
+	Move “{name}” to the trash? You can restore it from the trash later.	将“{name}”移到废纸篓？之后可以从废纸篓中恢复。
+	{name} archive	{name} 归档
+	New Folder	新建文件夹
+	New Project	新建项目
+	Open or create a project first.	请先打开或创建一个项目。
+	The projects folder could not be listed.	无法列出项目文件夹。
+	No projects folder: set Settings ▸ General ▸ Projects folder.	没有项目文件夹：请在 设置 ▸ 常规 ▸ 项目文件夹 中设置。
+	Other locations	其他位置
+	Project info	项目信息
+	Remove from List	从列表中移除
+	Resolution	分辨率
+	Reveal in File Manager	在文件管理器中显示
+	Reverse order	倒序
+	Save the changes to “{name}” first?	先保存对“{name}”的更改吗？
+	Select a project to see its details.	选择一个项目以查看其详细信息。
+	Show the sidebar	显示侧边栏
+	Sort:	排序：
+	The project was not saved.	项目未保存。
+	Timelines	时间线
+	Unsaved Changes	未保存的更改
+	Untitled Project	未命名项目
+	Your projects folder ({path}) is made when you create the first project.	创建第一个项目时会创建项目文件夹（{path}）。
+	Projects…	项目…
+	Media Management…	媒体管理…
+	Close Project Manager	关闭项目管理器
+	List Projects	列出项目
+	Open Project	打开项目
+	Rename Project	重命名项目
+	Duplicate Project	复制项目
+	New Project Folder	新建项目文件夹
+	Reveal Project in File Manager	在文件管理器中显示项目
+	Remove Project from List	从列表中移除项目
+	Locate Project	定位项目
+	Move Project to Trash	将项目移到废纸篓
+	Export Project Archive	导出项目归档
+	Import Project	导入项目
+	At startup show	启动时显示
+	Projects folder	项目文件夹
+	Workflow default	工作流程默认值
+	Last project	上一个项目
+	New empty project	新的空项目
+	Render	渲染
+	Settings	设置
+	Fairlight	Fairlight
+	Deliver	交付
+	Render Settings	渲染设置
+	Render Queue	渲染队列
+# Fork 6.7b: clip-level Temporal NR commands (Clip ▸ Temporal NR).
+	Temporal NR	时域降噪
+	Get Temporal NR	获取时域降噪
+	List Temporal NR Parameters	列出时域降噪参数
+	Set Temporal NR Parameter	设置时域降噪参数
+	Enable / Disable Temporal NR	启用 / 停用时域降噪
+	Toggle Temporal NR Parameter Animation	切换时域降噪参数动画
+	Reset Temporal NR	重置时域降噪
+	Remove Temporal NR	移除时域降噪
+	Copy Temporal NR	复制时域降噪
+	Paste Temporal NR	粘贴时域降噪
+	Change Temporal NR	更改时域降噪
+# Fork 6.7b: the clip Temporal NR rows (Effect Controls / Inspector, Noise tab).
+	Temporal NR (clip)	时域降噪（片段）
+	Enabled	启用

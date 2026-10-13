@@ -4,6 +4,11 @@
 //! automation ids, preference values, the control channel, the CLI and MCP stay English (an
 //! automation element's label is the text shown, so it follows the interface language).
 //!
+//! # Workflow terminology
+//! While the Resolve workflow is active ([`terms::set_resolve`]), [`Language::tr`] first consults
+//! the overlay `terms-resolve.tsv` (see [`terms`]), so "Sequence" reads "Timeline" and so on; other
+//! languages use the overlay only where it has their wording. Premiere wording is the plain catalog.
+//!
 //! # Looking strings up
 //! - `tl!` with a string literal: that UI string in the language the UI is drawn in (see
 //!   [`set_current`]). Use it for every label, button, heading, tooltip and hint; the tests check
@@ -22,6 +27,7 @@
 //! refused the same way ([`chinese_font_available`]).
 
 mod catalog;
+pub mod terms;
 
 use std::cell::Cell;
 use std::sync::{Arc, OnceLock};
@@ -154,6 +160,9 @@ impl Language {
 
     /// Translate an English UI string; unknown strings come back unchanged.
     pub fn tr(self, text: &str) -> &str {
+        if let Some(term) = terms::lookup(self, text) {
+            return term;
+        }
         self.catalog().and_then(|c| c.plain(text)).unwrap_or(text)
     }
 
@@ -408,7 +417,7 @@ mod tests {
         let app = crate::FilmcraftApp::new(filmcraft_engine::Session::default());
         let mut missing: Vec<String> = Vec::new();
         let mut need = |text: &str| {
-            if translatable(text) && !Language::Es.has(text) && !missing.iter().any(|m| m == text) {
+            if translatable(text) && !covered(Language::Es, text) && !missing.iter().any(|m| m == text) {
                 missing.push(text.to_string());
             }
         };
@@ -429,8 +438,7 @@ mod tests {
     /// (a renamed command would otherwise leave a dead entry and an untranslated menu item).
     #[test]
     fn portuguese_entries_are_menu_labels() {
-        let app = crate::FilmcraftApp::new(filmcraft_engine::Session::default());
-        let items = crate::menus::menu_items(&app);
+        let items = both_workflows_menu_items();
         let known = |text: &str| crate::menus::MENUS.contains(&text) || items.iter().any(|it| it.label == text || it.path.iter().any(|p| p == text));
         let (entries, _) = catalog::parse_entries(include_str!("pt-br.tsv"));
         assert!(!entries.is_empty());
@@ -462,7 +470,7 @@ mod tests {
         let app = crate::FilmcraftApp::new(filmcraft_engine::Session::default());
         let mut missing: Vec<String> = Vec::new();
         let mut need = |text: &str| {
-            if translatable(text) && !Language::ZhCn.has(text) && !missing.iter().any(|m| m == text) {
+            if translatable(text) && !covered(Language::ZhCn, text) && !missing.iter().any(|m| m == text) {
                 missing.push(text.to_string());
             }
         };
@@ -512,6 +520,30 @@ mod tests {
         assert_eq!(crate::FilmcraftApp::new(restarted).ui.language, Language::ZhCn);
         crate::menus::invoke(&mut app, &ctx, "app.language.english", serde_json::json!({})).unwrap();
         set_current(Language::En);
+    }
+
+    /// The menu items as both workflows name them (fork RS2: the Resolve workflow calls some
+    /// items by Resolve's names), so a catalog entry for either name is a menu label.
+    /// Does `lang` show `text` translated? Under the Resolve workflow (the fork's default, feature
+    /// `fork-resolve-default`) menu labels are collected after the English terminology overlay, but
+    /// another language never shows those English terms: it uses the row's own wording if it has
+    /// one, otherwise the catalog's translation of the source label ([`terms::lookup`], [`Language::tr`]).
+    fn covered(lang: Language, text: &str) -> bool {
+        lang.has(text)
+            || terms::bundled()
+                .0
+                .iter()
+                .any(|(source, term)| term.english == text && (term.other.iter().any(|(code, _)| code == lang.code()) || lang.has(source)))
+    }
+
+    fn both_workflows_menu_items() -> Vec<crate::menus::MenuItem> {
+        let mut out = Vec::new();
+        for w in [filmcraft_engine::settings::Workflow::Premiere, filmcraft_engine::settings::Workflow::Resolve] {
+            let mut s = filmcraft_engine::Session::default();
+            s.prefs.workflow = w;
+            out.extend(crate::menus::menu_items(&crate::FilmcraftApp::new(s)));
+        }
+        out
     }
 
     /// The crate's sources (`src/**/*.rs`), each cut at its test module.
@@ -663,6 +695,10 @@ mod tests {
         }
         crate::dock::PanelKind::ALL.iter().for_each(|p| push(&mut out, p.title()));
         crate::dock::WORKSPACES.iter().for_each(|w| push(&mut out, w));
+        // fork RS3: the Resolve workflow's page panels, workspaces and page names
+        crate::dock::PanelKind::RESOLVE_ONLY.iter().for_each(|p| push(&mut out, p.title()));
+        crate::dock::PAGE_WORKSPACES.iter().for_each(|(w, _)| push(&mut out, w));
+        crate::panels::pages::PAGES.iter().for_each(|p| push(&mut out, p.1));
         filmcraft_project::Label::ALL.iter().for_each(|l| push(&mut out, l.name()));
         crate::panels::panel_state::TcMode::ALL.iter().for_each(|m| push(&mut out, m.label()));
         crate::panels::panel_state::TcSource::ALL.iter().for_each(|s| push(&mut out, s.label()));
@@ -914,8 +950,7 @@ mod tests {
 
     #[test]
     fn ukrainian_entries_cover_the_original_menu_catalog() {
-        let app = crate::FilmcraftApp::new(filmcraft_engine::Session::default());
-        let items = crate::menus::menu_items(&app);
+        let items = both_workflows_menu_items();
         let known = |text: &str| crate::menus::MENUS.contains(&text) || items.iter().any(|it| it.label == text || it.path.iter().any(|p| p == text));
         let (entries, _) = catalog::parse_entries(include_str!("uk.tsv"));
         for (_, en, _) in entries {
@@ -934,8 +969,7 @@ mod tests {
     /// and the native macOS Settings menu); every entry must still be a menu label.
     #[test]
     fn german_entries_cover_the_original_menu_catalog() {
-        let app = crate::FilmcraftApp::new(filmcraft_engine::Session::default());
-        let items = crate::menus::menu_items(&app);
+        let items = both_workflows_menu_items();
         let known = |text: &str| crate::menus::MENUS.contains(&text) || items.iter().any(|it| it.label == text || it.path.iter().any(|p| p == text));
         let (entries, _) = catalog::parse_entries(include_str!("de.tsv"));
         for (_, en, _) in entries {
@@ -984,8 +1018,7 @@ mod tests {
 
     #[test]
     fn russian_entries_cover_the_original_menu_catalog() {
-        let app = crate::FilmcraftApp::new(filmcraft_engine::Session::default());
-        let items = crate::menus::menu_items(&app);
+        let items = both_workflows_menu_items();
         let known = |text: &str| crate::menus::MENUS.contains(&text) || items.iter().any(|it| it.label == text || it.path.iter().any(|p| p == text));
         let (entries, _) = catalog::parse_entries(include_str!("ru.tsv"));
         for (_, en, _) in entries {

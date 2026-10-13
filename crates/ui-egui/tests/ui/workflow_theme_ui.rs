@@ -55,4 +55,12 @@ fn workflow_switch_swaps_the_theme_and_back() {
     run(&mut h, "settings.setWorkflow", json!({"workflow": "resolve"}));
     run(&mut h, "prefs.set", json!({"key": "appearance.darkTheme", "value": "darkest"}));
     assert_eq!(kind(&h), ThemeKind::Dark, "Premiere theme in the Resolve workflow");
+
+    // each workflow keeps its own choice across a round trip
+    run(&mut h, "settings.setWorkflow", json!({"workflow": "premiere"}));
+    assert_eq!(kind(&h), ThemeKind::Resolve, "the Resolve theme chosen in Premiere comes back");
+    run(&mut h, "settings.setWorkflow", json!({"workflow": "resolve"}));
+    assert_eq!(kind(&h), ThemeKind::Dark, "the Darkest theme chosen in Resolve comes back");
+    run(&mut h, "settings.setWorkflow", json!({"workflow": "premiere"}));
+    assert_eq!(kind(&h), ThemeKind::Resolve);
 }

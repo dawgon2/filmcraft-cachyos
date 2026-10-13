@@ -190,3 +190,19 @@ neighbours (correct anywhere, roughly 2–5× slower export with TNR on); (c) a 
 "Temporal NR" before the grade (like Resolve's per-clip NR setting, not a node). **Provisional:
 (a)**, marked "provisional (owner question Q9)" in the compile step; switching to (b) or (c)
 later keeps the same parameters. Design: `docs/fork/PHASE6-DESIGN.md` §6.7.
+
+**Owner's answer (2026-10-12, live): (c)**, a separate clip-level "Temporal NR" before the grade, like Resolve's per-clip setting. Scheduled as step **6.7b** right after RS3, before Y1 (FORK-PLAN §1a.40); same parameters, existing node-level TNR settings migrate to the clip. Resolved once 6.7b lands.
+
+**Resolved 2026-10-12 (6.7b landed):** clip-level Temporal NR (schema v17, `tnr.*` commands, Effect Controls / Inspector and Color ▸ Noise rows); the provisional first-node rule is gone; old projects migrate on open.
+
+## Q10 (2026-10-12, L1 prep): drag and drop from Dolphin on Wayland
+
+The Linux audit (`docs/fork/LINUX-AUDIT.md`) found that winit 0.30 (the window library eframe 0.36
+uses) has **no drag-and-drop of files and no pinch gesture on Wayland**. Options: (a) drop both
+from L1 and ship fallbacks: "Open With FilmCraft" + hand-off to the running window, Paste of
+copied files, the Import dialog (no extra cost); (b) wait for upstream to move to winit ≥ 0.31
+/ a newer egui, then add DnD (cost ~2–4 h at that point); (c) patch winit ourselves (~12 h,
+a fork of a core dependency to maintain). **Provisional: (a) now, (b) when upstream upgrades**
+(the lane re-checks at each upstream sync). Reversible: nothing is built that blocks DnD later.
+
+**Owner's answer (2026-10-12, live): "ok sounds good"** — (a) now, (b) when upstream upgrades. Resolved.

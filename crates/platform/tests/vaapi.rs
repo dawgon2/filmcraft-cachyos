@@ -18,8 +18,9 @@ use std::time::Duration;
 use common::*;
 use filmcraft_codecs::VideoDecoder;
 use filmcraft_codecs::hw::NalStreamInfo;
+use filmcraft_frame::PixelData;
 use filmcraft_platform::HybridDecoder;
-use filmcraft_platform::vaapi::VaDecoder;
+use filmcraft_platform::vaapi::{NAME_H264_ZERO_COPY, VaDecoder};
 
 /// The hardware decoder for a stream, or `None` (skip) when this machine has none for it.
 fn hardware(s: &Stream) -> Option<Box<dyn VideoDecoder>> {
@@ -38,6 +39,26 @@ fn hardware(s: &Stream) -> Option<Box<dyn VideoDecoder>> {
 
 fn software(s: &Stream) -> Box<dyn VideoDecoder> {
     filmcraft_codecs::software_video_decoder(&s.entry).unwrap()
+}
+
+/// Whether the decoding display's driver orders the reference lists itself (AMD: the VCN
+/// firmware builds them from the frame list's order counts rather than taking the host's). After
+/// a seek into an open GOP, the frame_num gap stand-ins and real pictures share order count 0
+/// (the software decoder's convention), and the firmware breaks that tie differently from the
+/// host, so pictures predicted from the stand-ins are concealed differently there: the parity
+/// checks of such seeks compare the seek point's I picture only (fork Y1).
+fn firmware_orders_reference_lists() -> bool {
+    filmcraft_platform::va::Display::get().is_ok_and(|d| d.vendor.contains("AMD") || d.vendor.contains("radeonsi"))
+}
+
+/// The pictures of a run after a seek to a non-IDR I picture that the parity checks compare: all
+/// of them from the seek point `start` on, or only the I picture itself where the driver orders
+/// the reference lists ([`firmware_orders_reference_lists`]).
+fn after_open_gop_seek(frames: &mut Vec<filmcraft_codecs::DecodedFrame>, start: i64) {
+    frames.retain(|f| f.pts >= start);
+    if firmware_orders_reference_lists() {
+        frames.truncate(1);
+    }
 }
 
 /// H.264 fixtures for the stream features the hardware path takes: (file, x264 profile, x264
@@ -126,8 +147,8 @@ fn parity(name: &str, s: &Stream) {
         assert_eq!(a.len(), b.len(), "{name} from sample {k}: pictures");
         if info.codec == filmcraft_codecs::hw::NalCodec::H264 && !info.nal_types(&s.samples[k].0).contains(&5) {
             let start = s.samples[k].1;
-            a.retain(|f| f.pts >= start);
-            b.retain(|f| f.pts >= start);
+            after_open_gop_seek(&mut a, start);
+            after_open_gop_seek(&mut b, start);
         }
         assert!(!a.is_empty(), "{name}: pictures after seeking to {k}");
         assert_same(&format!("{name} from sample {k}"), &a, &b);
@@ -478,6 +499,127 @@ fn concurrent_decoders() {
     }
 }
 
+/// The H.264 streams among the small fixtures with their stream info.
+fn h264_streams(ff: &std::path::Path) -> Vec<(String, Stream, NalStreamInfo)> {
+    small_streams(ff)
+        .into_iter()
+        .filter_map(|(name, s)| {
+            let info = NalStreamInfo::from_entry(&s.entry)?.ok()?;
+            (info.codec == filmcraft_codecs::hw::NalCodec::H264).then_some((name, s, info))
+        })
+        .collect()
+}
+
+/// Fork Y1: the zero-copy H.264 decoder's pictures (left on the GPU) read back bit-exact with
+/// the software decoder's, whole stream and after a reset + reseek; its frames hold their
+/// surfaces, so a stream decoded again while every earlier frame is still alive grows the
+/// surface set instead of overwriting them, and the held frames' pixels stay as they were.
+#[test]
+fn h264_zero_copy_is_bit_exact_and_held_frames_keep_their_surfaces() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let mut checked = 0;
+    for (name, s, info) in h264_streams(&ff) {
+        let name = name.as_str();
+        let mut zc = match VaDecoder::zero_copy(info.clone()) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("SKIPPED {name}: no zero-copy H.264 decoder: {e}");
+                continue;
+            }
+        };
+        assert_eq!(zc.name(), NAME_H264_ZERO_COPY, "{name}");
+        let reference = decode_all(software(&s).as_mut(), &s.samples);
+        eprintln!("{name}: first pass");
+        let held = decode_all(&mut zc, &s.samples);
+        assert!(held.len() >= 40 && held.iter().all(|f| matches!(f.frame.data, PixelData::Gpu(_))), "{name}: GPU frames");
+        assert_same(name, &held, &reference);
+        // every surface is still in a frame: the second pass gets fresh ones
+        let before = zc.surface_count();
+        zc.reset();
+        eprintln!("{name}: second pass, {} frames held, {before} surfaces", held.len());
+        let again = decode_all(&mut zc, &s.samples);
+        assert!(zc.surface_count() > before, "{name}: {} surfaces while {} frames were held", zc.surface_count(), held.len());
+        assert_same(&format!("{name}, decoded again with every frame held"), &again, &reference);
+        assert_same(&format!("{name}, frames held through a second decode"), &held, &reference);
+        // released, the surfaces are reused: a third pass with a few frames kept adds none
+        drop(held);
+        drop(again);
+        zc.reset();
+        let count = zc.surface_count();
+        eprintln!("{name}: third pass, {count} surfaces");
+        let kept: Vec<_> = decode_all(&mut zc, &s.samples).into_iter().step_by(7).collect();
+        assert_eq!(zc.surface_count(), count, "{name}: released surfaces reused");
+        // reseek to each sync sample with those few held (frame_num gap fills avoid them too)
+        let syncs: Vec<usize> = (1..s.samples.len()).filter(|&i| s.sync[i]).collect();
+        for &k in &syncs {
+            let end = (k + 17).min(s.samples.len());
+            zc.reset();
+            eprintln!("{name}: from sample {k}, {} surfaces", zc.surface_count());
+            let mut sw = software(&s);
+            sw.reset();
+            let mut a = decode_all(&mut zc, &s.samples[k..end]);
+            let mut b = decode_all(sw.as_mut(), &s.samples[k..end]);
+            assert_eq!(a.len(), b.len(), "{name} from sample {k}: pictures");
+            if !info.nal_types(&s.samples[k].0).contains(&5) {
+                let start = s.samples[k].1;
+                after_open_gop_seek(&mut a, start);
+                after_open_gop_seek(&mut b, start);
+            }
+            assert_same(&format!("{name} from sample {k}"), &a, &b);
+        }
+        let want: Vec<_> = reference.iter().step_by(7).map(|f| filmcraft_codecs::DecodedFrame { pts: f.pts, frame: f.frame.clone(), draft: f.draft }).collect();
+        assert_same(&format!("{name}: frames held through the reseeks"), &kept, &want);
+        checked += 1;
+    }
+    eprintln!("{checked} H.264 streams checked");
+}
+
+/// The zero-copy decoder refuses while `FILMCRAFT_NO_GPU_IMPORT` is set, and the factory's chain
+/// then takes the read-back decoder (pictures in memory, still bit-exact). The check runs in a
+/// child process ([`no_gpu_import_child`]) so the variable is set for it alone.
+#[test]
+fn no_gpu_import_falls_back_to_the_read_back_decoder() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let Some(path) = named(&ff, "h264_high.mp4") else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    if let Err(e) = VaDecoder::zero_copy(info) {
+        eprintln!("SKIPPED: no zero-copy H.264 decoder: {e}");
+        return;
+    }
+    let exe = std::env::current_exe().unwrap();
+    let out = std::process::Command::new(exe)
+        .args(["--exact", "no_gpu_import_child", "--nocapture"])
+        .env("FILMCRAFT_NO_GPU_IMPORT", "1")
+        .output()
+        .expect("run the child test");
+    let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success() && stdout.contains("test result: ok. 1 passed"), "child:\n{stdout}\n{stderr}");
+    assert!(stderr.contains("read-back decoder took the stream"), "child checked the fallback:\n{stderr}");
+}
+
+/// The child of [`no_gpu_import_falls_back_to_the_read_back_decoder`]; nothing on its own.
+#[test]
+fn no_gpu_import_child() {
+    if std::env::var_os("FILMCRAFT_NO_GPU_IMPORT").is_none() {
+        return;
+    }
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let Some(path) = named(&ff, "h264_high.mp4") else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    let why = VaDecoder::zero_copy(info.clone()).err().expect("zero-copy declines");
+    assert!(why.contains("FILMCRAFT_NO_GPU_IMPORT"), "{why}");
+    let Some(mut hw) = hardware(&s) else { return };
+    assert!(hw.name().starts_with("VA-API H.264 (") && hw.name() != NAME_H264_ZERO_COPY, "the read-back decoder: {}", hw.name());
+    let a = decode_all(hw.as_mut(), &s.samples[..30]);
+    assert!(!a.is_empty() && a.iter().all(|f| !matches!(f.frame.data, PixelData::Gpu(_))), "pictures in memory");
+    assert_same("read-back", &a, &decode_all(software(&s).as_mut(), &s.samples[..30]));
+    eprintln!("read-back decoder took the stream: {}", hw.name());
+}
+
 /// A decoder used and moved between threads (decoders migrate between frame workers).
 #[test]
 fn decoder_moves_between_threads() {
@@ -800,4 +942,25 @@ mod pipe {
             }
         }
     }
+}
+
+/// Frames outlive their decoder (the GOP cache keeps them after a clip's decoder is closed): each
+/// still downloads the right picture once the zero-copy decoder, its context and pool are gone
+/// (Intel's driver crashed syncing a surface whose context was destroyed).
+#[test]
+fn h264_zero_copy_frames_outlive_their_decoder() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let Some((name, s, info)) = h264_streams(&ff).into_iter().next() else { return };
+    let mut zc = match VaDecoder::zero_copy(info.clone()) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("SKIPPED {name}: no zero-copy H.264 decoder: {e}");
+            return;
+        }
+    };
+    let reference = decode_all(software(&s).as_mut(), &s.samples);
+    let held = decode_all(&mut zc, &s.samples);
+    drop(zc);
+    assert_same(&format!("{name}, after the decoder was dropped"), &held, &reference);
 }

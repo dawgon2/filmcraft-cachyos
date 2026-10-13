@@ -39,11 +39,11 @@ pub fn route(app: &mut FilmcraftApp, id: &str, params: &Value) -> Option<Result<
         },
         "edit" => {
             app.ui.workspace_dialog = Some(WorkspaceDialog::Edit { selected: None, name: String::new() });
-            Ok(json!({"dialog": "editWorkspaces", "workspaces": dock::names(&app.workspaces)}))
+            Ok(json!({"dialog": "editWorkspaces", "workspaces": dock::names_for(&app.workspaces, app.resolve_workflow())}))
         }
         "rename" => rename(app, &arg("from").unwrap_or_default(), &arg("to").unwrap_or_default()),
         "delete" => delete(app, &arg("name").unwrap_or_default()),
-        key => match dock::names(&app.workspaces).into_iter().find(|n| slug(n) == key) {
+        key => match dock::find(&app.workspaces, key) {
             Some(n) => {
                 app.set_workspace(&n);
                 Ok(json!({"workspace": n}))
@@ -134,22 +134,30 @@ fn delete(app: &mut FilmcraftApp, name: &str) -> Result<Value, String> {
 /// Rebuild the Window ▸ Workspaces submenu: every workspace (the current one checked), then the
 /// layout commands in table order.
 pub fn menu(app: &FilmcraftApp, items: &mut Vec<MenuItem>) {
-    splice(items, &app.workspaces, &app.session, Some(&app.ui.workspace), |n| app.ui.language.tr(n).to_string());
+    splice(items, &app.workspaces, &app.session, Some(&app.ui.workspace), app.resolve_workflow(), |n| app.ui.language.tr(n).to_string());
 }
 
 /// The same submenu without a running app: the built-in workspaces in English, none checked
 /// (`menus::default_menu_items`).
 pub fn default_menu(items: &mut Vec<MenuItem>, session: &filmcraft_engine::Session) {
-    splice(items, &dock::WorkspacePrefs::default(), session, None, str::to_string);
+    splice(items, &dock::WorkspacePrefs::default(), session, None, false, str::to_string);
 }
 
-fn splice(items: &mut Vec<MenuItem>, prefs: &dock::WorkspacePrefs, session: &filmcraft_engine::Session, current: Option<&str>, tr: impl Fn(&str) -> String) {
+/// `resolve`: the Resolve workflow's list (its pages instead of the workspaces they stand for).
+fn splice(
+    items: &mut Vec<MenuItem>,
+    prefs: &dock::WorkspacePrefs,
+    session: &filmcraft_engine::Session,
+    current: Option<&str>,
+    resolve: bool,
+    tr: impl Fn(&str) -> String,
+) {
     let is_ws = |it: &MenuItem| it.path.len() == 2 && it.path[0] == "Window" && it.path[1] == "Workspaces";
     let Some(at) = items.iter().position(is_ws) else { return };
     let actions: Vec<MenuItem> =
         items.iter().filter(|it| is_ws(it) && it.id.strip_prefix("window.workspace.").is_some_and(|k| ACTIONS.contains(&k))).cloned().collect();
     items.retain(|it| !is_ws(it));
-    let mut sub: Vec<MenuItem> = dock::names(prefs)
+    let mut sub: Vec<MenuItem> = dock::names_for(prefs, resolve)
         .into_iter()
         .map(|n| {
             let id = format!("window.workspace.{}", slug(&n));
@@ -174,7 +182,7 @@ pub fn dialogs(app: &mut FilmcraftApp, ctx: &egui::Context) {
     let mut push = |id: &str, r: &egui::Response, label: &str| elems.push((id.to_string(), r.rect, label.to_string()));
     let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
     let mut act: Option<(&str, Value)> = None;
-    let names = dock::names(&app.workspaces);
+    let names = dock::names_for(&app.workspaces, app.resolve_workflow());
     let changed: Vec<String> = app.workspaces.saved.iter().map(|s| s.name.clone()).collect();
     let (title, shown) = match &d {
         WorkspaceDialog::SaveAs { .. } => ("New Workspace", tl!("New Workspace")),

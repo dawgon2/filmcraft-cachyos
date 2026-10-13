@@ -129,13 +129,21 @@ fn spotlight(app: &mut FilmcraftApp, ctx: &egui::Context, targets: &[String]) ->
     target_rect
 }
 
+/// How far above the window's bottom edge the coach's cards sit: clear of the status bar and the
+/// 30 pt page bar G1.8 had; the Resolve workflow's taller page bar (fork RS3) lifts them by the
+/// difference.
+fn bottom_offset(app: &FilmcraftApp) -> f32 {
+    let taller = if app.resolve_workflow() { (crate::panels::pages::HEIGHT - 30.0).max(0.0) } else { 0.0 };
+    -48.0 - taller
+}
+
 /// The lesson card (or the "lesson complete" card): its rect, and whether a lesson step's
 /// control is outlined.
 fn lesson_card(app: &mut FilmcraftApp, ctx: &egui::Context) -> (Option<egui::Rect>, bool) {
     let t = app.tokens;
     let screen = ctx.content_rect();
     // above the status bar and the page bar
-    let offset = vec2(-16.0, -48.0);
+    let offset = vec2(-16.0, bottom_offset(app));
     let frame = Frame::new().fill(t.panel_bg).stroke(Stroke::new(1.0, t.accent)).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(12));
 
     let Some(run_state) = app.session.coach.active.clone() else {
@@ -264,7 +272,7 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
     }
     let t = app.tokens;
     let screen = ctx.content_rect();
-    let offset = vec2(-16.0, -48.0 - above);
+    let offset = vec2(-16.0, bottom_offset(app) - above);
     let frame = Frame::new().fill(t.panel_bg).stroke(Stroke::new(1.0, t.control_border)).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(10));
     let mut action: Option<AskAction> = None;
     let area = egui::Area::new(Id::new("coach-ask")).order(Order::Foreground).anchor(Align2::RIGHT_BOTTOM, offset).show(ctx, |ui| {
@@ -488,7 +496,7 @@ fn hint_card(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) -> Option<
     let hint = app.session.coach.hint.clone()?;
     let t = app.tokens;
     let screen = ctx.content_rect();
-    let offset = vec2(-16.0, -48.0 - above);
+    let offset = vec2(-16.0, bottom_offset(app) - above);
     let frame = Frame::new().fill(t.panel_bg).stroke(Stroke::new(1.0, t.accent)).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(10));
     let lesson = hint.lesson.as_deref().and_then(filmcraft_engine::coach::lesson);
     let mut clicked: Option<(&'static str, Value)> = None;

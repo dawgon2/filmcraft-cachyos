@@ -3653,7 +3653,6 @@
 	Temporal NR frames	Fotogramas de RR temporal
 	Temporal NR motion	Movimiento de RR temporal
 	Shown on the paused frame, at export and in the render cache; not while playing.	Se ve en el fotograma en pausa, al exportar y en la caché de render; no durante la reproducción.
-	Temporal NR only runs on the first active node: these values are ignored here.	La RR temporal solo actúa en el primer nodo activo: aquí estos valores se ignoran.
 # fork G2.5 / G2.6: soft clip and node LUT
 	Soft clip	Recorte suave
 	Highlight roll-off	Atenuación de altas luces
@@ -3786,3 +3785,80 @@
 	Pick White Balance	Seleccionar balance de blancos
 	Auto White Balance	Balance de blancos automático
 	Auto White Balance (Lumetri)	Balance de blancos automático (Lumetri)
+# fork RS2: the Project Manager home screen
+	Can't read	No se puede leer
+	Can't read: {error}	No se puede leer: {error}
+	Can't read {name}: {error}	No se puede leer {name}: {error}
+	Create	Crear
+	Date created	Fecha de creación
+	Date modified	Fecha de modificación
+	Exporting {name} to {dest}	Exportando {name} a {dest}
+	Folder name	Nombre de la carpeta
+	Frame rate	Velocidad de fotogramas
+	Grid view	Vista de cuadrícula
+	List view	Vista de lista
+	Local	Local
+	Move to Trash	Mover a la papelera
+	Move to Trash…	Mover a la papelera…
+	Move “{name}” to the trash? You can restore it from the trash later.	¿Mover «{name}» a la papelera? Puedes recuperarlo de la papelera más tarde.
+	{name} archive	Archivo de {name}
+	New Folder	Nueva carpeta
+	New Project	Nuevo proyecto
+	Open or create a project first.	Primero abre o crea un proyecto.
+	The projects folder could not be listed.	No se pudo listar la carpeta de proyectos.
+	No projects folder: set Settings ▸ General ▸ Projects folder.	Sin carpeta de proyectos: configúrala en Ajustes ▸ General ▸ Carpeta de proyectos.
+	Other locations	Otras ubicaciones
+	Project info	Información del proyecto
+	Remove from List	Quitar de la lista
+	Resolution	Resolución
+	Reveal in File Manager	Mostrar en el gestor de archivos
+	Reverse order	Orden inverso
+	Save the changes to “{name}” first?	¿Guardar primero los cambios de «{name}»?
+	Select a project to see its details.	Selecciona un proyecto para ver sus detalles.
+	Show the sidebar	Mostrar la barra lateral
+	Sort:	Ordenar:
+	The project was not saved.	El proyecto no se ha guardado.
+	Timelines	Líneas de tiempo
+	Unsaved Changes	Cambios sin guardar
+	Untitled Project	Proyecto sin título
+	Your projects folder ({path}) is made when you create the first project.	Tu carpeta de proyectos ({path}) se crea cuando creas el primer proyecto.
+	Projects…	Proyectos…
+	Media Management…	Gestión de medios…
+	Close Project Manager	Cerrar el Administrador de proyectos
+	List Projects	Listar proyectos
+	Open Project	Abrir proyecto
+	Rename Project	Cambiar nombre del proyecto
+	Duplicate Project	Duplicar proyecto
+	New Project Folder	Nueva carpeta de proyectos
+	Reveal Project in File Manager	Mostrar el proyecto en el gestor de archivos
+	Remove Project from List	Quitar el proyecto de la lista
+	Locate Project	Localizar proyecto
+	Move Project to Trash	Mover el proyecto a la papelera
+	Export Project Archive	Exportar archivo del proyecto
+	Import Project	Importar proyecto
+	At startup show	Al iniciar, mostrar
+	Projects folder	Carpeta de proyectos
+	Workflow default	Predeterminado del flujo de trabajo
+	Last project	Último proyecto
+	New empty project	Nuevo proyecto vacío
+	Render	Renderizar
+	Settings	Ajustes
+	Fairlight	Fairlight
+	Deliver	Entrega
+	Render Settings	Ajustes de renderizado
+	Render Queue	Cola de renderizado
+# Fork 6.7b: clip-level Temporal NR commands (Clip ▸ Temporal NR).
+	Temporal NR	RR temporal
+	Get Temporal NR	Obtener RR temporal
+	List Temporal NR Parameters	Listar parámetros de RR temporal
+	Set Temporal NR Parameter	Definir parámetro de RR temporal
+	Enable / Disable Temporal NR	Activar / desactivar RR temporal
+	Toggle Temporal NR Parameter Animation	Alternar animación de parámetro de RR temporal
+	Reset Temporal NR	Restablecer RR temporal
+	Remove Temporal NR	Quitar RR temporal
+	Copy Temporal NR	Copiar RR temporal
+	Paste Temporal NR	Pegar RR temporal
+	Change Temporal NR	Cambiar RR temporal
+# Fork 6.7b: the clip Temporal NR rows (Effect Controls / Inspector, Noise tab).
+	Temporal NR (clip)	RR temporal (clip)
+	Enabled	Activado

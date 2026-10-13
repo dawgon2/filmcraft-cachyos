@@ -42,6 +42,10 @@
 //! - **v16** (fork G0 / G1.5): colour grades (`TrackItem::grade`, serial correction nodes; fork
 //!   ADR 0004) and the colour stills gallery (`Project::stills`). No-op step; older builds would
 //!   drop both when saving.
+//! - **v17** (fork 6.7b): clip-level temporal noise reduction (`TrackItem::temporal_nr`). The
+//!   `tnr.*` keys of a clip's first enabled grade node (the only ones that rendered) move to the
+//!   clip; `tnr.*` keys on every other node (ignored before) are dropped. The first step that
+//!   changes data ([`v16_to_v17`]).
 //!
 //! **Fork lineage.** Before the first upstream sync (U0) the fork numbered the grades v13 and the
 //! stills v14, both no-op steps on an upstream v12 document, while upstream used v13 for
@@ -75,7 +79,7 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 /// edit a shipped one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15,
-    v15_to_v16,
+    v15_to_v16, v16_to_v17,
 ];
 
 /// The schema version this build writes (and the newest it reads).
@@ -125,6 +129,9 @@ pub struct Loaded {
     /// What was open when the file was saved (sequence tabs and how each was shown), when the
     /// file records it and it can be read.
     pub view: Option<ProjectView>,
+    /// What the upgrade changed that the user should hear about (one plain sentence each);
+    /// empty when nothing was moved or the file was already current.
+    pub migration_notes: Vec<String>,
 }
 
 impl Loaded {
@@ -160,12 +167,20 @@ struct EnvelopeIn {
     /// it never stops a project from opening.
     #[serde(default)]
     view: Option<Value>,
+    /// [`MIGRATION_NOTES`], left in the document by migration steps; never written.
+    #[serde(default, rename = "migration_notes")]
+    notes: Vec<String>,
 }
+
+/// Envelope key under which migration steps leave notes for [`Loaded::migration_notes`].
+const MIGRATION_NOTES: &str = "migration_notes";
 
 impl EnvelopeIn {
     fn loaded(self, schema_version: u32) -> Loaded {
         let view = self.view.and_then(|v| serde_json::from_value(v).ok());
-        Loaded { project: self.project, schema_version, generator: self.generator, view }
+        // notes only come from this build's migrations, never from a file that was already current
+        let migration_notes = if schema_version < SCHEMA_VERSION { self.notes } else { Vec::new() };
+        Loaded { project: self.project, schema_version, generator: self.generator, view, migration_notes }
     }
 }
 
@@ -247,7 +262,11 @@ pub fn decode(bytes: &[u8]) -> Result<Loaded, FormatError> {
         let env: EnvelopeIn = serde_json::from_slice(bytes).map_err(|e| FormatError::Corrupt(e.to_string()))?;
         return validate_loaded(env.loaded(found));
     }
-    let doc: Value = serde_json::from_slice(bytes).map_err(|e| FormatError::Corrupt(e.to_string()))?;
+    let mut doc: Value = serde_json::from_slice(bytes).map_err(|e| FormatError::Corrupt(e.to_string()))?;
+    // notes come only from this build's steps, never from the file
+    if let Some(env) = doc.as_object_mut() {
+        env.remove(MIGRATION_NOTES);
+    }
     // a pre-U0 fork file (grades / stills numbered 13 / 14) is an upstream v12 document plus fields
     let from = if !ours && FORK_LEGACY_SCHEMAS.contains(&found) && fork_shape(&doc) { FORK_LEGACY_BASE } else { found };
     let doc = migrate_with(MIGRATIONS, doc, from)?;
@@ -432,13 +451,134 @@ fn v15_to_v16(doc: Value) -> Result<Value, String> {
     Ok(doc)
 }
 
+/// The v16 grade-node keys that move to the clip in v17, with their clip key.
+const TNR_NODE_KEYS: [(&str, &str); 4] = [("tnr.luma", "luma"), ("tnr.chroma", "chroma"), ("tnr.frames", "frames"), ("tnr.motion", "motion")];
+
+/// v16 → v17 (fork 6.7b, `docs/fork/DESIGN-6.7b.md` §1.2): temporal NR moves from the grade to the
+/// clip. On every video clip of every sequence, the `tnr.*` values of the grade's first enabled
+/// node (what rendered in v16) become `temporal_nr` (switched off when the grade was bypassed,
+/// which rendered no TNR), and every node loses its `tnr.*` keys (the other nodes' were ignored).
+/// A clip that already has `temporal_nr` keeps it. Works on the JSON so shapes this build can't
+/// type still migrate; anything unexpected is left as it is (the typed load judges it after).
+fn v16_to_v17(mut doc: Value) -> Result<Value, String> {
+    let (mut moved, mut dropped) = (0usize, 0usize);
+    // project items a clip's temporal NR can sit on (media or subclip; the renderer narrows it
+    // further); clips of anything else (nested sequences, graphics…) rendered none, so their
+    // node keys are dropped like any ignored ones
+    let media: std::collections::HashSet<String> = doc
+        .get("project")
+        .and_then(|p| p.get("items"))
+        .and_then(Value::as_object)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|(_, it)| it.get("kind").and_then(Value::as_object).is_some_and(|k| k.contains_key("Media") || k.contains_key("Subclip")))
+                .map(|(id, _)| id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    // stills keep grades too: their `tnr.*` keys would come back on a node when applied
+    if let Some(stills) = doc.get_mut("project").and_then(|p| p.get_mut("stills")).and_then(Value::as_array_mut) {
+        for still in stills.iter_mut() {
+            let Some(nodes) = still.get_mut("grade").and_then(|g| g.get_mut("nodes")).and_then(Value::as_array_mut) else { continue };
+            dropped = dropped.saturating_add(strip_node_tnr(nodes, None).1);
+        }
+    }
+    if let Some(items) = doc.get_mut("project").and_then(|p| p.get_mut("items")).and_then(Value::as_object_mut) {
+        for item in items.values_mut() {
+            let Some(tracks) = item.get_mut("kind").and_then(|k| k.get_mut("Sequence")).and_then(|s| s.get_mut("video_tracks")).and_then(Value::as_array_mut)
+            else {
+                continue;
+            };
+            for track in tracks.iter_mut() {
+                let Some(clips) = track.get_mut("items").and_then(Value::as_array_mut) else { continue };
+                for clip in clips.iter_mut() {
+                    let takes = clip.get("item").and_then(Value::as_u64).is_some_and(|id| media.contains(&id.to_string()));
+                    let (m, d) = move_clip_tnr(clip, takes);
+                    moved = moved.saturating_add(usize::from(m));
+                    dropped = dropped.saturating_add(d);
+                }
+            }
+        }
+    }
+    if (moved > 0 || dropped > 0)
+        && let Some(env) = doc.as_object_mut()
+    {
+        let note = format!("Temporal NR moved from the grade to the clip on {moved} clip(s); {dropped} ignored node setting(s) dropped.");
+        // append: later steps may add their own notes
+        match env.get_mut(MIGRATION_NOTES).and_then(Value::as_array_mut) {
+            Some(notes) => notes.push(Value::String(note)),
+            None => {
+                env.insert(MIGRATION_NOTES.into(), Value::Array(vec![Value::String(note)]));
+            }
+        }
+    }
+    Ok(doc)
+}
+
+/// [`v16_to_v17`] for one clip (`takes`: its item can carry temporal NR): whether a clip setting
+/// was written, and how many node keys that never rendered were dropped.
+fn move_clip_tnr(clip: &mut Value, takes: bool) -> (bool, usize) {
+    let Some(clip) = clip.as_object_mut() else { return (false, 0) };
+    let Some(grade) = clip.get_mut("grade").and_then(Value::as_object_mut) else { return (false, 0) };
+    let bypass = grade.get("bypass").and_then(Value::as_bool).unwrap_or(false);
+    let Some(nodes) = grade.get_mut("nodes").and_then(Value::as_array_mut) else { return (false, 0) };
+    // `Grade::active_nodes`: the first `MAX_NODES` nodes are the only ones that ever rendered
+    let first_enabled = if takes {
+        nodes.iter().take(filmcraft_project::grade::MAX_NODES).position(|n| n.is_object() && n.get("enabled").and_then(Value::as_bool).unwrap_or(true))
+    } else {
+        None
+    };
+    let (taken, dropped) = strip_node_tnr(nodes, first_enabled);
+    if taken.is_empty() {
+        return (false, dropped);
+    }
+    if clip.contains_key("temporal_nr") {
+        // already a clip setting (hand-edited or written by a newer build): keep it
+        return (false, dropped.saturating_add(taken.len()));
+    }
+    let mut tnr = serde_json::Map::new();
+    if bypass {
+        tnr.insert("enabled".into(), Value::Bool(false));
+    }
+    tnr.insert("params".into(), Value::Object(taken));
+    clip.insert("temporal_nr".into(), Value::Object(tnr));
+    (true, dropped)
+}
+
+/// Remove every `tnr.*` key from `nodes`: node `keep`'s values (an index) come back as the clip's
+/// params (prefix stripped), the others are counted as dropped.
+fn strip_node_tnr(nodes: &mut [Value], keep: Option<usize>) -> (serde_json::Map<String, Value>, usize) {
+    let mut taken = serde_json::Map::new();
+    let mut dropped = 0usize;
+    for (i, node) in nodes.iter_mut().enumerate() {
+        let Some(params) = node.get_mut("params").and_then(Value::as_object_mut) else { continue };
+        let before = params.len();
+        for (node_key, clip_key) in TNR_NODE_KEYS {
+            let Some(v) = params.remove(node_key) else { continue };
+            if Some(i) == keep {
+                taken.insert(clip_key.into(), v);
+            } else {
+                dropped = dropped.saturating_add(1);
+            }
+        }
+        if params.is_empty()
+            && before > 0
+            && let Some(n) = node.as_object_mut()
+        {
+            n.remove("params");
+        }
+    }
+    (taken, dropped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn schema_version_matches_table() {
-        assert_eq!(SCHEMA_VERSION, 16);
+        assert_eq!(SCHEMA_VERSION, 17);
     }
 
     /// A project with a media item (one audio stream), a graded clip and a still, as the fork
@@ -755,5 +895,66 @@ mod tests {
         assert!(matches!(migrate_with(table, serde_json::json!({}), 5), Err(FormatError::TooNew { found: 5, supported: 4 })));
         let e = migrate_with(&[a, fail], serde_json::json!({}), 1).unwrap_err();
         assert!(matches!(e, FormatError::Migration { from: 2, .. }), "{e}");
+    }
+
+    /// Fork 6.7b: a v16 document without temporal NR comes out of `v16_to_v17` unchanged.
+    #[test]
+    fn v16_to_v17_leaves_everything_else_alone() {
+        let doc = serde_json::json!({
+            "format": FORMAT_ID, "schema_version": 16,
+            "project": {"items": {
+                "1": {"kind": {"Sequence": {"video_tracks": [{"items": [
+                    {"name": "a", "grade": {"nodes": [{"id": 1, "params": {}}, {"id": 2, "params": {"gain": {"value": {"Float": 1.0}}}}]}},
+                    {"name": "b"}
+                ]}], "audio_tracks": [{"items": [{"name": "x", "grade": {"nodes": [{"params": {"tnr.luma": 1}}]}}]}]}}},
+                "2": {"kind": {"Media": {}}}
+            }}
+        });
+        assert_eq!(v16_to_v17(doc.clone()).unwrap(), doc);
+    }
+
+    /// Fork 6.7b: hostile shapes never panic and never touch other clips.
+    #[test]
+    fn v16_to_v17_survives_hostile_documents() {
+        let tnr = serde_json::json!({"tnr.luma": {"value": {"Float": 0.5}}});
+        for doc in [
+            serde_json::json!(null),
+            serde_json::json!([]),
+            serde_json::json!({"project": 7}),
+            serde_json::json!({"project": {"items": []}}),
+            serde_json::json!({"project": {"items": {"1": {"kind": "Sequence"}}}}),
+            serde_json::json!({"project": {"items": {"1": {"kind": {"Sequence": {"video_tracks": {"items": 1}}}}}}}),
+            serde_json::json!({"project": {"items": {"1": {"kind": {"Sequence": {"video_tracks": [7, {"items": [1, "x", {"grade": 3}, {"grade": {"nodes": 4}}, {"grade": {"nodes": [5, {"params": 6}, {"enabled": "yes", "params": tnr}]}}]}]}}}}}}),
+        ] {
+            let _ = v16_to_v17(doc);
+        }
+        // a non-object node before the first enabled one is skipped; an existing clip setting wins;
+        // a clip of a non-media item (a nested sequence) gets nothing; stills lose their keys;
+        // notes already in the document are appended to
+        let doc = serde_json::json!({"migration_notes": ["earlier"], "project": {
+        "stills": [{"grade": {"nodes": [{"params": tnr}]}}, 4],
+        "items": {"2": {"kind": {"Media": {}}}, "1": {"kind": {"Sequence": {"video_tracks": [{"items": [
+            {"item": 2, "grade": {"nodes": [9, {"params": tnr}]}},
+            {"item": 2, "temporal_nr": {"params": {"chroma": {"value": {"Float": 0.1}}}}, "grade": {"nodes": [{"params": tnr}]}},
+            {"item": 2, "grade": {"bypass": "no", "nodes": [{"params": {"tnr.frames": "two"}}]}},
+            {"item": 1, "grade": {"nodes": [{"params": tnr}]}}
+        ]}]}}}}}});
+        let out = v16_to_v17(doc).unwrap();
+        let clips = &out["project"]["items"]["1"]["kind"]["Sequence"]["video_tracks"][0]["items"];
+        assert_eq!(clips[0]["temporal_nr"], serde_json::json!({"params": {"luma": {"value": {"Float": 0.5}}}}));
+        assert_eq!(clips[0]["grade"]["nodes"][1], serde_json::json!({}));
+        assert_eq!(clips[1]["temporal_nr"], serde_json::json!({"params": {"chroma": {"value": {"Float": 0.1}}}}));
+        assert!(clips[1]["grade"]["nodes"][0].get("params").is_none());
+        // mistyped values move as they are (the clamp handles them at render time)
+        assert_eq!(clips[2]["temporal_nr"]["params"]["frames"], "two");
+        assert!(clips[3].get("temporal_nr").is_none() && clips[3]["grade"]["nodes"][0].get("params").is_none());
+        assert!(out["project"]["stills"][0]["grade"]["nodes"][0].get("params").is_none());
+        assert_eq!(out["migration_notes"][0], "earlier");
+        assert_eq!(out["migration_notes"][1], "Temporal NR moved from the grade to the clip on 2 clip(s); 3 ignored node setting(s) dropped.");
+        // decode never takes notes from the file itself
+        let mut forged: serde_json::Value = serde_json::from_slice(&encode(&Project::new("x"), false)).unwrap();
+        forged["schema_version"] = 16.into();
+        forged["migration_notes"] = serde_json::json!(["forged"]);
+        assert!(decode(&serde_json::to_vec(&forged).unwrap()).unwrap().migration_notes.is_empty());
     }
 }

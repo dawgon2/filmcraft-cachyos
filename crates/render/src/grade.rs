@@ -61,7 +61,17 @@ pub fn item_fx(
     h: usize,
 ) -> Vec<FxOp> {
     let ctx = GradeCtx { px_scale, seq_time: seq_t, clip: item.id.0, project: Some(project) };
-    item.grade.as_ref().map(|g| compile_fx(g, t, working, ctx, w, h)).unwrap_or_default()
+    let mut out = item.grade.as_ref().map(|g| compile_fx(g, t, working, ctx, w, h)).unwrap_or_default();
+    // the clip's temporal NR (fork 6.7b): before everything, on the whole picture (where v1 put
+    // the first active node's); renders without temporal access strip it. Unlike v1 it survives a
+    // grade dropped for a non-finite step (only hostile values do that), and it never runs on a
+    // solid generator (v1 ran it there for nothing)
+    if is_media(project, item)
+        && let Some(op) = temporal(item, t)
+    {
+        out.insert(0, op);
+    }
+    out
 }
 
 /// True when `item`'s grade changes the picture at clip time `t` (an empty, identity, bypassed or
@@ -70,59 +80,66 @@ pub fn item_fx(
 /// builds no operations or curve tables. (A hostile grade whose chain [`compile_at`] drops as
 /// non-finite still counts: the clip then takes the effect path with an empty grade.)
 ///
-/// Temporal noise reduction counts only in a render with temporal access (`temporal`,
+/// The clip's temporal noise reduction counts only in a render with temporal access (`temporal`,
 /// [`crate::RenderOptions::temporal`]) and on a media / subclip item: elsewhere the op is left out,
-/// so a clip whose grade only has `tnr.*` keeps its plain fast paths (playback, graphics, nests).
-pub fn changes_picture(project: &filmcraft_project::Project, item: &TrackItem, t: Tick, temporal: bool) -> bool {
-    item.grade
-        .as_ref()
-        .is_some_and(|g| g.active_nodes().any(|n| node_changes(n, t, Some(project))) || (temporal && is_media(project, item) && temporal_node(g, t).is_some()))
+/// so a clip with only temporal NR keeps its plain fast paths (playback, graphics, nests).
+pub fn changes_picture(project: &filmcraft_project::Project, item: &TrackItem, t: Tick, temporal_access: bool) -> bool {
+    item.grade.as_ref().is_some_and(|g| g.active_nodes().any(|n| node_changes(n, t, Some(project))))
+        || (temporal_access && is_media(project, item) && temporal(item, t).is_some())
 }
 
 /// Whether `item` shows media (a media clip or a subclip): the items temporal NR runs on.
 pub fn is_media(project: &filmcraft_project::Project, item: &TrackItem) -> bool {
-    project.item(item.item).is_some_and(|p| matches!(p.kind, filmcraft_project::ItemKind::Media(_) | filmcraft_project::ItemKind::Subclip { .. }))
+    takes_temporal_nr(project, item.item)
 }
 
-/// The node whose temporal noise reduction renders (fork 6.7) and its op at clip time `t` (the
-/// op's `inputs` are None: the renderer attaches the neighbouring frames, `crate::temporal`).
-///
-/// Provisional (owner question Q9): v1 honours `tnr.*` on the **first active node only**; later
-/// nodes' temporal parameters are kept but ignored (the Noise tab says so).
-pub fn temporal_node(grade: &Grade, t: Tick) -> Option<(&GradeNode, FxOp)> {
-    let n = grade.active_nodes().next()?;
-    temporal(n, t).map(|op| (n, op))
+/// Whether project item `id` takes a clip temporal NR (fork 6.7b; the one rule the renderer and
+/// the `tnr.*` commands share): a media item that isn't a solid generator (Color Matte, Bars…;
+/// demo footage counts as media), or a subclip of one (one level, never recursing).
+pub fn takes_temporal_nr(project: &filmcraft_project::Project, id: filmcraft_project::ItemId) -> bool {
+    use filmcraft_project::{ItemKind, MediaRef};
+    let footage = |kind: &ItemKind| match kind {
+        ItemKind::Media(m) => !matches!(&m.media, MediaRef::Generator(g) if !matches!(g, filmcraft_media::Generator::Demo(_))),
+        _ => false,
+    };
+    match project.item(id).map(|p| &p.kind) {
+        Some(ItemKind::Subclip { parent, .. }) => project.item(*parent).is_some_and(|p| footage(&p.kind)),
+        Some(kind) => footage(kind),
+        None => false,
+    }
 }
 
-/// A node's temporal noise reduction at clip time `t` (None: both strengths 0). Every value is
-/// clamped by the schema (NaN / mistyped: identity); `tnr.frames` is rounded to 1 or 2.
-fn temporal(n: &GradeNode, t: Tick) -> Option<FxOp> {
-    let (luma, chroma) = (n.float_at("tnr.luma", t), n.float_at("tnr.chroma", t));
-    let radius = n.float_at("tnr.frames", t).round().clamp(1.0, f32::from(crate::tnr::MAX_RADIUS)) as u8;
-    (luma > 0.0 || chroma > 0.0).then(|| FxOp::TemporalDenoise { luma, chroma, radius, motion: n.float_at("tnr.motion", t), inputs: None })
+/// The clip's temporal noise reduction (fork 6.7b, `TrackItem::temporal_nr`) at clip time `t`
+/// (None: absent, switched off or both strengths 0; the op's `inputs` are None: the renderer
+/// attaches the neighbouring frames, `crate::temporal`). Every value is clamped by the schema
+/// (NaN / mistyped: identity); `frames` is rounded to 1 or 2.
+pub fn temporal(item: &TrackItem, t: Tick) -> Option<FxOp> {
+    let n = item.temporal_nr.as_ref().filter(|n| n.enabled)?;
+    let (luma, chroma) = (n.float_at("luma", t), n.float_at("chroma", t));
+    let radius = n.float_at("frames", t).round().clamp(1.0, f32::from(crate::tnr::MAX_RADIUS)) as u8;
+    (luma > 0.0 || chroma > 0.0).then(|| FxOp::TemporalDenoise { luma, chroma, radius, motion: n.float_at("motion", t), inputs: None })
 }
 
-/// Whether `item`'s grade asks for temporal noise reduction at clip time `t` (its first active
-/// node; see [`temporal_node`]).
+/// Whether `item` asks for temporal noise reduction at clip time `t` (see [`temporal`]).
 pub fn uses_temporal(item: &TrackItem, t: Tick) -> bool {
-    item.enabled && item.grade.as_ref().is_some_and(|g| temporal_node(g, t).is_some())
+    item.enabled && temporal(item, t).is_some()
 }
 
-/// Whether `item`'s grade asks for temporal noise reduction anywhere: at the clip's start or at
-/// any keyframe of its first active node's strengths (the render bar marks such a clip for
-/// rendering: playback never shows temporal NR, the render cache does).
+/// Whether `item` asks for temporal noise reduction anywhere: at the clip's start or at any
+/// keyframe of its strengths (the render bar marks such a clip for rendering: playback never
+/// shows temporal NR, the render cache does).
 pub fn ever_temporal(project: &filmcraft_project::Project, item: &TrackItem) -> bool {
-    if !is_media(project, item) {
+    if !is_media(project, item) || !item.enabled {
         return false;
     }
-    let Some(n) = item.grade.as_ref().and_then(|g| g.active_nodes().next()) else { return false };
+    let Some(n) = item.temporal_nr.as_ref() else { return false };
     let mut times = vec![item.effect_time_at(item.start)];
-    for k in ["tnr.luma", "tnr.chroma"] {
-        if let Some(p) = n.param(k) {
+    for k in ["luma", "chroma"] {
+        if let Some(p) = n.params.get(k) {
             times.extend(p.keyframes.iter().map(|kf| kf.time));
         }
     }
-    item.enabled && times.into_iter().any(|t| temporal(n, t).is_some())
+    times.into_iter().any(|t| temporal(item, t).is_some())
 }
 
 /// Whether the frame of sequence `seq_id` at `t` shows a media clip with temporal noise
@@ -132,7 +149,9 @@ pub fn temporal_at(project: &filmcraft_project::Project, seq_id: filmcraft_proje
     fn walk(project: &filmcraft_project::Project, seq: &filmcraft_project::Sequence, t: Tick, depth: u32) -> bool {
         seq.video_tracks.iter().filter(|tr| tr.enabled).any(|tr| {
             tr.items.iter().filter(|it| it.enabled && it.start <= t && t < it.end()).any(|it| match project.item(it.item).map(|p| &p.kind) {
-                Some(filmcraft_project::ItemKind::Media(_) | filmcraft_project::ItemKind::Subclip { .. }) => uses_temporal(it, it.effect_time_at(t)),
+                Some(filmcraft_project::ItemKind::Media(_) | filmcraft_project::ItemKind::Subclip { .. }) => {
+                    is_media(project, it) && uses_temporal(it, it.effect_time_at(t))
+                }
                 Some(filmcraft_project::ItemKind::Sequence(nested)) if depth < crate::MAX_NEST_DEPTH => walk(project, nested, it.source_time_at(t), depth + 1),
                 _ => false,
             })
@@ -228,12 +247,6 @@ pub fn compile_fx(grade: &Grade, t: Tick, working: WorkingSpace, ctx: GradeCtx, 
         correct.extend(body);
         FxOp::HslSecondary { key: wrap(vec![key]).into(), median_r: 0, denoise: 0.0, blur, correct: wrap(correct).into() }
     };
-    // temporal NR of the first active node (provisional, owner question Q9): before everything,
-    // on the whole picture (the node's windows and qualifier don't limit it; on the GPU a masked
-    // temporal op would send the clip to the CPU), then the node's spatial NR
-    if let Some((_, op)) = temporal_node(grade, t) {
-        out.push(op);
-    }
     for (n, part) in parts(grade, t, &gs, ctx) {
         let nr = denoise(n, t, px_scale);
         let empty = matches!(&part, Part::Signal(ops) if ops.is_empty());

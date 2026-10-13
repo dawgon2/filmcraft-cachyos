@@ -48,6 +48,12 @@ pub enum PanelKind {
     ProjectNotes,
     /// Color page: the sequence's clips as thumbnails over a mini timeline (Resolve's clip strip).
     ColorClips,
+    /// Resolve workflow's Deliver page (fork RS3): the export settings as a panel. Not in
+    /// [`PanelKind::ALL`], so the Premiere workflow's Window menu and shortcut list stay as they
+    /// were; the page's toolbar opens and closes it.
+    RenderSettings,
+    /// Resolve workflow's Deliver page (fork RS3): the export queue as a panel (not in `ALL`).
+    RenderQueue,
 }
 
 impl PanelKind {
@@ -85,6 +91,8 @@ impl PanelKind {
         PanelKind::ProjectNotes,
         PanelKind::ColorClips,
     ];
+    /// Panels only the Resolve workflow's pages use (fork RS3), kept out of [`PanelKind::ALL`].
+    pub const RESOLVE_ONLY: [PanelKind; 2] = [PanelKind::RenderSettings, PanelKind::RenderQueue];
     pub fn title(self) -> &'static str {
         match self {
             PanelKind::Project => "Project",
@@ -119,6 +127,8 @@ impl PanelKind {
             PanelKind::Gallery => "Gallery",
             PanelKind::ProjectNotes => "Project Notes",
             PanelKind::ColorClips => "Clips",
+            PanelKind::RenderSettings => "Render Settings",
+            PanelKind::RenderQueue => "Render Queue",
         }
     }
     pub fn id(self) -> String {
@@ -126,7 +136,11 @@ impl PanelKind {
     }
     pub fn from_name(s: &str) -> Option<PanelKind> {
         let n = s.to_ascii_lowercase().replace([' ', '_', '-'], "");
-        Self::ALL.iter().copied().find(|p| format!("{p:?}").to_ascii_lowercase() == n || p.title().to_ascii_lowercase().replace(' ', "") == n)
+        Self::ALL
+            .iter()
+            .chain(&Self::RESOLVE_ONLY)
+            .copied()
+            .find(|p| format!("{p:?}").to_ascii_lowercase() == n || p.title().to_ascii_lowercase().replace(' ', "") == n)
     }
     /// Window-menu shortcut (Premiere: Shift+1..9).
     pub fn window_shortcut(self) -> Option<&'static str> {
@@ -196,16 +210,31 @@ fn vsplit(size: SplitSize, a: DockNode, b: DockNode) -> DockNode {
 pub const WORKSPACES: [&str; 10] =
     ["Editing", "Assembly", "Color", "Color Grading", "Effects", "Audio", "Captions and Graphics", "Learning", "Review", "All Panels"];
 
+/// The Resolve workflow's page layouts (fork RS3), built-in workspaces listed only in that
+/// workflow: (workspace, the Premiere-workflow workspace it stands for). The Color page is the
+/// existing Color Grading workspace (GRADE-PLAN G1.8).
+pub const PAGE_WORKSPACES: [(&str, &str); 4] = [("Media Page", "Assembly"), ("Edit Page", "Editing"), ("Fairlight Page", "Audio"), ("Deliver Page", "Editing")];
+
 /// The user's workspaces file, beside `preferences.json` in the data directory.
 pub const WORKSPACES_FILE: &str = "workspaces.json";
 
 /// Window ▸ Workspaces: the user's own workspaces and saved changes to the built-in ones, and the
 /// workspace in use (reopened at launch).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WorkspacePrefs {
     pub saved: Vec<SavedWorkspace>,
     pub current: String,
+    /// 1 once the user's own workspaces were checked against the page workspaces' names (fork
+    /// RS3, [`WorkspacePrefs::migrate_page_names`]); a file written before RS3 reads 0.
+    #[serde(default)]
+    pub pages_version: u32,
+}
+
+impl Default for WorkspacePrefs {
+    fn default() -> Self {
+        WorkspacePrefs { saved: vec![], current: String::new(), pages_version: 1 }
+    }
 }
 
 /// A named layout. `layout` is a [`DockNode`] kept as JSON, so one unreadable entry (a panel a
@@ -232,7 +261,37 @@ impl WorkspacePrefs {
         }) else {
             return Self::default();
         };
-        serde_json::from_slice(&bytes).unwrap_or_default()
+        let mut prefs: Self = serde_json::from_slice(&bytes).unwrap_or_default();
+        prefs.migrate_page_names();
+        prefs
+    }
+    /// Fork RS3: a workspace the user saved before RS3 under a name the pages now use ("Edit
+    /// Page"…) would be hidden behind the built-in page; rename it "<name> (custom)" (with a
+    /// number when that is taken too) once, keeping it the current workspace if it was.
+    pub fn migrate_page_names(&mut self) {
+        if self.pages_version >= 1 {
+            return;
+        }
+        self.pages_version = 1;
+        for i in 0..self.saved.len() {
+            let Some(name) = self.saved.get(i).map(|s| s.name.clone()) else { continue };
+            if !PAGE_WORKSPACES.iter().any(|(w, _)| *w == name) {
+                continue;
+            }
+            let taken = |n: &str, saved: &[SavedWorkspace]| is_builtin(n) || saved.iter().any(|s| s.name == n);
+            let mut new = format!("{name} (custom)");
+            let mut k = 2_u32;
+            while taken(&new, &self.saved) && k < 1000 {
+                new = format!("{name} (custom {k})");
+                k = k.saturating_add(1);
+            }
+            if self.current == name {
+                self.current = new.clone();
+            }
+            if let Some(s) = self.saved.get_mut(i) {
+                s.name = new;
+            }
+        }
     }
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         if let Some(d) = path.parent() {
@@ -250,25 +309,61 @@ pub fn slug(name: &str) -> String {
 }
 
 pub fn is_builtin(name: &str) -> bool {
-    WORKSPACES.contains(&name)
+    WORKSPACES.contains(&name) || PAGE_WORKSPACES.iter().any(|(w, _)| *w == name)
 }
 
 /// Every workspace, built-in and the user's own, in one alphabetical list (Premiere's Window ▸
-/// Workspaces).
+/// Workspaces). The Premiere workflow's list; see [`names_for`].
 pub fn names(prefs: &WorkspacePrefs) -> Vec<String> {
-    let mut v: Vec<String> = WORKSPACES.iter().map(|s| s.to_string()).collect();
-    for s in &prefs.saved {
-        if !v.contains(&s.name) {
-            v.push(s.name.clone());
+    names_for(prefs, false)
+}
+
+/// [`names`] for a workflow: in the Resolve workflow (fork RS3) the page workspaces replace the
+/// Premiere ones they stand for (Assembly, Editing, Audio, Color), since choosing one of those
+/// lands on its page; the Premiere workflow never lists the page workspaces.
+pub fn names_for(prefs: &WorkspacePrefs, resolve: bool) -> Vec<String> {
+    let page_of = |n: &str| PAGE_WORKSPACES.iter().any(|(w, _)| *w == n);
+    let mut v: Vec<String> = if resolve {
+        WORKSPACES
+            .iter()
+            .filter(|w| !matches!(**w, "Assembly" | "Editing" | "Audio" | "Color"))
+            .chain(PAGE_WORKSPACES.iter().map(|(w, _)| w))
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        WORKSPACES.iter().map(|s| s.to_string()).collect()
+    };
+    let saved = prefs.saved.iter().filter(|s| resolve || !page_of(&s.name));
+    let saved: Vec<String> = saved.map(|s| s.name.clone()).collect();
+    for s in saved {
+        if !v.contains(&s) && !(resolve && matches!(s.as_str(), "Assembly" | "Editing" | "Audio" | "Color")) {
+            v.push(s);
         }
     }
     v.sort_by_key(|n| n.to_lowercase());
     v
 }
 
+/// The workspace a name means in a workflow (fork RS3; the Color rule is GRADE-PLAN G1.8): in the
+/// Resolve workflow Assembly, Editing, Audio and Color open their pages; in the Premiere workflow
+/// the page workspaces open the Premiere workspace they stand for.
+pub fn for_workflow(name: &str, resolve: bool) -> &str {
+    if resolve {
+        match name {
+            "Assembly" => "Media Page",
+            "Editing" => "Edit Page",
+            "Audio" => "Fairlight Page",
+            "Color" => "Color Grading",
+            n => n,
+        }
+    } else {
+        PAGE_WORKSPACES.iter().find(|(w, _)| *w == name).map_or(name, |(_, premiere)| premiere)
+    }
+}
+
 /// The workspace called `query` (any case, spaces optional).
 pub fn find(prefs: &WorkspacePrefs, query: &str) -> Option<String> {
-    names(prefs).into_iter().find(|n| slug(n) == slug(query))
+    names(prefs).into_iter().chain(names_for(prefs, true)).find(|n| slug(n) == slug(query))
 }
 
 /// The saved layout of a workspace: the user's saved version, else the built-in default.
@@ -383,6 +478,35 @@ pub fn workspace(name: &str) -> DockNode {
             ),
             tabs(&[EssentialSound, TextToSpeech], 0),
         ),
+        // fork RS3: the Resolve workflow's pages (RESOLVE-UI-PLAN RS3, from observation of
+        // Resolve 21's page layouts). Media: the file browser and the viewer over the media pool,
+        // metadata on the right.
+        "Media Page" => hsplit(
+            FixedB(320.0),
+            vsplit(Ratio(0.55), hsplit(Ratio(0.42), tabs(&[MediaBrowser], 0), tabs(&[Source], 0)), tabs(&[Project], 0)),
+            vsplit(Ratio(0.7), tabs(&[Metadata, Info], 0), tabs(&[AudioMeters], 0)),
+        ),
+        // Edit: the media pool (bins) down the left; source and timeline viewers side by side over
+        // the timeline. The Inspector opens on the right from the page's toolbar.
+        "Edit Page" => hsplit(
+            FixedA(440.0),
+            tabs(&[Project, Effects, Markers], 0),
+            vsplit(Ratio(0.5), hsplit(Ratio(0.5), tabs(&[Source], 0), tabs(&[Program], 0)), hsplit(FixedA(48.0), tabs(&[Tools], 0), tabs(&[Timeline], 0))),
+        ),
+        // Fairlight: a strip across the top (a small viewer, then the meters with the loudness
+        // readout), the timeline under it, the mixer on the right.
+        "Fairlight Page" => vsplit(
+            FixedA(270.0),
+            hsplit(FixedB(220.0), tabs(&[Program], 0), tabs(&[AudioMeters], 0)),
+            hsplit(FixedB(360.0), hsplit(FixedA(48.0), tabs(&[Tools], 0), tabs(&[Timeline], 0)), tabs(&[AudioTrackMixer, EssentialSound], 0)),
+        ),
+        // Deliver: render settings down the left; the viewer and the render queue over the
+        // timeline.
+        "Deliver Page" => hsplit(
+            FixedA(450.0),
+            tabs(&[RenderSettings], 0),
+            vsplit(Ratio(0.55), hsplit(FixedB(420.0), tabs(&[Program], 0), tabs(&[RenderQueue], 0)), tabs(&[Timeline], 0)),
+        ),
         "Captions and Graphics" => hsplit(
             FixedB(330.0),
             vsplit(
@@ -472,6 +596,23 @@ impl DockNode {
         if !beside_meters(self) {
             self.open_near(PanelKind::Timeline, PanelKind::Project);
         }
+    }
+    /// Add a panel as a column of its own (`width` points) on the left or right of the whole tree
+    /// (fork RS3: a page toolbar's panel toggles). Nothing happens when it is already there or
+    /// the tree is malformed.
+    pub fn add_side(&mut self, p: PanelKind, left: bool, width: f32) {
+        if self.contains(p) || crate::dock_shared::encode(self, &[]).is_err() {
+            return;
+        }
+        let rest = std::mem::replace(self, tabs(&[], 0));
+        let side = tabs(&[p], 0);
+        *self = if matches!(&rest, DockNode::Tabs { panels, .. } if panels.is_empty()) {
+            side
+        } else if left {
+            hsplit(SplitSize::FixedA(width), side, rest)
+        } else {
+            hsplit(SplitSize::FixedB(width), rest, side)
+        };
     }
     /// Add a panel as a tab next to `near` (or into the first group).
     pub fn open_near(&mut self, p: PanelKind, near: PanelKind) {
@@ -933,6 +1074,106 @@ mod tests {
             assert!(d.contains(PanelKind::Timeline), "{w}");
             assert!(d.contains(PanelKind::Program), "{w}");
         }
+    }
+
+    /// Fork RS3: the Premiere workflow's built-in workspaces stay byte-for-byte what they were
+    /// before the Resolve pages (FNV-1a of each layout's JSON, measured on the pre-RS3 tree).
+    #[test]
+    fn premiere_builtin_workspaces_are_unchanged() {
+        fn fnv(s: &str) -> u64 {
+            s.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+        }
+        let got: Vec<(&str, u64)> = WORKSPACES.iter().map(|w| (*w, fnv(&serde_json::to_string(&workspace(w)).unwrap()))).collect();
+        let want: [(&str, u64); 10] = [
+            ("Editing", 0x2d97a8099673ed40),
+            ("Assembly", 0xee28d0d99897cb70),
+            ("Color", 0xca51e1b14eabdf32),
+            ("Color Grading", 0x860864f12f91d43d),
+            ("Effects", 0xbd17ffaeeb6d7ce9),
+            ("Audio", 0x24656433eab1d7cf),
+            ("Captions and Graphics", 0x83110857e008a2ee),
+            ("Learning", 0x2d97a8099673ed40),
+            ("Review", 0x2d97a8099673ed40),
+            ("All Panels", 0x2b7399c614e112fa),
+        ];
+        assert_eq!(got, want);
+    }
+
+    /// Fork RS3: the page workspaces are valid layouts, listed only in the Resolve workflow, and
+    /// each workflow maps the other's names onto its own.
+    #[test]
+    fn page_workspaces_per_workflow() {
+        for (w, premiere) in PAGE_WORKSPACES {
+            let l = Layout { root: workspace(w), floating: vec![] };
+            l.validate().unwrap_or_else(|e| panic!("{w}: {e}"));
+            assert!(is_builtin(w));
+            assert_eq!(for_workflow(w, false), premiere);
+            assert_eq!(for_workflow(w, true), w);
+        }
+        assert_eq!(for_workflow("Editing", true), "Edit Page");
+        assert_eq!(for_workflow("Color", true), "Color Grading");
+        assert_eq!(for_workflow("Editing", false), "Editing");
+        assert_eq!(for_workflow("My Own", true), "My Own");
+        let mut prefs = WorkspacePrefs::default();
+        prefs.saved.push(SavedWorkspace {
+            name: "Edit Page".into(),
+            layout: serde_json::to_value(workspace("Edit Page")).unwrap(),
+            floating: serde_json::Value::Null,
+        });
+        prefs.saved.push(SavedWorkspace {
+            name: "Mine".into(),
+            layout: serde_json::to_value(workspace("Editing")).unwrap(),
+            floating: serde_json::Value::Null,
+        });
+        let premiere = names(&prefs);
+        let mut want: Vec<String> = WORKSPACES.iter().map(|s| s.to_string()).chain(["Mine".to_string()]).collect();
+        want.sort_by_key(|n| n.to_lowercase());
+        assert_eq!(premiere, want, "Premiere's list never shows a page");
+        let resolve = names_for(&prefs, true);
+        assert!(resolve.iter().any(|n| n == "Edit Page") && resolve.iter().any(|n| n == "Mine"));
+        assert!(!resolve.iter().any(|n| n == "Editing" || n == "Assembly" || n == "Audio" || n == "Color"), "{resolve:?}");
+        assert_eq!(find(&prefs, "editpage").as_deref(), Some("Edit Page"));
+        assert_eq!(find(&prefs, "editing").as_deref(), Some("Editing"));
+    }
+
+    /// Fork RS3 review: a user's own pre-RS3 workspace named like a page stays reachable.
+    #[test]
+    fn pre_rs3_workspaces_named_like_pages_are_renamed_once() {
+        let json =
+            r#"{"saved":[{"name":"Edit Page","layout":null},{"name":"Edit Page (custom)","layout":null},{"name":"Mine","layout":null}],"current":"Edit Page"}"#;
+        let dir = std::env::temp_dir().join(format!("fc-rs3-ws-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(WORKSPACES_FILE);
+        std::fs::write(&path, json).unwrap();
+        let p = WorkspacePrefs::load(&path);
+        let names: Vec<&str> = p.saved.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Edit Page (custom 2)", "Edit Page (custom)", "Mine"]);
+        assert_eq!(p.current, "Edit Page (custom 2)");
+        assert_eq!(p.pages_version, 1);
+        assert!(names_for(&p, false).iter().any(|n| n == "Edit Page (custom 2)"), "listed in Premiere");
+        // saved again by an RS3 build: a saved change to the built-in Edit Page is kept as is
+        let mut q = WorkspacePrefs::default();
+        q.saved.push(SavedWorkspace { name: "Edit Page".into(), layout: serde_json::Value::Null, floating: serde_json::Value::Null });
+        q.save(&path).unwrap();
+        assert_eq!(WorkspacePrefs::load(&path).saved[0].name, "Edit Page");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn add_side_opens_a_column_once() {
+        let mut d = workspace("Edit Page");
+        d.add_side(PanelKind::EffectControls, false, 360.0);
+        assert!(d.is_visible(PanelKind::EffectControls));
+        assert!(
+            matches!(&d, DockNode::Split { vertical: false, size: SplitSize::FixedB(w), b, .. } if *w == 360.0 && **b == tabs(&[PanelKind::EffectControls], 0))
+        );
+        let before = d.clone();
+        d.add_side(PanelKind::EffectControls, true, 300.0);
+        assert_eq!(d, before, "already there: nothing changes");
+        Layout { root: d.clone(), floating: vec![] }.validate().unwrap();
+        let mut empty = tabs(&[], 0);
+        empty.add_side(PanelKind::Project, true, 380.0);
+        assert_eq!(empty, tabs(&[PanelKind::Project], 0));
     }
 
     #[test]

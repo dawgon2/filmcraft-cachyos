@@ -265,17 +265,17 @@ fn add_nr_node(s: &mut Session, seq: ItemId) {
     .expect("nr");
 }
 
-/// A grade node with temporal noise reduction (luma 0.5, chroma 0.5, ±1 frame, motion 0.5) on
-/// every clip of the first video track (fork 6.7: `export-tnr`, `cache-tnr`).
-fn add_tnr_node(s: &mut Session, seq: ItemId) {
+/// Clip temporal noise reduction (luma 0.5, chroma 0.5, ±1 frame, motion 0.5) on every clip of
+/// the first video track (fork 6.7 / 6.7b: `export-tnr`, `cache-tnr`).
+fn add_tnr_clip(s: &mut Session, seq: ItemId) {
     s.edit("tnr", |p: &mut Project, _| {
         let q = p.sequence_mut(seq).expect("seq");
         for it in &mut q.video_tracks[0].items {
-            let mut n = filmcraft_project::grade::GradeNode::new(1);
-            for (k, v) in [("tnr.luma", 0.5), ("tnr.chroma", 0.5), ("tnr.frames", 1.0), ("tnr.motion", 0.5)] {
+            let mut n = filmcraft_project::TemporalNr::default();
+            for (k, v) in [("luma", 0.5), ("chroma", 0.5), ("frames", 1.0), ("motion", 0.5)] {
                 n.params.insert(k.into(), filmcraft_project::Param::new(ParamValue::Float(v)));
             }
-            it.grade = Some(filmcraft_project::grade::Grade { nodes: vec![n], bypass: false });
+            it.temporal_nr = Some(n);
         }
         Ok(())
     })
@@ -767,7 +767,7 @@ fn cache_cases(o: &Opts) -> Vec<Value> {
         if let Some(a) = import(&mut s, PLAY) {
             let secs = if o.quick { 6.0 } else { 20.0 };
             let seq = cuts_sequence(&mut s, 3840, 2160, &[(a, 0.0, secs)], true);
-            add_tnr_node(&mut s, seq);
+            add_tnr_clip(&mut s, seq);
             let t0 = Instant::now();
             let st = fill_cache(&mut s, fill_budget);
             let fill_s = t0.elapsed().as_secs_f64();
@@ -990,7 +990,7 @@ fn export(o: &Opts) -> Vec<Value> {
             grade(&mut s, seq);
         }
         if tnr {
-            add_tnr_node(&mut s, seq);
+            add_tnr_clip(&mut s, seq);
         }
         let frames = s.project.sequence(seq).map(|q| q.settings.frame_rate.frame_at(q.duration())).unwrap_or(0);
         for _ in 0..o.repeat {

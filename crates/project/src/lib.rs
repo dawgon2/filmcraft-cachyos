@@ -23,6 +23,7 @@ pub mod mixer;
 pub mod multicam;
 pub mod narration;
 pub mod still;
+pub mod tnr;
 pub mod transcript;
 pub mod vtransition;
 
@@ -44,6 +45,7 @@ pub use mixer::{AutomationMode, InputMap, MixerStrip, TrackSend};
 pub use multicam::{Camera, MergedClip, MulticamAudio, MulticamSel, MulticamSource};
 pub use narration::{Narration, VocalPitch};
 pub use still::Still;
+pub use tnr::{TNR_PARAMS, TemporalNr, tnr_param};
 pub use transcript::{Speaker, Transcript, Word};
 
 macro_rules! id_type {
@@ -598,6 +600,9 @@ pub struct TrackItem {
     /// effect stack (fork ADR 0004). Schema v13.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grade: Option<grade::Grade>,
+    /// Clip-level temporal noise reduction, applied before the grade (fork 6.7b). Schema v17.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_nr: Option<tnr::TemporalNr>,
 }
 
 /// Time interpolation for speed-changed clips (Clip ▸ Video Options ▸ Time Interpolation).
@@ -1662,6 +1667,7 @@ impl Project {
             audio_stream: 0,
             graphic: source_graphic.and_then(|sg| sg.meta.map(Box::new)),
             grade: None,
+            temporal_nr: None,
         })
     }
 

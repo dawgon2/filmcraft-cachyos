@@ -48,6 +48,7 @@ pub mod previews;
 pub mod project_manager;
 pub mod project_panel;
 pub mod project_tools;
+pub mod projects;
 pub mod proxies;
 pub mod proxy_jobs;
 pub mod relink;
@@ -63,6 +64,7 @@ pub mod shortcuts;
 pub mod source_monitor;
 pub mod stills;
 pub mod sync;
+pub mod tnr;
 pub mod transcript;
 pub mod trim;
 pub mod voiceover;
@@ -341,6 +343,9 @@ pub struct EditorState {
     /// Grade ▸ Copy: the copied clip grade (`grade.copy`; Paste / Append / Apply use it).
     #[serde(skip)]
     pub grade_clipboard: Option<filmcraft_project::grade::Grade>,
+    /// Clip ▸ Temporal NR ▸ Copy: the copied clip temporal NR (`tnr.copy`; `tnr.paste` uses it).
+    #[serde(skip)]
+    pub tnr_clipboard: Option<filmcraft_project::TemporalNr>,
     /// The Program monitor's still comparison (`compare.set`): wipe or split against a still.
     #[serde(default)]
     pub compare: stills::CompareState,
@@ -462,6 +467,11 @@ pub struct Session {
     /// Automatic proxies (fork 6.2): the proxy jobs queued on [`Self::background`] and each clip's
     /// proxy state (`media.proxyStatus`, the Project panel's badges).
     pub auto_proxies: proxy_jobs::AutoProxies,
+    /// Project files just saved whose poster frame the frontend should render
+    /// ([`projects::store_poster`]; fork RS2). Headless sessions leave them (capped).
+    pub poster_requests: Vec<String>,
+    /// Trash folder override for `projects.trash` (tests); None = the operating system's trash.
+    pub trash_dir: Option<std::path::PathBuf>,
 }
 
 /// An export advanced a batch at a time on the host's thread ([`Session::pump_jobs`]).
@@ -558,6 +568,8 @@ impl Session {
             auto_proxies: Default::default(),
             media_stamps: Default::default(),
             media_scan: None,
+            poster_requests: Vec::new(),
+            trash_dir: None,
         }
     }
 
@@ -1242,6 +1254,8 @@ mod project_manager_tests;
 #[cfg(test)]
 mod project_panel_tests;
 #[cfg(test)]
+mod projects_tests;
+#[cfg(test)]
 mod proxies_tests;
 #[cfg(test)]
 mod proxy_jobs_tests;
@@ -1273,6 +1287,8 @@ mod stills_tests;
 mod tests;
 #[cfg(test)]
 mod timeline_move_tests;
+#[cfg(test)]
+mod tnr_tests;
 #[cfg(test)]
 mod track_params_tests;
 #[cfg(test)]

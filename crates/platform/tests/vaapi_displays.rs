@@ -32,7 +32,9 @@ fn decoders_share_one_display() {
     let Some(hw) = hardware(first) else { return };
     drop(hw);
     let opened = displays_opened();
-    assert_eq!(opened, 1, "the first decoder opened one display");
+    // (none when the fork's decoders took it: the zero-copy H.264 and HEVC decoders live on the
+    // fork's own process-wide display, `filmcraft_platform::va::Display::get`)
+    assert!(opened <= 1, "the first decoder opened at most one display ({opened})");
 
     // one decoder after another, of every fixture (H.264, HEVC Main, HEVC Main 10)
     for round in 0..10 {

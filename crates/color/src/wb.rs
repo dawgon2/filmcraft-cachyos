@@ -67,6 +67,13 @@ const MAX_SAT: f32 = 0.75;
 /// input) neutral, R = G = B. `clip` is the clip level of the picture in the same units (1.0 for
 /// display-referred SDR; `f32::INFINITY` when nothing clips). Exact within the ranges.
 pub fn solve(rgb: [f32; 3], clip: f32) -> Result<WbSolve, WbReject> {
+    let hi = rgb[0].max(rgb[1]).max(rgb[2]);
+    solve_judged(rgb, clip.is_finite() && hi >= clip * 0.985)
+}
+
+/// [`solve`] with the clipping judged by the caller (`clipped`: e.g. [`ClipLevel::is_clipped`]
+/// on the source under the sample), refused in the same order of reasons.
+pub fn solve_judged(rgb: [f32; 3], clipped: bool) -> Result<WbSolve, WbReject> {
     let [r, g, b] = rgb;
     if !(r.is_finite() && g.is_finite() && b.is_finite()) {
         return Err(WbReject::Invalid);
@@ -75,7 +82,7 @@ pub fn solve(rgb: [f32; 3], clip: f32) -> Result<WbSolve, WbReject> {
     if hi < MIN_LEVEL || lo <= 0.0 {
         return Err(if hi < MIN_LEVEL { WbReject::TooDark } else { WbReject::TooSaturated });
     }
-    if clip.is_finite() && hi >= clip * 0.985 {
+    if clipped {
         return Err(WbReject::Clipped);
     }
     if (hi - lo) / hi > MAX_SAT {
@@ -94,6 +101,121 @@ pub fn solve(rgb: [f32; 3], clip: f32) -> Result<WbSolve, WbReject> {
     }
     Ok(WbSolve { temperature: t * RANGE, tint: n * RANGE, clamped })
 }
+
+/// Where a source clips, for judging working linear light that came out of the source's input
+/// transform alone (no grade, no effects). A colour is clipped when a channel reached the source's
+/// encoded maximum: code value 1.0 of SDR and HLG signals, the top a camera log file can hold (less
+/// a ~2 % margin; F-Log2 included, carried through the log curve into scene linear), or the content peak of PQ media (its
+/// MaxCLL / mastering peak, else 1000 cd/m²). The check undoes the gamut matrix (and the HLG
+/// OOTF) of the input transform, so one blown channel is caught in DaVinci Wide Gamut and the HDR
+/// working spaces too, not only a blown white.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClipLevel {
+    /// Working gamut → source gamut.
+    to_source: [[f32; 3]; 3],
+    /// HLG: the OOTF's luma weights (BT.2020) and the scale of scene 1.0 in working units.
+    hlg: Option<([f32; 3], f32)>,
+    /// A channel at or above this (source-gamut linear) is clipped.
+    level: f32,
+}
+
+/// HLG system gamma of the input transform (BT.2100 at 1000 cd/m²).
+const HLG_GAMMA: f32 = 1.2;
+
+impl ClipLevel {
+    /// Nothing clips (linear float media: values above 1 are real).
+    pub const NONE: ClipLevel = ClipLevel { to_source: IDENTITY3, hlg: None, level: f32::INFINITY };
+
+    /// A plain clip level in working units (no gamut or OOTF to undo), e.g. 1.0 for
+    /// display-referred SDR when the source isn't known.
+    pub fn working(level: f32) -> ClipLevel {
+        ClipLevel { level: if level.is_finite() && level > 0.0 { level } else { f32::INFINITY }, ..ClipLevel::NONE }
+    }
+
+    /// The clip level of media in colour space `src` (signal range `range`; `peak_nits`: the
+    /// content peak of PQ media from its HDR metadata) entering pipeline `pipe`.
+    pub fn for_source(src: crate::spaces::ColorSpace, range: crate::Range, pipe: &crate::spaces::ColorPipeline, peak_nits: Option<f64>) -> ClipLevel {
+        use crate::spaces::Curve;
+        use crate::transform::{HDR_PEAK_NITS, InputTransform, REFERENCE_WHITE_NITS};
+        let curve = src.curve();
+        let Some(code) = top_code(src, range, peak_nits) else { return ClipLevel::NONE };
+        let t = InputTransform::new(src, range, pipe, peak_nits);
+        // the top code value on every channel, through the real input transform
+        let white = t.convert([code; 3]);
+        let hlg = (curve == Curve::Hlg).then(|| {
+            let l = Gamut::Bt2020.luma();
+            ([l[0] as f32, l[1] as f32, l[2] as f32], (HDR_PEAK_NITS / REFERENCE_WHITE_NITS) as f32)
+        });
+        let m = crate::spaces::gamut_matrix(pipe.working_gamut(), src.gamut());
+        let mut c = ClipLevel { to_source: m.map(|r| r.map(|v| v as f32)), hlg, level: f32::INFINITY };
+        let level = c.source_linear(white).into_iter().fold(f32::INFINITY, f32::min);
+        c.level = if level.is_finite() && level > 0.0 { level } else { f32::INFINITY };
+        c
+    }
+
+    /// Whether nothing can be judged clipped.
+    pub fn is_none(&self) -> bool {
+        !self.level.is_finite()
+    }
+
+    /// Working linear (straight colour) → the source's linear light, before its OOTF and matrix.
+    fn source_linear(&self, rgb: [f32; 3]) -> [f32; 3] {
+        let mut c = crate::spaces::apply3(&self.to_source, rgb);
+        if let Some((l, k)) = self.hlg {
+            // display = k · Ys^0.2 · scene, so Yd = k · Ys^1.2
+            let yd = (l[0] * c[0] + l[1] * c[1] + l[2] * c[2]).max(0.0);
+            let ys = (yd / k).powf(1.0 / HLG_GAMMA);
+            let g = k * ys.powf(HLG_GAMMA - 1.0);
+            c = if g > 1e-9 { c.map(|v| v / g) } else { [0.0; 3] };
+        }
+        c
+    }
+
+    /// Whether `rgb` (working linear, straight colour, from the input transform alone) has a
+    /// clipped channel. Non-finite values count as clipped (nothing can be told about them).
+    pub fn is_clipped(&self, rgb: [f32; 3]) -> bool {
+        if self.is_none() {
+            return false;
+        }
+        if !rgb.iter().all(|v| v.is_finite()) {
+            return true;
+        }
+        let c = self.source_linear(rgb);
+        c[0].max(c[1]).max(c[2]) >= self.level * 0.985
+    }
+}
+
+/// The decoder-normalised code value where `src` clips (see [`ClipLevel`]); `None` for linear
+/// media, which has no top.
+pub fn top_code(src: crate::spaces::ColorSpace, range: crate::Range, peak_nits: Option<f64>) -> Option<f32> {
+    use crate::spaces::Curve;
+    use crate::transform::{HDR_PEAK_NITS, REFERENCE_WHITE_NITS, encode_channel};
+    let curve = src.curve();
+    // the source's top in its own linear light
+    let top = match curve {
+        Curve::Linear => return None,
+        Curve::Sdr | Curve::Srgb | Curve::Hlg => 1.0,
+        Curve::Pq => peak_nits.filter(|p| p.is_finite()).unwrap_or(HDR_PEAK_NITS).clamp(REFERENCE_WHITE_NITS, 10_000.0) / REFERENCE_WHITE_NITS,
+        Curve::Log(c) => {
+            // camera log: the top a file can hold (code value 1023, or the limited range's legal
+            // maximum, 1019 / 254 → 1.086 normalised), less a margin of ~2 % of the signal (about
+            // 20 10-bit code values) because sensors saturate a little below the top code
+            let top = (encode_channel(c.peak_linear(), curve, range) as f32).min(match range {
+                crate::Range::Limited => LOG_LEGAL_MAX_LIMITED,
+                crate::Range::Full => 1.0,
+            });
+            return Some(top - LOG_CLIP_MARGIN);
+        }
+    };
+    Some(encode_channel(top, curve, range) as f32)
+}
+
+/// The largest legal limited-range code value, normalised (10-bit 1019, 8-bit 254: both ≈ 1.087).
+const LOG_LEGAL_MAX_LIMITED: f32 = 1.086;
+/// How far below its top a camera log signal counts as clipped (normalised code value).
+const LOG_CLIP_MARGIN: f32 = 0.02;
+
+const IDENTITY3: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 /// Box average of an RGBA f32 image (`w`×`h`, row-major) over the rectangle `uv0`…`uv1` (0…1 of
 /// the frame, either order), at least `min_px` × `min_px` pixels around its centre. Non-finite
@@ -457,5 +579,76 @@ mod tests {
         let nan = image(8, 8, |_, _| [f32::NAN; 3]);
         assert!(auto_neutral(&nan, 8, 8, [0.2126, 0.7152, 0.0722], 1.0).is_none());
         assert!(auto_neutral(&img, usize::MAX, 3, [0.2126, 0.7152, 0.0722], 1.0).is_none());
+    }
+
+    #[test]
+    fn clip_level_catches_blown_channels_through_every_input_transform() {
+        use crate::Range;
+        use crate::spaces::{ColorPipeline, ColorSpace, Curve, WorkingSpace};
+        use crate::transform::{InputTransform, encode_channel};
+        let pipes = [
+            ColorPipeline { working: WorkingSpace::Rec709, ..Default::default() },
+            ColorPipeline { working: WorkingSpace::Rec709, wide_gamut: true, ..Default::default() },
+            ColorPipeline { working: WorkingSpace::Rec2100Pq, ..Default::default() },
+            ColorPipeline { working: WorkingSpace::Rec2100Hlg, ..Default::default() },
+            ColorPipeline { working: WorkingSpace::DaVinciWide, ..Default::default() },
+        ];
+        for pipe in pipes {
+            for src in ColorSpace::ALL {
+                for range in [Range::Full, Range::Limited] {
+                    let clip = ClipLevel::for_source(src, range, &pipe, None);
+                    if src.curve() == Curve::Linear {
+                        assert!(clip.is_none() && !clip.is_clipped([50.0; 3]));
+                        continue;
+                    }
+                    let t = InputTransform::new(src, range, &pipe, None);
+                    let lin = |l: f64| encode_channel(l, src.curve(), range) as f32;
+                    let top = top_code(src, range, None).unwrap();
+                    let why = format!("{src:?} {range:?} into {:?} wide {}", pipe.working, pipe.wide_gamut);
+                    // a blown white, and a blown channel (each one) on a bright but unclipped colour
+                    assert!(clip.is_clipped(t.convert([top; 3])), "white: {why}");
+                    let tone = src.is_hdr() && pipe.working == WorkingSpace::Rec709;
+                    if !tone {
+                        for ch in 0..3 {
+                            let mut c = [lin(0.4); 3];
+                            c[ch] = top;
+                            assert!(clip.is_clipped(t.convert(c)), "channel {ch}: {why}");
+                        }
+                    }
+                    // mid grey, a light grey and a coloured patch are fine
+                    for c in [[lin(0.18); 3], [lin(0.6); 3], [lin(0.3), lin(0.2), lin(0.12)]] {
+                        assert!(!clip.is_clipped(t.convert(c)), "{c:?}: {why}");
+                    }
+                    assert!(clip.is_clipped([f32::NAN, 0.1, 0.1]));
+                }
+            }
+        }
+        // camera log: the legal top of a limited-range file (10-bit 1019) and a sensor that
+        // saturates ~15 code values under it count as clipped; ~60 code values under it doesn't
+        let dwg = ColorPipeline { working: WorkingSpace::DaVinciWide, ..Default::default() };
+        for src in [ColorSpace::FLog2FGamut, ColorSpace::SLog3SGamut3Cine] {
+            let c = ClipLevel::for_source(src, Range::Limited, &dwg, None);
+            let t = InputTransform::new(src, Range::Limited, &dwg, None);
+            let code = |cv: f32| (cv - 64.0) / 876.0;
+            assert!(c.is_clipped(t.convert([code(1019.0); 3])), "{src:?}");
+            assert!(c.is_clipped(t.convert([code(1004.0), code(700.0), code(700.0)])), "{src:?}");
+            assert!(!c.is_clipped(t.convert([code(960.0); 3])), "{src:?}");
+        }
+        // the content peak of PQ media is its clip level
+        let pq = ColorPipeline { working: WorkingSpace::Rec2100Pq, ..Default::default() };
+        let c = ClipLevel::for_source(ColorSpace::Rec2100Pq, Range::Limited, &pq, Some(1000.0));
+        let nits = |n: f32| [n / 203.0; 3];
+        assert!(c.is_clipped(nits(1000.0)) && !c.is_clipped(nits(900.0)) && !c.is_clipped(nits(203.0)));
+        let c4 = ClipLevel::for_source(ColorSpace::Rec2100Pq, Range::Limited, &pq, Some(4000.0));
+        assert!(!c4.is_clipped(nits(1000.0)) && c4.is_clipped(nits(4000.0)));
+        // hostile peaks fall back to the default
+        for p in [f64::NAN, f64::INFINITY, -5.0, 0.0] {
+            let c = ClipLevel::for_source(ColorSpace::Rec2100Pq, Range::Limited, &pq, Some(p));
+            assert!(c.is_clipped(nits(10_000.0)) && !c.is_clipped(nits(100.0)), "{p}");
+        }
+        assert!(ClipLevel::working(1.0).is_clipped([1.0, 0.2, 0.2]) && !ClipLevel::working(1.0).is_clipped([0.9; 3]));
+        for bad in [f32::NAN, f32::INFINITY, 0.0, -1.0] {
+            assert!(ClipLevel::working(bad).is_none());
+        }
     }
 }

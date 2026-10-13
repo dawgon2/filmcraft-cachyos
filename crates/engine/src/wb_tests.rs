@@ -216,3 +216,92 @@ fn picks_in_a_davinci_wide_sequence_and_on_an_animated_node() {
     assert!(!n.param("temperature").unwrap().keyframes.is_empty());
     assert!((f64::from(n.float_at("temperature", filmcraft_time::Tick(0))) - tt(&r).0).abs() < 1e-2);
 }
+
+fn err(s: &mut Session, cmd: &str, p: Value) -> String {
+    s.execute(cmd, p).unwrap_err().to_string()
+}
+
+#[test]
+fn clipped_spots_are_refused_in_davinci_wide_and_hdr_sequences_too() {
+    for ws in ["dwg-di", "rec2100-pq", "rec2100-hlg", "rec709"] {
+        let (mut s, c) = matte("#ffffff");
+        s.execute("sequence.colorSettings", json!({"workingSpace": ws})).unwrap();
+        let a = node(&mut s, c);
+        let before = grade(&s, c);
+        let e = err(&mut s, "grade.wb.pick", json!({"node": a, "x": 0.5, "y": 0.5}));
+        assert!(e.contains("clipped"), "{ws}: {e}");
+        assert!(s.execute("grade.wb.auto", json!({"node": a})).is_err(), "{ws}");
+        let e = err(&mut s, "lumetri.wb.pick", json!({"clip": c.0, "x": 0.5, "y": 0.5}));
+        assert!(e.contains("clipped"), "{ws}: {e}");
+        assert!(s.execute("lumetri.wb.auto", json!({"clip": c.0})).is_err(), "{ws}");
+        assert_eq!(grade(&s, c), before, "{ws}");
+        // one blown channel (a warm white: red at the top) counts too
+        let (mut s, c) = matte("#fff0dc");
+        s.execute("sequence.colorSettings", json!({"workingSpace": ws})).unwrap();
+        let a = node(&mut s, c);
+        let e = err(&mut s, "grade.wb.pick", json!({"node": a, "x": 0.5, "y": 0.5}));
+        assert!(e.contains("clipped"), "{ws}: {e}");
+    }
+}
+
+#[test]
+fn unclipped_spots_still_solve_exactly_in_davinci_wide_and_hdr_sequences() {
+    for ws in ["dwg-di", "rec2100-pq", "rec2100-hlg"] {
+        // a mid and a bright (but unclipped) warm grey
+        for hex in ["#a08c78", "#e6d7c8"] {
+            let (mut s, c) = matte(hex);
+            s.execute("sequence.colorSettings", json!({"workingSpace": ws})).unwrap();
+            let a = node(&mut s, c);
+            let r = s.execute("grade.wb.pick", json!({"node": a, "x": 0.5, "y": 0.5})).unwrap();
+            assert!(tt(&r).0 < -2.0, "{ws} {hex}: {r}");
+            // the node's output is neutral: a node after it finds nothing to do
+            let b = node(&mut s, c);
+            let r2 = tt(&s.execute("grade.wb.pick", json!({"node": b, "x": 0.5, "y": 0.5})).unwrap());
+            assert!(r2.0.abs() < 0.5 && r2.1.abs() < 0.5, "{ws} {hex}: {r2:?}");
+            // Auto and Lumetri's selector agree with the node picker
+            let auto = tt(&s.execute("grade.wb.auto", json!({"node": a})).unwrap());
+            assert!((auto.0 - tt(&r).0).abs() < 0.05 && (auto.1 - tt(&r).1).abs() < 0.05, "{ws} {hex}: {auto:?} vs {r}");
+            s.execute("grade.clear", json!({"clip": c.0})).unwrap();
+            let l = tt(&s.execute("lumetri.wb.pick", json!({"clip": c.0, "x": 0.5, "y": 0.5})).unwrap());
+            assert!((l.0 - tt(&r).0).abs() < 0.05 && (l.1 - tt(&r).1).abs() < 0.05, "{ws} {hex}: {l:?} vs {r}");
+        }
+    }
+}
+
+#[test]
+fn clipping_is_judged_on_the_footage_not_on_what_earlier_nodes_did() {
+    for ws in ["rec709", "dwg-di"] {
+        // a blown white darkened by an earlier node is still blown
+        let (mut s, c) = matte("#ffffff");
+        s.execute("sequence.colorSettings", json!({"workingSpace": ws})).unwrap();
+        let a = node(&mut s, c);
+        s.execute("grade.setParam", json!({"node": a, "param": "offset", "value": [-0.3, -0.3, -0.3]})).unwrap();
+        let b = node(&mut s, c);
+        let e = err(&mut s, "grade.wb.pick", json!({"node": b, "x": 0.5, "y": 0.5}));
+        assert!(e.contains("clipped"), "{ws}: {e}");
+        // an unclipped grey pushed past white by an earlier node is fine
+        let (mut s, c) = matte("#d2c8be");
+        s.execute("sequence.colorSettings", json!({"workingSpace": ws})).unwrap();
+        let a = node(&mut s, c);
+        s.execute("grade.setParam", json!({"node": a, "param": "offset", "value": [0.4, 0.4, 0.4]})).unwrap();
+        let b = node(&mut s, c);
+        s.execute("grade.wb.pick", json!({"node": b, "x": 0.5, "y": 0.5})).unwrap();
+    }
+}
+
+#[test]
+fn clipping_of_log_footage_is_its_top_code_value() {
+    // the matte interpreted as F-Log2: white is the top of the log signal, greys are not
+    for (hex, clipped) in [("#ffffff", true), ("#a08c78", false), ("#d2c8be", false)] {
+        let (mut s, c) = matte(hex);
+        let item = s.active_sequence().unwrap().find_item(c).unwrap().1.item;
+        s.execute("clip.interpretFootage", json!({"items": [item.0], "colorSpace": "flog2-fgamut"})).unwrap();
+        s.execute("sequence.colorSettings", json!({"workingSpace": "dwg-di"})).unwrap();
+        let a = node(&mut s, c);
+        let r = s.execute("grade.wb.pick", json!({"node": a, "x": 0.5, "y": 0.5}));
+        assert_eq!(r.is_err(), clipped, "{hex}: {r:?}");
+        if let Err(e) = r {
+            assert!(e.to_string().contains("clipped"), "{hex}: {e}");
+        }
+    }
+}

@@ -27,6 +27,8 @@ impl Driver {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("data")).unwrap();
         let mut s = Session::default();
+        // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
+        s.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         s.execute("file.openDemoProject", json!({})).unwrap();
         s.export_presets.set_dir(&dir.join("data"));
         let (tx, rx) = channel();

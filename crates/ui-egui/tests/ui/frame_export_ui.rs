@@ -15,6 +15,8 @@ fn step(h: &mut Harness<'static, FilmcraftApp>) {
 }
 fn harness() -> Harness<'static, FilmcraftApp> {
     let mut s = Session::default();
+    // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
+    s.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
     s.execute("file.newSequence", json!({"name":"Program clip","width":128,"height":72,"fps":24})).unwrap();
     let item = filmcraft_engine::demo::add_generator(
         Arc::make_mut(&mut s.project),

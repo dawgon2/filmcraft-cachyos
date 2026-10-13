@@ -187,6 +187,91 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     }
 }
 
+/// Height of the Render Settings panel's footer (range, estimate, Add to Render Queue, Render).
+const RENDER_FOOTER_H: f32 = 96.0;
+
+/// Fork RS3, the Resolve workflow's Deliver page: the export settings as a dock panel ("Render
+/// Settings"), with Resolve's footer: the range, the estimated size, **Add to Render Queue**
+/// (`export.addToQueue`, the same `export.queue.add` as Send to Queue) and **Render**
+/// (`export.render`, `file.exportMedia` now). Every setting is the Export mode's own (same ids,
+/// same [`ExportUi`]), so the two layouts can't drift apart.
+pub fn render_settings_panel(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
+    let t = app.tokens;
+    let Some(q) = app.session.active_sequence().cloned() else {
+        crate::dock::placeholder(ui, rect, &t, tl!("Open a sequence to export"));
+        return;
+    };
+    sync_sequence(app);
+    let before = settings_json(&app.ui.export.settings);
+    let foot_h = RENDER_FOOTER_H.min(rect.height() * 0.5);
+    let top = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.max.y - foot_h));
+    settings_column(app, ui, top);
+    if settings_json(&app.ui.export.settings) != before
+        && app.ui.export.preset != CUSTOM
+        && app.session.export_presets.find(&app.ui.export.preset).is_none_or(|p| settings_json(&p.settings) != settings_json(&app.ui.export.settings))
+    {
+        app.ui.export.preset = CUSTOM.into();
+    }
+    // footer
+    let mut reg = Reg::default();
+    let foot = Rect::from_min_max(pos2(rect.min.x + 12.0, top.max.y + 6.0), pos2(rect.max.x - 12.0, rect.max.y - 6.0));
+    ui.painter().line_segment([pos2(rect.min.x, top.max.y), pos2(rect.max.x, top.max.y)], egui::Stroke::new(1.0, t.separator));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(foot).id_salt("render-settings-foot"));
+    let ex = &mut app.ui.export;
+    let has_work_area = q.work_area.is_some();
+    child.horizontal(|ui| {
+        ui.label(egui::RichText::new(tl!("Range")).color(t.text_dim));
+        let cur = RANGES.iter().find(|(k, _)| *k == ex.range).map(|x| x.1).unwrap_or("Entire Source");
+        let labels: Vec<(String, bool)> = RANGES.iter().map(|(k, l)| (l.to_string(), *k != "workArea" || has_work_area)).collect();
+        if let Some(i) = combo(ui, &mut reg, "export.range", cur, &labels, 140.0)
+            && let Some((k, _)) = RANGES.get(i)
+        {
+            ex.range = (*k).into();
+        }
+    });
+    let range = range_ticks(ex, &q);
+    let rate = q.settings.frame_rate;
+    let sum = ex.settings.summary(q.settings.width, q.settings.height, rate, q.settings.sample_rate, range.1 - range.0);
+    let est = child.label(egui::RichText::new(tlf!("Estimated file size: {size}", size = format_bytes(sum.estimated_bytes))).color(t.text_dim).size(11.5));
+    reg.add("export.estimate", est.rect, sum.estimated_size.clone());
+    let mut add = false;
+    let mut render = false;
+    child.horizontal(|ui| {
+        let r = ui.button(tl!("Send to Queue"));
+        reg.add("export.addToQueue", r.rect, "Add to Render Queue");
+        add = r.clicked();
+        let r = ui.add(egui::Button::new(egui::RichText::new(tl!("Render")).color(Color32::WHITE)).fill(t.accent));
+        reg.add("export.render", r.rect, "Render");
+        render = r.clicked();
+    });
+    reg.flush(app);
+    if render {
+        match app.session.execute("file.exportMedia", export_params(app)) {
+            Ok(v) => app.ui.status = tlf!("Exporting {path}", path = v["path"].as_str().unwrap_or("")),
+            Err(e) => app.ui.status = e.to_string(),
+        }
+    }
+    if add {
+        let mut p = export_params(app);
+        if app.ui.export.preset != CUSTOM {
+            p["preset"] = json!(app.ui.export.preset);
+        }
+        match app.session.execute("export.queue.add", p) {
+            Ok(_) => app.ui.status = tl!("Added to the export queue").into(),
+            Err(e) => app.ui.status = e.to_string(),
+        }
+    }
+    preset_manager(app, ui.ctx());
+}
+
+/// Fork RS3, the Deliver page's **Render Queue** panel: the Export mode's queue (same ids).
+pub fn render_queue_panel(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
+    queue_column(app, ui, rect);
+    if app.session.export_queue.is_active() || app.session.jobs.iter().any(|j| !j.progress.finished.load(std::sync::atomic::Ordering::Relaxed)) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // left: destinations + queue
 // ---------------------------------------------------------------------------------------------

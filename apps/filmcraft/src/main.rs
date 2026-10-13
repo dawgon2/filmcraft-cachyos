@@ -4,8 +4,10 @@
 //! [project.fcproj | media files…]`; `--help` prints the options, `--version` the version. An
 //! unknown option is an error (exit code 2), not a file to open.
 //!
-//! Without a project, `--demo` or `--empty`, Settings ▸ General ▸ At Startup decides: Show Home
-//! (the demo project), Open Most Recent, or an empty project.
+//! Without a project, `--demo` or `--empty`, Settings ▸ General ▸ At startup show decides: the
+//! Project Manager home screen, the last project or a new empty project; its "workflow default"
+//! is the Project Manager in the Resolve workflow and At Startup (Show Home = the demo project,
+//! Open Most Recent, or an empty project) in the Premiere workflow.
 //!
 //! `--control <port>` (or `FILMCRAFT_CONTROL_PORT`) starts a localhost JSON-lines control server;
 //! see `filmcraft_ui_egui::control` for the methods. A port that is not a number is an error from
@@ -159,30 +161,14 @@ fn main() -> eframe::Result {
                     log::warn!("auto-save and crash recovery unavailable: {e}");
                 }
             }
+            // FORK-ONLY (RS1): without a data directory the default workflow (Resolve) gets its keys and look
+            filmcraft_engine::fork_resolve::without_data_dir(&mut session);
             // voice-over recording reads the microphone through cpal
             session.voiceover.input = Some(Box::new(audio_in::CpalIn::new(&session.prefs.audio_hardware.device_class)));
             let project = files.iter().find(|f| f.ends_with(".fcproj")).cloned();
-            if let Some(p) = project {
-                if let Err(e) = session.execute("file.open", json!({"path": p})) {
-                    log::error!("{e}");
-                }
-            } else if !startup_flag && session.prefs.general.at_startup == "openMostRecent" {
-                // Settings ▸ General ▸ At Startup ▸ Open Most Recent
-                let recent = session.prefs.general.recent_projects.iter().find(|p| std::path::Path::new(p).exists()).cloned();
-                match recent {
-                    Some(p) => {
-                        if let Err(e) = session.execute("file.open", json!({"path": p})) {
-                            log::error!("{e}");
-                        }
-                    }
-                    None => {
-                        let _ = session.execute("file.openDemoProject", json!({}));
-                    }
-                }
-            } else if !startup_flag && session.prefs.general.at_startup == "emptyProject" {
-            } else if demo {
-                let _ = session.execute("file.openDemoProject", json!({}));
-            }
+            // the named project, else --demo / --empty, else Settings ▸ General ▸ At startup show
+            // (the Project Manager home screen is shown once the app exists, below)
+            let startup = filmcraft_ui_egui::launch_project(&mut session, project.as_deref(), startup_flag, demo);
             let media: Vec<String> = files.iter().filter(|f| !f.ends_with(".fcproj")).cloned().collect();
             if !media.is_empty() {
                 let _ = session.execute("file.import", json!({"paths": media}));
@@ -195,6 +181,7 @@ fn main() -> eframe::Result {
                 }
             }
             let mut app = FilmcraftApp::new(session);
+            app.finish_launch(startup, !media.is_empty());
             if recover == Some(false) {
                 app.dialog = None;
             }

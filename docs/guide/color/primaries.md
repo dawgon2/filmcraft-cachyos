@@ -70,8 +70,11 @@ sliders interact; the picker solves both at once from that one neutral spot.
 Each pick or Auto balance is one undo step. The picker reads the picture **as it enters this
 node**, so picking the same spot again gives the same values instead of over-correcting. It
 refuses, and says why, a spot that is clipped (its colour is lost), too dark (noise decides) or
-too colourful to be neutral (in a DaVinci Wide Gamut or HDR sequence it can't tell a blown-out
-highlight from a bright one yet, so avoid those yourself). When a cast is stronger than the sliders reach (±100), they stop at
+too colourful to be neutral. "Clipped" is judged on the clip's own footage, before any node or
+Input LUT: a channel that reached the top of the camera's signal (code value 1.0 of SDR, HLG or
+log footage such as F-Log2, or the content peak of PQ footage) counts as blown out in every
+sequence, including DaVinci Wide Gamut and HDR ones, where values above 1.0 are otherwise real
+highlights. When a cast is stronger than the sliders reach (±100), they stop at
 the limit and the status line says the cast is only partly removed: balance the rest with the
 **Gain** or **Offset** wheel. Keyframed Temperature / Tint get a keyframe at the playhead.
 

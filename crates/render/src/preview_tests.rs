@@ -298,30 +298,29 @@ fn grade_output_size_and_source_identity_change_hashes() {
     assert_ne!(id1, by_frame(&video_segments(&p, seq), 10), "a different fingerprint changes the hash");
 }
 
-/// Temporal noise reduction (fork 6.7) renders only in the cache, at export and on the paused
-/// frame: every `tnr.*` edit changes the segment hash (the cached part is re-rendered) and a clip
-/// with it needs rendering.
+/// Temporal noise reduction (fork 6.7, a clip setting since 6.7b) renders only in the cache, at
+/// export and on the paused frame: every edit of the clip's `temporal_nr` changes the segment hash
+/// (the cached part is re-rendered) and a clip with it needs rendering.
 #[test]
 fn temporal_nr_edits_change_the_hash_and_need_rendering() {
-    use filmcraft_project::Param;
-    use filmcraft_project::grade::{Grade, GradeNode};
+    use filmcraft_project::{Param, TemporalNr};
     let (mut p, _matte, ocean, seq) = setup();
     let a = place(&mut p, seq, 0, ocean, 0, 48);
     let set = |p: &mut Project, params: &[(&str, f64)]| {
-        let mut n = GradeNode::new(1);
+        let mut n = TemporalNr::default();
         for (k, v) in params {
             n.params.insert((*k).into(), Param::new(ParamValue::Float(*v)));
         }
-        p.sequence_mut(seq).unwrap().find_item_mut(a).unwrap().1.grade = Some(Grade { nodes: vec![n], bypass: false });
+        p.sequence_mut(seq).unwrap().find_item_mut(a).unwrap().1.temporal_nr = (!params.is_empty()).then_some(n);
         let s = video_segments(p, seq);
         let seg = segment_at(&s, 10).unwrap();
         (seg.hash.clone(), seg.need)
     };
     let (none, need0) = set(&mut p, &[]);
-    let (luma, need1) = set(&mut p, &[("tnr.luma", 0.5)]);
-    let (chroma, _) = set(&mut p, &[("tnr.luma", 0.5), ("tnr.chroma", 0.5)]);
-    let (frames, _) = set(&mut p, &[("tnr.luma", 0.5), ("tnr.chroma", 0.5), ("tnr.frames", 2.0)]);
-    let (motion, _) = set(&mut p, &[("tnr.luma", 0.5), ("tnr.chroma", 0.5), ("tnr.frames", 2.0), ("tnr.motion", 0.9)]);
+    let (luma, need1) = set(&mut p, &[("luma", 0.5)]);
+    let (chroma, _) = set(&mut p, &[("luma", 0.5), ("chroma", 0.5)]);
+    let (frames, _) = set(&mut p, &[("luma", 0.5), ("chroma", 0.5), ("frames", 2.0)]);
+    let (motion, _) = set(&mut p, &[("luma", 0.5), ("chroma", 0.5), ("frames", 2.0), ("motion", 0.9)]);
     let all = [&none, &luma, &chroma, &frames, &motion];
     for (i, x) in all.iter().enumerate() {
         for y in all.iter().skip(i + 1) {

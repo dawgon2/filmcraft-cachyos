@@ -19,8 +19,8 @@ use filmcraft_h264::dpb::{Dpb, DpbEntry, Output, OutputMeta, RefMark};
 use filmcraft_h264::params::{Pps, Sps};
 use filmcraft_h264::slice::{NalHeader, Poc, PocState, SliceHeader, SliceType, is_new_picture, nal_type};
 
-use super::Accel;
 use super::ffi::{self, VAIQMatrixBufferH264, VAPictureH264, VAPictureParameterBufferH264, VASliceParameterBufferH264, pic_bits, seq_bits};
+use super::{Accel, gray};
 
 /// A picture in the DPB: its surface, field order counts (after an MMCO 5, relative to itself) and
 /// place in decoding order.
@@ -103,6 +103,10 @@ impl<A: Accel> Front<A> {
 
     pub fn accel(&self) -> &A {
         &self.accel
+    }
+
+    pub fn accel_mut(&mut self) -> &mut A {
+        &mut self.accel
     }
 
     /// Decode one access unit; pictures that left the DPB come back in output order.
@@ -221,9 +225,12 @@ impl<A: Accel> Front<A> {
             return Err(decode_err("no reference pictures available for an inter slice"));
         }
         // a missing reference (the software decoder conceals it with another picture) is not
-        // something to hand the hardware
+        // something to hand the hardware, nor a picture without a surface
         if lists.iter().flatten().any(|(_, is_ref)| !is_ref) {
             return Err(decode_err("a reference picture is missing"));
+        }
+        if lists.iter().flatten().any(|(p, _)| p.picture_id == ffi::VA_INVALID_SURFACE) {
+            return Err(decode_err("a reference picture has no surface"));
         }
         let refs = lists.map(|l| l.into_iter().map(|(p, _)| p).collect::<Vec<_>>());
         let params = slice_params(&sh, nal.len(), &refs)?;
@@ -261,15 +268,23 @@ impl<A: Accel> Front<A> {
         }
         self.read_out(outs, frames)?;
         let poc = self.poc_state.compute(sh, sps);
-        let target =
-            (0..self.accel.surfaces().len()).find(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).ok_or_else(|| decode_err("no free surface"))?;
+        let free: Vec<usize> = (0..self.accel.surfaces().len()).filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).collect();
+        let target = self.accel.pick(&free).ok_or_else(|| decode_err("no free surface"))?;
         self.pending = Some(Pending { target, sps: sps.clone(), pps: pps.clone(), first: sh.clone(), poc, pts, slices: Vec::new() });
         Ok(())
     }
 
     /// frame_num gap (8.2.5.2; also every start at a non-IDR picture, an open-GOP seek): "non-existing"
     /// frames as the software decoder makes them, copies of the latest decoded frame (mid-gray when
-    /// there is none), so pictures predicted from them come out the same.
+    /// there is none), so pictures predicted from them come out the same. The hardware must only
+    /// ever reference pictures it decoded itself: Mesa's AMD decoder (VCN) refuses a reference
+    /// surface it never decoded into, filled or not (fork Y1). So with no decoded frame yet, each
+    /// stand-in is a picture the front end writes itself and the hardware decodes mid-gray
+    /// ([`gray`]), one surface each (AMD's firmware builds the reference lists from the frame
+    /// list itself, so every entry must have its own surface); after a decoded frame, the
+    /// stand-ins *share* its surface rather than copying it (the same pixels; what ffmpeg's
+    /// decoder does too, merging the frame list entries that share a surface, as
+    /// [`Front::submit_pending`] does).
     fn fill_frame_num_gap(&mut self, sh: &SliceHeader, sps: &Arc<Sps>, pts: i64) -> Result<()> {
         let max = sps.max_frame_num();
         let last = self.dpb.entries.iter().filter(|e| !e.non_existing).max_by_key(|e| e.frame.seq).map(|e| e.frame.index);
@@ -280,19 +295,62 @@ impl<A: Accel> Front<A> {
         let mut update = |frame_num| poc_state.update_gap_frame(frame_num, sps);
         self.dpb.fill_frame_num_gap(self.prev_ref_frame_num, sh.frame_num, max, sps.max_num_ref_frames as usize, &mut make, &mut update);
         self.prev_ref_frame_num = (sh.frame_num + max - 1) % max;
-        let used: Vec<usize> = self.dpb.entries.iter().map(|e| e.frame.index).filter(|&i| i != UNASSIGNED).collect();
-        let mut free = (0..self.accel.surfaces().len()).filter(|i| !used.contains(i));
-        let mut fills = Vec::new();
-        for e in self.dpb.entries.iter_mut().filter(|e| e.frame.index == UNASSIGNED) {
-            let index = free.next().ok_or_else(|| decode_err("no free surface for a frame_num gap"))?;
+        loop {
+            let Some(at) = self.dpb.entries.iter().position(|e| e.frame.index == UNASSIGNED) else { return Ok(()) };
+            let index = match last {
+                Some(last) => last,
+                None => {
+                    let free: Vec<usize> = (0..self.accel.surfaces().len()).filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).collect();
+                    let index = self.accel.pick(&free).ok_or_else(|| decode_err("no free surface for a frame_num gap"))?;
+                    let frame_num = self.dpb.entries.get(at).map_or(0, |e| e.frame_num);
+                    self.decode_gray(index, sps, frame_num)?;
+                    index
+                }
+            };
             self.seq += 1;
-            e.frame = Surface { index, top: 0, bottom: 0, seq: self.seq };
-            fills.push(index);
+            if let Some(e) = self.dpb.entries.get_mut(at) {
+                e.frame = Surface { index, top: 0, bottom: 0, seq: self.seq };
+            }
         }
-        for index in fills {
-            self.accel.fill(index, last).map_err(decode_err)?;
+    }
+
+    /// Have the hardware decode a mid-gray picture into surface `index` ([`gray::gray_picture`]
+    /// of the surfaces' size with its own parameter sets, as a non-IDR reference I picture of the
+    /// stand-in's `frame_num` whose sequence fields are `sps`'s).
+    fn decode_gray(&mut self, index: usize, sps: &Sps, frame_num: u32) -> Result<()> {
+        let like = gray::Like::from_sps(sps);
+        let [sps_nal, pps_nal, slice_nal] = gray::gray_picture(self.mbs, like, false, frame_num).ok_or_else(|| decode_err("no gray picture for this size"))?;
+        let sps = Sps::parse(&unescape_rbsp(sps_nal.get(1..).unwrap_or_default())).map_err(decode_err)?;
+        let pps = Pps::parse(&unescape_rbsp(pps_nal.get(1..).unwrap_or_default()), &[Some(sps.clone())]).map_err(decode_err)?;
+        let hdr = NalHeader::parse(slice_nal.first().copied().unwrap_or(0)).map_err(decode_err)?;
+        let (sh, _, _) = SliceHeader::parse(&unescape_rbsp(slice_nal.get(1..).unwrap_or_default()), hdr, |_| Ok((&pps, &sps))).map_err(decode_err)?;
+        let surfaces = self.accel.surfaces();
+        let picture_id = surfaces.get(index).copied().ok_or_else(|| decode_err("surface out of range"))?;
+        let mut pic = picture_params(&sps, &pps, &sh);
+        pic.CurrPic =
+            VAPictureH264 { picture_id, frame_idx: frame_num, flags: 0, TopFieldOrderCnt: 0, BottomFieldOrderCnt: 0, va_reserved: [0; ffi::VA_PADDING_LOW] };
+        // the DPB so far (the stand-ins before this one): a driver keeps only the pictures the
+        // frame list goes on naming
+        self.reference_frames(&mut pic.ReferenceFrames, surfaces);
+        let iq = iq_matrix(&pps);
+        let params = slice_params(&sh, slice_nal.len(), &[Vec::new(), Vec::new()])?;
+        self.accel.decode_h264(index, &pic, &iq, &[(params, slice_nal)]).map_err(decode_err)
+    }
+
+    /// The DPB's reference pictures as a picture's frame list: each surface once (frame_num gap
+    /// stand-ins after a decoded frame share its surface; drivers key the list by surface, and
+    /// ffmpeg merges such entries the same way), stand-ins without a surface yet left out.
+    fn reference_frames(&self, list: &mut [VAPictureH264; 16], surfaces: &[ffi::VASurfaceID]) {
+        let mut listed = Vec::with_capacity(16);
+        let refs = self.dpb.entries.iter().filter(|e| {
+            e.mark != RefMark::Unused && e.frame.index != UNASSIGNED && !listed.contains(&e.frame.index) && {
+                listed.push(e.frame.index);
+                true
+            }
+        });
+        for (slot, e) in list.iter_mut().zip(refs) {
+            *slot = va_ref(e, surfaces);
         }
-        Ok(())
     }
 
     /// Decode the collected picture, then do its reference marking and DPB insertion.
@@ -315,9 +373,7 @@ impl<A: Accel> Front<A> {
             BottomFieldOrderCnt: p.poc.bottom,
             va_reserved: [0; ffi::VA_PADDING_LOW],
         };
-        for (slot, e) in pic.ReferenceFrames.iter_mut().zip(self.dpb.entries.iter().filter(|e| e.mark != RefMark::Unused)) {
-            *slot = va_ref(e, surfaces);
-        }
+        self.reference_frames(&mut pic.ReferenceFrames, surfaces);
         let iq = iq_matrix(&p.pps);
         self.accel.decode_h264(p.target, &pic, &iq, &p.slices).map_err(decode_err)?;
 

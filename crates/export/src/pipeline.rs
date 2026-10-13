@@ -542,7 +542,6 @@ mod temporal_tests {
     use super::*;
     use filmcraft_frame::{AudioBuffer, VideoFrame};
     use filmcraft_media::{FrameRequest, MediaInfo, MediaKind, MediaSource, VideoStreamInfo};
-    use filmcraft_project::grade::{Grade, GradeNode};
     use filmcraft_project::{ItemKind, Label, MediaClip, MediaRef, Param, ParamValue, SequenceSettings, TrackKind};
     use filmcraft_render::SourceMap;
     use filmcraft_time::{Tick, TimeRange};
@@ -625,11 +624,11 @@ mod temporal_tests {
             filmcraft_project::resolve_auto_points(e, (W, H), (W, H));
         }
         if tnr {
-            let mut n = GradeNode::new(1);
-            for (k, v) in [("tnr.luma", 1.0), ("tnr.chroma", 1.0), ("tnr.frames", 2.0)] {
+            let mut n = filmcraft_project::TemporalNr::default();
+            for (k, v) in [("luma", 1.0), ("chroma", 1.0), ("frames", 2.0)] {
                 n.params.insert(k.into(), Param::new(ParamValue::Float(v)));
             }
-            it.grade = Some(Grade { nodes: vec![n], bypass: false });
+            it.temporal_nr = Some(n);
         }
         p.sequence_mut(seq).unwrap().video_tracks[0].items.push(it);
         let mut m = SourceMap::default();

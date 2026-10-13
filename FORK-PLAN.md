@@ -106,6 +106,9 @@ the agent's own recorded interpretations, not the owner's words.
    `resolve-ui-1` when accepted, shipped in the next published build); **RS3** (page chrome and
    layouts) is its own phase right after **G2c**, before Y1 (tag `resolve-ui-2`). The plan
    is complete when 8 is done; then stop (§1a.22 lists what never starts without the owner).
+   **Later revisions (2026-10-12): §1a.40 (6.7b), §1a.41 (grouping), §1a.43 (L1 / L2 Dell lane),
+   §1a.45 (Y1 on upstream's decoder), §1a.47 (CO1), §1a.48 (AI1 before C1, AI2 after C2: the current
+   order), §1a.49 (retrain in AI1 and AI2). Where they differ from the text above, they win.**
 7. **Benchmark passes.** Quick passes (the key 6.2K playback and decode scenarios, `--quick`, one
    run each, labelled "quick pass") for phases whose main result is known (Phases 1, 3, 6, 8 and
    in-between steps); **the full `xm5` suite at Phase 2, 4, 5 and 7 acceptance**, and whenever a
@@ -455,6 +458,167 @@ the agent's own recorded interpretations, not the owner's words.
     workflow every label uses Resolve's words (Timeline, Media Pool, Inspector, Compound Clip,
     Deliver, …; RESOLVE-UI-PLAN RS2b, same lane as RS1 + RS2). Only on-screen words change,
     never command ids, files or the protocol.
+40. **TNR per clip; the Coach fix and process-assistant plan in C1 (owner, live, 2026-10-12).**
+    (a) OWNER-QUESTIONS Q9 answered **(c)**: temporal noise reduction becomes a separate
+    clip-level "Temporal NR" applied before the grade (Resolve's per-clip setting), not a node
+    option. New step **6.7b**, right after RS3 and before Y1 (the grade compiler is off-limits
+    while the RS lane runs): move TNR to the clip, migrate node-level TNR parameters in saved
+    projects, update the guide; same parameters. (b) §1a.28's two Coach items go **in C1**
+    (COMPOSITOR-PLAN): (a) the Coach answers workflow / "what order" questions the guide covers
+    (retrieval fix + a regression set built from `docs/fork/COACH-QUESTIONS.md`) and (b) the
+    written plan for the process assistant, for the owner to place. (c) Owner, same day: also
+    fix the G2c / RS1 owed items (clip detection in DWG / HDR, Coach walk through Lumetri,
+    headless Resolve keymap, theme across a workflow round trip): done in a side lane, see §7.
+41. **Group small phases for acceptance (owner, live, 2026-10-12).** "For really small phases such
+    as 6.7b and Y1 … group them together so it doesn't take a lot longer for no reason." Small
+    phases (roughly a day of agent time or less) no longer each get their own acceptance round.
+    Each step still runs the in-between gates (§1a.11) and its own acceptance checks and quick
+    benchmark (§1a.7) as it lands; the **heavy end-of-phase work runs once per group**: one
+    `cargo xtask ci`, one release build, `NOTES.md`, published snapshot / release (§1a.9, §1a.33)
+    and one contribution slot (§1a.25). Every phase in the group still gets its own tag, all on
+    the group's accepted commit, so history stays traceable. **First group:** `resolve-ui-1`
+    (RS1 + RS2 + RS2b) + **RS3** + **6.7b** + **Y1**, accepted together after Y1 (tags
+    `resolve-ui-1`, `resolve-ui-2`, `phase-6-7b`, `yt-1`; build / snapshot named after the last,
+    `yt-1`). *(agent)* Later groups: the run decides at a phase boundary, logs the grouping in §7,
+    and keeps large phases (6E, U0.2, C1, C2, Phase 7, ones with a full `xm5` suite) on their own.
+    A failing group gate is fixed before the next phase starts, as before.
+42. **Linux integration phases L1 and L2 (owner, live, 2026-10-12).** "A phase for native Linux UI
+    integration (tailored for KDE Plasma and Wayland), and then a phase for native overall Linux
+    integration. Both after phase AI1." Plan: [`LINUX-PLAN.md`](LINUX-PLAN.md). **L1** (native
+    Wayland, fractional scaling, KWin decorations, accent colour, portal dialogs, Dolphin drag and
+    drop, taskbar progress / notifications / idle inhibit; tag `linux-1`) then **L2** (XDG dirs,
+    file associations and thumbnails, MPRIS, card detection, trash, hybrid-GPU choice, journal
+    logging, PKGBUILD / Flatpak / AppStream; tag `linux-2`). **Current order (replaces §1a.6's
+    tail):** … C1 → C2 → AI1 → **L1 → L2** → A2 → G3 → 7 (+ Y4) → Y2 → H1 → H2 → H3 → C3 → C4 →
+    G4 → A3 → R1 → R2 → D → 8 (deferred). Tailored for Plasma 6 on Wayland but never KDE-only
+    (GNOME / X11 keep working with the integrations quietly off); upstream-contributable.
+43. **L1 / L2 start now as a Dell lane (owner, live, 2026-10-12).** "It might be good to just start
+    building the Linux integration on the Dell … it doesn't need my GPU and my Dell is running on
+    CachyOS with KDE Plasma." So LINUX-PLAN L1 → L2 run as a **side lane on the Dell** (§1a.32)
+    alongside the main order, instead of waiting for AI1. **Accepted as soon as each is ready**
+    (owner, same day): when L1 or L2 finishes, it rides along with the next main-order phase's
+    acceptance (its checks added to that phase's group, §1a.41; one `cargo xtask ci`, build and
+    publish; tag `linux-1` / `linux-2` on that commit). Their slot after AI1 is only the latest
+    point, not a wait.
+    Rules: (a) starts once the Dell's current job (the contribution CI) and
+    `docs/fork/LINUX-AUDIT.md` are done; it follows the audit's build order. (b) Edits happen in a
+    worktree on this PC (editing costs nothing); **every cargo build / test runs on the Dell**
+    (push the branch there, its own worktree outside `~/Projects/filmcraft-main`), never on this
+    PC. (c) Live-window checks run in a **nested / virtual KWin** (`kwin_wayland --virtual` or
+    windowed) where possible so nothing pops up on the TV; a real-session check only when the
+    owner isn't using the Dell (`pgrep -x 'steam|eden|kodi|azahar'`, no full-screen session).
+    (d) **Conflict rule:** until RS3 is merged, the lane does the parts that don't touch the RS
+    don't-touch files (D-Bus / portal integrations in `apps/filmcraft`, taskbar progress,
+    notifications, idle inhibit, file dialogs, XDG dirs, MPRIS, udisks, trash, journal logging,
+    packaging); window chrome, accent colour and theme work (`theme.rs`, `app.rs`) wait for RS3.
+    (e) Merge into `hevc-vaapi` in small steps after the in-between gates (run on the Dell) and a
+    Fable review; GPU-specific checks that need the RX 6700 XT (scaling of the Program monitor,
+    hybrid-GPU choice) are verified on this PC at acceptance. (f) The scheduled runner does
+    **not** start L1 / L2 itself; if this lane's session ends, the runner picks it up from
+    HANDOFF as a Dell lane (it never builds L1 / L2 on this PC). **Update (owner, 2026-10-12): the lane is its own scheduled
+    task `filmcraft-dell-lane`** (every 10 min, lock `.dell-lane.lock`, worktree `.claude/worktrees/dell-lane`,
+    stops itself at 5-hour ≥ 80 % / weekly ≥ 94 %, done-marker `.linux-lane-complete`); the main runner never
+    picks it up, only accepts it. (g) Owner, same day: real-desktop checks on the Dell are fine
+    whenever he isn't using it (still check first, as above).
+44. **Fable for the hardest builds (owner, live, 2026-10-12).** While Fable's weekly use is under
+    its line − 3, leaf builders for GPU shaders / WGSL, concurrency and decoder / encoder state use
+    Fable instead of Opus (runner prompt §2c). Other lanes unchanged. The owner: spending Fable's
+    allowance "doesn't matter if there's no gain"; the point is fewer review-and-fix rounds.
+45. **Y1 on upstream's decoder (agent recommendation, 2026-10-12; side-lane survey
+    `docs/fork/PREP-Y1-6E-U02.md`).** The fork already has upstream's in-process VA-API H.264
+    decoder (`crates/platform/src/vaapi/`, bit-exact vs software); Y1 = a fork-side zero-copy
+    `Accel` (~250 lines, no new `unsafe`) on it instead of a new `va_h264.rs`, ≈ 7 h; this is also
+    U0.2's step 1, so nothing is ported twice. Order stays Y1 → 6E → U0.2. The runner follows the
+    survey's §1.4 step plan unless it finds a reason not to (log it).
+46. **Dolphin thumbnails via a fork-only KDE plugin (owner, live, 2026-10-12).** The owner wants
+    project-file thumbnails in Dolphin even though that needs a C++ KIO thumbnail plugin: "please
+    build that but make it easily separable from stuff that could get sent in pull requests."
+    (This overrides "pure Rust in the product" for this one fork-only add-on.) Shape: (a) the
+    thumbnail itself is rendered by Rust: a `filmcraft-cli thumbnail <file> <size> <out.png>`
+    command (generic, upstream-contributable; also drives a freedesktop `.thumbnailer` for
+    GNOME-family file managers); (b) the KDE plugin is a **thin C++ shim** that runs that command
+    with a timeout and hands the PNG to KIO, living entirely in **`fork/kde-thumbnailer/`** (own
+    CMake project with extra-cmake-modules + KF6 KIO, not in the Cargo workspace, its own
+    license header, original code, nothing copied from GPL/LGPL thumbnailers); (c) commits
+    prefixed `FORK-ONLY:`, listed in `docs/fork/FORK-ONLY.md`, removable by deleting the folder
+    with no other change; (d) installed by a separate `filmcraft-kde-thumbnailer` split package
+    in L2's PKGBUILD (and a user-local install recipe for the fork build); (e) Q10 and the trash
+    rule: owner agreed (fallbacks now, drag and drop after a winit upgrade; trash is a doc rule).
+    Part of L2.2; built and tested on the Dell (it has Plasma 6, ECM 6.30, KIO 6.30).
+47. **Coach: quick fix sooner, a non-prescriptive node-order page, and AI help for Fusion (owner,
+    live, 2026-10-12).** (a) The Coach fix plan in `docs/fork/coach-eval/DIAGNOSIS.md` is
+    approved. **Its steps 1–2** (stop-word / page-intro / stub / glossary hygiene, then curated
+    synonyms added one at a time against the eval set; predicted 58 % → 70 %, no regressions)
+    **move forward as step CO1 in the current group** (resolve-ui-1 + RS3 + 6.7b + Y1, §1a.41),
+    after RS2 has merged (RS2 edits `coach_ask.rs`); `docs/fork/coach-eval/questions.toml` becomes a
+    test with a floor at the measured pass rate (it may only go up). Steps 3–5 (question-type
+    routes, heading weights) stay in C1. (b) **The node-order guide content** (DIAGNOSIS guide gap
+    1) ships with CO1, and **must not read as the one correct way**: give several example node
+    trees (e.g. a beginner's short serial tree, a typical intermediate tree, a pro tree with
+    parallel / layer nodes, NR placement, LUT / CST bookends, soft clip, grain), say what differs
+    for a beginner vs a pro and for different footage (log vs Rec.709, noisy, mixed cameras), and
+    explain **why** someone would choose each order (what changes downstream, performance,
+    flexibility, matching), tagged [Resolve-style] / [Standard]. Same rule for every "what order"
+    / workflow page from now on: options with trade-offs, not a single prescription. (c) **The AI
+    helps with Fusion too** (the C1 compositor / Resolve-workflow Fusion page): C1 adds guide
+    pages per comp node and workflow (the Coach's knowledge source), a **comp-graph explainer**
+    (plain-language "what this comp does", node by node, like the grade-node explainer G2.10,
+    template-based with the local model optional), Coach lessons per comp node type (as C2 already
+    plans for branch nodes), compositing questions in the eval set, and the process-assistant
+    plan (§1a.28 (b)) covers compositing as well as grading.
+48. **AI1 before C1; AI2 training after C2 (owner, live, 2026-10-12).** "Move the AI1 phase to
+    before C1 … and then add more training on the changes made in C1 and C2 right after those
+    finish." **Current order (replaces §1a.6's / §1a.42's tail):** … 6 ✓ → G2c ✓ → RS3 → 6.7b →
+    Y1 (group with resolve-ui-1 + CO1, §1a.41 / §1a.47) → 6E → U0.2 → A1 → Y3 → **AI1** → C1 → C2
+    → **AI2** ([`AI-PLAN.md`](AI-PLAN.md): train the SmolLM2 explainer on comp graphs and branch
+    nodes, new held-out sets, publish `explainer-smol360-v3`; tag `ai-2`) → A2 → G3 → 7 (+ Y4) →
+    Y2 → H1 → H2 → H3 → C3 → C4 → G4 → A3 → R1 → R2 → D → 8 (deferred). L1 / L2 (Dell lane,
+    §1a.43) are accepted with whichever group comes next once ready; their latest point is now
+    right after AI2 (before A2). *(agent)* AI1 first also means C1 / C2's explainers can use the
+    streaming / background pre-generation from the start.
+49. **Train the explainer at the end of AI1 and again in AI2 (owner, live, 2026-10-12).** AI1
+    ends with a retrain (`smol360-v2`: everything shipped since v1, TRAINING.md's v2 ideas, the
+    owner's logged misses; AI-PLAN AI1 item 6); AI2 trains `smol360-v3` on top of it for C1 / C2.
+    Each ships only if it beats the previous version on the old held-out sets. Both publish as
+    their own `explainer-<name>` release (§1a.33).
+50. **Home-server storage and KDE Connect (owner, live, 2026-10-12).** (a) New
+    [`STORAGE-PLAN.md`](STORAGE-PLAN.md): **S1** network shares done right (local cache, offline /
+    relink on drops, safe saves) and **S2** built-in WebDAV / SFTP / S3 remote locations with
+    project locking; the owner asked for it **after C2**, so **current order (replaces §1a.48's
+    tail):** … AI1 → C1 → C2 → AI2 → **S1 → S2** → A2 → G3 → 7 (+ Y4) → Y2 → H1 → H2 → H3 → C3 →
+    C4 → G4 → A3 → R1 → R2 → D → 8 (deferred). *(agent)* After AI2 because AI2 is C2's own
+    training follow-up (§1a.48); before 7 so the soak covers network drops. Tags `storage-1/2`.
+    (b) **KDE Connect** = LINUX-PLAN **L2 item 10** (D-Bus to the running daemon, never the GPL
+    protocol code): phone → import offer / Inbox bin, "Send to phone" after export, phone remote
+    via MPRIS. The Dell lane (§1a.43) picks it up with L2.
+51. **A2 before S1 / S2 (owner, live, 2026-10-12).** "Can we put A2 before S1 and S2." **Current
+    order (replaces §1a.50's tail):** … AI1 → C1 → C2 → AI2 → **A2 → S1 → S2** → G3 → 7 (+ Y4) →
+    Y2 → H1 → H2 → H3 → C3 → C4 → G4 → A3 → R1 → R2 → D → 8 (deferred). G3 still follows A2
+    (it reuses A2's inference layer); L1 / L2 latest point stays right after AI2.
+52. **Pace the 5-hour window; don't stop (owner, live, 2026-10-12 16:15, corrected 16:30).** "The
+    session limit is already at 11 % after 14 minutes … make sure it doesn't go over", then: "I don't
+    want them to stop, I just want them to not hit the limit early because I'm trying to avoid
+    stopping." So runs keep working and **spread the 5-hour window** over its 5 hours: line
+    L5(t) = 95 × elapsed fraction of the window; over L5 + 3 → at most STEADY, over L5 + 10 → LEAN,
+    over L5 + 20 → MINIMAL, and only above that a short **throttle** (finish the step, end the run;
+    the next 5-minute run continues as soon as usage is back near the line). Backstop only (should
+    never trigger): 5-hour ≥ 95 % / weekly ≥ 96 %. The Dell lane paces the same way but backs off
+    first (ends its run above L5 + 5, backstop 93 % / 95 %). Details: the runner prompt §2c and
+    the Dell-lane prompt §0.3. Any live session doing plan work paces the same way.
+53. **No hard stop at the limits (owner, live, 2026-10-12 23:40).** On "the runner hard-stops at
+    95–96 %": "don't". The backstops of §1a.52 are removed from both runner prompts: near the
+    limits (weekly ≥ 95 % or 5-hour ≥ 93 %) runs keep working in MINIMAL mode (no subagents, one
+    small step at a time, commit + push after every change, no long gate that can't finish), so if
+    the real limit cuts a run off it loses at most one small step; the next run continues after
+    the reset. Pacing (§1a.52) still applies below that.
+54. **L1 / L2 accepted in two parts (owner, live, 2026-10-12).** **Part 1, with the 6E group:**
+    everything in L1 / L2 except L1.5 (portal dialogs off the UI thread) and L2.6 (GPU choice), which
+    need U0.2's upstream code; tags `linux-1a` / `linux-2a` on the 6E acceptance commit, release
+    notes list what's in. **Part 2, with the U0.2 group:** L1.5 + L2.6 + the PC-owed checks; then
+    the full tags `linux-1` / `linux-2`. The Dell lane writes "L1 / L2 part 1 ready for acceptance"
+    (with checklist results) in HANDOFF once part 1 is merged; the main runner adds part 1's checks
+    to the 6E group's acceptance (the PC-only checks it can do then: scaling 1:1, a real-desktop
+    look at taskbar progress / notifications / Dolphin thumbnails / media keys).
 
 ## 2. The machine and the footage (don't re-research these)
 
@@ -2142,3 +2306,148 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
   failed 6 UI tests that assumed the Premiere default: with RS1 the fork feature is on for every
   test in ci, fixed in `edffc495`); engine tests with the feature off green too. Acceptance per
   GRADE-PLAN (synthetic, CPU, see the 08:31 entry). Tag `grade-2c`.
+- **2026-10-12 09:47, G2c build ready and published.** `~/Apps/filmcraft-builds/grade-2c/`
+  (filmcraft + filmcraft-cli, NOTES.md), `latest` → `grade-2c`, launcher valid. Public (§1a.33):
+  snapshot `d65f20a9` on cachyos `fork` (parent `e57d15c8`) + tag `fork-grade-2c`; scrubbed Dell
+  build (223 s, no user name / home paths in `strings`) as release `fork-grade-2c` with NOTES.md.
+  This build also carries RS1, so the owner's prefs switch to the Resolve workflow once on its
+  first launch (Settings ▸ Workflow ▸ Premiere switches back for good). HANDOFF rewritten for
+  **RS2 → RS2b → RS3**.
+- **2026-10-12 11:48, scheduled run (RS2 / RS2b lanes):** mode FULL at start (U 61 % vs line
+  65 %). RS2 (Project Manager home screen, Opus builder) and RS2b (Resolve terminology overlay,
+  Sonnet builder) running in worktrees. Applied the owner's §1a.40–41 (commits `8e681066`,
+  `b0178221`): no separate ci / build / publish for `resolve-ui-1`; the group resolve-ui-1 + RS3 +
+  6.7b + Y1 is accepted once after Y1. CLOUD-QUEUE: dropped COACH-WALK-1, G2C-CLIP, RS1-HEADLESS
+  (the owner's side lane does them), added 6.7b to the PC's list.
+- **2026-10-12 13:34, RS2b merged; RS2 paused at half (scheduled run):** RS2b (Resolve terminology overlay,
+  `crates/ui-egui/src/i18n/terms-resolve.tsv`, ~105 whole-string rows, English only; Premiere
+  byte-identical, no dead keys, live relabel test `workflow_terms_ui`) merged after a Fable review
+  (merge); fixed its one finding: a workflow switch now also rebuilds the macOS native menu
+  (`apply_prefs` compares `workflow`). ui-egui: 508 tests green (nextest, ci profile).
+  RS2 builder (Opus) paused by the owner for usage (5-hour window 97 %): engine half committed on
+  branch `worktree-agent-a18dcbe83aac398bd` (`e60a9315`, engine tests 737 green); the UI half is
+  uncommitted in that worktree (14 files). Not yet reviewed.
+- **2026-10-12 16:01, scheduled run (RS2 UI half):** mode STEADY (U 76 % vs line 75.6 %; Fable
+  59 %, 5-hour 0 %). No cloud commits (heartbeat 15 h old). Removed the four merged read-only
+  survey worktrees (Y1/6E/U0.2 prep, LINUX-AUDIT, coach eval, 6.7b/C1 designs; content already on
+  hevc-vaapi). Left alone as HANDOFF says: L1 / L2 worktree `agent-a3613e020ce2b61ce` and the
+  owed-items worktree `agent-acc79e1718801eb16` (owner's live session). Opus builder finishing the
+  RS2 UI half in `agent-a18dcbe83aac398bd`.
+- **2026-10-12, live session: STORAGE-PLAN added** (S1 / S2 after C2 + AI2), KDE Connect as
+  LINUX-PLAN L2 item 10, §1a.50. No code changed.
+- **2026-10-12, live session: A2 moved before S1 / S2** (§1a.51). No code changed.
+- **2026-10-12 16:30, live session: 5-hour pacing instead of early stops** (§1a.52, corrected by
+  the owner: pace, don't stop). No code changed.
+- **2026-10-12 17:53, RS2 merged (scheduled run):** Project Manager home screen (engine
+  `projects.*`, UI `panels/home.rs`, guide `projects.md`). Opus builder finished the UI half
+  (3 failing tests: missing coach-id patterns; a test-harness frame step too long for a double
+  click); Opus review found 2 medium (broad projects folder made ~/Documents trashable; listing on
+  the UI thread) + 4 low (overwrite races, planted `.Trash-<uid>`, stale recents, unchecked
+  subtraction) findings, all fixed with 9 tests. After the merge with RS2b: the coach retrieval
+  test fell to 27/30 (glossary "Still" now says "save a still of the shot", 28/30), and the es /
+  zh-cn menu tests failed whenever the fork feature is on (since RS2b: they collected labels after
+  the English Resolve overlay, which other languages never show; test fixed with `covered()`).
+  engine + ui-egui + filmcraft: 1312 tests, fmt, clippy, layers green. Pacing: owner's §1a.52
+  (5-hour line) applied mid-run; mode STEADY. resolve-ui-1 content complete (tag at the group
+  acceptance after Y1). Next: RS3.
+- **2026-10-12, owed-items lane (G2c / RS1), merged:** (1) G2c clip detection in DWG / HDR:
+  the WB pickers judge clipping on the clip through its input transform alone against the
+  source's top code value (`filmcraft_color::wb::ClipLevel`: SDR / HLG 1.0, camera log at the
+  file's legal top less ~2 %, PQ content peak; gamut matrix and HLG OOTF undone), Auto skips
+  clipped pixels; known limits: gamut compression / desaturation / tone mapping on input aren't
+  inverted (strongly saturated single-channel clips may pass), movie range comes from media info.
+  (2) Coach walk opens Lumetri (WB Selector, Color Wheels & Match) and the Export page (H.265 /
+  CRF, Preset Manager); `NOT_WALKED` down to the HEVC Main 10 note, plus a guard that keeps it
+  minimal. (3) RS1: headless CLI / MCP (and the app without a data dir) get the Resolve keys and
+  theme (`fork_resolve::without_data_dir`; `Session::default()` unchanged, so tests keep their
+  keys). (4) RS1: each workflow remembers its own dark theme (`workflowReturnTheme` holds the
+  other workflow's; a theme picked in Resolve no longer carries into Premiere), Settings dialog
+  follows the swap. Gates: fmt, clippy workspace, engine 731 / 725 (feature on / off), color 49,
+  cli 14 + 11, `--test ui -- coach workflow grade_ui settings_ui color_ui` 44, layers, wasm.
+  Reviewed (Opus: clip maths; Sonnet: RS1 / coach); findings fixed or listed above.
+- **2026-10-12 19:56, RS3 merged (scheduled run):** Resolve page chrome and layouts
+  (RESOLVE-UI-PLAN RS3): per-page toolbar (`panels/page_toolbar.rs`, labelled panel toggles,
+  project name centred), restyled page bar (46 pt, accent underline, Home + Settings), pages as
+  saved workspace presets (Media / Edit / Color / Fairlight / Deliver Page; Cut, Fusion hidden),
+  Resolve-only Render Settings + Render Queue panels for Deliver, guide `docs/guide/pages.md`,
+  coach walk visits every page. Opus builder; Opus review: 1 medium (workflow switch dropped an
+  unsaved layout) + 4 low (Ctrl+M on Deliver reset its layout, user workspaces named like the new
+  pages unreachable, Import mode in Resolve, WB test hid the Resolve chrome) all fixed with tests
+  (`workspaces.json` gains `pagesVersion`; old "Edit Page"-style user names become "(custom)").
+  ui-egui + engine + filmcraft: 1328 tests with the fork feature, 523 ui-egui without; clippy, fmt,
+  layers green. Screenshots (synthetic demo project, 1920×1080) compared with the owner's Resolve
+  references: Edit / Deliver close; Markers instead of Index; no Sound Library / Keyframes / LUTs
+  / Lightbox panels; Fairlight top strip is mix meters + small viewer. Owed: Color page Primaries
+  cramped under ~1000 pt window height in Resolve (chrome ~40 pt taller). RS3 content complete;
+  tag `resolve-ui-2` at the group acceptance after Y1 (§1a.41). Next: 6.7b.
+- **2026-10-12 20:28, 6.7b steps 1–5 + 7 (scheduled run, STEADY: weekly 84 % vs line ~83 %,
+  5-hour 60–63 % vs line ~76 %):** temporal NR moved from grade nodes to the clip
+  (`docs/fork/DESIGN-6.7b.md`). Step 1 `crates/project/src/tnr.rs` (`TemporalNr`, `TNR_PARAMS`,
+  `TrackItem.temporal_nr`); step 2 schema **v17** (`v16_to_v17` on the JSON: first enabled node
+  within `MAX_NODES` → clip, bypassed grade → `enabled: false`, existing clip setting wins, every
+  node loses `tnr.*`; `Loaded.migration_notes` → toast; fixture `v16-tnr.fcproj`, hostile-shape
+  tests); step 3 render from the clip (`grade::temporal(item, t)`, op first in `item_fx`;
+  `tnr.*` out of `NODE_PARAMS` / `grade_match`; Noise tab's node temporal block removed).
+  **Bit-exact (synthetic):** CPU and plan renders of three TNR set-ups at frames 0 / 3 / 6
+  captured with the v1 code and compared byte-for-byte after the change: all equal (one-off
+  check, not committed). GPU `tnr_render` green on AMD and Intel. Step 5 (Opus builder):
+  `tnr.get/params/set/toggle/toggleAnimation/reset/clear/copy/paste` (menu Clip ▸ Temporal NR),
+  `edit.pasteAttributes temporalNr`; plus `grade.setParam tnr.*` refused with a pointer, Export
+  Frame (Program) renders with TNR. Builder's choice: `tnr.*` refuse generator media other than
+  Demo (Color Matte, Bars…). Step 7 guide `color/noise.md` rewritten (clip setting, both places,
+  Resolve difference: Resolve's is per node). Tests: project 77, format 21 + 15, render 323,
+  export 99, engine 755. Removed the merged `agent-acc79…` worktree and stale `target/agent-owed`,
+  `target/agent-rs2`. Next: step 6 UI (builder running), review fixes, gates.
+- **2026-10-12 21:55, 6.7b done (scheduled run, STEADY: weekly 86 % vs line ~85 %; new 5-hour
+  window 6 %):** Opus review of steps 1–5 (1 medium + 4 low) fixed in `4de6fefc`: one rule for
+  which clips take temporal NR (`render::grade::takes_temporal_nr`: media that isn't a solid
+  generator, or a subclip of one; render, `temporal_at`, `tnr.*` and the UI all use it),
+  `tnr.clear` / `tnr.reset` work on any clip that has a setting, migration skips non-media clips
+  and strips stills, notes appended and never read from the file, `tnr.paste` caps its list.
+  Step 6 (Opus builder): `panels/tnr.rs` shared rows (`tnr.enabled`, `tnr.{luma,chroma,frames,
+  motion}` + `.reset` / `.anim`), Effect Controls / Inspector section `effectControls.tnr`, Color
+  Noise tab "Temporal NR (clip)" block headed with the clip name; `grade.rs::float_row` shared;
+  tests `tnr_ui.rs` (both workflows); masks / clip_audio UI tests fold the new section.
+  Screenshots of both placements looked at (synthetic demo). Step 4 (replay cleanup) skipped
+  (optional). Gates: fmt, clippy workspace, layers, wasm green; tests project 77, format 21 + 15,
+  render 324, export 99, engine 756, gpu `tnr_render` AMD + Intel, ui `tnr coach grade_ui` 28.
+  **Quick bench (synthetic X-M5 fixture, first TNR numbers, no earlier baseline):**
+  `xm5-export-tnr` 149 frames in 34.2 s = 4.4 fps; `xm5-cache-tnr` 120 / 0 shown / dropped.
+  Owed (polish): Effect Controls TNR rows have no keyframe markers in the lane; "Temporal NR
+  chroma" labels wider than the 104 px label column. No tag (group acceptance after Y1,
+  §1a.41: `phase-6-7b` with the others). Next: CO1.
+- **2026-10-12 22:11, CO1 done (scheduled run, STEADY):** (a) Coach retrieval layers 1–2 of
+  `docs/fork/coach-eval/DIAGNOSIS.md` (Opus builder): stop words after stemming + the new list,
+  page intros folded into the first `##` section (never an answer), `*To write.*` stubs and
+  `glossary.md › At a glance` never answer, curated synonyms one group at a time (all kept;
+  `useful / purpose → use why` left out: both targets are stop words, C1's what-for route
+  takes it). `questions.toml` is now a test (`the_eval_set_passes_at_least_the_floor`,
+  `EVAL_FLOOR` 82, may only go up). **Measured: 66 → 72 (layer 1) → 81 (layer 2) → 82 / 116**
+  with the new guide section; existing 30 at 29 / 30 (skin-grey expectation → recipe 8); 8 / 8
+  off-topic decline. (b) Guide `color/nodes.md`: the starter tree says *why* each step sits
+  where it does, and "Other node orders, and why you'd choose them" gives options with
+  trade-offs (beginner, NR first or last, exposure before balance, LUT / CST bookends, soft
+  clip, grain, parallel / layer after C2, footage types), never one correct way (§1a.47 (b)).
+  Gates: engine coach 34, ui `coach` 17, fmt, clippy. Next: Y1.
+- **2026-10-12 23:48, Y1 done (scheduled run; LEAN from 23:30: weekly 92 % vs line ~89 %):**
+  built on upstream's `vaapi/` decoder per `docs/fork/PREP-Y1-6E-U02.md` §1.3–1.4 (no
+  `va_h264.rs`; Y1-PREP closed by PREP §1.1). Fable builder, ≈ 7.0 agent hours of the 8-hour cap
+  (wall clock 22:13–23:30). `Accel::pick` (front ends never decode into a surface a frame
+  holds), `crates/platform/src/va_accel.rs::ZeroCopyAccel` (private pool, append-only slots
+  bounded by the GOP cache budget, `PixelData::Gpu` frames), `VaDecoder::zero_copy` ("VA-API
+  H.264 (in process)"), chain fork HEVC → zero-copy H.264 → read-back → pipe. Driver findings
+  built in: radeonsi refuses never-decoded reference surfaces → frame_num-gap stand-ins are
+  hardware-decoded grey I pictures (`vaapi/gray.rs`); iHD crashes syncing a surface whose
+  context is gone → private pool, slots synced and dropped before the context. No new `unsafe`.
+  Opus review: nothing serious; `fill` now refuses a held surface; test
+  `h264_zero_copy_frames_outlive_their_decoder`. `tests/vaapi.rs` 19 / 19 on AMD (renderD129)
+  and Intel (renderD128). **Bench (synthetic 4K23.976 x264, `--only h264-2160 --quick`):** Full
+  96 / 0 before and after; CPU 21.4 → 3.7 ms/frame, decode 63 → 14.5 ms/job (before at load ~14,
+  after at ~6: noisy); quarter draft 1 drop after (load). **Owed:** idle zero-copy slots aren't
+  trimmed or counted against the GPU budget (many decoders can exhaust surfaces → read-back /
+  pipe fallback, no crash); after an open-GOP seek AMD's firmware orders B reference lists
+  itself, so pictures predicted from gap stand-ins differ from software on AMD (Intel
+  bit-exact; parity test covers the I picture there; a fix needs distinct gap POCs in
+  `crates/h264` + the front end); the fork's HEVC path shares a pool and may carry the iHD
+  context-lifetime hazard; Dell run of `tests/vaapi.rs` not done (Intel covered on this PC's
+  UHD 770 iGPU). Next: group acceptance (§1a.41).

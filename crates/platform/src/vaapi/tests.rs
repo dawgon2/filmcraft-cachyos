@@ -25,13 +25,26 @@ struct Recorder {
     decoded: Vec<bool>,
     pictures: usize,
     frame: VideoFrame,
+    /// Every picture read out keeps its surface (as frames of a zero-copy decoder do) until
+    /// [`Recorder::release`]; `pick` then skips them and adds surfaces instead.
+    holding: bool,
+    held: BTreeSet<usize>,
 }
 
 impl Recorder {
     fn new(count: usize) -> Self {
         let g = Geometry { crop: (0, 0, 2, 2), bits: 8, color: Default::default(), par: (1, 1) };
         let frame = biplanar::to_frame(&Biplanar { luma: &[128; 4], chroma: &[128; 2], stride: 2, rows: 2 }, &g).unwrap();
-        Self { ids: (0..count as u32).map(|i| 0x100 + i).collect(), decoded: vec![false; count], pictures: 0, frame }
+        Self { ids: (0..count as u32).map(|i| 0x100 + i).collect(), decoded: vec![false; count], pictures: 0, frame, holding: false, held: BTreeSet::new() }
+    }
+
+    fn holding(count: usize) -> Self {
+        Self { holding: true, ..Self::new(count) }
+    }
+
+    /// The frames handed out so far are dropped: their surfaces are free again.
+    fn release(&mut self) {
+        self.held.clear();
     }
 }
 
@@ -52,6 +65,7 @@ impl Accel for Recorder {
         slices: &[(ffi::VASliceParameterBufferHEVC, Vec<u8>)],
     ) -> Result<(), String> {
         assert_eq!(pic.CurrPic.picture_id, self.ids[target], "current picture surface");
+        assert!(!self.held.contains(&target), "surface {target} is held by a frame");
         let valid = |p: &ffi::VAPictureHEVC| p.flags & ffi::VA_PICTURE_HEVC_INVALID == 0;
         let n = pic.ReferenceFrames.iter().take_while(|p| valid(p)).count();
         assert!(pic.ReferenceFrames[n..].iter().all(|p| !valid(p)), "reference frames packed at the front");
@@ -97,9 +111,12 @@ impl Accel for Recorder {
         slices: &[(VASliceParameterBufferH264, Vec<u8>)],
     ) -> Result<(), String> {
         assert_eq!(pic.CurrPic.picture_id, self.ids[target], "current picture surface");
+        assert!(!self.held.contains(&target), "surface {target} is held by a frame");
         let refs: Vec<_> = pic.ReferenceFrames.iter().filter(|r| valid(r)).collect();
         let ref_ids: BTreeSet<_> = refs.iter().map(|r| r.picture_id).collect();
-        assert_eq!(ref_ids.len(), refs.len(), "each reference frame once");
+        // (frame_num gap stand-ins share a decoded picture's surface, under their own frame_num)
+        let keys: BTreeSet<_> = refs.iter().map(|r| (r.picture_id, r.frame_idx)).collect();
+        assert_eq!(keys.len(), refs.len(), "each reference frame once");
         assert!(!ref_ids.contains(&pic.CurrPic.picture_id), "the target is not a reference");
         for r in &refs {
             let i = self.ids.iter().position(|&id| id == r.picture_id).expect("reference is a decoder surface");
@@ -130,13 +147,111 @@ impl Accel for Recorder {
 
     fn read(&mut self, index: usize) -> Result<VideoFrame, String> {
         assert!(self.decoded[index], "read back a decoded surface");
+        if self.holding {
+            self.held.insert(index);
+        }
         Ok(self.frame.clone())
     }
 
     fn fill(&mut self, index: usize, from: Option<usize>) -> Result<(), String> {
         assert!(from.is_none_or(|f| self.decoded[f]));
+        assert!(!self.held.contains(&index), "surface {index} is held by a frame");
         self.decoded[index] = true;
         Ok(())
+    }
+
+    fn pick(&mut self, candidates: &[usize]) -> Option<usize> {
+        if !self.holding {
+            return candidates.first().copied();
+        }
+        if let Some(&i) = candidates.iter().find(|i| !self.held.contains(i)) {
+            return Some(i);
+        }
+        // every free surface is in a frame: add one (the zero-copy accelerator's way)
+        self.ids.push(0x100 + self.ids.len() as u32);
+        self.decoded.push(false);
+        Some(self.ids.len() - 1)
+    }
+}
+
+/// An accelerator that only has surfaces: the trait's default `pick`.
+struct Bare(Vec<ffi::VASurfaceID>);
+
+impl Accel for Bare {
+    fn surfaces(&self) -> &[ffi::VASurfaceID] {
+        &self.0
+    }
+    fn decode_h264(
+        &mut self,
+        _: usize,
+        _: &VAPictureParameterBufferH264,
+        _: &VAIQMatrixBufferH264,
+        _: &[(VASliceParameterBufferH264, Vec<u8>)],
+    ) -> Result<(), String> {
+        Err("bare".into())
+    }
+    fn decode_hevc(
+        &mut self,
+        _: usize,
+        _: &ffi::VAPictureParameterBufferHEVC,
+        _: Option<&ffi::VAIQMatrixBufferHEVC>,
+        _: &[(ffi::VASliceParameterBufferHEVC, Vec<u8>)],
+    ) -> Result<(), String> {
+        Err("bare".into())
+    }
+    fn read(&mut self, _: usize) -> Result<VideoFrame, String> {
+        Err("bare".into())
+    }
+    fn fill(&mut self, _: usize, _: Option<usize>) -> Result<(), String> {
+        Err("bare".into())
+    }
+}
+
+#[test]
+fn the_default_pick_takes_the_first_free_surface() {
+    let mut a = Bare(vec![1, 2, 3]);
+    assert_eq!(a.pick(&[2, 0]), Some(2));
+    assert_eq!(a.pick(&[]), None);
+}
+
+/// Surfaces still held by frames (a zero-copy decoder's output) are never decoded or filled
+/// into: `pick` skips them and the accelerator grows instead, and the pictures still come out
+/// in the software decoder's order; released, the surfaces are reused (no further growth).
+#[test]
+fn pick_skips_the_surfaces_frames_still_hold() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let (name, profile, params) = STREAMS[2];
+    if let Some(path) = fixture(&ff, name, profile, params) {
+        let s = read_stream(&path);
+        let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+        let mbs = (info.coded.0 / 16, info.coded.1 / 16);
+        let mut f = Front::new(Recorder::holding(18), info.length_size, mbs, &info.parameter_sets).unwrap();
+        let mut sw = filmcraft_codecs::software_video_decoder(&s.entry).unwrap();
+        assert_eq!(run_front(&mut f, &s.samples), run_software(sw.as_mut(), &s.samples), "{name}");
+        let grown = f.accel().ids.len();
+        assert!(grown > 18 && f.accel().held.len() == s.samples.len(), "{name}: {grown} surfaces, {} held", f.accel().held.len());
+        // seeks into the open GOP (frame_num gap fills) with every frame held
+        for k in (1..s.samples.len()).filter(|&i| s.sync[i]) {
+            f.reset();
+            sw.reset();
+            let end = (k + 13).min(s.samples.len());
+            assert_eq!(run_front(&mut f, &s.samples[k..end]), run_software(sw.as_mut(), &s.samples[k..end]), "{name} from sample {k}");
+        }
+        let grown = f.accel().ids.len();
+        f.accel_mut().release();
+        f.reset();
+        sw.reset();
+        assert_eq!(run_front(&mut f, &s.samples), run_software(sw.as_mut(), &s.samples), "{name} after the release");
+        assert_eq!(f.accel().ids.len(), grown, "{name}: released surfaces are reused");
+    }
+    let (name, pix_fmt, params) = HEVC_STREAMS[0];
+    if let Some(path) = hevc_fixture(&ff, name, pix_fmt, params) {
+        let s = read_stream(&path);
+        let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+        let mut f = super::hevc::Front::new(Recorder::holding(18), info.length_size, info.coded, info.bit_depth_luma, &info.parameter_sets).unwrap();
+        let mut sw = filmcraft_codecs::software_video_decoder(&s.entry).unwrap();
+        assert_eq!(run_hevc(&mut f, &s.samples), run_software(sw.as_mut(), &s.samples), "{name}");
+        assert!(f.accel().ids.len() > 18, "{name}: grew");
     }
 }
 

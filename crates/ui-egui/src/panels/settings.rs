@@ -712,6 +712,18 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
                         // keep the draft in step (other edits stay) so OK doesn't write it back
                         put(&mut d.values, "workflow", json!(w));
                         put(&mut d.values, "workflowReturnPreset", json!(app.session.prefs.workflow_return_preset));
+                        // the switch also swapped the dark theme (each workflow keeps its own): the
+                        // draft and its base follow, so OK neither writes the old theme back nor
+                        // trips over the remembered one
+                        let a = &app.session.prefs.appearance;
+                        for (k, v) in [
+                            ("appearance.darkTheme", json!(a.dark_theme)),
+                            ("appearance.colorTheme", json!(a.color_theme)),
+                            ("workflowReturnTheme", json!(app.session.prefs.workflow_return_theme)),
+                        ] {
+                            put(&mut d.values, k, v.clone());
+                            put(&mut d.base, k, v);
+                        }
                         d.message = format!("Workflow: {}", if w == "resolve" { "DaVinci Resolve" } else { "Premiere Pro" });
                     }
                     Err(e) => d.message = e.to_string(),
@@ -1007,6 +1019,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) -> bool {
         // the workflow switches only through settings.setWorkflow (it may change while open)
         changes.remove("workflow");
         changes.remove("workflowReturnPreset");
+        changes.remove("workflowReturnTheme");
         match if changes.is_empty() { Ok(Value::Null) } else { app.session.execute("prefs.set", json!({ "values": changes })) } {
             Ok(_) => {
                 close = true;

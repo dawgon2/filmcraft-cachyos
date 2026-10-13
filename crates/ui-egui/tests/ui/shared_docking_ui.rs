@@ -421,6 +421,8 @@ fn floating_tts_and_timeline_reveal_keeps_one_owner_and_draft_without_project_ed
 #[test]
 fn narration_selection_reveals_covered_floating_tts_once_without_editing_the_project() {
     let mut session = Session::default();
+    // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
+    session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
     session.execute("file.openDemoProject", json!({})).unwrap();
     let clip = session
         .active_sequence()

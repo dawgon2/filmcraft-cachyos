@@ -55,7 +55,7 @@ fn run(app: &mut FilmcraftApp, cmd: &str, p: Value) -> Option<Value> {
 
 /// The Primaries panel's gesture number: bumped on every pointer press and key press, so a drag
 /// is one undo step while separate clicks and key nudges are separate steps.
-fn gesture(ui: &egui::Ui) -> u64 {
+pub(crate) fn gesture(ui: &egui::Ui) -> u64 {
     let id = egui::Id::new("grade-gesture");
     let mut g: u64 = ui.data(|d| d.get_temp(id)).unwrap_or(0);
     if ui.input(|i| i.pointer.any_pressed() || i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)))) {
@@ -415,6 +415,7 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let mut wview = Some(app_view(&app.session, clip, node_id));
     let mview = if tab == "match" { Some(match_view(app, bui.ctx(), clip, &grade)) } else { None };
     let luts = lut_entries(&app.session.project);
+    let tnr_ok = tab == "noise" && super::tnr::takes_tnr(&app.session, clip);
     let scroll_rect = Rect::from_min_max(bui.cursor().min, bui.max_rect().max);
     let view_h = scroll_rect.height();
     let mut sui = bui.new_child(egui::UiBuilder::new().max_rect(scroll_rect).id_salt("grade-primaries-scroll"));
@@ -556,19 +557,18 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         } else if tab == "noise" {
             let mut edits = Vec::new();
             float_rows(bui, &node, mt, &t, &["nr.luma", "nr.chroma", "nr.size"], true, &mut edits, &mut autos);
-            // temporal noise reduction (fork 6.7): renders at export, in the render cache and on
-            // the paused Program frame; v1 honours it on the first active node only
-            // (provisional, owner question Q9)
-            bui.add_space(6.0);
-            bui.label(egui::RichText::new(tl!("Temporal")).color(t.text_dim));
-            float_rows(bui, &node, mt, &t, &["tnr.luma", "tnr.chroma", "tnr.frames", "tnr.motion"], true, &mut edits, &mut autos);
-            let first_active = grade.active_nodes().next().is_some_and(|n| n.id == node_id);
-            let note = if first_active {
-                tl!("Shown on the paused frame, at export and in the render cache; not while playing.")
-            } else {
-                tl!("Temporal NR only runs on the first active node: these values are ignored here.")
-            };
-            bui.label(egui::RichText::new(note).color(t.text_faint));
+            // temporal noise reduction is a clip setting since fork 6.7b (`tnr.*` commands): its
+            // block is headed with the clip's name so it doesn't read as a node setting
+            if tnr_ok {
+                bui.add_space(4.0);
+                bui.separator();
+                bui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(tl!("Temporal NR (clip)")).color(t.text));
+                    ui.add(egui::Label::new(egui::RichText::new(short(&it.name, 40)).color(t.text_dim)).truncate());
+                });
+                super::tnr::tnr_rows(bui, clip, &it, mt, &t, &format!("noise-{gest}"), &mut cmds, &mut autos);
+                super::tnr::note(bui, &t);
+            }
             for (key, v) in edits {
                 sets.push(match v {
                     Some(v) => set(key, v, Some(key_of(key))),
@@ -791,24 +791,89 @@ fn float_rows(
     for key in keys {
         let Some(def) = node_param(key) else { continue };
         let NodeParamKind::Float { min, max, .. } = def.kind else { continue };
-        let mut v = node.float_at(key, mt);
-        ui.horizontal(|ui| {
-            let label = crate::i18n::t(def.label);
-            ui.add_sized(vec2(104.0, 18.0), egui::Label::new(egui::RichText::new(label).color(t.text_dim)));
-            // (whole frames for the temporal radius)
-            let step = if *key == "tnr.frames" { 1.0 } else { 0.0 };
-            let r = ui.add_enabled(enabled, egui::Slider::new(&mut v, min..=max).max_decimals(3).step_by(step));
-            autos.push((format!("grade.param.{key}"), r.rect, label.to_string()));
-            if r.changed() {
-                edits.push((def.key, Some(json!(v))));
-            }
-            let rs = ui.small_button("↺");
-            autos.push((format!("grade.param.{key}.reset"), rs.rect, format!("Reset {label}")));
-            if rs.clicked() {
-                edits.push((def.key, None));
-            }
-        });
+        let (id, reset_id) = (format!("grade.param.{key}"), format!("grade.param.{key}.reset"));
+        let row = FloatRow {
+            label: crate::i18n::t(def.label),
+            value: node.float_at(key, mt),
+            min,
+            max,
+            step: 0.0,
+            enabled,
+            animated: None,
+            id: &id,
+            reset_id: &reset_id,
+            anim_id: "",
+        };
+        match float_row(ui, t, row, autos) {
+            Some(RowEdit::Set(v)) => edits.push((def.key, Some(json!(v)))),
+            Some(RowEdit::Reset) => edits.push((def.key, None)),
+            Some(RowEdit::ToggleAnimation) | None => {}
+        }
     }
+}
+
+/// One number row of the grading panels: label, slider, keyframe toggle (when `animated` is set)
+/// and reset button. Shared by the grade nodes' rows and the clip's temporal NR rows
+/// (`panels/tnr.rs`), so both behave alike.
+pub(crate) struct FloatRow<'a> {
+    pub label: &'a str,
+    pub value: f32,
+    pub min: f32,
+    pub max: f32,
+    /// Slider step (0: continuous).
+    pub step: f64,
+    /// Whether the slider is editable.
+    pub enabled: bool,
+    /// `Some(animated)`: show the keyframe toggle, lit while the value is animated.
+    pub animated: Option<bool>,
+    /// Automation ids of the slider, the reset button and the keyframe toggle.
+    pub id: &'a str,
+    pub reset_id: &'a str,
+    pub anim_id: &'a str,
+}
+
+/// What a [`float_row`] asks for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum RowEdit {
+    Set(f32),
+    Reset,
+    ToggleAnimation,
+}
+
+pub(crate) fn float_row(ui: &mut egui::Ui, t: &crate::theme::Tokens, row: FloatRow<'_>, autos: &mut Vec<(String, Rect, String)>) -> Option<RowEdit> {
+    let mut out = None;
+    let (lo, hi) = if row.min <= row.max { (row.min, row.max) } else { (row.max, row.min) };
+    let mut v = if row.value.is_finite() { row.value.clamp(lo, hi) } else { lo };
+    ui.horizontal(|ui| {
+        ui.add_sized(vec2(104.0, 18.0), egui::Label::new(egui::RichText::new(row.label).color(t.text_dim)));
+        let r = ui.add_enabled(row.enabled, egui::Slider::new(&mut v, lo..=hi).max_decimals(3).step_by(row.step));
+        autos.push((row.id.to_string(), r.rect, row.label.to_string()));
+        if r.changed() {
+            out = Some(RowEdit::Set(v));
+        }
+        if let Some(animated) = row.animated {
+            let (kr, kresp) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::click());
+            let kresp = kresp.on_hover_text(tl!("Toggle animation"));
+            let col = if animated {
+                t.accent
+            } else if kresp.hovered() {
+                t.text
+            } else {
+                t.text_dim
+            };
+            crate::icons::paint(ui.painter(), kr.shrink(1.0), crate::icons::Icon::Keyframe, col);
+            autos.push((row.anim_id.to_string(), kr, tl!("Toggle animation").to_string()));
+            if kresp.clicked() {
+                out = Some(RowEdit::ToggleAnimation);
+            }
+        }
+        let rs = ui.small_button("↺");
+        autos.push((row.reset_id.to_string(), rs.rect, format!("Reset {}", row.label)));
+        if rs.clicked() {
+            out = Some(RowEdit::Reset);
+        }
+    });
+    out
 }
 
 /// The LUT menu's entries: None, the built-in LUTs, the project's LUT library (reference, name).

@@ -3022,6 +3022,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::color::commands());
     v.extend(crate::grade::commands());
     v.extend(crate::grade_tools::commands());
+    v.extend(crate::tnr::commands());
     v.extend(crate::ai_explain::commands());
     v.extend(crate::stills::commands());
     v.extend(crate::coach::commands());
@@ -3047,11 +3048,14 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::project_panel::commands());
     v.extend(crate::media_browser::commands());
     v.extend(crate::paste_media::commands());
+    v.extend(crate::projects::commands());
     // Edit ▸ Label ▸ <colour>, Paste Attributes, subclips, Video / Audio Options, Replace With Clip…
     // and their menu order
     crate::clip_ops::apply_layout(&mut v);
     // Search Bin, Find, Project Settings, Scene Edit Detection, Normalize Mix Track… (M3.11)
     crate::project_tools::apply_layout(&mut v);
+    // File ▸ Projects… (fork RS2) after Open Project…
+    crate::projects::place(&mut v);
     v.shrink_to_fit();
     v
 }
@@ -3936,6 +3940,8 @@ fn write_project(s: &mut Session, path: &str, adopt: bool) -> Result<Value> {
         s.saved_revision = s.revision;
         s.loaded_schema = filmcraft_format::SCHEMA_VERSION;
     }
+    // the Project Manager home screen's summary and poster (fork RS2)
+    crate::projects::note_saved(s, path);
     Ok(json!({"path": path, "bytes": bytes.len(), "ms": t0.elapsed().as_secs_f64() * 1000.0, "backup": backup}))
 }
 
@@ -3977,6 +3983,7 @@ fn open_project(s: &mut Session, path: &str) -> Result<Value> {
     let bytes = s.services.read_file(path).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     let loaded = filmcraft_format::decode(&bytes).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     let (from, migrated) = (loaded.schema_version, loaded.migrated());
+    let notes = loaded.migration_notes;
     install_project(s, loaded.project, Some(path.to_string()), true);
     if let Some(view) = loaded.view.filter(|_| s.prefs.timeline.restore_open_sequences) {
         s.restore_project_view(view);
@@ -3989,6 +3996,9 @@ fn open_project(s: &mut Session, path: &str) -> Result<Value> {
     s.loaded_schema = from;
     if migrated {
         s.toast(format!("Upgraded project from schema v{from} to v{}; the original is kept as a backup when you save", filmcraft_format::SCHEMA_VERSION));
+    }
+    for note in notes {
+        s.toast(note);
     }
     let missing = crate::relink::on_open(s);
     Ok(json!({"path": path, "schemaVersion": from, "migrated": migrated, "missingMedia": missing}))

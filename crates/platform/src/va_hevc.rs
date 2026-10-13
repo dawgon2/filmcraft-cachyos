@@ -748,6 +748,15 @@ pub struct VaPicture {
     read_from: Option<(VaSurface, (u32, u32))>,
 }
 
+impl VaPicture {
+    /// A decoded 4:2:0 picture in `surface` (NV12, or P010 when `ten_bit`), its visible picture
+    /// starting at `origin`; read back from the surface itself. The fork's zero-copy accelerator
+    /// for upstream's front ends ([`crate::va_accel`], Y1) makes its frames this way.
+    pub(crate) fn new(surface: VaSurface, origin: (u32, u32), ten_bit: bool) -> Self {
+        Self { surface, origin, ten_bit, read_from: None }
+    }
+}
+
 impl std::fmt::Debug for VaPicture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "VaPicture(surface {}, {}-bit)", self.surface.id, if self.ten_bit { 10 } else { 8 })

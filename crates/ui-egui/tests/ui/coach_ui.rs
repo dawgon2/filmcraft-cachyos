@@ -482,8 +482,8 @@ fn try_exec(d: &mut Driver, command: &str, params: Value) {
 
 /// The demo project in the Color Grading workspace, walked through the places the guide talks
 /// about (each grade tab, a window, a still and its wipe, the Ask box, a lesson card to its end,
-/// the colour dialogs, three Settings pages, the Export page), with every automation id seen on
-/// the way.
+/// the colour dialogs, Settings pages, Lumetri Color, the Export page with H.265 / CRF and its Preset
+/// Manager), with every automation id seen on the way.
 fn walked() -> (Driver, BTreeSet<String>) {
     let mut d = Driver::demo();
     let mut seen = BTreeSet::new();
@@ -578,14 +578,47 @@ fn walked() -> (Driver, BTreeSet<String>) {
     if d.element("settings.cancel").is_some() {
         d.click("settings.cancel");
     }
-    // the Export page
+    // Lumetri Color in the Premiere-style Color workspace: Basic Correction's WB Selector and Auto
+    // balance, then the Color Wheels & Match section (Comparison View, Apply Match)
+    d.ok("ui.set", json!({"workspace": "Color"}));
+    d.exec("timeline.select", json!({"clips": [all[0]]}));
+    d.exec("effects.apply", json!({"clips": [all[0]], "effect": "lumetri"}));
+    snap(&mut d, &mut seen);
+    assert!(d.element("lumetri.wb.pick").is_some() && d.element("lumetri.wb.auto").is_some(), "the WB Selector row");
+    d.click("lumetri.section.Color Wheels & Match");
+    snap(&mut d, &mut seen);
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    snap(&mut d, &mut seen);
+    // the Export page: its settings, H.265 with constant quality (encoder, profile, CRF) and the
+    // Preset Manager
     d.ok("ui.set", json!({"mode": "export"}));
     snap(&mut d, &mut seen);
+    {
+        use filmcraft_engine::export::{BitrateMode, ExportSettings, Format};
+        d.harness.state_mut().ui.export.settings = ExportSettings { format: Format::Hevc, bitrate_mode: BitrateMode::Crf, ..Default::default() };
+    }
+    snap(&mut d, &mut seen);
+    d.click("export.preset.more");
+    snap(&mut d, &mut seen);
+    d.click("presetManager.cancel");
+    d.harness.state_mut().ui.export.settings = Default::default();
     d.ok("ui.set", json!({"mode": "edit"}));
     snap(&mut d, &mut seen);
-    // the page bar of the Resolve workflow
+    // the Project Manager home screen (fork RS2) and its New Project dialog
+    try_exec(&mut d, "projects.show", json!({}));
+    snap(&mut d, &mut seen);
+    d.click("projects.new");
+    snap(&mut d, &mut seen);
+    d.click("projects.dialog.cancel");
+    try_exec(&mut d, "projects.close", json!({}));
+    snap(&mut d, &mut seen);
+    // the page bar of the Resolve workflow, and each page's layout and toolbar (fork RS3)
     d.exec("settings.setWorkflow", json!({"workflow": "resolve"}));
     snap(&mut d, &mut seen);
+    for page in ["media", "color", "fairlight", "deliver", "edit"] {
+        d.click(&format!("page.{page}"));
+        snap(&mut d, &mut seen);
+    }
     d.exec("settings.setWorkflow", json!({"workflow": "premiere"}));
     snap(&mut d, &mut seen);
     (d, seen)
@@ -593,27 +626,10 @@ fn walked() -> (Driver, BTreeSet<String>) {
 
 /// Guide ids the walk doesn't reach, each with the reason. Each must still be known to the app's
 /// check (a dynamic id) or a literal automation id in the UI source.
-const NOT_WALKED: &[(&str, &str)] = &[
-    ("export.video.hevcEncoder", "Export page: only shown when the format is HEVC"),
-    ("export.video.hevcMain10Note", "Export page: only shown for an 8-bit HEVC export of an HDR sequence"),
-    ("export.fileName", "Export page: the walk stays in Edit / Color"),
-    ("export.location", "Export page: the walk stays in Edit / Color"),
-    ("export.preset", "Export page: the walk stays in Edit / Color"),
-    ("export.format", "Export page: the walk stays in Edit / Color"),
-    ("export.button", "Export page: the walk stays in Edit / Color"),
-    ("export.sendToQueue", "Export page: the walk stays in Edit / Color"),
-    ("export.queue.start", "Export page: the walk stays in Edit / Color"),
-    ("export.preset.more", "Export page: the walk stays in Edit / Color"),
-    ("presetManager.saveName", "Export page: the Preset Manager"),
-    ("presetManager.save", "Export page: the Preset Manager"),
-    ("export.video.bitrateMode", "Export page: the walk stays in Edit / Color"),
-    ("export.video.crf", "Export page: only shown in CRF mode"),
-    ("export.video.hevcProfile", "Export page: the walk stays in Edit / Color"),
-    ("lumetri.match.comparisonView", "Lumetri Color: the walk uses the node grader"),
-    ("lumetri.match.apply", "Lumetri Color: the walk uses the node grader"),
-    ("lumetri.wb.pick", "Lumetri Color: the walk uses the node grader (the engine commands are tested in wb_tests)"),
-    ("lumetri.wb.auto", "Lumetri Color: the walk uses the node grader (the engine commands are tested in wb_tests)"),
-];
+const NOT_WALKED: &[(&str, &str)] = &[(
+    "export.video.hevcMain10Note",
+    "Export page: only for an 8-bit HEVC export of an HDR sequence when this PC's H.265 encoder can write HDR (a hardware probe)",
+)];
 
 fn ui_source() -> String {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -639,6 +655,9 @@ fn coach_ask_every_guide_ui_id_is_known() {
     let (d, seen) = walked();
     let app = d.harness.state();
     let src = ui_source();
+    // the list stays short: an id the walk now shows comes off it
+    let walked_now: Vec<&str> = NOT_WALKED.iter().map(|(id, _)| *id).filter(|id| seen.contains(*id)).collect();
+    assert!(walked_now.is_empty(), "the walk shows these now: drop them from NOT_WALKED: {walked_now:?}");
     let mut unseen = Vec::new();
     for (page, id) in guide_ui_ids() {
         if seen.contains(&id) {

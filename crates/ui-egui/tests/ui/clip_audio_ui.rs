@@ -28,6 +28,8 @@ struct Pair {
 impl Driver {
     fn demo(panels: &[&str]) -> (Self, Pair) {
         let mut session = Session::default();
+        // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
+        session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
         session.execute("file.openDemoProject", json!({})).expect("demo project");
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(session).with_control(rx);
@@ -132,6 +134,7 @@ fn effect_controls_show_the_audio_of_a_video_clip() {
     for fx in ["motion", "opacity", "time_remap"] {
         d.click(&format!("effectControls.effect.{fx}"));
     }
+    d.click("effectControls.tnr");
     d.click("effectControls.volume.level.stopwatch");
     assert!(d.item(pair.audio).effect("volume").unwrap().param("level").unwrap().is_animated());
     assert!(d.item(pair.video).effect("volume").is_none());

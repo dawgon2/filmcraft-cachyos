@@ -1,0 +1,1565 @@
+# Regression question set for "Ask the coach" (FORK-PLAN §1a.28 (a) / §1a.40 (b); COMPOSITOR-PLAN
+# C1 item 6). Prepared 2026-10-12 ahead of C1; see DIAGNOSIS.md beside it.
+#
+# Same shape as assets/coach/questions.toml (`[[question]]` with `q`, `page`, `heading`), so the
+# C1 test can load it with the same serde struct (extra fields are ignored unless the struct says
+# `deny_unknown_fields`). Extra fields:
+#
+#   id          stable name for the test's failure messages
+#   kind        order | what-for | how | why | where | resolve-word | premiere-word | typo | cut-off
+#   origin      owner-verbatim | owner-paraphrase | agent
+#   context     the page / tab the user is probably on when they ask (for §1a.28 (b): the
+#               assistant should read it from the live UI state)
+#   page/heading the guide section that answers (`heading` is the exact `##` text; a `###`
+#               subsection is named by its parent `##`, because that is what the index returns)
+#   alt         other sections that also answer: the test accepts any of them as the best section
+#   status      covered  the section answers the question as written
+#               partial  the guide has the fact but not where the coach looks for it (a trailing
+#                        paragraph, a table, a "To write" stub) or only half of it; DIAGNOSIS.md
+#                        lists the guide gap
+#               uncovered the guide doesn't answer: the coach must say so (covered = false) and
+#                        `should` names the page that ought to
+#   needs_clip  true when a good answer depends on the clip or grade on screen (§1a.28 (b))
+#   facts       what a correct answer must contain (the test can grep the answer's steps + summary
+#               for the key words in brackets, or a reviewer reads them)
+#   note        anything a reviewer or the retrieval fix should know
+#
+# Pass criterion for `covered` / `partial`: `covered == true` and the best section is `page` ›
+# `heading` or one of `alt`. For `uncovered`: `covered == false`, no steps, no sources.
+#
+# Keep the owner's wording exactly (typos included) for origin = owner-verbatim.
+
+# ---------------------------------------------------------------------------------------------
+# A. The owner's logged misses (docs/fork/COACH-QUESTIONS.md) and paraphrases
+# ---------------------------------------------------------------------------------------------
+
+[[question]]
+id = "owner-1-order"
+q = "what is the best order for nodes? What should I tackle first, and what should I tackle last?"
+kind = "order"
+origin = "owner-verbatim"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "A starter tree for F-Log2"
+alt = [{ page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["order matters because each node sees the one before", "first: Balance (Temperature / Tint, Offset)", "then Exposure (Gain, Gamma)", "then Contrast (and Pivot)", "then Saturation", "last: Look and film grain", "secondaries (qualifier) sit between saturation and look"]
+note = "Coach said 'doesn't cover this yet': coverage 0.667 (best, tackle missing), confidence 0.163. Best section today is color/README.md › The idea in one minute (the three jobs), the starter tree is second."
+
+[[question]]
+id = "owner-1-para-a"
+q = "in what order should I do my nodes"
+kind = "order"
+origin = "owner-paraphrase"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "A starter tree for F-Log2"
+alt = [{ page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["Balance, Exposure, Contrast, Saturation, Look", "order matters"]
+
+[[question]]
+id = "owner-1-para-b"
+q = "which node comes first, balance or exposure?"
+kind = "order"
+origin = "owner-paraphrase"
+context = "Color page"
+page = "color/nodes.md"
+heading = "A starter tree for F-Log2"
+alt = [{ page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }, { page = "color/primaries.md", heading = "The panel" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["balance first", "exposure second"]
+
+[[question]]
+id = "owner-1-para-c"
+q = "what should the last node be"
+kind = "order"
+origin = "owner-paraphrase"
+context = "Color page"
+page = "color/nodes.md"
+heading = "A starter tree for F-Log2"
+alt = [{ page = "color/recipes.md", heading = "7. Finish with film grain" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["look / creative last", "grain last so nothing after it sharpens or blurs it"]
+
+[[question]]
+id = "owner-1-para-d"
+q = "where do I start when grading a log clip"
+kind = "order"
+origin = "owner-paraphrase"
+context = "Color page, clip selected, no nodes"
+page = "color/recipes.md"
+heading = "1. Turn a flat F-Log2 clip into a normal picture"
+alt = [{ page = "color/nodes.md", heading = "A starter tree for F-Log2" }, { page = "color/primaries.md", heading = "Steps: fix a flat F-Log2 clip" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["check the clip is read as F-Log2 and the sequence works in DaVinci Wide Gamut", "node 01 balance", "then exposure, contrast, saturation"]
+
+[[question]]
+id = "owner-1-para-e"
+q = "What do I tackle first and what last when I grade?"
+kind = "order"
+origin = "owner-paraphrase"
+context = "Color page"
+page = "color/nodes.md"
+heading = "A starter tree for F-Log2"
+alt = [{ page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }, { page = "color/README.md", heading = "The idea in one minute" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["balance first", "look and grain last"]
+note = "'tackle' is nowhere in the guide; the question-type router or a synonym (tackle → do start first) is needed."
+
+[[question]]
+id = "owner-2-qualifier"
+q = "what would the qualifier be useful for on this cli"
+kind = "cut-off"
+origin = "owner-verbatim"
+context = "Color page, Qualifier tab, node 01 empty, clip MVI_3486.MP4 (warm lamp against a wall, almost all amber)"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "glossary.md", heading = "Key" }]
+status = "covered"
+needs_clip = true
+facts = ["selects pixels by colour (hue, saturation, luminance) and builds a matte", "the node's correction applies only inside the matte", "use it when the part you want has its own colour", "with clip facts: the amber glow on the wall, the dark orange shadows, or the lamp's neutral metal; a single dominant hue is a case for balancing on node 01 first, and a window may isolate the lamp better"]
+note = "Cut off while typing ('clip'). Coverage 0.333 today: 'useful' and 'cli' are not in the guide; 'this' and 'what' are stop words. The general section is the right fallback without clip facts (COACH-QUESTIONS.md entry 2)."
+
+[[question]]
+id = "owner-2-para-a"
+q = "what is a qualifier for"
+kind = "what-for"
+origin = "owner-paraphrase"
+context = "Color page, Qualifier tab"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "glossary.md", heading = "Key" }]
+status = "covered"
+needs_clip = false
+facts = ["select by colour", "builds a matte", "when the part has its own colour: skin, sky, grass, a jacket"]
+
+[[question]]
+id = "owner-2-para-b"
+q = "whats the qualifer good for"
+kind = "typo"
+origin = "owner-paraphrase"
+context = "Color page, Qualifier tab"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "glossary.md", heading = "Key" }]
+status = "covered"
+needs_clip = false
+facts = ["select by colour", "matte"]
+note = "'qualifer' (typo) stems to 'qualif', which is not 'qualifi'; nothing matches. Needs fuzzy / edit-distance matching or a typo list."
+
+[[question]]
+id = "owner-2-para-c"
+q = "what could I use the qualifier for on this clip?"
+kind = "what-for"
+origin = "owner-paraphrase"
+context = "Color page, Qualifier tab, clip selected"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "glossary.md", heading = "Key" }]
+status = "covered"
+needs_clip = true
+facts = ["select by colour", "matte", "a part with its own colour"]
+
+[[question]]
+id = "owner-2-para-d"
+q = "when should I use a qualifier instead of a window"
+kind = "what-for"
+origin = "owner-paraphrase"
+context = "Color page, Windows tab"
+page = "color/secondaries.md"
+heading = "Windows: select by shape"
+alt = [{ page = "color/secondaries.md", heading = "The qualifier: select by colour" }]
+status = "covered"
+needs_clip = false
+facts = ["qualifier when the part has its own colour", "window when it has a place rather than a colour", "both on one node act where both select"]
+
+# ---------------------------------------------------------------------------------------------
+# B. Workflow and order
+# ---------------------------------------------------------------------------------------------
+
+[[question]]
+id = "order-nr"
+q = "should noise reduction go before or after the grade"
+kind = "order"
+origin = "agent"
+context = "Color page, Noise tab"
+page = "color/noise.md"
+heading = "Why"
+alt = [{ page = "color/noise.md", heading = "Steps" }]
+status = "covered"
+needs_clip = false
+facts = ["before the correction that lifts the shadows", "a node at the start of the chain (Insert Node Before on the first node)"]
+note = "Eight pages have a '## Why' section; heading weight is useless here and the stop word 'why' is dropped anyway."
+
+[[question]]
+id = "order-grain"
+q = "when do I add grain, first or last"
+kind = "order"
+origin = "agent"
+context = "Color page, Primaries panel"
+page = "color/recipes.md"
+heading = "7. Finish with film grain"
+alt = [{ page = "color/finishing.md", heading = "Film grain" }, { page = "color/nodes.md", heading = "A starter tree for F-Log2" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["last", "so nothing after it sharpens or blurs it"]
+
+[[question]]
+id = "order-lut"
+q = "where does the LUT go in the chain"
+kind = "order"
+origin = "agent"
+context = "Color page, Primaries tab, LUT menu"
+page = "color/finishing.md"
+heading = "A LUT on a node"
+alt = [{ page = "glossary.md", heading = "LUT" }]
+status = "covered"
+needs_clip = false
+facts = ["on a node it sits after the node's own corrections", "later nodes can still adjust it", "one step in a node, not the whole grade", "a LUT built for Rec.709 or camera log is wrong on the DaVinci Intermediate signal"]
+
+[[question]]
+id = "order-cm-first"
+q = "do I set colour management before I start grading"
+kind = "order"
+origin = "agent"
+context = "Color page, first clip"
+page = "color/README.md"
+heading = "First grade in six steps"
+alt = [{ page = "color/color-management.md", heading = "Choose the working space (sequence)" }, { page = "color/color-management.md", heading = "Why" }, { page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }]
+status = "covered"
+needs_clip = false
+facts = ["yes: set the sequence's colour management and the clip's colour space first", "the input transform runs before node 1"]
+
+[[question]]
+id = "order-lumetri"
+q = "does lumetri happen before or after the nodes"
+kind = "order"
+origin = "agent"
+context = "Color page, Lumetri Color tab"
+page = "color/lumetri.md"
+heading = "Where Lumetri sits in the picture"
+alt = [{ page = "color/README.md", heading = "The idea in one minute" }]
+status = "covered"
+needs_clip = false
+facts = ["nodes first, then the clip's effects (Lumetri is one)", "Lumetri sees the picture the nodes made", "Bypass leaves Lumetri on"]
+
+[[question]]
+id = "order-secondaries"
+q = "should I do secondaries before primaries"
+kind = "order"
+origin = "agent"
+context = "Color page"
+page = "color/primaries.md"
+heading = "Why"
+alt = [{ page = "color/nodes.md", heading = "A starter tree for F-Log2" }, { page = "color/secondaries.md", heading = "The qualifier: select by colour" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["primaries first", "secondaries after balance and exposure, on their own node"]
+
+[[question]]
+id = "order-still"
+q = "when should I grab a still"
+kind = "order"
+origin = "agent"
+context = "Color page, Gallery"
+page = "color/matching.md"
+heading = "Compare"
+alt = [{ page = "color/matching.md", heading = "Why" }, { page = "color/recipes.md", heading = "5. Match a wide shot and a close-up" }, { page = "glossary.md", heading = "Still" }]
+status = "covered"
+needs_clip = false
+facts = ["once a shot looks right, park on it and Grab Still", "then compare the next shot against it with the wipe"]
+
+[[question]]
+id = "order-scene"
+q = "what's the workflow for matching a whole scene"
+kind = "order"
+origin = "agent"
+context = "Color page, Match tab"
+page = "color/recipes.md"
+heading = "6. Give one grade to a whole scene"
+alt = [{ page = "color/recipes.md", heading = "5. Match a wide shot and a close-up" }, { page = "color/matching.md", heading = "Compare shots and check a scene" }]
+status = "covered"
+needs_clip = false
+facts = ["grade one clip", "Copy Grade, select the others, Paste or Append Grade", "Check scene names the clip that stands out"]
+
+[[question]]
+id = "order-softclip"
+q = "soft clip: early or late node?"
+kind = "order"
+origin = "agent"
+context = "Color page, Curves tab"
+page = "color/finishing.md"
+heading = "Highlight soft clip"
+status = "covered"
+needs_clip = false
+facts = ["a late node, after exposure and contrast"]
+
+[[question]]
+id = "order-wb"
+q = "at what point do I do the white balance"
+kind = "order"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/primaries.md"
+heading = "White balance picker and Auto balance"
+alt = [{ page = "color/nodes.md", heading = "A starter tree for F-Log2" }, { page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["on the first node (Balance)", "WB picker on something neutral, or Auto balance"]
+
+[[question]]
+id = "order-tnr-node"
+q = "which node does temporal noise reduction go on"
+kind = "order"
+origin = "agent"
+context = "Color page, Noise tab"
+page = "color/noise.md"
+heading = "Temporal noise reduction"
+alt = [{ page = "color/noise.md", heading = "Limits" }]
+status = "covered"
+needs_clip = false
+facts = ["the first active node only", "other nodes' temporal values are ignored"]
+note = "6.7b will move TNR to the clip (§1a.40 (a)); update the expected facts with it."
+
+[[question]]
+id = "order-proxies-grading"
+q = "should I make proxies before grading"
+kind = "order"
+origin = "agent"
+context = "Edit page, Project panel"
+page = "proxies.md"
+heading = "Choosing when proxies are used"
+alt = [{ page = "proxies.md", heading = "Automatic proxies" }, { page = "proxies.md", heading = "What a proxy is, and why" }]
+status = "covered"
+needs_clip = false
+facts = ["proxies are made automatically for 4:2:2 and 4K+ long-GOP clips", "Auto shows the original when paused, so grading judges the real picture"]
+
+[[question]]
+id = "order-six-steps"
+q = "give me the simplest first grade"
+kind = "how"
+origin = "agent"
+context = "Color page, clip selected"
+page = "color/README.md"
+heading = "First grade in six steps"
+alt = [{ page = "color/primaries.md", heading = "Steps: fix a flat F-Log2 clip" }, { page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }]
+status = "covered"
+needs_clip = false
+facts = ["Add Node", "Gain, then Contrast, then Saturation", "Bypass to compare"]
+note = "'simplest' stems to 'simpl'; 'first grade' is in the heading. 'give' is not a stop word."
+
+# ---------------------------------------------------------------------------------------------
+# C. "What is X for"
+# ---------------------------------------------------------------------------------------------
+
+[[question]]
+id = "what-node"
+q = "what is a node"
+kind = "what-for"
+origin = "agent"
+context = "Color page"
+page = "glossary.md"
+heading = "Node"
+alt = [{ page = "color/nodes.md", heading = "Why" }]
+status = "covered"
+needs_clip = false
+facts = ["one step of a clip's grade", "one job per node", "can be switched off on its own"]
+
+[[question]]
+id = "what-offset"
+q = "what is the offset wheel for"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Primaries"
+page = "glossary.md"
+heading = "Wheel"
+alt = [{ page = "color/primaries.md", heading = "The panel" }]
+status = "covered"
+needs_clip = false
+facts = ["moves everything evenly", "overall brightness or colour cast", "balance with Offset, then shape with Lift / Gamma / Gain"]
+
+[[question]]
+id = "what-pivot"
+q = "what is the pivot slider"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/primaries.md"
+heading = "The panel"
+alt = [{ page = "color/color-management.md", heading = "Why" }]
+status = "covered"
+needs_clip = false
+facts = ["the brightness contrast leaves alone", "0.336 is mid grey in DaVinci Intermediate"]
+
+[[question]]
+id = "what-window"
+q = "what is a window for"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Windows tab"
+page = "color/secondaries.md"
+heading = "Windows: select by shape"
+alt = [{ page = "glossary.md", heading = "Window" }]
+status = "covered"
+needs_clip = false
+facts = ["select by shape (place), not colour", "node acts inside (or outside, inverted)", "soft edge", "can be tracked"]
+
+[[question]]
+id = "what-matte"
+q = "what's a matte"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Qualifier tab"
+page = "glossary.md"
+heading = "Matte"
+status = "covered"
+needs_clip = false
+facts = ["black-and-white picture a key or window produces", "white where the node acts", "View ▸ Matte"]
+
+[[question]]
+id = "what-working-space"
+q = "what is the working space and why DaVinci Wide Gamut"
+kind = "what-for"
+origin = "agent"
+context = "Settings, Sequence Color Management"
+page = "glossary.md"
+heading = "Working space"
+alt = [{ page = "color/color-management.md", heading = "Why" }]
+status = "covered"
+needs_clip = false
+facts = ["the one colour space every clip is translated into before grading", "same slider move does the same on every clip", "DaVinci Wide Gamut / Intermediate from Blackmagic's published specification"]
+
+[[question]]
+id = "what-bypass"
+q = "what does bypass do"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "The Nodes panel"
+alt = [{ page = "color/README.md", heading = "First grade in six steps" }]
+status = "covered"
+needs_clip = false
+facts = ["whole grade off", "press again to restore", "Lumetri stays on"]
+
+[[question]]
+id = "what-disable-vs-bypass"
+q = "what is the difference between disable and bypass"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "The Nodes panel"
+status = "covered"
+needs_clip = false
+facts = ["Disable switches one node off without losing settings", "Bypass switches the whole grade off"]
+note = "'difference' and 'between' aren't in that section; 'disable' and 'bypass' are, in a table (tables are indexed as body text)."
+
+[[question]]
+id = "what-shot-match"
+q = "what is shot match"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Match tab"
+page = "color/matching.md"
+heading = "Shot Match"
+alt = [{ page = "color/recipes.md", heading = "5. Match a wide shot and a close-up" }]
+status = "covered"
+needs_clip = false
+facts = ["solves a new node's Lift / Gamma / Gain / Offset and saturation so the clip matches the reference", "an ordinary node you can adjust or switch off", "solved before the clip's effects"]
+
+[[question]]
+id = "what-explainer"
+q = "what does the node explainer do"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Match tab"
+page = "color/matching.md"
+heading = "The node explainer"
+status = "covered"
+needs_clip = false
+facts = ["measures what each node actually does to the picture", "one sentence per node", "Show what changed heat map"]
+
+[[question]]
+id = "what-render-cache"
+q = "what is the render cache for"
+kind = "what-for"
+origin = "agent"
+context = "Edit page, timeline"
+page = "render-cache.md"
+heading = "Why"
+alt = [{ page = "glossary.md", heading = "Render cache" }]
+status = "covered"
+needs_clip = false
+facts = ["renders heavy stretches in the background so they play smoothly", "on by default (Smart)", "like Resolve's Smart Cache"]
+
+[[question]]
+id = "what-proxy"
+q = "what is a proxy"
+kind = "what-for"
+origin = "agent"
+context = "Edit page, Project panel"
+page = "proxies.md"
+heading = "What a proxy is, and why"
+alt = [{ page = "glossary.md", heading = "Proxy" }]
+status = "covered"
+needs_clip = false
+facts = ["smaller, easier-to-decode copy", "export always reads the original", "P badge"]
+
+[[question]]
+id = "what-temp-tint"
+q = "what does temperature do and what does tint do"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/primaries.md"
+heading = "The panel"
+alt = [{ page = "color/primaries.md", heading = "White balance picker and Auto balance" }]
+status = "covered"
+needs_clip = false
+facts = ["Temperature: cool to warm (-100 to 100)", "Tint: green to magenta"]
+
+[[question]]
+id = "what-still"
+q = "what is a still"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Gallery"
+page = "glossary.md"
+heading = "Still"
+alt = [{ page = "color/matching.md", heading = "Stills gallery" }]
+status = "covered"
+needs_clip = false
+facts = ["a saved frame plus the grade", "to compare against or to give the grade to other clips", "Grab Still"]
+
+[[question]]
+id = "what-lumetri-vs-nodes"
+q = "what's the difference between lumetri and nodes"
+kind = "what-for"
+origin = "agent"
+context = "Color page"
+page = "color/lumetri.md"
+heading = "Why there are two"
+alt = [{ page = "color/lumetri.md", heading = "Which one to use" }, { page = "color/primaries.md", heading = "If you know Premiere" }]
+status = "covered"
+needs_clip = false
+facts = ["Lumetri: Premiere-style, one panel stored as an effect", "nodes: Resolve-style chain of small steps", "same colour operations underneath", "nodes run before Lumetri"]
+
+[[question]]
+id = "what-lut"
+q = "what is a LUT"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Primaries, LUT menu"
+page = "glossary.md"
+heading = "LUT"
+alt = [{ page = "color/finishing.md", heading = "A LUT on a node" }]
+status = "covered"
+needs_clip = false
+facts = ["look-up table file (.cube / .3dl)", "ready-made colour transform", "best as one step in a node"]
+
+[[question]]
+id = "what-matte-blur"
+q = "what does matte blur do"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Qualifier tab"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "color/recipes.md", heading = "3. Make the sky bluer without touching skin" }]
+status = "covered"
+needs_clip = false
+facts = ["softens a noisy, speckled matte", "softness is the edge width, blur smooths the matte"]
+
+[[question]]
+id = "what-hue-width"
+q = "what is the hue width slider"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Qualifier tab"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "color/recipes.md", heading = "8. Fix grey or lifeless skin" }, { page = "color/recipes.md", heading = "3. Make the sky bluer without touching skin" }]
+status = "covered"
+needs_clip = false
+facts = ["how wide a hue range the qualifier selects", "narrow it when the matte reaches into things that share the hue"]
+
+[[question]]
+id = "what-serial"
+q = "what is a serial node"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "glossary.md"
+heading = "Serial node"
+alt = [{ page = "color/nodes.md", heading = "Why" }]
+status = "covered"
+needs_clip = false
+facts = ["takes the picture from the node before and hands it to the next", "order matters", "every node is serial today"]
+
+[[question]]
+id = "what-flog2"
+q = "what is F-Log2"
+kind = "what-for"
+origin = "agent"
+context = "Project panel, X-M5 clip"
+page = "glossary.md"
+heading = "Log"
+alt = [{ page = "color/color-management.md", heading = "Why" }, { page = "color/color-management.md", heading = "Tell FilmCraft what the clip is (input)" }]
+status = "covered"
+needs_clip = false
+facts = ["the X-M5's log curve", "looks grey and flat on purpose", "FilmCraft converts it once it knows the curve"]
+note = "'F-Log2' tokenises to 'log2' (the hyphen splits; 'f' is one char and dropped); the glossary entry says 'F-Log2' once in bold."
+
+[[question]]
+id = "what-tnr-vs-nr"
+q = "what is the difference between spatial and temporal noise reduction"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Noise tab"
+page = "color/noise.md"
+heading = "Why"
+alt = [{ page = "color/noise.md", heading = "How it works" }, { page = "color/noise.md", heading = "Temporal noise reduction" }]
+status = "covered"
+needs_clip = false
+facts = ["spatial averages similar pixels in one frame (softens detail)", "temporal averages the same point over neighbouring frames (keeps detail)", "temporal for static or slow shots, spatial for fast motion", "temporal renders only at export, in the render cache and on the paused frame"]
+
+# ---------------------------------------------------------------------------------------------
+# D. "How do I"
+# ---------------------------------------------------------------------------------------------
+
+[[question]]
+id = "how-rename"
+q = "how do I rename a node"
+kind = "how"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "Reorder and name nodes"
+status = "covered"
+needs_clip = false
+facts = ["Rename in the Nodes panel or right-click ▸ Rename", "Enter confirms, Esc leaves the old name", "Ctrl+Z undoes"]
+
+[[question]]
+id = "how-move-node"
+q = "how do I move a node earlier in the chain"
+kind = "how"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "Reorder and name nodes"
+status = "partial"
+needs_clip = false
+facts = ["grade.moveNode (params node, to)", "no drag yet: use the command list, control channel or MCP"]
+note = "The fact is in the trailing paragraph, not in the numbered steps, so a 'how' answer shows the rename steps. Guide gap: a 'Move a node' subsection with its own step (or write the drag when it exists)."
+
+[[question]]
+id = "how-insert-before"
+q = "how do I add a node before the first one"
+kind = "how"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "The Nodes panel"
+alt = [{ page = "color/noise.md", heading = "Steps" }, { page = "color/nodes.md", heading = "Steps: build a three-node grade" }]
+status = "covered"
+needs_clip = false
+facts = ["+ Before (grade.insertNode) adds a node before the selected one", "Shift+S in the Resolve workflow"]
+
+[[question]]
+id = "how-cast"
+q = "how do I fix a colour cast"
+kind = "how"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/primaries.md"
+heading = "White balance picker and Auto balance"
+alt = [{ page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }]
+status = "covered"
+needs_clip = false
+facts = ["WB picker on something grey or white (or drag a box)", "Auto balance when nothing is neutral", "Temperature / Tint move; sliders stay adjustable", "beyond ±100 finish with Gain or Offset"]
+
+[[question]]
+id = "how-grey-card"
+q = "how do I white balance using a grey card"
+kind = "how"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/primaries.md"
+heading = "White balance picker and Auto balance"
+status = "covered"
+needs_clip = false
+facts = ["WB picker, click or drag a box on the card", "one undo step", "reads the picture as it enters the node"]
+
+[[question]]
+id = "how-warmer"
+q = "make it look warmer"
+kind = "how"
+origin = "agent"
+context = "Color page"
+page = "color/recipes.md"
+heading = "2. Warm a shot up"
+alt = [{ page = "color/primaries.md", heading = "The panel" }]
+status = "covered"
+needs_clip = false
+facts = ["Gain puck towards orange, Gamma less", "Lift slightly to blue if shadows go muddy", "or Temperature, quicker but blunter"]
+
+[[question]]
+id = "how-gradient-sky"
+q = "how do I darken the sky with a gradient"
+kind = "how"
+origin = "agent"
+context = "Color page, Windows tab"
+page = "color/secondaries.md"
+heading = "Windows: select by shape"
+alt = [{ page = "color/recipes.md", heading = "3. Make the sky bluer without touching skin" }]
+status = "covered"
+needs_clip = false
+facts = ["Linear window: a straight soft edge across the frame", "Softness", "then lower Gain / Gamma in Primaries"]
+note = "'gradient' is not in the guide ('graduated' is; stems differ: gradient → gradient, graduated → graduat). Synonym needed."
+
+[[question]]
+id = "how-invert"
+q = "how do I invert the selection so it affects everything except the sky"
+kind = "how"
+origin = "agent"
+context = "Color page, Qualifier tab"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "color/recipes.md", heading = "3. Make the sky bluer without touching skin" }]
+status = "covered"
+needs_clip = false
+facts = ["tick Invert", "acts on everything except the selection"]
+
+[[question]]
+id = "how-track"
+q = "how do I track a window"
+kind = "how"
+origin = "agent"
+context = "Color page, Windows tab"
+page = "color/secondaries.md"
+heading = "Tracking a window"
+status = "covered"
+needs_clip = false
+facts = ["park on a frame where the window sits well", "Track forward / backward", "if it drifts, move it back and track again from there"]
+
+[[question]]
+id = "how-same-grade-all"
+q = "how do I apply the same grade to all my clips"
+kind = "how"
+origin = "agent"
+context = "Edit page, timeline, several clips selected"
+page = "color/recipes.md"
+heading = "6. Give one grade to a whole scene"
+alt = [{ page = "color/matching.md", heading = "Copy, paste and append grades" }]
+status = "covered"
+needs_clip = false
+facts = ["Copy Grade", "select the targets", "Paste Grade replaces, Append Grade adds after"]
+
+[[question]]
+id = "how-remove-grade"
+q = "how do I remove a grade completely"
+kind = "how"
+origin = "agent"
+context = "Color page"
+page = "color/matching.md"
+heading = "Copy, paste and append grades"
+alt = [{ page = "color/nodes.md", heading = "Delete a node" }]
+status = "partial"
+needs_clip = false
+facts = ["grade.clear (Remove Grade)", "no menu item yet: command list, control channel or MCP", "or Bypass to switch it off without removing"]
+note = "'remove' is a synonym of 'delete', which pulls 'Delete a node' first. grade.clear is in a trailing paragraph, not a step."
+
+[[question]]
+id = "how-nr-shadows"
+q = "how do I reduce noise in the shadows"
+kind = "how"
+origin = "agent"
+context = "Color page, Noise tab"
+page = "color/noise.md"
+heading = "Why"
+alt = [{ page = "color/noise.md", heading = "Steps" }]
+status = "covered"
+needs_clip = false
+facts = ["a node at the start of the chain", "NR luma / NR chroma, start around 0.3", "compare with the node switched off"]
+
+[[question]]
+id = "how-tnr-on"
+q = "how do I turn on temporal noise reduction"
+kind = "how"
+origin = "agent"
+context = "Color page, Noise tab"
+page = "color/noise.md"
+heading = "Temporal noise reduction"
+status = "covered"
+needs_clip = false
+facts = ["first node, Noise tab, Temporal rows", "Temporal NR luma / chroma 0.5 to start", "frames 1 or 2", "renders only when paused, in the cache, at export"]
+
+[[question]]
+id = "how-vignette"
+q = "how do I add a vignette"
+kind = "how"
+origin = "agent"
+context = "Color page"
+page = "color/lumetri.md"
+heading = "Which one to use"
+alt = [{ page = "color/lumetri.md", heading = "Using the Lumetri Color panel" }, { page = "color/secondaries.md", heading = "Windows: select by shape" }]
+status = "covered"
+needs_clip = false
+facts = ["the node grader has no vignette yet: use Lumetri's Vignette section", "or a window (circle, inverted, soft) on a node with Gain / Gamma down"]
+note = "Synonym 'vignette' → 'window' points at the windows page; the Lumetri answer is the direct one. Both are acceptable."
+
+[[question]]
+id = "how-lut-file"
+q = "how do I use a LUT I downloaded"
+kind = "how"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/finishing.md"
+heading = "A LUT on a node"
+alt = [{ page = "glossary.md", heading = "LUT" }]
+status = "covered"
+needs_clip = false
+facts = ["LUT menu at the bottom of Primaries, Browse… for a .cube / .3dl", "LUT mix", "built for the DaVinci Intermediate signal or put a conversion before it"]
+
+[[question]]
+id = "how-softclip"
+q = "how do I soften the highlights so they don't clip"
+kind = "how"
+origin = "agent"
+context = "Color page, Curves tab"
+page = "color/finishing.md"
+heading = "Highlight soft clip"
+status = "covered"
+needs_clip = false
+facts = ["Curves tab ▸ Soft clip ▸ Highlight roll-off", "Roll-off knee sets where it starts", "late node"]
+
+[[question]]
+id = "how-side-by-side"
+q = "how do I compare two shots side by side"
+kind = "how"
+origin = "agent"
+context = "Color page, Gallery"
+page = "color/matching.md"
+heading = "Compare"
+alt = [{ page = "color/README.md", heading = "The Color page layout" }, { page = "glossary.md", heading = "Wipe" }]
+status = "covered"
+needs_clip = false
+facts = ["Grab Still on one, click the still on the other: wipe", "Split shows both whole", "or Split Screen in the Clips panel for several clips"]
+
+[[question]]
+id = "how-split-screen"
+q = "how do i see several clips at once on the color page"
+kind = "how"
+origin = "agent"
+context = "Color page, Clips strip"
+page = "color/README.md"
+heading = "The Color page layout"
+status = "covered"
+needs_clip = false
+facts = ["split-screen menu in Clips: Adjacent Clips or Selected Clips (up to 16)", "Ctrl+Alt+W", "click a tile to grade that clip"]
+
+[[question]]
+id = "how-resolve-layout"
+q = "how do I switch to the Resolve layout"
+kind = "how"
+origin = "agent"
+context = "Edit page"
+page = "getting-started.md"
+heading = "Choose your workflow: Premiere or Resolve"
+status = "covered"
+needs_clip = false
+facts = ["Edit ▸ Preferences ▸ General ▸ Workflow ▸ DaVinci Resolve", "page bar Media / Edit / Color / Fairlight / Deliver", "keyboard preset DaVinci Resolve Compatible", "Resolve is the fork's default"]
+
+[[question]]
+id = "how-check-scene"
+q = "how do I check which clip in the scene is off"
+kind = "how"
+origin = "agent"
+context = "Color page, Match tab"
+page = "color/matching.md"
+heading = "Compare shots and check a scene"
+alt = [{ page = "color/recipes.md", heading = "6. Give one grade to a whole scene" }]
+status = "covered"
+needs_clip = false
+facts = ["select the clips, Check scene", "the clip that stands out is named first", "Compare shots for two clips with a score"]
+
+[[question]]
+id = "how-node-preset"
+q = "how do I save my node tree as a preset to reuse"
+kind = "how"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/recipes.md"
+heading = "1. Turn a flat F-Log2 clip into a normal picture"
+alt = [{ page = "color/recipes.md", heading = "If you know Resolve" }, { page = "color/matching.md", heading = "Stills gallery" }, { page = "glossary.md", heading = "Still" }]
+status = "partial"
+needs_clip = false
+facts = ["no saved node-tree preset yet", "Grab Still, then double-click the still (stills.apply) on other clips", "or Copy Grade / Paste Grade"]
+note = "The answer is the paragraph after recipe 1's steps and recipes.md › If you know Resolve. Guide gap: a 'Reuse a node tree' recipe."
+
+[[question]]
+id = "how-lift-shadows-no-noise"
+q = "how do I lift the shadows without making them noisy"
+kind = "how"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/noise.md"
+heading = "Why"
+alt = [{ page = "color/noise.md", heading = "Steps" }, { page = "color/primaries.md", heading = "The panel" }]
+status = "covered"
+needs_clip = false
+facts = ["noise reduction on a node before the one that lifts the shadows", "then Lift / Gamma"]
+
+[[question]]
+id = "how-washed-out"
+q = "my x-m5 clip looks washed out and grey"
+kind = "why"
+origin = "agent"
+context = "Edit page, Program monitor"
+page = "color/color-management.md"
+heading = "Tell FilmCraft what the clip is (input)"
+alt = [{ page = "glossary.md", heading = "Log" }, { page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }]
+status = "covered"
+needs_clip = false
+facts = ["log looks flat on purpose", "Clip ▸ Modify ▸ Interpret Footage ▸ Fujifilm F-Log2 / F-Gamut", "then grade"]
+note = "'washed' → saturation contrast and 'gray' → qualifier matte hue pull the answer towards the qualifier pages."
+
+[[question]]
+id = "how-dwg"
+q = "how do I set the sequence to DaVinci wide gamut"
+kind = "how"
+origin = "agent"
+context = "Edit page"
+page = "color/color-management.md"
+heading = "Choose the working space (sequence)"
+status = "covered"
+needs_clip = false
+facts = ["Sequence ▸ Color Management… ▸ Working Color Space ▸ DaVinci Wide Gamut / Intermediate", "existing sequences keep theirs"]
+
+[[question]]
+id = "how-youtube"
+q = "how do I export for youtube"
+kind = "how"
+origin = "agent"
+context = "Deliver / Export page"
+page = "export.md"
+heading = "Choose a preset"
+alt = [{ page = "export.md", heading = "Open the Export page" }]
+status = "covered"
+needs_clip = false
+facts = ["YouTube 4K HEVC preset: 3840×2160, Main 10, Rec. 709, about 80 Mbps", "Vertical preset for Shorts-shaped uploads", "VBR 1 pass for uploads"]
+
+[[question]]
+id = "how-pause-cache"
+q = "how do I pause the render cache"
+kind = "how"
+origin = "agent"
+context = "Settings, Media Cache"
+page = "render-cache.md"
+heading = "Settings and commands"
+status = "covered"
+needs_clip = false
+facts = ["Settings ▸ Media Cache ▸ Render Cache ▸ Pause (cache.pause)", "Resume", "or mode Off"]
+
+[[question]]
+id = "how-proxies-off"
+q = "how do I turn proxies off"
+kind = "how"
+origin = "agent"
+context = "Settings, Media"
+page = "proxies.md"
+heading = "Choosing when proxies are used"
+status = "covered"
+needs_clip = false
+facts = ["Preferences ▸ Media ▸ Proxies ▸ Never use proxies", "Toggle Proxies on the monitor", "export never uses proxies anyway"]
+
+[[question]]
+id = "how-ai-explain"
+q = "how do I get the node explainer to use plain words"
+kind = "how"
+origin = "agent"
+context = "Color page, Match tab"
+page = "color/matching.md"
+heading = "AI explanations"
+alt = [{ page = "color/matching.md", heading = "The node explainer" }]
+status = "covered"
+needs_clip = false
+facts = ["Settings ▸ Color ▸ AI explanations: pick a model, Download", "tick Explain nodes in plain words with a local AI model", "checked against the measured facts; template otherwise"]
+
+[[question]]
+id = "how-hints-off"
+q = "how do I turn off the coach hints"
+kind = "how"
+origin = "agent"
+context = "Color page, hint card"
+page = "color/coach.md"
+heading = "Context hints"
+status = "covered"
+needs_clip = false
+facts = ["Turn hints off on the card", "Settings ▸ Color ▸ Grading Coach ▸ Show Grading Coach hints"]
+
+[[question]]
+id = "how-curves-contrast"
+q = "how do I use the curves to add contrast"
+kind = "how"
+origin = "agent"
+context = "Color page, Curves tab"
+page = "color/curves.md"
+heading = "Steps"
+alt = [{ page = "color/curves.md", heading = "Why" }]
+status = "covered"
+needs_clip = false
+facts = ["Curves tab, channel Y", "a gentle S: shadows slightly down, highlights slightly up", "Reset curve"]
+
+[[question]]
+id = "how-hsl-secondary"
+q = "how do I use the HSL secondary in lumetri"
+kind = "how"
+origin = "agent"
+context = "Color page, Lumetri Color tab"
+page = "color/lumetri.md"
+heading = "Using the Lumetri Color panel"
+alt = [{ page = "color/secondaries.md", heading = "The qualifier: select by colour" }]
+status = "covered"
+needs_clip = false
+facts = ["Lumetri's HSL Secondary section: key by hue / saturation / luma, Soften, Denoise, Show Mask", "the node grader's qualifier is the same idea per node"]
+
+[[question]]
+id = "how-keyframe-node"
+q = "how do I keyframe a node parameter"
+kind = "how"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/primaries.md"
+heading = "Commands"
+status = "partial"
+needs_clip = false
+facts = ["grade.toggleAnimation turns keyframes on for one parameter", "the panel has no keyframe button yet; it shows the value at the playhead"]
+note = "Prose only, so the coach falls back to a lesson; the fact is in the Commands paragraph. Guide gap: write the keyframe UI when it exists, until then a short 'Keyframes' subsection."
+
+[[question]]
+id = "how-reset-node"
+q = "how do I put a node back to neutral"
+kind = "how"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "The Nodes panel"
+alt = [{ page = "color/primaries.md", heading = "The panel" }]
+status = "covered"
+needs_clip = false
+facts = ["Reset puts all of the node's controls back to neutral", "each slider has its own ↺"]
+
+# ---------------------------------------------------------------------------------------------
+# E. "Why does my…"
+# ---------------------------------------------------------------------------------------------
+
+[[question]]
+id = "why-skin-after-sky"
+q = "why did the faces change when I only wanted the sky"
+kind = "why"
+origin = "agent"
+context = "Color page, Qualifier tab"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "color/recipes.md", heading = "3. Make the sky bluer without touching skin" }]
+status = "covered"
+needs_clip = true
+facts = ["the node's selection reaches into the face", "View ▸ Matte: the face should be black", "narrow Hue width or raise Qualifier softness", "a Linear window limits it to the top of the frame"]
+
+[[question]]
+id = "why-flicker"
+q = "why does my qualifier flicker"
+kind = "why"
+origin = "agent"
+context = "Color page, Qualifier tab, playing"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "color/recipes.md", heading = "8. Fix grey or lifeless skin" }]
+status = "covered"
+needs_clip = false
+facts = ["more Qualifier softness or a little Matte blur, not a wider range"]
+note = "'flicker' stems to 'flick'; the guide writes 'flickers' (→ 'flick') in secondaries Tips and recipe 8."
+
+[[question]]
+id = "why-matte-in-export"
+q = "why is the black and white matte showing up in my export"
+kind = "why"
+origin = "agent"
+context = "Deliver / Export page"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "glossary.md", heading = "Matte" }]
+status = "covered"
+needs_clip = true
+facts = ["View ▸ Selection / Matte is saved with the node and shows in an export, unlike Resolve", "nodes after it are skipped while on", "set View back to Normal before exporting"]
+note = "The fact is in the section's '### If you know Resolve' bullet; the index gives the whole ## section, good."
+
+[[question]]
+id = "why-nr-outside-qualifier"
+q = "why does the noise reduction not stay inside my qualifier"
+kind = "why"
+origin = "agent"
+context = "Color page, Noise tab"
+page = "color/noise.md"
+heading = "Limits"
+alt = [{ page = "color/noise.md", heading = "Steps" }]
+status = "covered"
+needs_clip = false
+facts = ["the node's qualifier doesn't limit noise reduction (it keys the cleaned picture)", "windows do limit it", "temporal NR applies to the whole picture"]
+
+[[question]]
+id = "why-tnr-not-playing"
+q = "why doesn't temporal NR show while playing"
+kind = "why"
+origin = "agent"
+context = "Color page, Noise tab, playing"
+page = "color/noise.md"
+heading = "Temporal noise reduction"
+alt = [{ page = "color/noise.md", heading = "Limits" }]
+status = "covered"
+needs_clip = false
+facts = ["too heavy to run live", "renders at export, in the render cache and on the paused frame", "the render bar marks the clip; let the cache build it"]
+
+[[question]]
+id = "why-lut-wrong"
+q = "why does my LUT look wrong on this clip"
+kind = "why"
+origin = "agent"
+context = "Color page, Primaries, LUT set"
+page = "color/finishing.md"
+heading = "A LUT on a node"
+status = "covered"
+needs_clip = true
+facts = ["the LUT works on the node's grading signal (DaVinci Intermediate)", "a LUT built for Rec.709 or a camera log gives the wrong result there", "put a colour space conversion before it, or use a Rec.709 sequence"]
+
+[[question]]
+id = "why-lumetri-changes"
+q = "why does lumetri look different after I change a node"
+kind = "why"
+origin = "agent"
+context = "Color page, Lumetri Color tab"
+page = "color/lumetri.md"
+heading = "Where Lumetri sits in the picture"
+alt = [{ page = "color/lumetri.md", heading = "What doesn't carry over" }]
+status = "covered"
+needs_clip = false
+facts = ["Lumetri sees the picture the nodes made", "a big change in the nodes changes what Lumetri's sliders do, not the reverse"]
+
+[[question]]
+id = "why-wb-refuses"
+q = "why does the white balance picker refuse the spot I clicked"
+kind = "why"
+origin = "agent"
+context = "Color page, Primaries, WB picker armed"
+page = "color/primaries.md"
+heading = "White balance picker and Auto balance"
+status = "covered"
+needs_clip = true
+facts = ["clipped (colour lost), too dark (noise decides) or too colourful to be neutral", "in a DaVinci Wide Gamut or HDR sequence avoid blown highlights yourself", "drag a box over a larger neutral area"]
+
+[[question]]
+id = "why-pivot-0336"
+q = "why does pivot default to 0.336"
+kind = "why"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/color-management.md"
+heading = "Why"
+alt = [{ page = "color/primaries.md", heading = "The panel" }]
+status = "covered"
+needs_clip = false
+facts = ["mid grey in DaVinci Intermediate is about 0.336"]
+note = "'0.336' tokenises to '0' (dropped, one char) and '336'."
+
+[[question]]
+id = "why-422-slow"
+q = "why is my 4:2:2 clip so slow to play"
+kind = "why"
+origin = "agent"
+context = "Edit page, amber 4:2:2 badge"
+page = "hardware.md"
+heading = "The jobs and where they run"
+alt = [{ page = "hardware.md", heading = "When something is slow" }, { page = "proxies.md", heading = "Automatic proxies" }]
+status = "covered"
+needs_clip = true
+facts = ["the AMD video engine can't decode 4:2:2 H.265; the Intel one does", "amber badge = software decode", "a half-size proxy is made automatically"]
+
+[[question]]
+id = "why-shotmatch-lumetri"
+q = "why did shot match ignore my lumetri settings"
+kind = "why"
+origin = "agent"
+context = "Color page, Match tab"
+page = "color/matching.md"
+heading = "Shot Match"
+alt = [{ page = "color/lumetri.md", heading = "What doesn't carry over" }]
+status = "covered"
+needs_clip = false
+facts = ["Shot Match solves on the grade before the effects", "the reference is measured as it finally looks", "check with Compare shots afterwards"]
+
+[[question]]
+id = "why-render-bar-red"
+q = "why does the render bar go red again after I edit"
+kind = "why"
+origin = "agent"
+context = "Edit page, timeline"
+page = "render-cache.md"
+heading = "How it stays correct"
+alt = [{ page = "render-cache.md", heading = "What the render bar shows" }]
+status = "covered"
+needs_clip = false
+facts = ["cached files are named after everything that affects the pictures", "an edit is a new picture: rendered again", "undo brings the green back at once"]
+
+[[question]]
+id = "why-rec709-different"
+q = "why does my grade look different in a rec709 sequence"
+kind = "why"
+origin = "agent"
+context = "Edit page, after changing the sequence"
+page = "color/color-management.md"
+heading = "Why"
+alt = [{ page = "color/color-management.md", heading = "Choose the working space (sequence)" }, { page = "color/primaries.md", heading = "If you know Resolve" }]
+status = "covered"
+needs_clip = false
+facts = ["nodes work on the sequence's grading signal", "the same numbers look different in Rec. 709, DaVinci Wide Gamut and Rec. 2100"]
+
+[[question]]
+id = "why-no-parallel"
+q = "why is there no parallel node"
+kind = "why"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "Later: parallel and layer nodes (C2)"
+alt = [{ page = "color/nodes.md", heading = "If you know Resolve" }]
+status = "covered"
+needs_clip = false
+facts = ["planned for C2 (parallel, layer, splitter / combiner, outside, key mixer)", "grades saved today open unchanged then"]
+
+[[question]]
+id = "why-paste-windows"
+q = "why is the window in the wrong place after I pasted the grade"
+kind = "why"
+origin = "agent"
+context = "Color page, Windows tab"
+page = "color/secondaries.md"
+heading = "Tracking a window"
+alt = [{ page = "color/matching.md", heading = "Copy, paste and append grades" }]
+status = "covered"
+needs_clip = false
+facts = ["pasting copies windows in source pixels with their tracking keyframes", "move or re-track after pasting on a clip of another size or motion"]
+
+[[question]]
+id = "why-grain-missing"
+q = "why can't I see the grain I added"
+kind = "why"
+origin = "agent"
+context = "Color page, Primaries, Grain strength set"
+page = "color/finishing.md"
+heading = "Film grain"
+alt = [{ page = "color/recipes.md", heading = "7. Finish with film grain" }]
+status = "partial"
+needs_clip = true
+facts = ["judge it at full size (100 percent) on the Program monitor", "strength 0.1 to 0.2 is subtle", "the node must be enabled and the grade not bypassed"]
+note = "The guide says 'while viewing at 100 percent' but never says grain is invisible at a reduced playback resolution or when the node is disabled. Guide gap."
+
+# ---------------------------------------------------------------------------------------------
+# F. Resolve words, Premiere words, typos, cut-off sentences, slang
+# ---------------------------------------------------------------------------------------------
+
+[[question]]
+id = "resolve-power-window"
+q = "where is the power window"
+kind = "resolve-word"
+origin = "agent"
+context = "Color page"
+page = "glossary.md"
+heading = "Window"
+alt = [{ page = "color/secondaries.md", heading = "Windows: select by shape" }]
+status = "covered"
+needs_clip = false
+facts = ["Windows tab on the Primaries panel", "Circle / Rectangle / Linear"]
+note = "'power' is nowhere in the guide except glossary › Window ('Resolve: window (power window)')."
+
+[[question]]
+id = "resolve-corrector"
+q = "how do I add a corrector node"
+kind = "resolve-word"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "glossary.md"
+heading = "Node"
+alt = [{ page = "color/nodes.md", heading = "The Nodes panel" }, { page = "color/nodes.md", heading = "Steps: build a three-node grade" }]
+status = "covered"
+needs_clip = false
+facts = ["+ Serial (grade.addNode) or Add Node in Primaries", "Alt+S in the Resolve workflow"]
+
+[[question]]
+id = "resolve-timeline-cs"
+q = "where is the timeline colour space setting"
+kind = "resolve-word"
+origin = "agent"
+context = "Edit page"
+page = "glossary.md"
+heading = "Working space"
+alt = [{ page = "color/color-management.md", heading = "Choose the working space (sequence)" }, { page = "color/color-management.md", heading = "If you know Resolve" }]
+status = "covered"
+needs_clip = false
+facts = ["Sequence ▸ Color Management… ▸ Working Color Space", "not a project-wide page as in Resolve"]
+
+[[question]]
+id = "premiere-wheels"
+q = "where are the Shadows Midtones Highlights wheels"
+kind = "premiere-word"
+origin = "agent"
+context = "Color page, Primaries"
+page = "glossary.md"
+heading = "Wheel"
+alt = [{ page = "color/primaries.md", heading = "The panel" }, { page = "color/lumetri.md", heading = "Using the Lumetri Color panel" }]
+status = "covered"
+needs_clip = false
+facts = ["Lift / Gamma / Gain are the node grader's shadows / midtones / highlights wheels, plus Offset", "Lumetri's own Color Wheels section still exists"]
+
+[[question]]
+id = "premiere-comparison-view"
+q = "is there a comparison view like premiere"
+kind = "premiere-word"
+origin = "agent"
+context = "Color page"
+page = "glossary.md"
+heading = "Wipe"
+alt = [{ page = "color/matching.md", heading = "Compare" }, { page = "color/README.md", heading = "The Color page layout" }, { page = "color/lumetri.md", heading = "Using the Lumetri Color panel" }]
+status = "covered"
+needs_clip = false
+facts = ["stills with Wipe / Split in the Gallery", "View ▸ Display Mode ▸ Comparison View still exists for Lumetri's Color Match"]
+
+[[question]]
+id = "resolve-optimized-media"
+q = "how do I make optimized media"
+kind = "resolve-word"
+origin = "agent"
+context = "Edit page, Project panel"
+page = "proxies.md"
+heading = "What a proxy is, and why"
+alt = [{ page = "glossary.md", heading = "Proxy" }, { page = "proxies.md", heading = "Automatic proxies" }, { page = "proxies.md", heading = "Making or stopping proxies yourself" }]
+status = "covered"
+needs_clip = false
+facts = ["proxies are the equivalent", "made automatically for 4:2:2 and 4K+ long-GOP clips", "media.createProxies preset auto for others"]
+note = "'optimized' → 'optimiz' matches 'optimized media' in proxies.md and the glossary."
+
+[[question]]
+id = "resolve-smart-cache"
+q = "is there a smart cache"
+kind = "resolve-word"
+origin = "agent"
+context = "Edit page"
+page = "render-cache.md"
+heading = "Why"
+alt = [{ page = "render-cache.md", heading = "Settings and commands" }]
+status = "covered"
+needs_clip = false
+facts = ["the render cache, mode Smart by default", "no per-clip Render Cache Color Output switch"]
+
+[[question]]
+id = "typo-stil"
+q = "how do I grab a stil"
+kind = "typo"
+origin = "agent"
+context = "Color page, Gallery"
+page = "color/matching.md"
+heading = "Stills gallery"
+alt = [{ page = "glossary.md", heading = "Still" }, { page = "color/matching.md", heading = "Compare" }]
+status = "covered"
+needs_clip = false
+facts = ["Grab Still in the Gallery (stills.grab)", "Ctrl+Alt+G in the Resolve workflow"]
+note = "'stil' is not 'still'; 'grab' alone should still find the Gallery sections."
+
+[[question]]
+id = "cutoff-qualifier-face"
+q = "qualifer not selecting the whole fa"
+kind = "cut-off"
+origin = "agent"
+context = "Color page, Qualifier tab, Matte view"
+page = "color/recipes.md"
+heading = "8. Fix grey or lifeless skin"
+alt = [{ page = "color/secondaries.md", heading = "The qualifier: select by colour" }]
+status = "covered"
+needs_clip = true
+facts = ["Add and click a lighter and a darker part of the same face", "widen the ranges / Qualifier softness rather than accept holes in the face"]
+note = "Typo + cut-off: only 'select' (→ qualifier) and 'whole' survive."
+
+[[question]]
+id = "slang-gain-gamma"
+q = "gain vs gamma whats the diff"
+kind = "what-for"
+origin = "agent"
+context = "Color page, Primaries"
+page = "color/primaries.md"
+heading = "The panel"
+alt = [{ page = "glossary.md", heading = "Wheel" }]
+status = "covered"
+needs_clip = false
+facts = ["Gain moves the brightest tones (white level)", "Gamma moves the midtones"]
+
+[[question]]
+id = "resolve-alt-s"
+q = "alt+s does nothing"
+kind = "resolve-word"
+origin = "agent"
+context = "Color page, Premiere workflow"
+page = "color/nodes.md"
+heading = "If you know Resolve"
+alt = [{ page = "getting-started.md", heading = "Choose your workflow: Premiere or Resolve" }]
+status = "covered"
+needs_clip = false
+facts = ["Alt+S adds a serial node only with Workflow set to Resolve", "in the Premiere workflow these commands have no shortcut"]
+note = "Tokens: 'alt' and 'nothing' ('s' is one char, dropped). Both pages list 'Alt+S'."
+
+[[question]]
+id = "slang-pop"
+q = "how to make the picture pop"
+kind = "how"
+origin = "agent"
+context = "Color page"
+page = "color/recipes.md"
+heading = "1. Turn a flat F-Log2 clip into a normal picture"
+alt = [{ page = "color/primaries.md", heading = "Steps: fix a flat F-Log2 clip" }, { page = "color/README.md", heading = "First grade in six steps" }]
+status = "partial"
+needs_clip = false
+facts = ["Contrast a little at a time, then Saturation", "Bypass to compare"]
+note = "'pop' is not in the guide and has no synonym ('punchy' has). Add pop / punch / punchy → contrast saturation."
+
+[[question]]
+id = "typo-to-dark"
+q = "my footage is to dark"
+kind = "typo"
+origin = "agent"
+context = "Color page"
+page = "color/primaries.md"
+heading = "Steps: fix a flat F-Log2 clip"
+alt = [{ page = "color/primaries.md", heading = "The panel" }, { page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }, { page = "color/recipes.md", heading = "4. Brighten a face" }, { page = "glossary.md", heading = "Wheel" }]
+status = "covered"
+needs_clip = true
+facts = ["Gain ring up for the brights, Gamma for the mids", "check it isn't flat log first (Interpret Footage)"]
+note = "'dark' has no synonym entry (only darker / darken); 'footage' matches many pages."
+
+[[question]]
+id = "cutoff-order"
+q = "what order should the nodes be in, like noise reduction then"
+kind = "cut-off"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/nodes.md"
+heading = "A starter tree for F-Log2"
+alt = [{ page = "color/noise.md", heading = "Why" }, { page = "color/noise.md", heading = "Steps" }, { page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }, { page = "color/nodes.md", heading = "Other node orders, and why you'd choose them" }]
+status = "covered"
+needs_clip = false
+facts = ["noise reduction first (a node at the start)", "then Balance, Exposure, Contrast, Saturation, secondaries, Look / grain"]
+note = "The starter tree doesn't mention noise reduction; noise.md says 'at the start' separately. Guide gap: one full order list (NR, balance, exposure, contrast, saturation, secondaries, look, grain, soft clip) on nodes.md."
+
+[[question]]
+id = "resolve-key-output"
+q = "where is the key output of a node"
+kind = "resolve-word"
+origin = "agent"
+context = "Color page, Nodes panel"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+alt = [{ page = "glossary.md", heading = "Matte" }, { page = "color/nodes.md", heading = "Later: parallel and layer nodes (C2)" }]
+status = "covered"
+needs_clip = false
+facts = ["not shown as a separate node output yet", "key output / key mixer come with C2", "View ▸ Matte shows the matte meanwhile"]
+
+# ---------------------------------------------------------------------------------------------
+# G. Questions the guide doesn't answer: the coach must say so (covered = false)
+# ---------------------------------------------------------------------------------------------
+
+[[question]]
+id = "uncovered-edit-then-grade"
+q = "do I grade before or after I cut the edit"
+kind = "order"
+origin = "agent"
+context = "Edit page"
+status = "uncovered"
+should = "a workflow overview (getting-started.md or a new workflow.md): edit first, grade when the cut is locked, Deliver last; where proxies and the render cache fit"
+needs_clip = false
+facts = ["must answer 'The guide doesn't cover this yet' today; after the guide gap is written, the pages above"]
+note = "Nothing in the guide orders editing against grading. The three jobs in color/README.md (translate, grade, deliver) are about colour only."
+
+[[question]]
+id = "uncovered-scopes"
+q = "how do I use the scopes to set exposure"
+kind = "how"
+origin = "agent"
+context = "Color page, Lumetri Scopes"
+status = "uncovered"
+should = "color/finishing.md 'Scopes' (listed as 'to write' in the guide README): waveform / parade / vectorscope, where skin and white sit, reading the DaVinci Intermediate scale"
+needs_clip = false
+facts = ["must say the guide doesn't cover it; 'Lumetri Scopes' is only mentioned in passing (README layout, primaries step 7)"]
+note = "Risk: 'exposure' → gain gamma synonyms make primaries sections score; coverage ('scope' missing) should keep it under 0.75."
+
+[[question]]
+id = "uncovered-stabilise"
+q = "how do I stabilise my clip"
+kind = "how"
+origin = "agent"
+context = "Edit page"
+status = "uncovered"
+should = "editing.md (to write)"
+needs_clip = false
+facts = ["doesn't cover"]
+
+[[question]]
+id = "uncovered-import"
+q = "how do I import my X-M5 clips"
+kind = "how"
+origin = "agent"
+context = "Media page"
+status = "uncovered"
+should = "getting-started.md 'Import X-M5 clips' (the section exists but its body is '*To write.*')"
+needs_clip = false
+facts = ["must not answer with the stub"]
+note = "The stub section IS indexed today (it has a tag line and a non-empty body), so 'import x-m5 clips' can match its heading at weight 5 and answer with summary 'To write.' The retrieval fix should skip sections whose body is only a 'To write' marker."
+
+[[question]]
+id = "uncovered-music"
+q = "how do I add music"
+kind = "how"
+origin = "agent"
+context = "Edit page"
+status = "uncovered"
+should = "editing.md / audio (to write)"
+needs_clip = false
+facts = ["doesn't cover"]
+
+[[question]]
+id = "uncovered-album"
+q = "how do I put stills into albums"
+kind = "resolve-word"
+origin = "agent"
+context = "Color page, Gallery"
+status = "uncovered"
+should = "color/matching.md 'Stills gallery' or 'If you know Resolve': say there are no albums (one gallery per project)"
+needs_clip = false
+facts = ["no albums; the guide should say so"]
+note = "Borderline: 'stills' alone may pull the gallery section above the thresholds and answer the Grab Still steps, which is wrong but not harmful. If the fix routes 'is there / do you have X' questions, this is a 'not yet' answer."
+
+[[question]]
+id = "uncovered-6k-timeline"
+q = "what's the best way to set up my timeline for 6.2k footage"
+kind = "order"
+origin = "agent"
+context = "Edit page, new sequence"
+status = "uncovered"
+should = "editing.md (to write): sequence size and frame rate for 6.2K sources, proxies, render cache, playback resolution"
+needs_clip = false
+facts = ["doesn't cover (hardware.md and proxies.md mention 6.2K only in passing)"]

@@ -1,7 +1,7 @@
 # Noise reduction
 
 **[Resolve-style]** · spatial noise reduction on a node (Phase G2.4) and temporal noise
-reduction on the first node (fork Phase 6.7)
+reduction on the clip (fork Phases 6.7 and 6.7b)
 
 ## Why
 
@@ -37,28 +37,45 @@ tool for static or slowly moving shots; spatial is the fallback where things mov
 
 **[Fork]**
 
-Temporal noise reduction is too heavy to run while playing, so it renders only where there is
-time for it: at **export**, in the **render cache** ([render-cache.md](../render-cache.md)) and
-on the **paused** Program monitor frame. While playing or scrubbing the monitor shows the clip
-without it (from the render cache once that part is rendered).
+Temporal noise reduction is a setting of the **clip**, not of a grade node: it cleans the
+clip's picture right after the input colour transform, before every node and effect. That way
+it always looks at the plain camera frames on either side, and changing your grade never
+changes what it does. (Until schema v17 it lived on the first grade node; projects saved then
+move it to the clip when they open, and a message says how many clips moved.)
 
-1. Select the **first** node of the clip's grade (only the first active node's temporal settings
-   are used, see Limits).
-2. Open the **Noise** tab {ui:grade.tab.noise}; the temporal rows are under **Temporal**.
-3. Raise **Temporal NR luma** {ui:grade.param.tnr.luma} (brightness noise) and **Temporal NR
-   chroma** {ui:grade.param.tnr.chroma} (colour noise). 0.5 is a good start; 1.0 is strong.
-4. **Temporal NR frames** {ui:grade.param.tnr.frames} is how many frames on each side are
-   averaged: 1 (three frames in all) or 2 (five frames, cleaner and slower).
-5. **Temporal NR motion** {ui:grade.param.tnr.motion} (0 … 1, default 0.5) is how much
-   disagreement in the motion estimate is accepted. Lower it if moving edges leave a faint ghost;
-   raise it for more cleaning on difficult but slow motion.
-6. Pause the Program monitor on the shot and wait a moment: the paused frame renders with
+It is too heavy to run while playing, so it renders only where there is time for it: at
+**export**, with **Export Frame**, in the **render cache** ([render-cache.md](../render-cache.md))
+and on the **paused** Program monitor frame. While playing or scrubbing the monitor shows the
+clip without it (from the render cache once that part is rendered).
+
+1. Select the clip on the timeline.
+2. Find the **Temporal NR** controls. They are the same controls in two places, so use
+   whichever is open:
+   - **Effect Controls** (Premiere workflow; called **Inspector** in the Resolve workflow): the
+     **Temporal NR** section.
+   - The Color page **Noise** tab {ui:grade.tab.noise}: the **Temporal NR (clip)** block under
+     the node's spatial rows. It is headed with the clip's name because it belongs to the clip,
+     whichever node is selected.
+3. Make sure **Enabled** {ui:tnr.enabled} is on.
+4. Raise **Temporal NR luma** {ui:tnr.luma} (brightness noise) and **Temporal NR chroma**
+   {ui:tnr.chroma} (colour noise). 0.5 is a good start; 1.0 is strong.
+5. **Temporal NR frames** {ui:tnr.frames} is how many frames on each side are averaged: 1
+   (three frames in all) or 2 (five frames, cleaner and slower).
+6. **Temporal NR motion** {ui:tnr.motion} (0 … 1, default 0.5) is how much disagreement in the
+   motion estimate is accepted. Lower it if moving edges leave a faint ghost; raise it for more
+   cleaning on difficult but slow motion.
+7. Pause the Program monitor on the shot and wait a moment: the paused frame renders with
    temporal noise reduction (the frame without it shows meanwhile). Each control has a reset
-   button ({ui:grade.param.tnr.luma.reset} and the like).
-7. The render bar marks the clip for rendering; let the render cache build it, or export.
+   button ({ui:tnr.luma.reset} and the like) and can be keyframed.
+8. The render bar marks the clip for rendering; let the render cache build it, or export.
 
-Spatial and temporal noise reduction combine: temporal runs first, then the node's spatial NR,
-then its correction. With temporal NR on, keep spatial NR low (0.1–0.2) or off.
+To use the same settings on other clips: **Clip ▸ Temporal NR ▸ Copy Temporal NR** (`tnr.copy`),
+select the other clips, then **Paste Temporal NR** (`tnr.paste`). **Paste Attributes**
+(`edit.pasteAttributes`) also copies it (its `temporalNr` parameter, on by default). Copying or pasting a *grade* doesn't carry
+temporal NR any more, because it isn't part of the grade.
+
+Spatial and temporal noise reduction combine: the clip's temporal NR runs first, then each
+node's spatial NR, then that node's correction. With temporal NR on, keep spatial NR low (0.1–0.2) or off.
 
 ## How it works
 
@@ -86,7 +103,8 @@ Motion between neighbouring frames is computed once and reused.
 **[Fork]**
 
 - Temporal noise reduction renders only at export, in the render cache and on the paused Program
-  frame, never while playing or scrubbing. Export Frame does not include it yet.
+  frame (and Export Frame from the Program monitor), never while playing or scrubbing. A frame
+  exported from the Source monitor has no temporal NR (it isn't a clip on a timeline).
 - The paused frame matches the export exactly only at playback resolution **Full**
   {ui:program.resolution}: at 1/2 or 1/4 the motion and the blend work on the smaller picture,
   so the cleaning is close but not identical.
@@ -95,9 +113,9 @@ Motion between neighbouring frames is computed once and reused.
   between real source frames). Frame Sampling (the default) is not affected.
 - During a transition the clips keep their temporal NR: the frames shown from their handles have
   neighbours within the transition.
-- Temporal noise reduction runs on the **first active node** of a grade only (a provisional rule
-  while the owner decides, question Q9); on other nodes the Noise tab says the values are ignored.
-  It applies to the whole picture: the node's windows and qualifier don't limit it.
+- Temporal noise reduction applies to the whole picture of the clip: windows and qualifiers
+  can't limit it (they belong to grade nodes). Bypassing the grade doesn't switch it off; use its
+  **Enabled** switch.
 - It works on media clips (and subclips); on nested sequences, graphics and adjustment layers it
   does nothing.
 - It is slow: at 6.2K expect an export several times slower with it on (motion estimation on the
@@ -114,10 +132,13 @@ Motion between neighbouring frames is computed once and reused.
 **[Resolve-style]**
 
 Resolve's Spatial NR palette has more modes (faster / better, mode per channel, blend); here it
-is one filter with two strengths and a radius. Resolve's Temporal NR is per node too and has more
-controls (motion estimation type, motion range, frame count up to 5, thresholds per channel,
+is one filter with two strengths and a radius. Resolve's Temporal NR sits on a node (its Motion
+Effects palette), so it can be limited by that node's window or qualifier; here it is a setting
+of the clip, before the grade (owner decision, question Q9), so it never re-reads graded frames
+and a window can't limit it. Resolve's also has more controls (motion estimation type, motion range, frame count up to 5, thresholds per channel,
 blend); here it has two strengths, 1 or 2 frames each side and one motion tolerance, and it runs
 only at export, in the render cache and on the paused frame (Resolve renders it live when the
 system keeps up). Parameters for scripts: `nr.luma`, `nr.chroma` (0…1), `nr.size` (σ in source
-pixels), `tnr.luma`, `tnr.chroma` (0…1), `tnr.frames` (1 or 2), `tnr.motion` (0…1), set with
-`grade.setParam`.
+pixels), set with `grade.setParam`; temporal: `luma`, `chroma` (0…1), `frames` (1 or 2), `motion`
+(0…1), set with `tnr.set` (for example `{"param": "luma", "value": 0.5}`), plus `tnr.toggle`,
+`tnr.reset`, `tnr.toggleAnimation`, `tnr.get`. `grade.setParam` refuses the old `tnr.*` keys.

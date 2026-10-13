@@ -331,3 +331,52 @@ fn v13_loads_without_stills_and_v14_round_trips_them() {
     let back = decode(&encode(&p, true)).unwrap();
     assert_eq!((back.schema_version, &back.project), (SCHEMA_VERSION, &p));
 }
+
+/// Fork 6.7b: a v16 project with temporal NR on grade nodes loads with it on the clips
+/// (`v16_to_v17`): the first enabled node's values move, the rest are dropped, a bypassed grade
+/// gives a switched-off setting, and no node keeps a `tnr.*` key.
+#[test]
+fn v16_to_v17_moves_first_enabled_nodes_tnr_to_the_clip() {
+    let l = decode(&fixture("v16-tnr.fcproj")).unwrap();
+    assert_eq!(l.schema_version, 16);
+    assert!(l.migrated());
+    assert_eq!(l.migration_notes, vec!["Temporal NR moved from the grade to the clip on 3 clip(s); 2 ignored node setting(s) dropped.".to_string()]);
+    let p = l.project;
+    let mut ids: Vec<_> = p.items.keys().copied().collect();
+    ids.sort();
+    let clips: Vec<_> =
+        ids.iter().filter_map(|id| p.sequence(*id)).flat_map(|s| s.video_tracks.iter().flat_map(|t| t.items.iter())).filter(|c| c.grade.is_some()).collect();
+    assert_eq!(clips.len(), 4);
+    for c in &clips {
+        for n in &c.grade.as_ref().unwrap().nodes {
+            assert!(n.params.keys().all(|k| !k.starts_with("tnr.")), "{:?}", n.params.keys());
+        }
+    }
+    let f = |c: &filmcraft_project::TrackItem, k: &str, t: i64| c.temporal_nr.as_ref().unwrap().float_at(k, Tick(t));
+    // (a) node 1, with its keyframes; the node keeps its other settings
+    let a = clips[0];
+    let ta = a.temporal_nr.as_ref().unwrap();
+    assert!(ta.enabled);
+    assert_eq!(ta.params["luma"].keyframes.len(), 2);
+    assert!((f(a, "luma", 0) - 0.2).abs() < 1e-6 && (f(a, "luma", 254_016_000_000) - 0.6).abs() < 1e-6);
+    assert_eq!(f(a, "frames", 0), 2.0);
+    assert!(a.grade.as_ref().unwrap().nodes[0].params.contains_key("saturation"));
+    // (b) node 1 disabled: node 2's values; node 1's and node 3's are dropped
+    let b = clips[1];
+    assert_eq!(b.temporal_nr.as_ref().unwrap().params.len(), 2);
+    assert_eq!((f(b, "luma", 0), f(b, "chroma", 0), f(b, "motion", 0)), (0.0, 0.5, 0.3));
+    assert!(b.grade.as_ref().unwrap().nodes[2].params.contains_key("contrast"));
+    // (c) bypassed grade: kept, switched off (it rendered no TNR)
+    let c = clips[2];
+    assert!(!c.temporal_nr.as_ref().unwrap().enabled);
+    assert_eq!(f(c, "luma", 0), 0.4);
+    assert!(c.temporal_nr.as_ref().unwrap().is_identity_ever());
+    // (d) a grade without TNR gets none
+    assert!(clips[3].temporal_nr.is_none());
+    // the migrated project saves as v17 and loads back the same
+    let again = decode(&encode(&p, true)).unwrap();
+    assert_eq!(again.schema_version, SCHEMA_VERSION);
+    assert!(again.migration_notes.is_empty());
+    assert_eq!(again.project, p);
+    const { assert!(SCHEMA_VERSION >= 17) };
+}

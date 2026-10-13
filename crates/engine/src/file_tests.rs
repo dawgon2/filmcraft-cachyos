@@ -93,3 +93,27 @@ fn project_is_named_after_its_file() {
     assert_eq!(s.project.name, "Apollo 11 - Tranquility");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// Fork 6.7b: a v16 project with temporal NR on grade nodes opens with it moved to the clips,
+/// and the user is told how many clips moved.
+#[test]
+fn loading_a_v16_project_toasts_the_temporal_nr_move() {
+    let d = temp_dir("v16-tnr");
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../format/tests/fixtures/v16-tnr.fcproj");
+    let path = d.join("tnr.fcproj");
+    std::fs::copy(&fixture, &path).unwrap();
+    let mut s = Session::default();
+    let r = s.execute("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+    assert_eq!(r["schemaVersion"], 16);
+    let events = s.drain_events();
+    assert!(events.iter().any(|e| matches!(e, Event::Toast { message, .. } if message.contains("Temporal NR moved from the grade to the clip on 3 clip(s)"))));
+    let with_tnr = s
+        .project
+        .sequences()
+        .filter_map(|i| i.as_sequence())
+        .flat_map(|q| q.video_tracks.iter().flat_map(|t| t.items.iter()))
+        .filter(|c| c.temporal_nr.is_some())
+        .count();
+    assert_eq!(with_tnr, 3);
+    let _ = std::fs::remove_dir_all(&d);
+}

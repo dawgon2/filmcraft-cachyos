@@ -27,6 +27,7 @@ saying where the idea comes from (see [README](README.md#where-each-feature-come
 | grain | film grain | grain (noise effect) |
 | proxy | proxy media / optimized media | proxy |
 | render cache | render cache | render files / preview files |
+| timeline (Resolve workflow wording; see [getting-started](getting-started.md#terminology-follows-the-workflow)) | timeline | sequence |
 
 ## Log
 
@@ -117,7 +118,8 @@ colour range at a time ("make only the blues less saturated"). See [curves](colo
 
 A saved frame plus the grade that was on its clip when you saved it. You keep stills as
 references: to compare a new shot against, or to give the same grade to other clips. **Grab
-Still** {ui:stills.grab} (`stills.grab`) saves one into the gallery. See
+Still** {ui:stills.grab} (`stills.grab`) saves a still of the shot under the playhead into the
+gallery. See
 [matching](color/matching.md).
 
 - Resolve: still (in the gallery). Premiere: no direct equivalent; the comparison view's

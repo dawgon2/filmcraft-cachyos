@@ -110,6 +110,10 @@ impl<A: Accel> Front<A> {
         &self.accel
     }
 
+    pub fn accel_mut(&mut self) -> &mut A {
+        &mut self.accel
+    }
+
     /// Decode one access unit; pictures that left the DPB come back in output order.
     pub fn decode(&mut self, sample: &[u8], pts: i64) -> Result<Vec<DecodedFrame>> {
         let nals = length_prefixed_nals(sample, self.length_size).map_err(decode_err)?;
@@ -269,8 +273,9 @@ impl<A: Accel> Front<A> {
             self.dpb.bump_before_decode(&mut outs);
         }
         self.read_out(outs, frames)?;
+        let free: Vec<usize> = (0..self.accel.surfaces().len()).filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).collect();
+        let target = self.accel.pick(&free).ok_or_else(|| decode_err("no free surface"))?;
         let surfaces = self.accel.surfaces();
-        let target = (0..surfaces.len()).find(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).ok_or_else(|| decode_err("no free surface"))?;
         let target_id = surfaces.get(target).copied().ok_or_else(|| decode_err("surface out of range"))?;
         let mut pic = picture_params(sps, pps, sh)?;
         pic.CurrPic = VAPictureHEVC { picture_id: target_id, pic_order_cnt: poc, flags: 0, va_reserved: [0; ffi::VA_PADDING_LOW] };

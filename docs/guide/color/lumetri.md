@@ -55,7 +55,8 @@ The order for every clip is: input transform → **your grade nodes** → the cl
    Temperature and Tint are set so it becomes neutral, in one undo step (`lumetri.wb.pick`).
    **Auto balance** {ui:lumetri.wb.auto} does it from the frame's greys (`lumetri.wb.auto`). It
    samples the clip as Lumetri's white balance sees it (after the Input LUT), so picking twice
-   gives the same values; clipped, too dark or too colourful spots are refused with a reason.
+   gives the same values; clipped (judged on the footage itself, as for the node picker), too dark
+   or too colourful spots are refused with a reason.
    Unlike the node picker, it removes keyframes from Temperature / Tint (as Apply Match does).
    Same solver as the node grader's **WB picker** ([primaries.md](primaries.md)); in Premiere
    the selector may weigh the cast differently, so values won't match Premiere's.

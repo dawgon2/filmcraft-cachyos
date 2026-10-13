@@ -258,3 +258,90 @@ fn a_lesson_is_offered_only_when_relevant() {
     let a = ask(&mut s, "how do I add music");
     assert!(a["lesson"].is_null(), "{a}");
 }
+
+#[test]
+fn intros_fold_into_the_first_section_and_stubs_are_not_answers() {
+    // stop words are checked after stemming too, and question framing words are stop words
+    assert_eq!(tokenize("whats the qualifier vs no window, ok?", 100), ["qualifi", "window"]);
+    let page = "# Title words\n\n**[Fork]**\n\nIntro about zebras.\n\n## First\n\nBody one.\n\n## Stub\n\n**[Fork]**\n\n*To write.*\n";
+    let secs = coach_ask::split_page("x.md", page);
+    assert_eq!(secs.iter().map(|s| s.heading.as_str()).collect::<Vec<_>>(), ["First"]);
+    assert!(secs[0].intro.contains("zebras") && !secs[0].body.contains("zebras"));
+    assert_eq!(secs[0].provenance, ["[Fork]"]);
+    // a page without `##` keeps its introduction as a section
+    let only = coach_ask::split_page("y.md", "# Only\n\n**[Fork]**\n\nJust prose.\n");
+    assert_eq!(only.iter().map(|s| s.heading.as_str()).collect::<Vec<_>>(), ["Only"]);
+    let all = coach_ask::sections();
+    assert!(!all.iter().any(|s| s.page == "glossary.md" && s.heading == "At a glance"));
+    assert!(!all.iter().any(|s| s.body.trim() == "*To write.*"));
+    assert!(!all.iter().any(|s| s.page == "color/secondaries.md" && s.heading == s.page_title), "the intro is not its own section");
+}
+
+// ---------- the eval set (docs/fork/coach-eval/questions.toml, FORK-PLAN §1a.47) ----------
+
+/// Questions of the eval set that must pass (DIAGNOSIS.md §1 rule). This may only go up; raise it
+/// when the guide or the coach improves (FORK-PLAN §1a.47).
+const EVAL_FLOOR: usize = 82;
+
+#[derive(Deserialize)]
+struct EvalFile {
+    question: Vec<EvalQuestion>,
+}
+
+#[derive(Deserialize)]
+struct EvalSection {
+    page: String,
+    heading: String,
+}
+
+#[derive(Deserialize)]
+struct EvalQuestion {
+    id: String,
+    q: String,
+    #[serde(default)]
+    page: Option<String>,
+    #[serde(default)]
+    heading: Option<String>,
+    #[serde(default)]
+    alt: Vec<EvalSection>,
+    status: String,
+}
+
+/// Whether the coach answers an eval question right: for `covered` / `partial`, covered and the
+/// best section is `page › heading` or an `alt`; for `uncovered`, not covered, no steps, no
+/// sources. Err: why not.
+fn eval_one(s: &Session, q: &EvalQuestion) -> Result<(), String> {
+    let a = s.coach_ask(&q.q);
+    let best = a.sources.first().map(|x| format!("{} › {}", x.page, x.heading));
+    let why = format!("conf {:.3} cov {:.3} best {}", a.confidence, a.coverage, best.as_deref().unwrap_or("—"));
+    if q.status == "uncovered" {
+        return if !a.covered && a.steps.is_empty() && a.sources.is_empty() { Ok(()) } else { Err(format!("answered: {why}")) };
+    }
+    let want: Vec<String> =
+        q.page.iter().zip(q.heading.iter()).map(|(p, h)| format!("{p} › {h}")).chain(q.alt.iter().map(|x| format!("{} › {}", x.page, x.heading))).collect();
+    if !a.covered {
+        return Err(format!("not covered: {why}"));
+    }
+    if best.as_ref().is_some_and(|b| want.contains(b)) {
+        Ok(())
+    } else {
+        Err(format!("wrong section: {why}; want {}", want.first().map_or("—", String::as_str)))
+    }
+}
+
+#[test]
+fn the_eval_set_passes_at_least_the_floor() {
+    let file: EvalFile = toml::from_str(include_str!("../../../docs/fork/coach-eval/questions.toml")).expect("the eval set parses");
+    assert!(file.question.len() >= 100);
+    let s = Session::default();
+    let mut misses = Vec::new();
+    for q in &file.question {
+        assert!(["covered", "partial", "uncovered"].contains(&q.status.as_str()), "{}: status {}", q.id, q.status);
+        if let Err(e) = eval_one(&s, q) {
+            misses.push(format!("{} [{}] {:?}: {e}", q.id, q.status, q.q));
+        }
+    }
+    let pass = file.question.len() - misses.len();
+    eprintln!("coach eval: {pass}/{} pass (floor {EVAL_FLOOR}); misses:\n{}", file.question.len(), misses.join("\n"));
+    assert!(pass >= EVAL_FLOOR, "coach eval: {pass}/{} below the floor {EVAL_FLOOR}; misses:\n{}", file.question.len(), misses.join("\n"));
+}

@@ -4,7 +4,7 @@ Written 2026-10-12 (live session, with the owner). Goal: not Fairlight, but audi
 reliably on Linux and voice-over that sounds clean with little effort. Every FORK-PLAN rule
 applies (never crash, `Tick` time, everything is a command, every widget has an automation id,
 layering, `cargo xtask ci` per phase, a build and a `cachyos` publish per phase, §1a.9 / §1a.33).
-Order: FORK-PLAN §1a.6 (A1 after U0.2; A2 after C2 and AI-PLAN AI1, whose inference layer it reuses; A3 after G4).
+Order: FORK-PLAN §1a.6 (A1 after U0.2; A2 after C2 / AI2 and before STORAGE-PLAN S1 (§1a.51), reusing AI-PLAN AI1's inference layer; A3 after G4).
 
 ## What already exists (audited 2026-10-12, don't rebuild it)
 

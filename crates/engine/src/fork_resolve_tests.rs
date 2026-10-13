@@ -44,13 +44,62 @@ fn switching_back_and_forth_restores_keymap_and_theme() {
     assert_eq!(s.shortcuts.preset, "Avid Media Composer Compatible");
     assert_eq!(s.prefs.appearance.dark_theme, "dark");
     assert_eq!(s.prefs.workflow_return_theme, "");
-    // a theme picked by hand while in Resolve stays
+    // a theme picked by hand while in Resolve stays with Resolve: Premiere gets its own back
     s.set_workflow(Workflow::Resolve).unwrap();
     s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "darkest"})).unwrap();
     s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(s.prefs.appearance.dark_theme, "dark");
+    s.set_workflow(Workflow::Resolve).unwrap();
     assert_eq!(s.prefs.appearance.dark_theme, "darkest");
+    s.set_workflow(Workflow::Premiere).unwrap();
     // the bookkeeping can't be set around the switch
     assert!(s.execute("prefs.set", json!({"key": "workflowReturnTheme", "value": "dark"})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Each workflow remembers its own dark theme across a round trip, also when it is the Resolve
+/// theme picked in Premiere (it used to come back as Darkest) or a Premiere theme picked in
+/// Resolve (it used to be replaced by the Resolve theme).
+#[test]
+fn each_workflow_keeps_its_own_theme_across_a_round_trip() {
+    let dir = tmp_dir("rs1-theme-roundtrip");
+    let mut s = start(&dir);
+    s.set_workflow(Workflow::Premiere).unwrap();
+    let theme = |s: &Session| s.prefs.appearance.dark_theme.clone();
+    // Premiere → Resolve → Premiere with the Resolve theme chosen in Premiere
+    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "resolve"})).unwrap();
+    s.set_workflow(Workflow::Resolve).unwrap();
+    assert_eq!(theme(&s), "resolve");
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(theme(&s), "resolve", "the Resolve theme chosen in Premiere is remembered");
+    assert_eq!(s.prefs.appearance.color_theme, "resolve");
+    // Resolve → Premiere → Resolve with a Premiere theme chosen in Resolve
+    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "dark"})).unwrap();
+    s.set_workflow(Workflow::Resolve).unwrap();
+    assert_eq!(theme(&s), "resolve", "Resolve's own theme the first time");
+    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "darkest"})).unwrap();
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(theme(&s), "dark", "Premiere's choice comes back");
+    s.set_workflow(Workflow::Resolve).unwrap();
+    assert_eq!(theme(&s), "darkest", "Resolve's choice comes back");
+    assert_eq!(s.prefs.appearance.color_theme, "darkest");
+    // and both survive a restart
+    drop(s);
+    let mut s = start(&dir);
+    assert_eq!((s.prefs.workflow, theme(&s).as_str()), (Workflow::Resolve, "darkest"));
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(theme(&s), "dark");
+    drop(s);
+    let mut s = start(&dir);
+    s.set_workflow(Workflow::Resolve).unwrap();
+    assert_eq!(theme(&s), "darkest");
+    // a remembered theme that no longer exists falls back to each workflow's default
+    s.prefs.workflow_return_theme = "no-such-theme".into();
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(theme(&s), "darkest", "the default dark theme");
+    s.prefs.workflow_return_theme = "no-such-theme".into();
+    s.set_workflow(Workflow::Resolve).unwrap();
+    assert_eq!(theme(&s), "resolve");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -87,6 +136,58 @@ mod fork {
 
     fn file(dir: &std::path::Path) -> Value {
         serde_json::from_slice(&std::fs::read(dir.join("preferences.json")).unwrap()).unwrap()
+    }
+
+    /// A session that never gets a data directory (headless, MCP) used to report the Resolve
+    /// workflow with the FilmCraft Default keys and theme.
+    #[test]
+    fn a_session_without_a_data_dir_is_consistently_resolve() {
+        let mut s = Session::default();
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Resolve, "FilmCraft Default"), "the old state");
+        crate::fork_resolve::without_data_dir(&mut s);
+        assert_eq!(s.shortcuts.preset, "DaVinci Resolve Compatible");
+        assert!(!s.shortcuts.modified);
+        assert_eq!(s.shortcuts.bindings, s.shortcuts.builtin("DaVinci Resolve Compatible").unwrap());
+        assert_eq!((s.prefs.appearance.dark_theme.as_str(), s.prefs.appearance.color_theme.as_str()), ("resolve", "resolve"));
+        let w = s.execute("settings.getWorkflow", json!({})).unwrap();
+        assert_eq!((w["workflow"].as_str(), w["keyboardPreset"].as_str()), (Some("resolve"), Some("DaVinci Resolve Compatible")), "{w}");
+        // twice changes nothing
+        let before = (s.shortcuts.bindings.clone(), s.prefs.clone());
+        crate::fork_resolve::without_data_dir(&mut s);
+        assert_eq!((s.shortcuts.bindings.clone(), s.prefs.clone()), before);
+        // the way back works without a data directory, and forth again
+        s.set_workflow(Workflow::Premiere).unwrap();
+        assert_eq!((s.shortcuts.preset.as_str(), s.prefs.appearance.dark_theme.as_str()), ("FilmCraft Default", "darkest"));
+        s.set_workflow(Workflow::Resolve).unwrap();
+        assert_eq!((s.shortcuts.preset.as_str(), s.prefs.appearance.dark_theme.as_str()), ("DaVinci Resolve Compatible", "resolve"));
+        // Premiere chosen explicitly: left alone
+        s.set_workflow(Workflow::Premiere).unwrap();
+        crate::fork_resolve::without_data_dir(&mut s);
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "FilmCraft Default"));
+        // an edited keyboard is never thrown away
+        let mut s = Session::default();
+        s.execute("shortcuts.set", json!({"command": "edit.undo", "keys": "F12"})).unwrap();
+        assert!(s.shortcuts.modified);
+        let keys = s.shortcuts.bindings.clone();
+        crate::fork_resolve::without_data_dir(&mut s);
+        assert_eq!(s.shortcuts.bindings, keys);
+    }
+
+    /// With a data directory its preferences and saved keyboard decide, as before.
+    #[test]
+    fn a_session_with_a_data_dir_is_left_to_its_preferences() {
+        let dir = tmp_dir("rs1-nodir-premiere");
+        std::fs::write(dir.join("preferences.json"), serde_json::to_vec(&json!({"version": 3, "workflow": "premiere"})).unwrap()).unwrap();
+        let mut s = start(&dir);
+        crate::fork_resolve::without_data_dir(&mut s);
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "FilmCraft Default"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir = tmp_dir("rs1-nodir-resolve");
+        let mut s = start(&dir);
+        s.execute("shortcuts.loadPreset", json!({"name": "Avid Media Composer Compatible"})).unwrap();
+        crate::fork_resolve::without_data_dir(&mut s);
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Resolve, "Avid Media Composer Compatible"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

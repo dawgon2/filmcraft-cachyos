@@ -1,5 +1,5 @@
-//! Temporal noise reduction in the renderer (fork 6.7 integration): the grade compiles `tnr.*`
-//! on the first active node only, neighbours follow the clip (edges, cuts, speed, reverse,
+//! Temporal noise reduction in the renderer (fork 6.7 integration; a clip setting since 6.7b):
+//! the clip's `temporal_nr` compiles to the first layer op, neighbours follow the clip (edges, cuts, speed, reverse,
 //! holds), only temporal renders blend, the GPU plan and the CPU reference agree, and projects
 //! without temporal NR render exactly as before.
 
@@ -10,7 +10,7 @@ use crate::tnr::fixture;
 use filmcraft_frame::AudioBuffer;
 use filmcraft_media::{MediaInfo, MediaKind, MediaSource, VideoStreamInfo};
 use filmcraft_project::grade::{Grade, GradeNode};
-use filmcraft_project::{Label, MediaClip, MediaRef, Param, SequenceSettings, TrackKind, resolve_auto_points};
+use filmcraft_project::{Label, MediaClip, MediaRef, Param, SequenceSettings, TemporalNr, TrackKind, resolve_auto_points};
 use filmcraft_time::{FrameRate, TimeRange};
 
 const FPS: FrameRate = FrameRate::FPS_24;
@@ -72,8 +72,28 @@ fn tnr_node(id: u64, params: &[(&str, f64)]) -> GradeNode {
     n
 }
 
-/// A sequence the fixture's size with the clip on V1 at frame 0, all 7 frames; `grade` on it.
-fn project(name: &str, sigma: f32, grade: Option<Grade>) -> (Project, ItemId, SourceMap) {
+/// What the test clip carries: a grade and / or a clip temporal NR.
+#[derive(Clone, Debug, Default)]
+struct Look {
+    grade: Option<Grade>,
+    tnr: Option<TemporalNr>,
+}
+
+impl From<Option<Grade>> for Look {
+    fn from(grade: Option<Grade>) -> Self {
+        Self { grade, tnr: None }
+    }
+}
+
+impl From<TemporalNr> for Look {
+    fn from(tnr: TemporalNr) -> Self {
+        Self { grade: None, tnr: Some(tnr) }
+    }
+}
+
+/// A sequence the fixture's size with the clip on V1 at frame 0, all 7 frames; `look` on it.
+fn project(name: &str, sigma: f32, look: impl Into<Look>) -> (Project, ItemId, SourceMap) {
+    let look = look.into();
     let mut p = Project::new("tnr");
     let src = source(name, sigma);
     let clip = MediaClip {
@@ -95,7 +115,8 @@ fn project(name: &str, sigma: f32, grade: Option<Grade>) -> (Project, ItemId, So
     for e in &mut ti.effects {
         resolve_auto_points(e, size, size);
     }
-    ti.grade = grade;
+    ti.grade = look.grade;
+    ti.temporal_nr = look.tnr;
     p.sequence_mut(sid).unwrap().video_tracks[0].items.push(ti);
     let mut map = SourceMap::default();
     map.0.insert(item, Arc::new(src) as SharedSource);
@@ -106,8 +127,17 @@ fn opts(temporal: bool) -> RenderOptions {
     RenderOptions { temporal, ..Default::default() }
 }
 
-fn tnr_grade(luma: f64, frames: f64) -> Grade {
-    Grade { nodes: vec![tnr_node(1, &[("tnr.luma", luma), ("tnr.chroma", luma), ("tnr.frames", frames)])], bypass: false }
+/// A clip temporal NR with these values (`TNR_PARAMS` keys).
+fn tnr(params: &[(&str, f64)]) -> TemporalNr {
+    let mut t = TemporalNr::default();
+    for (k, v) in params {
+        t.params.insert((*k).into(), Param::new(ParamValue::Float(*v)));
+    }
+    t
+}
+
+fn tnr_clip(luma: f64, frames: f64) -> TemporalNr {
+    tnr(&[("luma", luma), ("chroma", luma), ("frames", frames)])
 }
 
 /// Mean absolute difference over the colour channels.
@@ -204,65 +234,72 @@ fn neighbours_stay_inside_the_clip_and_follow_its_time() {
 
 // ---------------------------------------------------------------------------------- grade
 
+/// The clip's temporal NR is the first layer op, before every grade op (where v1 put the first
+/// active node's), never inside a masked step; `tnr.*` keys left on a node are ignored.
 #[test]
-fn the_grade_compiles_temporal_nr_on_the_first_active_node_only() {
-    use crate::grade::{GradeCtx, compile_fx};
+fn the_op_is_first_in_the_layer_ops_before_every_grade_op() {
     use filmcraft_color::WorkingSpace;
-    let fx = |g: &Grade| compile_fx(g, Tick(0), WorkingSpace::Rec709, GradeCtx::default(), 16, 16);
-    let tnr = |fx: &[FxOp]| fx.iter().filter(|o| matches!(o, FxOp::TemporalDenoise { .. })).count();
-    // first node: before its spatial NR
-    let first = tnr_node(1, &[("tnr.luma", 0.5), ("tnr.frames", 2.0), ("nr.luma", 0.3)]);
-    let ops = fx(&Grade { nodes: vec![first.clone()], bypass: false });
-    assert!(
-        matches!(ops.as_slice(), [FxOp::TemporalDenoise { luma: 0.5, chroma: 0.0, radius: 2, motion: 0.5, inputs: None }, FxOp::Denoise { .. }]),
-        "{ops:?}"
-    );
-    // a later node's values are ignored (provisional rule, owner question Q9)
-    let later = Grade { nodes: vec![tnr_node(1, &[("saturation", 0.5)]), tnr_node(2, &[("tnr.luma", 1.0)])], bypass: false };
-    assert_eq!(tnr(&fx(&later)), 0);
-    // ...unless the nodes before it are off: then it is the first active node
-    let mut off = later.clone();
-    off.nodes[0].enabled = false;
-    assert_eq!(tnr(&fx(&off)), 1);
-    // bypassed grade: nothing
-    assert!(fx(&Grade { bypass: true, ..Grade { nodes: vec![first.clone()], bypass: false } }).is_empty());
-    // windows on the node don't limit it: it stays outside the masked step (GPU-capable)
-    let mut win = first;
-    win.windows.push(filmcraft_project::Mask::new("w", filmcraft_project::MaskPath::rect(0.0, 0.0, 8.0, 8.0)));
-    let ops = fx(&Grade { nodes: vec![win], bypass: false });
-    assert!(matches!(ops.first(), Some(FxOp::TemporalDenoise { .. })) && matches!(ops.get(1), Some(FxOp::Masked { .. })), "{ops:?}");
+    let fx = |p: &Project, seq: ItemId| {
+        let it = &p.sequence(seq).unwrap().video_tracks[0].items[0];
+        crate::grade::item_fx(p, it, Tick(0), Tick(0), WorkingSpace::Rec709, 1.0, 16, 16)
+    };
+    let count = |fx: &[FxOp]| fx.iter().filter(|o| matches!(o, FxOp::TemporalDenoise { .. })).count();
+    // with a grade whose node has spatial NR and a window
+    let mut node = tnr_node(1, &[("nr.luma", 0.3), ("tnr.luma", 1.0)]);
+    node.windows.push(filmcraft_project::Mask::new("w", filmcraft_project::MaskPath::rect(0.0, 0.0, 8.0, 8.0)));
+    let look = Look { grade: Some(Grade { nodes: vec![node], bypass: false }), tnr: Some(tnr(&[("luma", 0.5), ("frames", 2.0)])) };
+    let (p, seq, _) = project("tnr-ops", fixture::NOISE, look.clone());
+    let ops = fx(&p, seq);
+    assert!(matches!(ops.first(), Some(FxOp::TemporalDenoise { luma: 0.5, chroma: 0.0, radius: 2, motion: 0.5, inputs: None })), "{ops:?}");
+    assert!(matches!(ops.get(1), Some(FxOp::Masked { .. })), "{ops:?}");
+    assert_eq!(count(&ops), 1, "the node's tnr.luma is ignored");
     assert!(ops.iter().all(FxOp::gpu_ok));
+    // no grade at all: the op alone; a bypassed grade doesn't switch the clip setting off
+    let (p, seq, _) = project("tnr-ops", fixture::NOISE, tnr(&[("chroma", 0.4)]));
+    assert!(matches!(fx(&p, seq).as_slice(), [FxOp::TemporalDenoise { .. }]));
+    let bypassed = Look { grade: Some(Grade { nodes: vec![tnr_node(1, &[("saturation", 0.5)])], bypass: true }), ..look.clone() };
+    let (p, seq, _) = project("tnr-ops", fixture::NOISE, bypassed);
+    assert!(matches!(fx(&p, seq).as_slice(), [FxOp::TemporalDenoise { .. }]));
+    // switched off: nothing; only node keys: nothing
+    let mut off = tnr(&[("luma", 1.0)]);
+    off.enabled = false;
+    let (p, seq, _) = project("tnr-ops", fixture::NOISE, off);
+    assert!(fx(&p, seq).is_empty());
+    let (p, seq, _) = project("tnr-ops", fixture::NOISE, Some(Grade { nodes: vec![tnr_node(1, &[("tnr.luma", 1.0), ("tnr.chroma", 1.0)])], bypass: false }));
+    assert_eq!(count(&fx(&p, seq)), 0);
 }
 
 #[test]
 fn hostile_temporal_params_are_clamped_or_identity() {
-    use crate::grade::temporal_node;
-    let op = |ps: &[(&str, f64)]| temporal_node(&Grade { nodes: vec![tnr_node(1, ps)], bypass: false }, Tick(0)).map(|(_, o)| o);
+    let op_of = |t: TemporalNr| {
+        let (p, seq, _) = project("tnr-hostile", 0.0, t);
+        crate::grade::temporal(&p.sequence(seq).unwrap().video_tracks[0].items[0], Tick(0))
+    };
+    let op = |ps: &[(&str, f64)]| op_of(tnr(ps));
     assert!(op(&[]).is_none(), "missing: identity");
-    assert!(op(&[("tnr.luma", f64::NAN), ("tnr.chroma", -3.0)]).is_none());
-    assert!(op(&[("tnr.luma", 0.0), ("tnr.frames", 2.0), ("tnr.motion", 1.0)]).is_none(), "zero strengths: identity");
+    assert!(op(&[("luma", f64::NAN), ("chroma", -3.0)]).is_none());
+    assert!(op(&[("luma", 0.0), ("frames", 2.0), ("motion", 1.0)]).is_none(), "zero strengths: identity");
     let Some(FxOp::TemporalDenoise { luma, chroma, radius, motion, .. }) =
-        op(&[("tnr.luma", 1e30), ("tnr.chroma", f64::INFINITY), ("tnr.frames", 99.0), ("tnr.motion", f64::NAN)])
+        op(&[("luma", 1e30), ("chroma", f64::INFINITY), ("frames", 99.0), ("motion", f64::NAN)])
     else {
         panic!("an op")
     };
     assert_eq!((luma, chroma, radius, motion), (1.0, 0.0, 2, 0.5));
     for (frames, want) in [(1.4, 1), (1.5, 2), (-7.0, 1), (f64::NEG_INFINITY, 1)] {
-        let Some(FxOp::TemporalDenoise { radius, .. }) = op(&[("tnr.luma", 0.2), ("tnr.frames", frames)]) else { panic!("an op") };
+        let Some(FxOp::TemporalDenoise { radius, .. }) = op(&[("luma", 0.2), ("frames", frames)]) else { panic!("an op") };
         assert_eq!(radius, want, "frames {frames}");
     }
     // a mistyped value
-    let mut n = tnr_node(1, &[("tnr.luma", 0.4)]);
-    n.params.insert("tnr.frames".into(), Param::new(ParamValue::Text("two".into())));
-    let g = Grade { nodes: vec![n], bypass: false };
-    assert!(matches!(temporal_node(&g, Tick(0)), Some((_, FxOp::TemporalDenoise { radius: 1, .. }))));
+    let mut t = tnr(&[("luma", 0.4)]);
+    t.params.insert("frames".into(), Param::new(ParamValue::Text("two".into())));
+    assert!(matches!(op_of(t), Some(FxOp::TemporalDenoise { radius: 1, .. })));
 }
 
 // --------------------------------------------------------------------------------- render
 
 #[test]
 fn only_temporal_renders_blend_and_they_clean_the_noise() {
-    let (p, seq, map) = project("tnr-render", fixture::NOISE, Some(tnr_grade(1.0, 2.0)));
+    let (p, seq, map) = project("tnr-render", fixture::NOISE, tnr_clip(1.0, 2.0));
     let (clean_p, clean_seq, clean_map) = project("tnr-render-clean", 0.0, None);
     let t = FPS.tick_of(fixture::MID as i64);
     let clean = render_sequence(&clean_p, clean_seq, t, opts(false), &clean_map);
@@ -292,7 +329,7 @@ fn only_temporal_renders_blend_and_they_clean_the_noise() {
     let plan::FramePlan::Layers { layers, .. } = &live_plan else { panic!("a layer plan") };
     assert!(layers.iter().filter_map(|l| l.fx.as_ref()).all(|fx| !fx.ops.iter().any(|o| matches!(o, FxOp::TemporalDenoise { .. }))));
     // radius 1: two neighbours
-    let (p1, s1, m1) = project("tnr-render", fixture::NOISE, Some(tnr_grade(1.0, 1.0)));
+    let (p1, s1, m1) = project("tnr-render", fixture::NOISE, tnr_clip(1.0, 1.0));
     let plan1 = plan::plan_frame(&p1, s1, t, opts(true), &m1);
     let plan::FramePlan::Layers { layers, .. } = &plan1 else { panic!("a layer plan") };
     let ops = &layers[0].fx.as_ref().expect("fx").ops;
@@ -302,7 +339,7 @@ fn only_temporal_renders_blend_and_they_clean_the_noise() {
 #[test]
 fn flows_are_cached_per_adjacent_pair() {
     // (a media name no other test uses: its own cache keys)
-    let (p, seq, map) = project("tnr-cache-hit", fixture::NOISE, Some(tnr_grade(0.8, 2.0)));
+    let (p, seq, map) = project("tnr-cache-hit", fixture::NOISE, tnr_clip(0.8, 2.0));
     let t = FPS.tick_of(fixture::MID as i64);
     let it = &p.sequence(seq).unwrap().video_tracks[0].items[0];
     let src = map.0.values().next().unwrap().clone();
@@ -327,7 +364,7 @@ fn flows_are_cached_per_adjacent_pair() {
 
 #[test]
 fn edges_and_holds_render_without_temporal_neighbours_where_there_are_none() {
-    let (p, seq, map) = project("tnr-edges", fixture::NOISE, Some(tnr_grade(1.0, 2.0)));
+    let (p, seq, map) = project("tnr-edges", fixture::NOISE, tnr_clip(1.0, 2.0));
     // the first and last frames: one side only, still a valid picture
     for f in [0, fixture::FRAMES as i64 - 1] {
         let img = render_sequence(&p, seq, FPS.tick_of(f), opts(true), &map);
@@ -336,7 +373,7 @@ fn edges_and_holds_render_without_temporal_neighbours_where_there_are_none() {
         assert!(mad(&img, &plain) > 0.0, "frame {f}: the neighbours on one side still blend");
     }
     // a frame hold: no neighbour, the temporal render is the plain one
-    let (mut hp, hseq, hmap) = project("tnr-edges", fixture::NOISE, Some(tnr_grade(1.0, 2.0)));
+    let (mut hp, hseq, hmap) = project("tnr-edges", fixture::NOISE, tnr_clip(1.0, 2.0));
     hp.sequence_mut(hseq).unwrap().video_tracks[0].items[0].frame_hold = Some(FPS.tick_of(3));
     let t = FPS.tick_of(2);
     assert_eq!(render_sequence(&hp, hseq, t, opts(true), &hmap).px, render_sequence(&hp, hseq, t, opts(false), &hmap).px);
@@ -344,13 +381,15 @@ fn edges_and_holds_render_without_temporal_neighbours_where_there_are_none() {
 
 #[test]
 fn projects_without_temporal_nr_render_the_same_with_temporal_access() {
-    // no grade, a grade without tnr keys, and one with tnr frames / motion but zero strengths:
+    // no grade, a grade without tnr, one with (ignored) node tnr keys, and a clip temporal NR
+    // with frames / motion but zero strengths:
     // a temporal render (export, the paused frame) is bit-identical to a live one
     let grades = [
         None,
         Some(Grade { nodes: vec![tnr_node(1, &[("saturation", 0.7), ("nr.luma", 0.2)])], bypass: false }),
-        Some(Grade { nodes: vec![tnr_node(1, &[("tnr.frames", 2.0), ("tnr.motion", 0.9), ("lift", 0.0)])], bypass: false }),
+        Some(Grade { nodes: vec![tnr_node(1, &[("tnr.luma", 1.0), ("lift", 0.0)])], bypass: false }),
     ];
+    let grades = grades.into_iter().map(Look::from).chain([Look::from(tnr(&[("frames", 2.0), ("motion", 0.9)]))]);
     let t = FPS.tick_of(3);
     for g in grades {
         let (p, seq, map) = project("tnr-old", fixture::NOISE, g.clone());
@@ -369,10 +408,10 @@ fn projects_without_temporal_nr_render_the_same_with_temporal_access() {
 
 #[test]
 fn the_program_monitor_asks_for_temporal_frames_only_where_a_clip_uses_it() {
-    let (p, seq, _) = project("tnr-at", fixture::NOISE, Some(tnr_grade(0.5, 1.0)));
+    let (p, seq, _) = project("tnr-at", fixture::NOISE, tnr_clip(0.5, 1.0));
     assert!(crate::grade::temporal_at(&p, seq, FPS.tick_of(2)));
     assert!(!crate::grade::temporal_at(&p, seq, FPS.tick_of(50)), "past the clip");
-    let (q, qseq, _) = project("tnr-at", fixture::NOISE, Some(tnr_grade(0.0, 2.0)));
+    let (q, qseq, _) = project("tnr-at", fixture::NOISE, tnr_clip(0.0, 2.0));
     assert!(!crate::grade::temporal_at(&q, qseq, FPS.tick_of(2)));
     assert!(!crate::grade::temporal_at(&q, ItemId(u64::MAX), FPS.tick_of(2)), "no such sequence");
     let it = &p.sequence(seq).unwrap().video_tracks[0].items[0];
@@ -383,7 +422,7 @@ fn the_program_monitor_asks_for_temporal_frames_only_where_a_clip_uses_it() {
 /// (playback, a reduced-resolution monitor): no effect stage, the same pixels as no grade.
 #[test]
 fn a_temporal_only_grade_keeps_the_plain_path_without_temporal_access() {
-    let (p, seq, map) = project("tnr-plain", fixture::NOISE, Some(tnr_grade(1.0, 2.0)));
+    let (p, seq, map) = project("tnr-plain", fixture::NOISE, tnr_clip(1.0, 2.0));
     let (q, qseq, qmap) = project("tnr-plain", fixture::NOISE, None);
     let it = &p.sequence(seq).unwrap().video_tracks[0].items[0];
     assert!(!crate::grade::changes_picture(&p, it, Tick(0), false));
@@ -405,7 +444,7 @@ fn a_temporal_only_grade_keeps_the_plain_path_without_temporal_access() {
 #[test]
 fn neighbours_continue_through_a_dissolve() {
     use crate::temporal::{clip_bounds, neighbour_times_in};
-    let (mut p, seq, map) = project("tnr-dissolve", fixture::NOISE, Some(tnr_grade(1.0, 2.0)));
+    let (mut p, seq, map) = project("tnr-dissolve", fixture::NOISE, tnr_clip(1.0, 2.0));
     let q = p.sequence_mut(seq).unwrap();
     // A: timeline 0..4 (source 0..4), B: the same media at 4..7 (source 4..7), dissolve 2..6
     let mut a = q.video_tracks[0].items[0].clone();
@@ -481,7 +520,7 @@ fn the_flow_cache_key_follows_the_file_and_its_identity() {
 /// (the flows are between source frames), and interpolated neighbours are left out.
 #[test]
 fn interpolated_frames_skip_temporal_nr() {
-    let (mut p, seq, map) = project("tnr-blend", fixture::NOISE, Some(tnr_grade(1.0, 1.0)));
+    let (mut p, seq, map) = project("tnr-blend", fixture::NOISE, tnr_clip(1.0, 1.0));
     {
         let it = &mut p.sequence_mut(seq).unwrap().video_tracks[0].items[0];
         it.speed = 0.5;
@@ -491,4 +530,33 @@ fn interpolated_frames_skip_temporal_nr() {
     let t = FPS.tick_of(3);
     assert!(crate::interpolation_blend(&p.sequence(seq).unwrap().video_tracks[0].items[0], t, FPS).is_some());
     assert_eq!(render_sequence(&p, seq, t, opts(true), &map).px, render_sequence(&p, seq, t, opts(false), &map).px);
+}
+
+/// Fork 6.7b: a clip temporal NR on an item that doesn't take one (a solid generator, a nested
+/// sequence) does nothing: no op, no picture change, no render-bar cost, not on the paused frame.
+#[test]
+fn clip_temporal_nr_is_ignored_on_items_that_dont_take_it() {
+    use filmcraft_color::WorkingSpace;
+    let (mut p, seq, _) = project("tnr-matte", fixture::NOISE, tnr_clip(1.0, 2.0));
+    let item = p.sequence(seq).unwrap().video_tracks[0].items[0].item;
+    assert!(crate::grade::takes_temporal_nr(&p, item));
+    p.item_mut(item).unwrap().as_media_mut().unwrap().media = MediaRef::Generator(filmcraft_media::Generator::ColorMatte { color: [0.2, 0.4, 0.6, 1.0] });
+    assert!(!crate::grade::takes_temporal_nr(&p, item));
+    let it = &p.sequence(seq).unwrap().video_tracks[0].items[0];
+    assert!(crate::grade::item_fx(&p, it, Tick(0), Tick(0), WorkingSpace::Rec709, 1.0, 16, 16).is_empty());
+    assert!(!crate::grade::changes_picture(&p, it, Tick(0), true));
+    assert!(!crate::grade::ever_temporal(&p, it));
+    assert!(!crate::grade::temporal_at(&p, seq, FPS.tick_of(2)));
+    // a nested sequence clip
+    assert!(!crate::grade::takes_temporal_nr(&p, seq));
+    assert!(!crate::grade::takes_temporal_nr(&p, ItemId(u64::MAX)));
+}
+
+/// Fork 6.7b: temporal NR isn't part of a grade, so "same grade?" ignores it (as in Resolve).
+#[test]
+fn grade_match_ignores_temporal_nr() {
+    let g = Grade { nodes: vec![tnr_node(1, &[("saturation", 1.3)])], bypass: false };
+    let mut with_keys = g.clone();
+    with_keys.nodes[0].params.insert("tnr.luma".into(), Param::new(ParamValue::Float(0.8)));
+    assert!(crate::grade_match::same_grade(&g, &with_keys));
 }

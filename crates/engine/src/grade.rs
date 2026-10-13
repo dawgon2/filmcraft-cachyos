@@ -354,6 +354,9 @@ fn set_param(s: &mut Session, p: &Value) -> Result<Value> {
     let want = node_arg(p, CMD)?;
     let current = current_for(s, p, CMD)?.1;
     let key = str_p(p, "param").ok_or_else(|| bad(CMD, "need `param`"))?;
+    if key.starts_with("tnr.") {
+        return Err(bad(CMD, "temporal NR is a clip setting since schema v17: use `tnr.set`"));
+    }
     let def = node_param(key).ok_or_else(|| bad(CMD, format!("no node parameter `{key}` (see grade.params)")))?;
     let raw = p.get("value").ok_or_else(|| bad(CMD, "need `value`"))?;
     let v = value_for(def.kind, raw).ok_or_else(|| bad(CMD, format!("`{key}` wants {}", kind_hint(def.kind))))?;
@@ -413,28 +416,122 @@ fn node_input(s: &mut Session, p: &Value, cmd: &'static str) -> Result<(ClipId, 
     Ok((c, id, img, working))
 }
 
-/// The white-balance sample of `img` for `p`'s point (`x`, `y`; a 5 × 5 px box at full size) or
-/// box (to `x2`, `y2`), or Auto balance's neutral estimate, in working linear light.
-pub(crate) fn wb_sample(img: &filmcraft_render::Image, working: filmcraft_color::WorkingSpace, p: &Value, auto: bool, cmd: &str) -> Result<[f32; 3]> {
-    use filmcraft_color::wb;
-    let clip = wb_clip_level(working);
-    if auto {
-        let luma = filmcraft_color::ColorPipeline { working, ..Default::default() }.working_gamut().luma().map(|v| v as f32);
-        return wb::auto_neutral(&img.px, img.w, img.h, luma, clip)
-            .ok_or_else(|| bad(cmd, "not enough of the frame is grey or near-grey for Auto balance: pick something neutral instead"));
-    }
-    let coord = |k: &str| p.get(k).and_then(Value::as_f64).map(|v| v as f32);
-    let (Some(x), Some(y)) = (coord("x"), coord("y")) else {
-        return Err(bad(cmd, "need `x` and `y` (0…1 of the frame)"));
-    };
-    let (x2, y2) = (coord("x2").unwrap_or(x), coord("y2").unwrap_or(y));
-    // (the picture is a quarter size: 5 px of the frame are 2 here)
-    wb::box_average(&img.px, img.w, img.h, [x, y], [x2, y2], 2).ok_or_else(|| bad(cmd, wb::WbReject::Invalid.message()))
+/// What a white-balance pick judges clipping on (G2c): the clip's picture through its input
+/// transform alone (no grade, no effects, so a blown highlight counts as blown whatever earlier
+/// nodes or an Input LUT did to it) and where its source clips ([`ClipLevel`]: the source's
+/// top code value carried through the input transform, so DaVinci Wide Gamut and HDR sequences
+/// catch clipping too). Clips without media (nested sequences, graphics) fall back to the picture
+/// being sampled and the working space's own clip level.
+///
+/// [`ClipLevel`]: filmcraft_color::wb::ClipLevel
+pub(crate) struct WbClip {
+    /// The source picture; `None`: the sampled picture is it (or the fallback applies).
+    source: Option<filmcraft_render::Image>,
+    level: filmcraft_color::wb::ClipLevel,
 }
 
-/// The clip level of working linear light: 1.0 in a display-referred SDR space, none in
-/// scene-referred or HDR spaces (values above 1 are real there). Known gap: a blown highlight in
-/// a DaVinci Wide Gamut or HDR sequence isn't recognised as clipped (the guide says so).
+/// The timeline time a picker samples clip `c` at: `p`'s `time` (else the playhead), inside the clip.
+pub(crate) fn wb_time(s: &Session, p: &Value, c: ClipId) -> Tick {
+    let t = time_p(s, p, "").unwrap_or_else(|| s.playhead());
+    match s.active_sequence().and_then(|q| q.find_item(c)) {
+        Some((_, it)) => t.clamp(it.start, (it.end() - Tick(1)).max(it.start)),
+        None => t,
+    }
+}
+
+/// [`WbClip`] for clip `c` of sequence `seq_id` at timeline `t`, rendered like the sample
+/// (`RenderOptions` of the pickers). `sampled_is_source`: the sampled picture already is the
+/// clip through its input transform alone (a node picker on the first node), nothing to render.
+/// `keep_before`: the effects before this index stay on (Lumetri's sample keeps them, and one may
+/// move the picture: Transform, Crop…), so the same point lands on the same pixels; 0 for none.
+pub(crate) fn wb_clip(
+    s: &mut Session,
+    seq_id: filmcraft_project::ItemId,
+    c: ClipId,
+    t: Tick,
+    sampled_is_source: bool,
+    keep_before: usize,
+    cmd: &str,
+) -> Result<WbClip> {
+    use filmcraft_color::wb::ClipLevel;
+    let q = s.project.sequence(seq_id).ok_or(EngineError::NoSequence)?;
+    let pipe = q.settings.color;
+    let (_, it) = q.find_item(c).ok_or_else(|| bad(cmd, "no such clip"))?;
+    let item = it.item;
+    let fallback = WbClip { source: None, level: ClipLevel::working(wb_clip_level(pipe.working)) };
+    let Some((_, media, _)) = s.project.resolve_media(item) else { return Ok(fallback) };
+    let Some(v) = media.info.video.as_ref() else { return Ok(fallback) };
+    let cs = media.interpret.color_space.unwrap_or_else(|| filmcraft_color::ColorSpace::from_info(&v.color));
+    // (stills and generators decode to RGB, full range, as the renderer treats them)
+    let range = if media.info.kind == filmcraft_media::MediaKind::Movie { v.color.range } else { filmcraft_color::Range::Full };
+    let peak = filmcraft_render::colorman::source_peak_nits(&s.project, item).filter(|p| p.is_finite() && *p > 0.0).map(|p| f64::from(p.round()));
+    let level = ClipLevel::for_source(cs, range, &pipe, peak);
+    if level.is_none() || sampled_is_source {
+        return Ok(WbClip { source: None, level });
+    }
+    let mut probe = (*s.project).clone();
+    if let Some((_, pi)) = probe.sequence_mut(seq_id).and_then(|q| q.find_item_mut(c)) {
+        pi.grade = None;
+        for (_, e) in pi.effects.iter_mut().enumerate().filter(|(i, e)| *i >= keep_before && !e.def().is_some_and(|d| d.intrinsic)) {
+            e.enabled = false;
+        }
+    }
+    let provider = s.media.provider(s.project.clone(), s.services.clone());
+    let opts = filmcraft_render::RenderOptions { scale: 0.25, working_output: true, ..Default::default() };
+    let source = filmcraft_render::render_clip(&probe, seq_id, c, t, opts, &provider).ok_or_else(|| bad(cmd, "the clip has no picture"))?;
+    Ok(WbClip { source: Some(source), level })
+}
+
+/// Solve Temperature / Tint for `p`'s point (`x`, `y`; a 5 × 5 px box at full size) or box (to
+/// `x2`, `y2`) of `img` (working linear light at the white balance's input), or for Auto
+/// balance's neutral estimate. A clipped spot is refused and Auto leaves clipped pixels out,
+/// judged on `clip`.
+pub(crate) fn wb_solve(
+    img: &filmcraft_render::Image,
+    clip: &WbClip,
+    working: filmcraft_color::WorkingSpace,
+    p: &Value,
+    auto: bool,
+    cmd: &str,
+) -> Result<filmcraft_color::wb::WbSolve> {
+    use filmcraft_color::wb::{self, ClipLevel};
+    // the picture clipping is judged on, at the sample's size
+    let (src, level) = match &clip.source {
+        Some(src) if (src.w, src.h) == (img.w, img.h) => (src, clip.level),
+        Some(_) => (img, ClipLevel::working(wb_clip_level(working))),
+        None => (img, clip.level),
+    };
+    let rgb = if auto {
+        let luma = filmcraft_color::ColorPipeline { working, ..Default::default() }.working_gamut().luma().map(|v| v as f32);
+        let mut masked = img.px.clone();
+        if !level.is_none() {
+            for (m, sp) in masked.as_chunks_mut::<4>().0.iter_mut().zip(src.px.as_chunks::<4>().0) {
+                let a = sp[3];
+                if a.is_finite() && a > 1e-4 && level.is_clipped([sp[0] / a, sp[1] / a, sp[2] / a]) {
+                    m[3] = 0.0;
+                }
+            }
+        }
+        wb::auto_neutral(&masked, img.w, img.h, luma, f32::INFINITY)
+            .ok_or_else(|| bad(cmd, "not enough of the frame is grey or near-grey for Auto balance: pick something neutral instead"))?
+    } else {
+        let coord = |k: &str| p.get(k).and_then(Value::as_f64).map(|v| v as f32);
+        let (Some(x), Some(y)) = (coord("x"), coord("y")) else {
+            return Err(bad(cmd, "need `x` and `y` (0…1 of the frame)"));
+        };
+        let (x2, y2) = (coord("x2").unwrap_or(x), coord("y2").unwrap_or(y));
+        // (the picture is a quarter size: 5 px of the frame are 2 here)
+        let avg = |im: &filmcraft_render::Image| wb::box_average(&im.px, im.w, im.h, [x, y], [x2, y2], 2);
+        let rgb = avg(img).ok_or_else(|| bad(cmd, wb::WbReject::Invalid.message()))?;
+        let clipped = avg(src).is_some_and(|c| level.is_clipped(c));
+        return wb::solve_judged(rgb, clipped).map_err(|e| bad(cmd, e.message()));
+    };
+    wb::solve(rgb, f32::INFINITY).map_err(|e| bad(cmd, e.message()))
+}
+
+/// The clip level of working linear light when the source isn't known: 1.0 in a
+/// display-referred SDR space, none in scene-referred or HDR spaces (values above 1 are real
+/// there). Media clips use their source's clip level instead ([`wb_clip`]).
 pub(crate) fn wb_clip_level(working: filmcraft_color::WorkingSpace) -> f32 {
     if working.is_hdr() || working.is_scene_referred() { f32::INFINITY } else { 1.0 }
 }
@@ -449,8 +546,13 @@ fn pick_white_balance(s: &mut Session, p: &Value, auto: bool) -> Result<Value> {
         wb_point_check(p, cmd)?;
     }
     let (c, id, img, working) = node_input(s, p, cmd)?;
-    let rgb = wb_sample(&img, working, p, auto, cmd)?;
-    let sol = filmcraft_color::wb::solve(rgb, wb_clip_level(working)).map_err(|e| bad(cmd, e.message()))?;
+    // (on the first node the sample is the clip through its input transform alone)
+    let first =
+        s.active_sequence().and_then(|q| q.find_item(c)).and_then(|(_, it)| it.grade.as_ref()).is_some_and(|g| g.nodes.first().is_some_and(|n| n.id == id));
+    let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
+    let t = wb_time(s, p, c);
+    let clip = wb_clip(s, seq_id, c, t, first, 0, cmd)?;
+    let sol = wb_solve(&img, &clip, working, p, auto, cmd)?;
     let mt = media_time(s, p, c);
     let mut q = p.clone();
     if let Some(o) = q.as_object_mut() {

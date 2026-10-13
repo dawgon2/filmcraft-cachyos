@@ -54,7 +54,7 @@ pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "lumetri.switch.*", "markers.filter.*", "markers.row.*", "mcam.audio.*", "mcam.cameraNames.*", "mediaBrowser.*",
     "mediaBrowser.columns.*", "mediaBrowser.entry.*", "mediaBrowser.fileTypes.*", "mediaBrowser.header.*", "mediaBrowser.menu.*",
     "mediaBrowser.tree.*", "mediaBrowser.tree.*.*", "mediaBrowser.tree.dir.*", "mediaBrowser.view.*", "menu.**", "metadata.field.*",
-    "metadata.label.*", "metadata.section.*", "mixer.*", "mixer.showHide.*", "mixer.transport.*", "page.*", "panel.*", "panel.drag.*",
+    "metadata.label.*", "metadata.section.*", "mixer.*", "mixer.showHide.*", "mixer.transport.*", "page.*", "pageBar.*", "pageToolbar.*", "panel.*", "panel.drag.*",
     "panel.float.*.move", "panel.float.*.resize", "panel.menu.*", "panel.menu.*.maximize", "panel.menu.*.undock", "panel.menu.Source.*",
     "panel.menu.Source.recent.*", "panel.tab.*", "panel.tabs.list.*", "panel.tabs.more.*", "pausedRes.*", "playbackRes.*", "pm.mode.*",
     "pm.preset.*", "pm.seq.*", "presetManager.favorite.*", "presetManager.item.*", "program.compare.*", "program.layer.*.*",
@@ -63,7 +63,8 @@ pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "project.menu.*", "project.menu.fontSize.*", "project.menu.restoreViewPreset.*", "project.menu.view.*", "project.searchBin.*",
     "project.tab.*", "project.tab.*.close", "projectBin.*", "projectBin.*.window", "projectDialog.*", "projectDialog.down.*",
     "projectDialog.field.*", "projectDialog.preset.*", "projectDialog.up.*", "projectSettings.*.*", "projectSettings.scratch.*",
-    "projectSettings.scratch.*.browse", "projectSettings.scratch.*.same", "projectSettings.tab.*", "properties.*.*", "proxies.preset.*",
+    "projectSettings.scratch.*.browse", "projectSettings.scratch.*.same", "projectSettings.tab.*", "projects.crumb.*",
+    "projects.folder.*", "projects.menu.*", "projects.other.*", "projects.sidebar.*", "projects.sort.*", "projects.tile.*", "properties.*.*", "proxies.preset.*",
     "quickExport.preset.*", "recovery.item.*", "reference.display.*", "reference.scope.*", "savePreset.keyframes.*", "scopes.menu.*",
     "scopes.menu.brightness.*", "scopes.menu.colorSpace.*", "scopes.menu.paradeType.*", "scopes.menu.preset.*", "scopes.menu.scale.*",
     "scopes.menu.targets.*", "scopes.menu.waveformType.*", "sequenceSettings.*", "sequenceSettings.channelFormat.option.*",
@@ -147,8 +148,23 @@ pub fn narrowed(id: &str) -> Option<bool> {
         // (panels/stills.rs: the compare modes Off / Wipe / Split)
         return Some(["off", "wipe", "split"].contains(&k));
     }
+    if let Some(k) = rest("projects.sort.") {
+        // (panels/home.rs: the Project Manager's sort keys and Reverse order)
+        return Some(crate::panels::home::SORT_KEYS.contains(&k) || k == "descending");
+    }
+    if let Some(k) = rest("projects.menu.") {
+        return Some(crate::panels::home::MENU_ITEMS.contains(&k));
+    }
     if let Some(k) = rest("page.") {
         return Some(crate::panels::pages::PAGES.iter().any(|p| p.0 == k));
+    }
+    if let Some(k) = rest("pageBar.") {
+        // (panels/pages.rs: the page bar's buttons)
+        return Some(["app", "home", "settings"].contains(&k));
+    }
+    if let Some(k) = rest("pageToolbar.") {
+        // (panels/page_toolbar.rs: the pages' toolbar toggles and the project name)
+        return Some(k == "title" || crate::panels::page_toolbar::all_keys().iter().any(|x| x == k));
     }
     None
 }
@@ -256,6 +272,9 @@ mod tests {
         assert!(matches_dynamic("grade.qual.show.2") && !matches_dynamic("grade.qual.show.3"));
         assert!(matches_dynamic("stills.mode.wipe") && !matches_dynamic("stills.mode.fade"));
         assert!(matches_dynamic("page.color") && !matches_dynamic("page.colour"));
+        assert!(matches_dynamic("projects.sort.modified") && matches_dynamic("projects.sort.descending") && !matches_dynamic("projects.sort.size"));
+        assert!(matches_dynamic("projects.menu.trash") && !matches_dynamic("projects.menu.delete"));
+        assert!(matches_dynamic("projects.tile.3") && matches_dynamic("projects.tile.new"));
         // hostile ids
         assert!(!matches_dynamic(&"a.".repeat(10_000)));
         assert!(!matches_dynamic(&format!("settings{}", ".x".repeat(40))), "too many parts");

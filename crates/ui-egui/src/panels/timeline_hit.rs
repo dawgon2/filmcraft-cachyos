@@ -315,6 +315,7 @@ mod tests {
             source_channels: Vec::new(),
             audio_stream: 0,
             grade: None,
+            temporal_nr: None,
             graphic: None,
         }
     }

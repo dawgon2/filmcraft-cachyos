@@ -1,8 +1,8 @@
 //! Temporal noise reduction in the renderer (fork 6.7, integration): which neighbouring frames a
 //! clip's [`FxOp::TemporalDenoise`] blends, their motion, and attaching them to the op.
 //!
-//! The op comes from the grade (`grade::temporal_node`: the first active node's `tnr.*`,
-//! provisional, owner question Q9) with no inputs. A render with temporal access
+//! The op comes from the clip (`grade::temporal`: `TrackItem::temporal_nr`, fork 6.7b; it was the
+//! first active grade node's `tnr.*` before schema v17) with no inputs. A render with temporal access
 //! ([`crate::RenderOptions::temporal`]: export and so the render cache, the paused Program frame)
 //! attaches them here; every other render strips the op ([`crate::grade::strip_temporal`]).
 //!

@@ -25,13 +25,15 @@ own solver and explanations).
 | Page | Covers | Status |
 |---|---|---|
 | [getting-started.md](getting-started.md) | Install, the two workflows (Settings ▸ General ▸ Workflow: Premiere / Resolve), importing X-M5 clips, what the hardware path does | partial (workflow section) |
+| [pages.md](pages.md) | The Resolve workflow's pages (RS3): the page bar, each page's layout and toolbar, Deliver's render settings and queue, saving a page layout | written (RS3) |
+| [projects.md](projects.md) | The Project Manager home screen (RS2): the projects folder, opening and making projects, sort / search / views, rename / duplicate / trash, export / import, At startup show | written (RS2) |
 | [color/README.md](color/README.md) | How colour works in this fork, start here | written (G0–G1) |
 | [color/color-management.md](color/color-management.md) | F-Log2 / F-Gamut input, DaVinci Wide Gamut / Intermediate working space, Rec.709 output, highlight roll-off | written (G0–G1) |
-| [color/nodes.md](color/nodes.md) | What a node is, how the chain flows, one job per node, a starter tree for F-Log2; later parallel / layer / splitter / outside / key mixer (C2) | written (G0–G1) |
+| [color/nodes.md](color/nodes.md) | What a node is, how the chain flows, one job per node, a starter tree for F-Log2 and other node orders with their trade-offs (CO1); later parallel / layer / splitter / outside / key mixer (C2) | written (G0–G1) |
 | [color/primaries.md](color/primaries.md) | Lift / Gamma / Gain / Offset wheels, contrast and pivot, saturation, temperature / tint | written (G0–G1) |
 | [color/curves.md](color/curves.md) | Custom and the five hue / luma / sat curves | partial (G0–G1) |
 | [color/secondaries.md](color/secondaries.md) | Qualifier, windows, tracking (G2) | written (G2.1–G2.3) |
-| [color/noise.md](color/noise.md) | Spatial noise reduction on a node (G2.4), temporal on the first node (6.7) | written (G2.4 spatial, 6.7 temporal) |
+| [color/noise.md](color/noise.md) | Spatial noise reduction on a node (G2.4), temporal per clip (6.7 / 6.7b) | written (G2.4 spatial, 6.7b temporal) |
 | [color/matching.md](color/matching.md) | Stills, wipe / split, copy / paste / append grades, "same grade?", shot comparison, Shot Match, node explainer, AI explanations | written (G0–G2b) |
 | [color/finishing.md](color/finishing.md) | Grain, highlight soft clip, node LUTs, scopes (noise reduction: noise.md) | partial (grain, soft clip, LUT; scopes to write) |
 | [color/lumetri.md](color/lumetri.md) | Lumetri Color (Premiere-style) and how it relates to the node grader | written (cloud) |

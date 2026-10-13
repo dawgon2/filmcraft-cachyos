@@ -30,6 +30,20 @@ and defers parallel / layer nodes, §6).
    Compositor"), with a Resolve-style "Fusion" page when Workflow is Resolve (GRADE-PLAN G1.8).
 5. **Commands** (`comp.*`: addNode, removeNode, connect, disconnect, setParam, bypass,
    newCompClip, convertToCompClip from selected clips), all undoable, all drivable over MCP.
+6. **Grading Coach fixes (owner, 2026-10-12, FORK-PLAN §1a.40 / §1a.28):** (a) the Coach answers
+   workflow / "what order" questions the guide already covers (retrieval fix + a regression
+   question set built from `docs/fork/COACH-QUESTIONS.md`); (b) a written plan for the process
+   assistant (model-backed answers grounded in the guide and the project, checked so it can't
+   invent controls) for the owner to place. Not compositor work, but scheduled here by the owner.
+   **Update (owner, 2026-10-12, §1a.47):** the fix's steps 1–2 and the node-order page ship earlier
+   (step CO1 in the resolve-ui-1 + RS3 + 6.7b + Y1 group); C1 keeps steps 3–5 (question-type
+   routes, heading weights; `docs/fork/coach-eval/DIAGNOSIS.md`).
+7. **AI help for Fusion (owner, 2026-10-12, §1a.47):** guide pages for every comp node and the
+   compositing workflow (options with trade-offs, beginner vs pro, never one prescribed way); a
+   comp-graph explainer (plain language, node by node, like G2.10; template-based, local model
+   optional, checked so it can't invent controls); Coach lessons per comp node type; compositing
+   questions added to `docs/fork/coach-eval/questions.toml`; the process-assistant plan covers
+   compositing.
 
 **Not in C1:** 3D, particles, paint / roto brush, tracker nodes (masks use the existing tracker),
 expressions, macros / groups, planar tracking, deep compositing, the grader's own parallel /

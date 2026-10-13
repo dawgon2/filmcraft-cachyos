@@ -509,6 +509,8 @@ fn lumetri_white_balance(s: &mut Session, p: &Value, auto: bool) -> Result<Value
         Some(i) => it.effects.get(i).cloned().ok_or_else(|| bad(cmd, "no Lumetri"))?,
         None => fresh.clone(),
     };
+    // (the effects before Lumetri stay on for the clipping check too)
+    let keep_before = existing.unwrap_or_else(|| new_effect_pos(&it.effects));
     let mut probe = (*s.project).clone();
     if let Some((_, pi)) = probe.sequence_mut(seq_id).and_then(|q| q.find_item_mut(clip)) {
         let idx = existing.unwrap_or_else(|| new_effect_pos(&pi.effects));
@@ -536,8 +538,8 @@ fn lumetri_white_balance(s: &mut Session, p: &Value, auto: bool) -> Result<Value
     let provider = s.media.provider(s.project.clone(), s.services.clone());
     let opts = filmcraft_render::RenderOptions { scale: 0.25, working_output: true, ..Default::default() };
     let img = filmcraft_render::render_clip(&probe, seq_id, clip, t, opts, &provider).ok_or_else(|| bad(cmd, "the clip has no picture"))?;
-    let rgb = crate::grade::wb_sample(&img, working, p, auto, cmd)?;
-    let sol = filmcraft_color::wb::solve(rgb, crate::grade::wb_clip_level(working)).map_err(|e| bad(cmd, e.message()))?;
+    let src = crate::grade::wb_clip(s, seq_id, clip, t, false, keep_before, cmd)?;
+    let sol = crate::grade::wb_solve(&img, &src, working, p, auto, cmd)?;
     let values = [
         ("temperature", ParamValue::Float(f64::from(sol.temperature))),
         ("tint", ParamValue::Float(f64::from(sol.tint))),

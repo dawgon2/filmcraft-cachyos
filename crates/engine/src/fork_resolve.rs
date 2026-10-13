@@ -41,6 +41,33 @@ fn ask(p: &mut Preferences, was_resolve: bool) {
     p.pending_resolve_migration = true;
 }
 
+/// A session that runs without a data directory (headless CLI and MCP runs; the desktop app when
+/// it has none): it reports the default workflow, Resolve, so it takes the Resolve keyboard preset
+/// and look too, as `Session::set_workflow` would leave them (they used to stay FilmCraft
+/// Default). The previous keyboard and dark theme are remembered for a switch to Premiere. No-op
+/// once a data directory is in use (its preferences decide, [`apply_pending`]), in another
+/// workflow, or when the keyboard is already Resolve's. Nothing is written.
+pub fn without_data_dir(s: &mut Session) {
+    use crate::shortcuts::RESOLVE_PRESET;
+    if s.prefs_path.is_some() || s.prefs.workflow != Workflow::Resolve {
+        return;
+    }
+    // (an edited keyboard is left alone: without a data directory it couldn't be kept as a preset)
+    if s.shortcuts.preset != RESOLVE_PRESET
+        && !s.shortcuts.modified
+        && let Some(b) = s.shortcuts.builtin(RESOLVE_PRESET)
+    {
+        s.prefs.workflow_return_preset = std::mem::replace(&mut s.shortcuts.preset, RESOLVE_PRESET.into());
+        s.shortcuts.bindings = b;
+        s.shortcuts.revision = s.shortcuts.revision.wrapping_add(1);
+    }
+    let p = &mut s.prefs;
+    if p.appearance.dark_theme != settings::RESOLVE_THEME && p.workflow_return_theme.is_empty() {
+        p.workflow_return_theme = std::mem::replace(&mut p.appearance.dark_theme, settings::RESOLVE_THEME.into());
+        p.appearance.sync_color_theme();
+    }
+}
+
 /// The marker left in the data directory once the switch has run. Older builds rewrite the
 /// preferences' `version` (back to 2) but never touch this file, so a Premiere choice made after
 /// the switch survives running an older build in between.

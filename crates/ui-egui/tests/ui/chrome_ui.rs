@@ -13,6 +13,8 @@ const H: f32 = 980.0;
 
 fn harness(show_header: bool, show_status_bar: bool) -> Harness<'static, FilmcraftApp> {
     let mut s = Session::default();
+    // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
+    s.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
     s.execute("file.openDemoProject", json!({})).unwrap();
     let mut app = FilmcraftApp::new(s);
     app.ui.show_header = show_header;

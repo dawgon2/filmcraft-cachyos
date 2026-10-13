@@ -347,7 +347,17 @@ pub struct FilmcraftApp {
     pub workspaces: dock::WorkspacePrefs,
     /// Workspace names and the current one, as last handed to the native menu.
     menu_workspaces: (Vec<String>, String),
+    /// The Project Manager home screen's listing, poster textures and poster renders (fork RS2).
+    pub(crate) home_rt: panels::home::Runtime,
+    /// The workflow the layout was last arranged for (fork RS3, `panels::pages::follow_workflow`).
+    pub(crate) layout_workflow: Option<bool>,
+    /// Each workflow's layout as it was left at a workflow switch (Premiere, Resolve): workspace
+    /// name, dock and floating panels, put back on return so unsaved changes survive.
+    pub(crate) layouts_by_workflow: (Option<WorkflowLayout>, Option<WorkflowLayout>),
 }
+
+/// A workflow's layout kept across a workflow switch (fork RS3).
+pub(crate) type WorkflowLayout = (String, dock::DockNode, Vec<dock::Floating>);
 
 pub struct GpuState {
     pub render_state: eframe::egui_wgpu::RenderState,
@@ -672,7 +682,25 @@ impl FilmcraftApp {
             workspace_restored: false,
             workspaces,
             menu_workspaces: Default::default(),
+            home_rt: Default::default(),
+            layout_workflow: None,
+            layouts_by_workflow: (None, None),
         }
+    }
+
+    /// The second half of the launch ([`launch_project`]; fork RS2): show the Project Manager home
+    /// screen when that was the startup choice, nothing else was opened (media files on the
+    /// command line, a recovered project) and the app isn't run by a test harness.
+    pub fn finish_launch(&mut self, action: Option<filmcraft_engine::projects::StartupAction>, media_given: bool) {
+        if action == Some(filmcraft_engine::projects::StartupAction::ProjectManager) && !media_given && !filmcraft_engine::projects::project_open(&self.session)
+        {
+            panels::home::show_home(self);
+        }
+    }
+
+    /// Open the Project Manager home screen (`projects.show`).
+    pub fn show_project_manager(&mut self) {
+        panels::home::show_home(self);
     }
 
     pub fn with_control(mut self, rx: Receiver<ControlRequest>) -> Self {
@@ -774,7 +802,8 @@ impl FilmcraftApp {
             let k = self.appearance_kind(ctx);
             self.set_theme(ctx, k);
         }
-        if prev.as_ref().is_none_or(|q| q.general.interface_language != p.general.interface_language) {
+        // The workflow is part of the condition: its terminology overlay relabels the native menu too.
+        if prev.as_ref().is_none_or(|q| q.general.interface_language != p.general.interface_language || q.workflow != p.workflow) {
             let language = match i18n::Language::parse(&p.general.interface_language) {
                 Some(l) => l,
                 None if p.general.interface_language == "system" => {
@@ -792,6 +821,7 @@ impl FilmcraftApp {
                 self.ui.language = language;
             }
             i18n::set_current(self.ui.language);
+            i18n::terms::set_resolve(self.resolve_workflow());
             let items = menus::menu_items(self);
             if let Some(hook) = self.hooks.shortcuts_changed.as_mut() {
                 hook(&items);
@@ -907,8 +937,11 @@ impl FilmcraftApp {
     }
 
     pub fn set_workspace(&mut self, name: &str) {
-        // Resolve workflow: the Color workspace is the node grader (GRADE-PLAN G1.8)
-        let name = if name == "Color" && self.resolve_workflow() { "Color Grading" } else { name };
+        // Resolve workflow: the Color workspace is the node grader (GRADE-PLAN G1.8) and the
+        // Premiere workspaces a page stands for open that page; the Premiere workflow opens the
+        // Premiere workspace for a page's name (fork RS3, `dock::for_workflow`)
+        let name = dock::for_workflow(name, self.resolve_workflow()).to_string();
+        let name = name.as_str();
         self.ui.workspace = name.to_string();
         let layout = dock::saved_docking(&self.workspaces, name);
         self.ui.dock = layout.root;
@@ -1492,7 +1525,7 @@ impl FilmcraftApp {
     // ---------------------------------------------------------------- input
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        let workspaces = (dock::names(&self.workspaces), self.ui.workspace.clone());
+        let workspaces = (dock::names_for(&self.workspaces, self.resolve_workflow()), self.ui.workspace.clone());
         if self.bindings_rev != self.session.shortcuts.revision || workspaces != self.menu_workspaces {
             self.menu_workspaces = workspaces;
             self.bindings = menus::bindings(self);
@@ -1737,6 +1770,7 @@ impl FilmcraftApp {
 
     fn frame(&mut self, ui: &mut egui::Ui) {
         i18n::set_current(self.ui.language);
+        i18n::terms::set_resolve(self.resolve_workflow());
         if std::mem::take(&mut self.panic_next_frame) {
             crash::injected_fault("injected UI fault");
         }
@@ -1772,7 +1806,12 @@ impl FilmcraftApp {
             }
         }
         self.sync_timeline_view();
-        self.handle_drops(&ctx);
+        // fork RS2: posters of projects just saved
+        panels::home::tick_posters(self, &ctx);
+        let home = self.ui.home.open;
+        if !home {
+            self.handle_drops(&ctx);
+        }
         if let Some(rx) = self.command_inbox.take() {
             while let Ok(id) = rx.try_recv() {
                 if self.control_input_only {
@@ -1784,7 +1823,9 @@ impl FilmcraftApp {
             }
             self.command_inbox = Some(rx);
         }
-        self.handle_shortcuts(&ctx);
+        if !home {
+            self.handle_shortcuts(&ctx);
+        }
         self.advance_playback(&ctx);
         self.advance_source_playback(&ctx);
         self.scrub_audio(&ctx);
@@ -1800,17 +1841,37 @@ impl FilmcraftApp {
         if self.ui.tts.pending.is_some() || self.ui.tts.download_job.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
+        // fork RS3: the Resolve workflow's pages (Export mode is the Deliver page there)
+        panels::pages::follow_workflow(self);
         let t = self.tokens;
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, t.app_bg);
-        let header_h = if self.ui.show_header { 38.0 } else { 0.0 };
+        if home {
+            // the Project Manager covers the window (no panels behind it); dialogs such as
+            // crash recovery still show over it
+            panels::home::draw(self, ui, full);
+            panels::dialogs::show(self, &ctx);
+            self.watch_jobs(ui.ctx());
+            return;
+        }
+        // the Resolve workflow has its own header: the menus, then the page's toolbar (fork RS3)
+        let resolve = self.resolve_workflow();
+        let header_h = match (self.ui.show_header, resolve) {
+            (false, _) => 0.0,
+            (true, false) => 38.0,
+            (true, true) => panels::page_toolbar::height(self),
+        };
         let header = egui::Rect::from_min_size(full.min, egui::vec2(full.width(), header_h));
         if self.ui.show_header {
-            header::show(self, ui, header);
+            if resolve {
+                panels::page_toolbar::show(self, ui, header);
+            } else {
+                header::show(self, ui, header);
+            }
         }
         let status_h = if self.ui.show_status_bar { 20.0 } else { 0.0 };
         // Resolve workflow: the page bar sits above the status bar (GRADE-PLAN G1.8)
-        let pages_h = if self.resolve_workflow() { panels::pages::HEIGHT } else { 0.0 };
+        let pages_h = if resolve { panels::pages::HEIGHT } else { 0.0 };
         let body =
             egui::Rect::from_min_max(egui::pos2(full.min.x + 1.0, header.max.y + 1.0), egui::pos2(full.max.x - 1.0, full.max.y - status_h - pages_h - 2.0));
         match self.ui.mode {
@@ -2098,6 +2159,40 @@ impl eframe::App for FilmcraftApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
     }
+}
+
+/// The first half of the launch (fork RS2): open the project named on the command line, else
+/// follow `--demo` / `--empty`, else Settings ▸ General ▸ At startup show (Last project opens the
+/// most recent project that still exists, else the demo project). Returns the startup choice
+/// (None when a project was named); [`FilmcraftApp::finish_launch`] shows the home screen for it.
+pub fn launch_project(session: &mut Session, project: Option<&str>, startup_flag: bool, demo: bool) -> Option<filmcraft_engine::projects::StartupAction> {
+    use filmcraft_engine::projects::StartupAction;
+    if let Some(p) = project {
+        if let Err(e) = session.execute("file.open", json!({"path": p})) {
+            log::error!("{e}");
+        }
+        return None;
+    }
+    let action = filmcraft_engine::projects::startup_action(&session.prefs, startup_flag, demo);
+    match action {
+        StartupAction::LastProject => {
+            let recent = session.prefs.general.recent_projects.iter().find(|p| std::path::Path::new(p).exists()).cloned();
+            // (as before RS2: a recent project that fails to open is logged and leaves an empty
+            // project; with none left the demo project opens)
+            match recent.map(|p| session.execute("file.open", json!({"path": p}))) {
+                Some(Ok(_)) => {}
+                Some(Err(e)) => log::error!("{e}"),
+                None => {
+                    let _ = session.execute("file.openDemoProject", json!({}));
+                }
+            }
+        }
+        StartupAction::Demo => {
+            let _ = session.execute("file.openDemoProject", json!({}));
+        }
+        StartupAction::NewEmpty | StartupAction::ProjectManager => {}
+    }
+    Some(action)
 }
 
 /// The program mix that playback plays: `mix(device_frame, interleaved, channels)` renders the

@@ -63,6 +63,7 @@ impl Fx {
             audio_stream: 0,
             graphic: None,
             grade: None,
+            temporal_nr: None,
         }
     }
     fn put(&mut self, track: TrackId, start: i64, dur: i64, src_in: i64) -> ClipId {

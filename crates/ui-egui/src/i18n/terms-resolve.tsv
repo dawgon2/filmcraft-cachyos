@@ -1,0 +1,124 @@
+# Resolve-workflow terminology overlay (RESOLVE-UI-PLAN RS2b). [Fork]; wording is [Resolve-style].
+# Consulted before the language catalogs while Settings > General > Workflow is DaVinci Resolve
+# (`i18n::set_terms`). Whole strings only, never substrings. Words only: command ids, automation ids,
+# project files and the control protocol are unchanged.
+#
+#   source <TAB> english [<TAB> code=text ...]
+#
+#   source   the English string exactly as the code and the interface catalogs have it (every source
+#            must be a key of es.tsv; a test checks that, and that {placeholders} are the same)
+#   english  the Resolve wording, shown when the interface language is English
+#   code=... optional wording for another interface language (es, zh-cn, ...). Languages without one
+#            show the normal translation of `source`.
+#   lines starting with # and blank lines are ignored; malformed lines are skipped.
+#
+# Clean-room: terms follow the public DaVinci Resolve manual's vocabulary (timeline, media pool,
+# compound clip, inspector, blade, render queue...); no Blackmagic resource or string table was read.
+# Left out on purpose: "Project Manager" (collect / consolidate), which RS2 relabels itself.
+
+# Sequence -> Timeline
+Sequence	Timeline
+Sequences	Timelines
+Sequence…	Timeline…
+New Sequence	New Timeline
+New Sequence From Clip	New Timeline From Clip
+Sequence From Clip	Timeline From Clip
+Sequence Settings	Timeline Settings
+Sequence Settings…	Timeline Settings…
+Sequence Name	Timeline Name
+Sequence Name:	Timeline Name:
+Sequence name	Timeline name
+Sequence Time	Timeline Time
+Sequence Timecode	Timeline Timecode
+Sequence Color Management	Timeline Color Management
+Sequence, {w}x{h}, {fps} fps, {rate} Hz	Timeline, {w}x{h}, {fps} fps, {rate} Hz
+Close Sequence	Close Timeline
+Go to Sequence Start	Go to Timeline Start
+Go to Sequence End	Go to Timeline End
+Next in Sequence	Next in Timeline
+Previous in Sequence	Previous in Timeline
+Zoom to Sequence	Zoom to Timeline
+Automate to Sequence	Automate to Timeline
+Automate to Sequence…	Automate to Timeline…
+Automate To Sequence	Automate To Timeline
+Simplify Sequence	Simplify Timeline
+Simplify Sequence…	Simplify Timeline…
+Transcribe Sequence	Transcribe Timeline
+Transcribe Sequence…	Transcribe Timeline…
+Transcribe sequence	Transcribe timeline
+Ripple Sequence Markers	Ripple Timeline Markers
+Copy Paste Includes Sequence Markers	Copy Paste Includes Timeline Markers
+Reveal Sequence in Project	Reveal Timeline in Media Pool
+(no sequence)	(no timeline)
+(no sequences)	(no timelines)
+{mode} · no sequence	{mode} · no timeline
+Timeline: (no sequences)	Timeline: (no timelines)
+No video clips in this sequence	No video clips in this timeline
+The sequence has no caption track.	The timeline has no caption track.
+Open a sequence to export	Open a timeline to export
+Open a sequence to see its transcript	Open a timeline to see its transcript
+Open a sequence to work with captions	Open a timeline to work with captions
+Quick Export: open a sequence first	Quick Export: open a timeline first
+Drop media here to create sequence.	Drop media here to create a timeline.
+Auto-transcribe only clips in sequences	Auto-transcribe only clips in timelines
+Restore open sequences when opening projects	Restore open timelines when opening projects
+Double-click a sequence in the Project panel to open it here.	Double-click a timeline in the Media Pool to open it here.
+
+# Nest -> Compound Clip
+Nest…	New Compound Clip…
+Nested Sequence Name	Compound Clip Name
+Reveal Nested Sequence	Reveal Compound Clip
+Insert and overwrite sequences as nests or individual clips	Insert and overwrite timelines as compound clips or individual clips
+
+# Project panel -> Media Pool
+Project	Media Pool
+New Project Panel	New Media Pool
+Set Project Panel View	Set Media Pool View
+Show "Project:" and "Bin:" in Project panel tab	Show "Project:" and "Bin:" in Media Pool tab
+
+# Source / Program monitor -> Source / Timeline viewer
+Source	Source Viewer
+Program	Timeline Viewer
+From Source Monitor	From Source Viewer
+From Source Monitor, Match Frame	From Source Viewer, Match Frame
+Open In Source Monitor	Open In Source Viewer
+Open in Source Monitor	Open in Source Viewer
+Replace With Clip From Source Monitor	Replace With Clip From Source Viewer
+Snap in Program Monitor	Snap in Timeline Viewer
+Toggle Source/Program Monitor Focus	Toggle Source/Timeline Viewer Focus
+Zoom Source Monitor to 100%	Zoom Source Viewer to 100%
+Zoom Source Monitor to Fit	Zoom Source Viewer to Fit
+Zoom Program Monitor to 100%	Zoom Timeline Viewer to 100%
+Zoom Program Monitor to Fit	Zoom Timeline Viewer to Fit
+
+# Effect Controls -> Inspector, Audio Track Mixer -> Mixer
+Effect Controls	Inspector
+Audio Track Mixer	Mixer
+Audio Track Mixer menu	Mixer menu
+Master volume: use the Audio Track Mixer	Master volume: use the Mixer
+
+# Export -> Deliver (render queue)
+Export Options	Render Settings
+Export presets	Render presets
+Start Export Queue	Start Render Queue
+Stop Export Queue	Stop Render Queue
+Cancel Queued Export	Cancel Queued Render
+Clear Finished Exports	Clear Finished Renders
+Added to the export queue	Added to the render queue
+Send to Queue	Add to Render Queue
+Queue ({n})	Render Queue ({n})
+Start Queue	Start Render
+Send exports here with Send to Queue, then start the queue.	Add jobs here with Add to Render Queue, then start the render.
+
+# Razor -> Blade, Adjustment Layer -> Adjustment Clip, Scratch Disks -> Working Folders
+Razor Tool	Blade Tool
+Adjustment Layer…	Adjustment Clip…
+Scratch Disks	Working Folders
+Scratch Disks…	Working Folders…
+Scratch disk location for Captured Audio	Working folder location for Captured Audio
+
+# Render previews -> Render Cache
+Render In to Out	Render Cache In to Out
+Render Effects In to Out	Render Cache Effects In to Out
+Delete Render Files	Delete Render Cache Files
+Delete Render Files In to Out	Delete Render Cache Files In to Out

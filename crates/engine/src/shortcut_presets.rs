@@ -501,7 +501,9 @@ pub const RESOLVE: &[Entry] = &[
     ("view.zoomIn", "Cmd+=", ""),
     ("view.zoomOut", "Cmd+-", ""),
     ("view.zoomToSequence", "Shift+Z", ""),
-    // Pages (Media, Edit, Color, Fairlight, Deliver; the page bar maps Media to Assembly)
+    // Pages (Project Manager, Media, Edit, Color, Fairlight, Deliver; the page bar maps Media to
+    // Assembly)
+    ("projects.show", "Shift+1", ""),
     ("window.workspace.assembly", "Shift+2", ""),
     ("window.workspace.editing", "Shift+4", ""),
     ("window.workspace.color", "Shift+6", ""),

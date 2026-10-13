@@ -160,6 +160,8 @@ impl Backend {
         if let Some(dir) = a.opt("--data-dir").map(std::path::PathBuf::from).or_else(filmcraft_engine::autosave::default_data_dir) {
             s.export_presets.set_dir(&dir);
         }
+        // FORK-ONLY (RS1): no preferences are read here, so the default workflow (Resolve) gets its keys and look
+        filmcraft_engine::fork_resolve::without_data_dir(&mut s);
         if let Some(p) = a.opt("--project") {
             if let Err(e) = s.execute("file.open", json!({"path": p})) {
                 fail(e);
@@ -548,6 +550,18 @@ mod format_tests {
             assert!(e.contains("finite and positive"), "{e}");
         }
         assert_eq!(super::render_at_playhead(&s, 0.5).unwrap().w, 8);
+    }
+
+    /// FORK-ONLY (RS1): a headless / MCP session reports the Resolve workflow, so its keyboard is
+    /// Resolve's too (it used to stay FilmCraft Default).
+    #[test]
+    fn headless_session_has_the_resolve_keys_of_its_workflow() {
+        let dir = std::env::temp_dir().join(format!("fc-cli-rs1-{}", std::process::id()));
+        let args = super::Args::parse(["--data-dir".to_string(), dir.display().to_string()]);
+        let super::Backend::Local(mut s) = super::Backend::open(&args) else { panic!("a local session") };
+        let w = s.execute("settings.getWorkflow", serde_json::json!({})).unwrap();
+        assert_eq!((w["workflow"].as_str(), w["keyboardPreset"].as_str()), (Some("resolve"), Some("DaVinci Resolve Compatible")), "{w}");
+        assert_eq!(s.prefs.appearance.dark_theme, "resolve");
     }
 
     /// The CLI (and MCP / headless runs, which share its entry point) registers the hardware

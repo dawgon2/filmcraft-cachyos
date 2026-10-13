@@ -152,7 +152,14 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             // Premiere lists the fixed effects (Motion, Opacity, Time Remapping / Volume…) first.
             let mut order: Vec<usize> = (0..it.effects.len()).collect();
             order.sort_by_key(|i| !it.effects[*i].def().is_some_and(|d| d.intrinsic));
-            for idx in order {
+            // the clip's Temporal NR (fork 6.7b) is a fixed section after the fixed effects
+            let mut tnr_due = *kind == TrackKind::Video && crate::panels::tnr::takes_tnr(&app.session, clip);
+            let first_standard = order.iter().position(|i| !it.effects.get(*i).and_then(|e| e.def()).is_some_and(|d| d.intrinsic));
+            for (n, idx) in order.into_iter().enumerate() {
+                if tnr_due && first_standard == Some(n) {
+                    tnr_due = false;
+                    tnr_section(app, bui, body, &lane, clip, it, &mut actions);
+                }
                 let e = &it.effects[idx];
                 let Some(def) = e.def() else { continue };
                 let key = format!("{}:{}", clip.0, idx);
@@ -231,6 +238,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 if crate::panels::masks::maskable(e) {
                     crate::panels::masks::effect_rows(app, bui, body, clip, idx, e, mt_now, &mut actions, &lane, &lx, it);
                 }
+            }
+            if tnr_due {
+                tnr_section(app, bui, body, &lane, clip, it, &mut actions);
             }
         }
     });
@@ -317,6 +327,60 @@ fn custom_setup_row(app: &mut FilmcraftApp, ui: &mut egui::Ui, body: Rect, lane:
     if resp.clicked() {
         crate::panels::audio_fx_editor::open(app, crate::panels::audio_fx_editor::FxTarget::Clip { clip: clip.0, index: idx });
     }
+}
+
+/// The clip's fixed **Temporal NR** section (fork 6.7b; the Inspector in the Resolve workflow):
+/// a collapsible header like the fixed effects', then the shared rows of `panels/tnr.rs`.
+fn tnr_section(app: &mut FilmcraftApp, ui: &mut egui::Ui, body: Rect, lane: &Rect, clip: ClipId, it: &TrackItem, actions: &mut Vec<(String, Value)>) {
+    let t = app.tokens;
+    let key = format!("{}:tnr", clip.0);
+    let open = !app.ui.collapsed_fx.contains(&key);
+    let (r, resp) = ui.allocate_exact_size(vec2(body.width(), ROW_H), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 0.0, t.hover);
+    }
+    row_line(ui, r, lane, &t);
+    icons::paint(
+        ui.painter(),
+        Rect::from_center_size(pos2(r.min.x + 10.0, r.center().y), vec2(10.0, 10.0)),
+        if open { Icon::ChevronDown } else { Icon::ChevronRight },
+        t.text_dim,
+    );
+    let title = tl!("Temporal NR");
+    row_label(ui, pos2(r.min.x + 42.0, r.center().y), title, r.max.x - 26.0 - (r.min.x + 42.0), Tokens::ui(12.0), t.text);
+    app.auto.add("effectControls.tnr", r, title);
+    if resp.clicked() {
+        if open {
+            app.ui.collapsed_fx.push(key);
+        } else {
+            app.ui.collapsed_fx.retain(|k| *k != key);
+        }
+    }
+    if !open {
+        return;
+    }
+    let ph = app.session.playhead();
+    let mt = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+    let merge = format!("ec-{}", crate::panels::grade::gesture(ui));
+    let mut cmds: Vec<(&'static str, Value)> = Vec::new();
+    let mut autos: Vec<(String, Rect, String)> = Vec::new();
+    ui.horizontal(|ui| {
+        ui.add_space(26.0);
+        ui.vertical(|ui| {
+            ui.set_max_width((body.width() - 34.0).max(MIN_LIST_W - 34.0));
+            crate::panels::tnr::tnr_rows(ui, clip, it, mt, &t, &merge, &mut cmds, &mut autos);
+            crate::panels::tnr::note(ui, &t);
+        });
+    });
+    ui.add_space(4.0);
+    // (rows scrolled out of the panel aren't clickable, so they don't register)
+    let visible = ui.clip_rect();
+    for (id, rect, label) in autos {
+        if rect.is_positive() && visible.intersects(rect) {
+            app.auto.add(&id, rect, &label);
+        }
+    }
+    actions.extend(cmds.into_iter().map(|(c, p)| (c.to_string(), p)));
 }
 
 fn seq_name(app: &FilmcraftApp) -> String {

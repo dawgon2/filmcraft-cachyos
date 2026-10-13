@@ -27,10 +27,14 @@ impl Driver {
     }
 
     fn from_session(session: Session) -> Self {
+        Self::from_session_sized(session, egui::vec2(1600.0, 980.0))
+    }
+
+    fn from_session_sized(session: Session, size: egui::Vec2) -> Self {
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(session).with_control(rx);
         let snapshots = std::env::var_os("FILMCRAFT_UI_SNAPSHOT_DIR").map(std::path::PathBuf::from);
-        let mut b = Harness::builder().with_size(egui::vec2(1600.0, 980.0)).with_max_steps(10_000);
+        let mut b = Harness::builder().with_size(size).with_max_steps(10_000);
         if snapshots.is_some() {
             b = b.wgpu();
         }
@@ -324,7 +328,7 @@ fn resolve_workflow_shows_pages_and_color_opens_the_node_grader() {
     d.frames(2);
     assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Color Grading"), "Color page");
     d.click("page.edit");
-    assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Editing"));
+    assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Edit Page"), "Edit page (fork RS3)");
     // Window ▸ Workspaces ▸ Color opens the node grader in the Resolve workflow
     d.ok("ui.set", json!({"workspace": "Color"}));
     d.frames(2);
@@ -337,10 +341,10 @@ fn resolve_workflow_shows_pages_and_color_opens_the_node_grader() {
     assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Color Grading"));
     d.ok("ui.key", json!({"key": "Shift+2"}));
     d.frames(2);
-    assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Assembly"));
+    assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Media Page"));
     assert!(d.call("engine.execute", json!({"command": "page.bogus", "params": {}})).get("error").is_some());
     d.click("page.deliver");
-    assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["mode"], json!("Export"));
+    assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Deliver Page"), "Deliver page (fork RS3)");
     d.click("page.edit");
     d.exec("settings.setWorkflow", json!({"workflow": "premiere"}));
     d.frames(3);
@@ -439,10 +443,24 @@ fn ai_settings_show_local_tuned_models_without_download() {
 /// balances the node's Temperature / Tint and disarms; Auto balance does it in one click.
 #[test]
 fn wb_picker_and_auto_balance_set_temperature_and_tint() {
+    // the Premiere chrome leaves the Primaries panel tall enough at 980 pt for its WB row (in the
+    // Resolve workflow the page toolbar and page bar take 40 pt more, and the row sits under
+    // the page bar; fork RS3)
+    wb_picker_case(filmcraft_engine::settings::Workflow::Premiere, egui::vec2(1600.0, 980.0));
+}
+
+/// Fork RS3: the same on the Resolve workflow's Color page (the fork's default), at 1920×1080.
+#[test]
+fn wb_picker_and_auto_balance_on_the_resolve_color_page() {
+    wb_picker_case(filmcraft_engine::settings::Workflow::Resolve, egui::vec2(1920.0, 1080.0));
+}
+
+fn wb_picker_case(workflow: filmcraft_engine::settings::Workflow, size: egui::Vec2) {
     let mut session = Session::default();
+    session.prefs.workflow = workflow;
     let item = session.execute("file.newColorMatte", json!({"color": "#a08c78", "width": 160, "height": 90, "seconds": 2})).unwrap()["item"].as_u64().unwrap();
     session.execute("file.newSequenceFromClip", json!({"items": [item]})).unwrap();
-    let mut d = Driver::from_session(session);
+    let mut d = Driver::from_session_sized(session, size);
     d.ok("ui.set", json!({"workspace": "Color Grading"}));
     d.frames(3);
     let clip = select_first_clip(&mut d);

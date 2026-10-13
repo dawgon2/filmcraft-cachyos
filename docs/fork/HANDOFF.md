@@ -1,17 +1,57 @@
 # Handoff: FilmCraft fork (6.2K HEVC on CachyOS + RX 6700 XT)
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**
-§1a.1–39+ incl. §1a.6 order; §5 phases; §7 progress log), then [`GRADE-PLAN.md`](../../GRADE-PLAN.md)
+§1a.1–49 incl. §1a.6 order and its 2026-10-12 revisions §1a.40–49; §5 phases; §7 progress log), then [`GRADE-PLAN.md`](../../GRADE-PLAN.md)
 (G2c done; G3 later), [`RESOLVE-UI-PLAN.md`](../../RESOLVE-UI-PLAN.md) (§1a.39), [`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md),
 [`EXPORT-PLAN.md`](../../EXPORT-PLAN.md), [`UPSTREAM-PLAN.md`](../../UPSTREAM-PLAN.md),
 [`AUDIO-PLAN.md`](../../AUDIO-PLAN.md), [`AI-PLAN.md`](../../AI-PLAN.md), [`RAW-PLAN.md`](../../RAW-PLAN.md),
 [`COMPOSITOR-PLAN.md`](../../COMPOSITOR-PLAN.md), [`H264-PLAN.md`](../../H264-PLAN.md),
 [`DECODER-PLAN.md`](../../DECODER-PLAN.md), [`FORK-ONLY.md`](FORK-ONLY.md), [`docs/guide/README.md`](../guide/README.md),
-[`OWNER-QUESTIONS.md`](OWNER-QUESTIONS.md) (Q9 open: temporal NR on the first node only, provisional),
+[`OWNER-QUESTIONS.md`](OWNER-QUESTIONS.md) (Q9 answered 2026-10-12: TNR per clip, step 6.7b),
 then this file. Rewritten 2026-10-12 after G2c (scheduled run: tagged `grade-2c`, built, published).
-Phase order (FORK-PLAN §1a.6, the only valid order): … → 6 ✓ → G2c ✓ → **RS3** (after RS2 / RS2b) → Y1 → 6E → U0.2 → A1 → Y3 →
-C1 → C2 → AI1 → A2 → G3 → 7 (+ Y4) → Y2 → H1 → H2 → H3 → C3 → C4 → G4 → A3 → R1 → R2 → D → 8;
+**Owner decisions 2026-10-12 (live session), all in FORK-PLAN §1a.40–49 — read them:** 6.7b TNR per clip
+(design `docs/fork/DESIGN-6.7b.md`); small phases accepted in groups (first: resolve-ui-1 + RS3 + 6.7b + CO1 + Y1,
+one acceptance after Y1); L1 / L2 Linux integration as a Dell lane (LINUX-PLAN, `docs/fork/LINUX-AUDIT.md`;
+**owned by the scheduled task `filmcraft-dell-lane` (lock `.dell-lane.lock`); the main runner leaves it alone.
+State 2026-10-12 17:10 (handed off for 5-hour pacing, §1a.52): nothing merged yet. 11 commits sit on branch
+`worktree-agent-a3613e020ce2b61ce` (worktree `.claude/worktrees/agent-a3613e020ce2b61ce`; backup `origin/dell-lane-wip`),
+rebased on `a14c61fd`: L2.1 XDG dirs + `app.paths` + one-time move of old Logs / Media Cache; L1.7 taskbar progress,
+notifications ("Show in Folder"), idle / suspend inhibit, single instance (`--new-instance`); FORK-ONLY KIO thumbnailer
+(`fork/kde-thumbnailer`); L2.2 MIME type, Open With (video), desktop actions, recently-used.xbel, `filmcraft-cli thumbnail`,
+`.thumbnailer`; review fixes (Fable review, all 4 majors + minors 5–12 done; 13 waits for RS3: autosave.rs); L2.3 MPRIS;
+L2.8 journal with levels + error window "Report an Issue…"; L1.9 HDR write-up (OWNER-QUESTIONS Q11) + L2.5 trash rule;
+L2.7 background work at nice 10; L2.9 PKGBUILD (+ split `filmcraft-kde-thumbnailer`) + Flatpak grants. Guide: `docs/guide/linux.md`
+(kept out of the Coach index: it shifted colour answers). Dell: scratch repo `~/Projects/filmcraft-linux` (own target),
+gates script `~/fork-logs/linux-gates.sh`; run **s7** at `47432b27` was running at hand-off (log `~/fork-logs/linux-s7.log`;
+tests use `--test-threads=4`, s6 at full parallelism was killed by systemd-oomd). Fixed since s6: coach index, dev_icon test,
+zbus `NameTaken` hand-off. **Not this lane's:** i18n menu-label tests (`spanish_translates_every_menu_label`, Chinese / German /
+Portuguese / Russian / Ukrainian catalogue tests, and `crash::tests::hook_records_and_logs_worker_panics` failing through them)
+fail on Resolve-term labels ("Media Pool", "Inspector", "Timeline Settings…") from RS2 / RS2b on hevc-vaapi.
+Next: s7 green (apart from those) → one opus review of the delta since the Fable review (MPRIS / journal / priority / packaging)
+→ fast-forward merge → §7 log; then `makepkg` check on the Dell, L1.6 arboard `wayland-data-control`, L2.10 KDE Connect,
+L2.4 udisks, L2.6 GPU choice (after U0.2), L1.5 (after U0.2); after RS3: L1.3 / L1.4 (prefs, theme), MPRIS / journal Settings switches.
+Owed on the PC: Program monitor 1:1 at 125 / 150 %, hybrid-GPU default, Plasma taskbar progress / notification / Dolphin
+thumbnail / media keys on the real desktop**); Fable for the hardest builder lanes (runner prompt §2c); Y1 on upstream's `vaapi/` decoder
+(`docs/fork/PREP-Y1-6E-U02.md`); Dolphin thumbnails via fork-only `fork/kde-thumbnailer/`; CO1 Coach quick fix +
+a non-prescriptive node-order page (options, beginner vs pro, why — the rule for every workflow page); AI help
+for Fusion in C1 (COMPOSITOR-PLAN C1 item 7; design `docs/fork/DESIGN-C1.md`); AI1 moved before C1, new AI2
+after C2; explainer retrained at the end of AI1 (`smol360-v2`) and in AI2 (`v3`) (AI-PLAN).
+The G2c / RS1 owed-item fixes are merged (owner session, 2026-10-12 evening; see §7).
+**L1 / L2 two-part acceptance (§1a.54):** part 1 (all but L1.5 / L2.6) rides with the **6E** group (tags `linux-1a` / `linux-2a`); part 2 with the U0.2 group (full `linux-1` / `linux-2`).
+Phase order (FORK-PLAN §1a.6, the only valid order): … → 6 ✓ → G2c ✓ → **RS3** (after RS2 / RS2b) → 6.7b → CO1 → Y1 → 6E → U0.2 → A1 → Y3 → **AI1** → C1 → C2 → **AI2** (§1a.48) → A2 → **S1 → S2** ([`STORAGE-PLAN.md`](../../STORAGE-PLAN.md), §1a.50; A2 first, §1a.51) → G3 (L1 / L2: Dell lane, accepted with the next group when ready, §1a.43; KDE Connect is L2 item 10, §1a.50) → 7 (+ Y4) → Y2 → H1 → H2 → H3 → C3 → C4 → G4 → A3 → R1 → R2 → D → 8;
 RESOLVE-UI-PLAN RS1 + RS2 run as a lane alongside (§1a.39).
+**Owner, 2026-10-12 (§1a.40–41):** Q9 answered (TNR per clip, new step **6.7b** after RS3, before Y1);
+Coach fixes go in C1. **Small phases are accepted in groups:** don't run a separate `cargo xtask ci` /
+build / publish for `resolve-ui-1`, RS3 or 6.7b; the first group (`resolve-ui-1` + RS3 + 6.7b + Y1)
+gets one acceptance after Y1, with all four tags on that commit. Each step still runs its in-between gates.
+**Owner, 2026-10-12 (§1a.43): L1 / L2 run now as a Dell lane** (edits here, every build / test on the Dell,
+nested KWin for window checks; window chrome / theme parts wait for RS3). The runner doesn't start L1 / L2 on this PC.
+When L1 or L2 is done, accept it with the next main-order phase's group (tag `linux-1` / `linux-2` there); don't wait for AI1.
+**Y1 (§1a.45): build on upstream's `vaapi/` H.264 decoder with a zero-copy `Accel`, per `docs/fork/PREP-Y1-6E-U02.md` §1.4 (≈ 7 h); no `va_h264.rs`.** 6E / U0.2 maps are in the same file.
+**Designs ready:** 6.7b → `docs/fork/DESIGN-6.7b.md` (schema v17 migration, ≈ 11–14 h, 8 steps); C1 → `docs/fork/DESIGN-C1.md` (ADR 0006, one DAG model shared with C2, ≈ 36–44 h, 13 steps, leaf lanes T/A/B/C/D). Follow them; their provisional choices are listed at the end of each.
+**CO1 (§1a.47), in the current group after RS2 merges:** Coach fix steps 1–2 from `docs/fork/coach-eval/DIAGNOSIS.md` + the eval set as a test (floor = measured rate) + the node-order guide content (several example trees, beginner vs pro, *why* each order; never one prescribed way). C1 also gets AI help for Fusion (COMPOSITOR-PLAN C1 item 7).
+
+**Usage (owner, 2026-10-12, FORK-PLAN §1a.52): keep working, pace the 5-hour window so it never runs out early** (line 95 % × elapsed fraction; slower modes above it, a brief throttle only far above it; backstop 95 % / weekly 96 %). Don't stop otherwise.
 
 ## Status
 
@@ -31,40 +71,48 @@ RESOLVE-UI-PLAN RS1 + RS2 run as a lane alongside (§1a.39).
   `settings.setWorkflow premiere`**), one-time prefs migration (`crates/engine/src/fork_resolve.rs`,
   marker file `fork-resolve-migrated` in the data dir), `ThemeKind::Resolve`. The owner's own
   prefs migrate on the first launch of the grade-2c build.
-- **Owed (not blocking):** G2c: clipped highlights aren't detected in DWG / HDR sequences; the
-  Coach walk doesn't open Lumetri (`lumetri.wb.*` in `NOT_WALKED`, cloud job COACH-WALK-1).
-  RS1: a session without a data dir (headless / MCP) reports Resolve but keeps the default
-  keymap; the Resolve theme chosen in Premiere isn't remembered across a workflow round trip.
-  From Phase 6: frame server per-frame proxy hint; `cache.claimFolder`; Export Frame without
+- **Owed (not blocking):** From Phase 6: frame server per-frame proxy hint; `cache.claimFolder`; Export Frame without
   TNR; automated 4:2:2 export chroma test; decode-to-screen fps with hardware 4:2:2 in the app;
   software 4:2:2 decoder memory cap / multithreading (ask first); TNR / cache / proxy 6.2K bench
   cases; VPP context leak on purpose (iHD crash on destroy).
-- Schema unchanged (v16); prefs version 3. New user-visible strings (and engine command labels)
+- Schema **v17** since 6.7b (clip `temporal_nr`; `v16_to_v17` moves node `tnr.*`); prefs version 3. New user-visible strings (and engine command labels)
   need es + zh-cn entries. New guide pages go in `GUIDE_PAGES` (`crates/engine/src/coach_ask.rs`)
   and their `{ui:}` ids must be known to the `coach_ui` walk tests.
 - Cloud: merged up to `55f8639c`; CLOUD-QUEUE has GUIDE-7/8, COACH-WALK-1, Y1-PREP, I18N-2.
   Merge `origin/cloud-work` first if it has new commits.
 
-## Exact next step: RESOLVE-UI-PLAN RS2 → RS2b (tag `resolve-ui-1`), then RS3 (tag `resolve-ui-2`), then Y1
+## Run state (2026-10-12 evening, scheduled run; RS2 and RS3 merged)
 
-§1a.6 puts RS3 right after G2c, and RESOLVE-UI-PLAN says RS3 comes after RS2 (RS1 + RS2 + RS2b
-were a lane alongside Phase 6 that only got to RS1). So:
-1. **RS2, Project Manager home screen** (RESOLVE-UI-PLAN RS2 items 1–7): `projects.*` commands
-   in the engine (folder listing, summaries + poster frames written on save, hostile `.fcproj`
-   handling with garbage-file regression tests), the full-window screen in ui-egui, the
-   "At startup show" preference (generic; Resolve workflow defaults to Project Manager), File ▸
-   Project Manager / Media Management relabel in the Resolve workflow, guide
-   `docs/guide/projects.md` ([Resolve-style]). Reference `plan/resolve/screenshots/resolveHomePage.png`
-   (never commit it). Lanes: engine `projects.*` + summaries (one builder) and the UI screen once
-   the command shapes are committed.
-2. **RS2b, Resolve terminology overlay** (`i18n/terms-resolve.tsv` consulted before the
-   catalogue in the Resolve workflow; on-screen words only; tests: no dead keys, live relabel,
-   Premiere byte-identical). Then acceptance (both workflows), tag `resolve-ui-1`.
-3. **RS3, page chrome and layouts** (its own phase, tag `resolve-ui-2`, build + publish per
-   §1a.9 / §1a.33): toolbar row, restyled page bar, per-page workspace presets; screenshots
-   against `plan/resolve/screenshots/` in both workflows.
-4. Then **Y1** (YOUTUBE-PLAN, hard limit 8 agent hours; Intel half can run on the Dell;
-   CLOUD-QUEUE Y1-PREP may have mapped the H.264 fields already).
+- **RS2 merged** (`eba0e218`): engine `projects.*` (`crates/engine/src/projects.rs`: listing,
+  summaries + poster cache, hostile files, OS trash with a checked `.Trash-<uid>`, no-overwrite
+  publishing via hard links, projects folder must be absolute and never `/` / home / an ancestor
+  of home), UI home screen `crates/ui-egui/src/panels/home.rs` (listing on a background thread
+  under `catch_unwind`), guide `docs/guide/projects.md`. Opus review: 2 medium + 4 low findings,
+  all fixed with tests. Known limits: the trash uid comes from the home folder's owner (no
+  unsafe); `projects.new` checks the name then calls `file.saveAs` (tiny race); Export makes a
+  folder, no `.zip` yet; side-by-side screenshot vs `resolveHomePage.png` still owed (run
+  `projects_ui` with `FILMCRAFT_UI_SHOTS=<dir>`), do it in RS3's screenshot pass.
+- RS1 + RS2 + RS2b are all on hevc-vaapi: `resolve-ui-1` is complete; its tag goes on the
+  group-acceptance commit after Y1 (§1a.41), not now.
+- Usage pacing per §1a.52 (5-hour line L5 = 95 × elapsed fraction; owner correction 16:30:
+  pace, don't stop early).
+
+## Exact next step: the group acceptance (ci running at hand-off time), then 6E
+
+RS3 merged (`18583b31`, see §7). RS1 + RS2 + RS2b + RS3 are all on hevc-vaapi; their tags
+`resolve-ui-1` and `resolve-ui-2` go on the group-acceptance commit after Y1 (§1a.41).
+RS3 owed (polish, not blocking): Resolve Color page Primaries cramped under ~1000 pt window
+height (shorter page bar, or scroll to the WB row); toolbar shows Markers instead of Index; no
+Sound Library / Keyframes / LUTs / Lightbox panels; Fairlight top strip isn't per-track meters;
+RS2 home-screen screenshot vs `resolveHomePage.png` still not compared side by side.
+1. **6.7b done** (2026-10-12 21:55, §7): temporal NR is a clip setting (schema **v17**, `tnr.*`
+   commands, Effect Controls / Inspector + Noise tab rows, guide `color/noise.md`). Owed polish:
+   keyframe markers for the TNR rows in the Effect Controls lane; label column too narrow for
+   "Temporal NR chroma". Tag `phase-6-7b` at the group acceptance.
+2. **CO1 done** (2026-10-12 22:11) and **Y1 done** (2026-10-12 23:48, §7): zero-copy VA-API
+   H.264 on upstream's front end (`va_accel.rs`, `Accel::pick`, `vaapi/gray.rs`); owed items in §7.
+3. Group acceptance after Y1 (§1a.41): one `cargo xtask ci`, tags `resolve-ui-1`, `resolve-ui-2`,
+   6.7b's, CO1's, `yt-1` on that commit, one build + publish.
 
 ## Environment and gotchas
 

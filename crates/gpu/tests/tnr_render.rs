@@ -1,5 +1,5 @@
-//! Temporal noise reduction through the whole GPU render (fork 6.7 integration): a clip whose
-//! first grade node has `tnr.*`, rendered by the export renderer with temporal access (the
+//! Temporal noise reduction through the whole GPU render (fork 6.7 integration): a clip with
+//! clip temporal NR (`TrackItem::temporal_nr`, fork 6.7b) and a grade, rendered by the export renderer with temporal access (the
 //! export / render-cache / paused-frame path: `plan_frame` attaches the neighbouring source frames
 //! and their flows, the GPU blends them), matches the CPU reference, and without temporal access
 //! the GPU leaves it out.
@@ -78,10 +78,13 @@ fn project(frames: f64) -> (Project, filmcraft_project::ItemId, SourceMap) {
         filmcraft_project::resolve_auto_points(e, size, size);
     }
     let mut n = GradeNode::new(1);
-    for (k, v) in [("tnr.luma", 1.0), ("tnr.chroma", 0.8), ("tnr.frames", frames), ("saturation", 1.2)] {
-        n.params.insert(k.into(), Param::new(ParamValue::Float(v)));
-    }
+    n.params.insert("saturation".into(), Param::new(ParamValue::Float(1.2)));
     ti.grade = Some(Grade { nodes: vec![n], bypass: false });
+    let mut tnr = filmcraft_project::TemporalNr::default();
+    for (k, v) in [("luma", 1.0), ("chroma", 0.8), ("frames", frames)] {
+        tnr.params.insert(k.into(), Param::new(ParamValue::Float(v)));
+    }
+    ti.temporal_nr = Some(tnr);
     p.sequence_mut(seq).unwrap().video_tracks[0].items.push(ti);
     let mut map = SourceMap::default();
     map.0.insert(item, Arc::new(Fixture { info, frames: frames_v }) as SharedSource);

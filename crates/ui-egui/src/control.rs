@@ -272,6 +272,15 @@ pub fn handle(app: &mut FilmcraftApp, ctx: &egui::Context, req: &ControlRequest)
                 }
             }
             // Essential Graphics ▸ Browse and the template / font dialogs (`panels::graphics_templates`), merged
+            // the Project Manager home screen (fork RS2): folder, sort, search, view, selection…
+            if let Some(patch) = p.get("home") {
+                let mut cur = serde_json::to_value(&app.ui.home).unwrap_or_default();
+                merge(&mut cur, patch);
+                match serde_json::from_value(cur) {
+                    Ok(h) => app.ui.home = h,
+                    Err(e) => return err(format!("bad `home`: {e}")),
+                }
+            }
             if let Some(patch) = p.get("gfxTemplates") {
                 let mut cur = serde_json::to_value(&app.ui.gfx_templates).unwrap_or_default();
                 merge(&mut cur, patch);
