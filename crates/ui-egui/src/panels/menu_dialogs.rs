@@ -129,9 +129,15 @@ pub fn open_path(app: &mut FilmcraftApp, ctx: &egui::Context, path: &str, reveal
     }
 }
 
-/// Where Reveal Log Files points: `<data dir>/Logs` (the temp folder without a data directory).
+/// Where Reveal Log Files points: `<state dir>/Logs` (`$XDG_STATE_HOME/filmcraft/Logs` for a
+/// default Linux install, else `<data dir>/Logs`; the temp folder without a data directory).
 pub fn logs_dir(app: &FilmcraftApp) -> std::path::PathBuf {
-    app.session.prefs_path.as_ref().and_then(|p| p.parent()).map(|d| d.join("Logs")).unwrap_or_else(|| filmcraft_engine::temp_dir().join("FilmCraft Logs"))
+    app.session
+        .prefs_path
+        .as_ref()
+        .and_then(|p| p.parent())
+        .map(|d| filmcraft_engine::dirs::AppDirs::for_data_dir(d).logs())
+        .unwrap_or_else(|| filmcraft_engine::temp_dir().join("FilmCraft Logs"))
 }
 
 /// Write this session's log (system report and the command journal) into [`logs_dir`].

@@ -33,22 +33,24 @@ fn switching_back_and_forth_restores_keymap_and_theme() {
     let dir = tmp_dir("rs1-roundtrip");
     let mut s = start(&dir);
     s.set_workflow(Workflow::Premiere).unwrap();
+    // (one automatic round trip first: a switch must have set a theme before a different one counts as hand-picked)
+    s.set_workflow(Workflow::Resolve).unwrap();
+    s.set_workflow(Workflow::Premiere).unwrap();
     s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "dark"})).unwrap();
     s.execute("shortcuts.loadPreset", json!({"name": "Avid Media Composer Compatible"})).unwrap();
     s.set_workflow(Workflow::Resolve).unwrap();
     assert_eq!(s.shortcuts.preset, "DaVinci Resolve Compatible");
-    assert_eq!(s.prefs.appearance.dark_theme, "resolve");
-    assert_eq!(s.prefs.appearance.color_theme, "resolve", "the legacy theme follows");
-    assert_eq!(s.prefs.workflow_return_theme, "dark");
+    assert_eq!(s.prefs.appearance.dark_theme, "dark", "a theme picked by hand follows the switch");
+    assert_eq!(s.prefs.appearance.color_theme, "dark");
     s.set_workflow(Workflow::Premiere).unwrap();
     assert_eq!(s.shortcuts.preset, "Avid Media Composer Compatible");
     assert_eq!(s.prefs.appearance.dark_theme, "dark");
     assert_eq!(s.prefs.workflow_return_theme, "");
-    // a theme picked by hand while in Resolve stays with Resolve: Premiere gets its own back
+    // a theme picked by hand while in Resolve follows you back to Premiere and on again
     s.set_workflow(Workflow::Resolve).unwrap();
     s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "darkest"})).unwrap();
     s.set_workflow(Workflow::Premiere).unwrap();
-    assert_eq!(s.prefs.appearance.dark_theme, "dark");
+    assert_eq!(s.prefs.appearance.dark_theme, "darkest");
     s.set_workflow(Workflow::Resolve).unwrap();
     assert_eq!(s.prefs.appearance.dark_theme, "darkest");
     s.set_workflow(Workflow::Premiere).unwrap();
@@ -57,49 +59,99 @@ fn switching_back_and_forth_restores_keymap_and_theme() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Each workflow remembers its own dark theme across a round trip, also when it is the Resolve
-/// theme picked in Premiere (it used to come back as Darkest) or a Premiere theme picked in
-/// Resolve (it used to be replaced by the Resolve theme).
+/// A hand-picked theme follows the user across workflow switches, both directions; only when
+/// the theme is the one the last switch set itself does the switch swap it. The Resolve theme
+/// picked in Premiere survives a Premiere -> Resolve -> Premiere round trip (the original bug).
 #[test]
-fn each_workflow_keeps_its_own_theme_across_a_round_trip() {
+fn a_hand_picked_theme_follows_the_user_across_workflow_switches() {
     let dir = tmp_dir("rs1-theme-roundtrip");
     let mut s = start(&dir);
     s.set_workflow(Workflow::Premiere).unwrap();
     let theme = |s: &Session| s.prefs.appearance.dark_theme.clone();
-    // Premiere → Resolve → Premiere with the Resolve theme chosen in Premiere
-    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "resolve"})).unwrap();
+    let pick = |s: &mut Session, t: &str| {
+        s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": t})).unwrap();
+    };
+    // the Resolve theme chosen in Premiere stays through the round trip
+    pick(&mut s, "resolve");
     s.set_workflow(Workflow::Resolve).unwrap();
     assert_eq!(theme(&s), "resolve");
     s.set_workflow(Workflow::Premiere).unwrap();
-    assert_eq!(theme(&s), "resolve", "the Resolve theme chosen in Premiere is remembered");
+    assert_eq!(theme(&s), "resolve");
     assert_eq!(s.prefs.appearance.color_theme, "resolve");
-    // Resolve → Premiere → Resolve with a Premiere theme chosen in Resolve
-    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "dark"})).unwrap();
+    // a Premiere theme chosen in Premiere follows into Resolve and back
+    pick(&mut s, "dark");
     s.set_workflow(Workflow::Resolve).unwrap();
-    assert_eq!(theme(&s), "resolve", "Resolve's own theme the first time");
-    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "darkest"})).unwrap();
+    assert_eq!(theme(&s), "dark", "hand-picked: kept in Resolve");
+    assert_eq!(s.prefs.appearance.color_theme, "dark");
     s.set_workflow(Workflow::Premiere).unwrap();
-    assert_eq!(theme(&s), "dark", "Premiere's choice comes back");
+    assert_eq!(theme(&s), "dark");
+    // and so does one chosen in Resolve, also across a restart
     s.set_workflow(Workflow::Resolve).unwrap();
-    assert_eq!(theme(&s), "darkest", "Resolve's choice comes back");
-    assert_eq!(s.prefs.appearance.color_theme, "darkest");
-    // and both survive a restart
+    pick(&mut s, "darkest");
     drop(s);
     let mut s = start(&dir);
     assert_eq!((s.prefs.workflow, theme(&s).as_str()), (Workflow::Resolve, "darkest"));
     s.set_workflow(Workflow::Premiere).unwrap();
-    assert_eq!(theme(&s), "dark");
+    assert_eq!(theme(&s), "darkest");
     drop(s);
     let mut s = start(&dir);
     s.set_workflow(Workflow::Resolve).unwrap();
     assert_eq!(theme(&s), "darkest");
-    // a remembered theme that no longer exists falls back to each workflow's default
-    s.prefs.workflow_return_theme = "no-such-theme".into();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Without a hand-picked theme the switch swaps: the Resolve theme in Resolve, the previous one
+/// back in Premiere (also across a restart); a remembered theme that no longer exists falls back
+/// to the default.
+#[test]
+fn without_a_hand_picked_theme_the_switch_swaps_and_restores() {
+    let dir = tmp_dir("rs1-theme-auto");
+    let mut s = start(&dir);
     s.set_workflow(Workflow::Premiere).unwrap();
-    assert_eq!(theme(&s), "darkest", "the default dark theme");
-    s.prefs.workflow_return_theme = "no-such-theme".into();
+    let theme = |s: &Session| s.prefs.appearance.dark_theme.clone();
+    let before = theme(&s);
+    s.set_workflow(Workflow::Resolve).unwrap();
+    assert_eq!((theme(&s).as_str(), s.prefs.workflow_return_theme.as_str()), ("resolve", before.as_str()));
+    drop(s);
+    let mut s = start(&dir);
+    assert_eq!(theme(&s), "resolve");
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(theme(&s), before, "the theme from before comes back");
+    // the swap repeats while nothing was picked by hand
     s.set_workflow(Workflow::Resolve).unwrap();
     assert_eq!(theme(&s), "resolve");
+    // a remembered theme that no longer exists falls back to the default
+    s.prefs.workflow_return_theme = "no-such-theme".into();
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(theme(&s), "darkest");
+    // once kept, a hand-picked theme is never swapped away again
+    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "dark"})).unwrap();
+    s.set_workflow(Workflow::Resolve).unwrap();
+    s.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": "darkest"})).unwrap();
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(theme(&s), "darkest");
+    // the bookkeeping can't be set around the switch
+    assert!(s.execute("prefs.set", json!({"key": "workflowAutoTheme", "value": "dark"})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn garbage_auto_theme_is_dropped_and_switching_still_works() {
+    let dir = tmp_dir("rs1-garbage-auto");
+    std::fs::write(
+        dir.join("preferences.json"),
+        serde_json::to_vec(
+            &json!({"version": 3, "workflow": "premiere", "workflowAutoTheme": 7, "workflowReturnTheme": ["x"], "appearance": {"darkTheme": "dark"}}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut s = start(&dir);
+    assert_eq!((s.prefs.workflow_auto_theme.as_str(), s.prefs.workflow_return_theme.as_str()), ("", ""));
+    s.set_workflow(Workflow::Resolve).unwrap();
+    assert_eq!(s.prefs.appearance.dark_theme, "resolve");
+    s.set_workflow(Workflow::Premiere).unwrap();
+    assert_eq!(s.prefs.appearance.dark_theme, "dark");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

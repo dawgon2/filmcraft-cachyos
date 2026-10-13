@@ -40,9 +40,14 @@ mod annexb;
 mod biplanar;
 pub mod cursor;
 #[cfg(target_os = "linux")]
+pub mod export_lanes;
+#[cfg(target_os = "linux")]
 pub mod ffmpeg;
 #[cfg(target_os = "linux")]
 mod gpu_export;
+/// One export renderer per GPU (fork 6E.3).
+#[cfg(target_os = "linux")]
+pub use gpu_export::{frames_on, pci_ids};
 #[cfg(target_os = "macos")]
 pub mod hardware_encode;
 #[cfg(target_os = "linux")]
@@ -133,6 +138,8 @@ pub fn register() -> Availability {
         // frames rendered on the GPU
         hevc_export::register();
         gpu_export::register();
+        // two-GPU export (fork 6E.3): the second GPU's lane, when there is one
+        export_lanes::register();
         // Three VA-API decode paths share one factory (`vaapi_factory`): the fork's in-process
         // HEVC decoder (frames left on the GPU), upstream's in-process H.264 / HEVC decoder, and
         // the ffmpeg pipe (H.264 / HEVC) behind them.

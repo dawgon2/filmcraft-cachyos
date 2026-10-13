@@ -99,6 +99,10 @@ enum Do {
     /// Run a command; `{clip}`, `{node}` and `{other}` in string values are filled in (the
     /// selected clip, its current node, the first clip).
     Exec(&'static str, Value),
+    /// Nothing: the step is already done when it comes up (in the Color Grading workspace the
+    /// Curves panel holds the Qualifier and Windows tabs, so "Open the Primaries tab" finishes as
+    /// soon as it is shown, the wheels never having left the screen).
+    Done,
 }
 
 fn clips(d: &mut Driver) -> Vec<u64> {
@@ -138,6 +142,10 @@ fn walk_on(lesson: &str, steps: &[Do], graded: bool) {
     for (i, act) in steps.iter().enumerate() {
         d.frames(2);
         let st = d.state();
+        if matches!(act, Do::Done) {
+            assert!(st["step"].as_u64().is_some_and(|s| s > i as u64), "{lesson}: step {i} should finish by itself: {st}");
+            continue;
+        }
         assert_eq!(st["step"], json!(i), "{lesson}: at step {i}: {st}");
         // the card is up; the highlighted control is on screen with the spotlight on it
         assert!(d.element("coach.card").is_some(), "{lesson} step {i}: no coach card");
@@ -156,6 +164,7 @@ fn walk_on(lesson: &str, steps: &[Do], graded: bool) {
         let manual = st["expect"]["kind"] == json!("manual");
         assert_eq!(d.element("coach.next").is_some(), manual, "{lesson} step {i}: Next only on manual steps");
         match act {
+            Do::Done => {}
             Do::Next => d.click("coach.next"),
             Do::Workspace => {
                 d.ok("ui.set", json!({"workspace": "Color Grading"}));
@@ -360,7 +369,7 @@ fn coach_fix_skin_end_to_end() {
             Do::Click("grade.qual.show.1"),
             set("qual.soft", json!(0.12)),
             Do::Click("grade.qual.show.0"),
-            Do::Click("grade.tab.primaries"),
+            Do::Done,
             set("saturation", json!(1.1)),
             Do::Click("grade.toggleNode"),
             Do::Next,
@@ -382,7 +391,7 @@ fn coach_tracked_window_end_to_end() {
             Do::Next,
             Do::Exec("masks.set", json!({"clip": "{clip}", "node": "{node}", "mask": 0, "feather": 40.0})),
             Do::Exec("masks.track", json!({"clip": "{clip}", "node": "{node}", "mask": 0, "direction": "forward", "frames": 3, "wait": true})),
-            Do::Click("grade.tab.primaries"),
+            Do::Done,
             set("gamma", json!([0.0, 0.0, 0.0, 0.05])),
             Do::Next,
         ],
@@ -626,10 +635,15 @@ fn walked() -> (Driver, BTreeSet<String>) {
 
 /// Guide ids the walk doesn't reach, each with the reason. Each must still be known to the app's
 /// check (a dynamic id) or a literal automation id in the UI source.
-const NOT_WALKED: &[(&str, &str)] = &[(
-    "export.video.hevcMain10Note",
-    "Export page: only for an 8-bit HEVC export of an HDR sequence when this PC's H.265 encoder can write HDR (a hardware probe)",
-)];
+const NOT_WALKED: &[(&str, &str)] = &[
+    (
+        "export.video.hevcMain10Note",
+        "Export page: only for an 8-bit HEVC export of an HDR sequence when this PC's H.265 encoder can write HDR (a hardware probe)",
+    ),
+    ("project.card.copy", "Project panel card bar: only while the desktop has a camera card mounted (L2.4)"),
+    ("project.card.eject", "Project panel card bar: only after a card's copy is verified (L2.4)"),
+    ("project.card.dismiss", "Project panel card bar: only while the desktop has a camera card mounted (L2.4)"),
+];
 
 fn ui_source() -> String {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

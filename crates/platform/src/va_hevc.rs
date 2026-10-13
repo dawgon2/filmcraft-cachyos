@@ -77,7 +77,15 @@ fn va_format(chroma_format_idc: u32, bits_luma: u32, bits_chroma: u32) -> Result
 
 /// The display a stream of this chroma format decodes on: 4:2:0 on [`Display::get`], 4:2:2 on
 /// [`Display::for_hevc_422`].
-fn display_for(chroma_format_idc: u32) -> Result<Arc<Display>, String> {
+fn display_for(chroma_format_idc: u32, node: Option<&str>) -> Result<Arc<Display>, String> {
+    // a lane of a two-GPU export (fork 6E.3) decodes on its own GPU; 4:2:2 there only if that
+    // GPU decodes it
+    if let Some(node) = node {
+        let d = Display::for_node(node)?;
+        if chroma_format_idc != 2 || d.supports(sys::VAProfile_VAProfileHEVCMain422_10, sys::VAEntrypoint_VAEntrypointVLD) {
+            return Ok(d);
+        }
+    }
     if chroma_format_idc == 2 { Display::for_hevc_422() } else { Display::get() }
 }
 
@@ -95,6 +103,9 @@ pub struct VaHevc {
     pool: Option<Arc<SurfacePool>>,
     /// (width, height, bit depth, chroma_format_idc) the context and pool were made for.
     shape: (u32, u32, u32, u32),
+    /// The render node to decode on (`None`: the process's device), from the thread that made
+    /// the decoder ([`filmcraft_codecs::hw::decode_node`], fork 6E.3).
+    node: Option<String>,
 }
 
 /// A decoded picture: the surface, shared by the DPB and the output.
@@ -102,7 +113,7 @@ pub type VaSurface = Arc<Surface>;
 
 impl VaHevc {
     fn new() -> Self {
-        Self { config: None, context: None, pool: None, shape: (0, 0, 0, 0) }
+        Self { config: None, context: None, pool: None, shape: (0, 0, 0, 0), node: filmcraft_codecs::hw::decode_node() }
     }
 
     /// (Re)make the config, context and pool when the stream's size, depth or chroma format
@@ -122,7 +133,7 @@ impl VaHevc {
         self.context = None;
         self.config = None;
         self.pool = None;
-        let display = display_for(sps.chroma_format_idc)?;
+        let display = display_for(sps.chroma_format_idc, self.node.as_deref())?;
         if !display.supports(profile, sys::VAEntrypoint_VAEntrypointVLD) {
             return Err(format!("the VA-API driver on {} has no HEVC {name} decoder", display.node));
         }
@@ -612,11 +623,12 @@ impl NativeVaDecoder {
         }
         let (profile, _, _, name) = va_format(info.chroma_format_idc, info.bit_depth_luma, info.bit_depth_chroma)
             .map_err(|_| format!("chroma format {} at {}-bit (VA-API decodes 4:2:0 8/10-bit and 4:2:2 10-bit)", info.chroma_format_idc, info.bit_depth_luma))?;
-        let display = display_for(info.chroma_format_idc)?;
+        let accel = VaHevc::new();
+        let display = display_for(info.chroma_format_idc, accel.node.as_deref())?;
         if !display.supports(profile, sys::VAEntrypoint_VAEntrypointVLD) {
             return Err(format!("the VA-API driver on {} has no HEVC {name} decoder", display.node));
         }
-        let mut dec = AccelDecoder::new(VaHevc::new());
+        let mut dec = AccelDecoder::new(accel);
         dec.set_nal_length_size(Some(info.length_size));
         for ps in &info.parameter_sets {
             dec.add_parameter_set(ps).map_err(|e| e.to_string())?;
@@ -989,6 +1001,40 @@ pub fn decode_annexb_with(data: &[u8], handoff: bool) -> Result<Vec<VideoFrame>,
 #[cfg(test)]
 mod tests {
     use super::tile_sizes;
+
+    /// Fork 6E.3: a decoder made on a thread with a decode node decodes on that node's display
+    /// (kept whatever thread decodes later); no node: the process's device; a missing node is an
+    /// error, never another GPU (for 4:2:0; 4:2:2 still falls back to `Display::for_hevc_422()`).
+    #[test]
+    fn decoders_follow_the_thread_decode_node() {
+        use super::{Display, VaHevc, display_for, sys};
+        assert!(display_for(1, Some("/dev/dri/no-such-node")).is_err());
+        assert_eq!(VaHevc::new().node, None);
+        for node in crate::ffmpeg::render_nodes() {
+            let Ok(d) = Display::for_node(&node) else { continue };
+            if !d.supports(sys::VAProfile_VAProfileHEVCMain10, sys::VAEntrypoint_VAEntrypointVLD) {
+                continue;
+            }
+            let n = node.clone();
+            let made = std::thread::spawn(move || {
+                filmcraft_codecs::hw::set_thread_decode_node(Some(n));
+                VaHevc::new().node
+            })
+            .join()
+            .ok()
+            .flatten();
+            assert_eq!(made.as_deref(), Some(node.as_str()));
+            let picked = display_for(1, made.as_deref()).expect("display");
+            assert!(std::sync::Arc::ptr_eq(&picked, &d), "{node}");
+            // 4:2:2 stays on this node only when it decodes 4:2:2
+            if let Ok(p) = display_for(2, Some(&node)) {
+                let here = d.supports(sys::VAProfile_VAProfileHEVCMain422_10, sys::VAEntrypoint_VAEntrypointVLD);
+                if here {
+                    assert!(std::sync::Arc::ptr_eq(&p, &d));
+                }
+            }
+        }
+    }
 
     #[test]
     fn tile_sizes_follow_the_spec() {

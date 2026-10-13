@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=filmcraft-cli
+Exec=filmcraft-cli thumbnail %i %s %o
+MimeType=application/x-filmcraft-project;

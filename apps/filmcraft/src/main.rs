@@ -29,21 +29,37 @@ mod appearance;
 mod args;
 mod audio;
 mod audio_in;
+#[cfg(target_os = "linux")]
+mod cards;
 mod control_server;
+mod desktop;
 #[cfg(target_os = "linux")]
 mod dev_icon;
 mod file_filters;
+#[cfg(target_os = "linux")]
+mod global_shortcuts;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
+#[cfg(target_os = "linux")]
+mod journal;
+#[cfg(target_os = "linux")]
+mod kdeconnect;
 mod logging;
+#[cfg(target_os = "linux")]
+mod mpris;
 #[cfg(target_os = "macos")]
 mod native_menu;
+#[cfg(target_os = "linux")]
+mod recent_files;
+mod single_instance;
+mod window_memory;
 mod window_raise;
 
 use args::{Cli, Launch};
 use chrono::TimeZone;
 use filmcraft_engine::Session;
 use filmcraft_engine::autosave::{AutosaveConfig, default_data_dir};
+use filmcraft_engine::window_state::WindowState;
 use filmcraft_ui_egui::FilmcraftApp;
 use serde_json::json;
 
@@ -82,23 +98,45 @@ fn main() -> eframe::Result {
     let logger = logging::install();
     // lossy, so a value that is not Unicode is reported like any other bad port instead of ignored
     let env_port = std::env::var_os("FILMCRAFT_CONTROL_PORT").map(|p| p.to_string_lossy().into_owned());
-    let Launch { control_port, control_input_only, files, demo, startup_flag, recover, data_dir } = match args::parse(env_port, std::env::args().skip(1)) {
-        Ok(Cli::Run(l)) => l,
-        Ok(Cli::Help) => {
-            tell(args::USAGE, false);
-            return Ok(());
+    let Launch { control_port, control_input_only, files, demo, startup_flag, recover, data_dir, new_instance } =
+        match args::parse(env_port, std::env::args().skip(1)) {
+            Ok(Cli::Run(l)) => l,
+            Ok(Cli::Help) => {
+                tell(args::USAGE, false);
+                return Ok(());
+            }
+            Ok(Cli::Version) => {
+                tell(&format!("filmcraft {}\n", env!("CARGO_PKG_VERSION")), false);
+                return Ok(());
+            }
+            Err(e) => {
+                tell(&format!("filmcraft: {e}\n\n{}", args::USAGE), true);
+                std::process::exit(2);
+            }
+        };
+    // One FilmCraft per data folder (L1.7): a second launch hands its files to the running one
+    // and exits here, before the log file is opened (opening it rotates the running instance's
+    // log) and before any window or decoder starts. Agents (`--control`) and `--new-instance`
+    // always start their own.
+    let desktop_shared = std::sync::Arc::new(desktop::Shared::default());
+    if control_port.is_none() && !new_instance {
+        let new_project = startup_flag && !demo;
+        match single_instance::claim(data_dir.clone().or_else(default_data_dir).as_deref(), &files, new_project, &desktop_shared) {
+            single_instance::Start::HandedOff => return Ok(()),
+            // kept until the app closes (`DesktopHost::shutdown` releases the name)
+            single_instance::Start::Run(holder) => desktop_shared.keep(holder),
         }
-        Ok(Cli::Version) => {
-            tell(&format!("filmcraft {}\n", env!("CARGO_PKG_VERSION")), false);
-            return Ok(());
-        }
-        Err(e) => {
-            tell(&format!("filmcraft: {e}\n\n{}", args::USAGE), true);
-            std::process::exit(2);
-        }
-    };
-    let log_dir = data_dir.clone().or_else(default_data_dir).map(|d| d.join(logging::LOG_DIR));
+    }
+    // `<state dir>/Logs`: `$XDG_STATE_HOME/filmcraft/Logs` for a default Linux install, else
+    // `<data dir>/Logs` (an explicit `--data-dir` keeps everything in one folder; `dirs`). An
+    // older version's `<data dir>/Logs` and `Media Cache` move there first.
+    let dirs = data_dir.clone().or_else(default_data_dir).map(|d| filmcraft_engine::dirs::AppDirs::for_data_dir(&d));
+    let moved = dirs.as_ref().map(filmcraft_engine::dirs::AppDirs::migrate).unwrap_or_default();
+    let log_dir = dirs.as_ref().map(filmcraft_engine::dirs::AppDirs::logs);
     log::info!("FilmCraft {} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    for line in moved {
+        log::info!("{line}");
+    }
     // The log file lives next to the crash logs; opened after the arguments, so `--help`,
     // `--version` and usage errors leave no file behind. Records logged until now go in first.
     if let Some(logger) = logger {
@@ -114,22 +152,35 @@ fn main() -> eframe::Result {
     app_nap::disable();
     #[cfg(target_os = "linux")]
     dev_icon::ensure_dev_desktop_entry();
-    // Panics anywhere go to <data dir>/Logs/crash-<day>.log with a backtrace; the UI pass and
+    // Panics anywhere go to <state dir>/Logs/crash-<day>.log with a backtrace; the UI pass and
     // frame workers catch them and keep running (see filmcraft_ui_egui::crash).
     filmcraft_ui_egui::crash::install(log_dir);
+    // Taskbar progress, notifications, idle / suspend inhibit (L1.7). Off for agents unless
+    // FILMCRAFT_DESKTOP_INTEGRATION=1 (a scripted run shouldn't pop notifications).
+    let desktop_integration = control_port.is_none() || std::env::var_os("FILMCRAFT_DESKTOP_INTEGRATION").is_some_and(|v| v == "1");
     // OS hardware video decoders (VideoToolbox on macOS) in front of our own; Settings ▸ Playback ▸
     // Hardware decoding switches them off. Unsupported streams and failures use our decoders.
     register_hardware_decoders();
     register_gpu_frame_renderer();
+    // The window's size and maximised state from the last run (L1.3; `<state dir>/window.json`).
+    // Agents (`--control`) always get the default size, so their screenshots stay comparable.
+    let window_file = dirs.as_ref().filter(|_| control_port.is_none()).map(|d| WindowState::path(&d.state));
+    let window = window_file.as_deref().and_then(WindowState::load).unwrap_or_default();
+    // Settings ▸ General ▸ Window title bar (fork): open without the desktop's title bar when
+    // FilmCraft draws its own, so it doesn't flash up first (the app follows later changes)
+    let prefs = data_dir.clone().or_else(default_data_dir).map(|d| filmcraft_engine::autosave::Preferences::load(&d.join("preferences.json")));
+    let own_title_bar = filmcraft_ui_egui::window_chrome::wants_own(&prefs.unwrap_or_default().general.title_bar);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("FilmCraft")
-            .with_inner_size([1600.0, 980.0])
-            .with_min_inner_size([900.0, 560.0])
+            .with_inner_size(window.inner_size)
+            .with_maximized(window.maximized)
+            .with_min_inner_size(filmcraft_engine::window_state::MIN_SIZE)
             .with_drag_and_drop(true)
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
             .with_title_shown(false)
+            .with_decorations(!own_title_bar)
             // Started for an agent (`--control`): open without taking the user's keyboard focus.
             .with_active(control_port.is_none())
             .with_icon(app_icon())
@@ -233,12 +284,23 @@ fn main() -> eframe::Result {
             // that waits for the browser never freezes the UI.
             app.hooks.open_url = Some(Box::new(|url: &str| open::that_detached(url).map_err(|e| e.to_string())));
             app.hooks.clipboard_media = Some(Box::new(clipboard_media));
+            #[cfg(target_os = "linux")]
+            if desktop_integration {
+                app.hooks.desktop = Some(Box::new(desktop::LinuxDesktop::start(desktop_shared.clone())));
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = (desktop_integration, &desktop_shared);
             // Settings ▸ General ▸ Interface Language ▸ System Language (#218).
             app.hooks.cursor_screen_position = Some(Box::new(filmcraft_platform::cursor::cursor_screen_position));
             app.hooks.system_languages = Some(Box::new(|| sys_locale::get_locales().collect()));
             // Settings ▸ Appearance ▸ Appearance Mode ▸ Sync with system on Linux desktops whose
             // compositor reports no theme to winit (no polling: see appearance.rs).
-            app.hooks.system_theme = appearance::service();
+            // ▸ Use the system accent color reads the desktop's accent colour the same way (L1.4).
+            if let Some(service) = appearance::service() {
+                app.hooks.system_theme = Some(service.theme);
+                app.hooks.system_accent = Some(service.accent);
+                app.hooks.system_reduced_motion = Some(service.reduced_motion);
+            }
             app.hooks.raise_without_focus = Some(Box::new(|| {
                 window_raise::raise_without_focus();
             }));
@@ -265,7 +327,10 @@ fn main() -> eframe::Result {
                 let rx = control_server::start(port, cc.egui_ctx.clone());
                 app = if control_input_only { app.with_control_input_only(rx) } else { app.with_control(rx) };
             }
-            Ok(Box::new(app))
+            Ok(match window_file {
+                Some(path) => Box::new(window_memory::WindowMemory::new(app, path, window)) as Box<dyn eframe::App>,
+                None => Box::new(app),
+            })
         }),
     );
     // The window could not be created (no usable GPU / graphics driver, no display): say so
@@ -310,6 +375,11 @@ fn open_path(path: &str, reveal: bool) -> Result<(), String> {
         }
         c
     } else {
+        // the file manager selects the file (FileManager1 over D-Bus), else its folder opens
+        #[cfg(target_os = "linux")]
+        if reveal {
+            return desktop::reveal(path);
+        }
         let mut c = std::process::Command::new("xdg-open");
         let p = std::path::Path::new(path);
         c.arg(if reveal { p.parent().unwrap_or(p) } else { p });
@@ -372,6 +442,17 @@ fn agent_event_loop(agent: bool) -> Option<eframe::EventLoopBuilderHook> {
 
 #[cfg(test)]
 mod tests {
+    /// A second launch that hands its files over must not open (and so rotate) the running
+    /// instance's log file: the single-instance claim comes first in `main` (L1.7 review).
+    #[test]
+    fn single_instance_claim_comes_before_the_log_file() {
+        let src = include_str!("main.rs");
+        let main = src.find("fn main()").unwrap_or(0);
+        let claim = src[main..].find("single_instance::claim(").expect("main claims the instance");
+        let attach = src[main..].find("logger.attach_dir(").expect("main opens the log file");
+        assert!(claim < attach, "hand-off launches would rotate the running instance's log");
+    }
+
     /// Start-up registers the hardware decoders whether or not anything is logged (no logger is
     /// installed here, as in a normal run).
     #[test]

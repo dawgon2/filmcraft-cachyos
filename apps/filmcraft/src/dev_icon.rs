@@ -271,9 +271,12 @@ mod tests {
     #[test]
     fn desktop_file_matches_the_packaged_fields() {
         let packaged = include_str!("../../../packaging/linux/ai.storyteller.filmcraft.desktop");
+        // the main group only, without file types and actions: a source-tree run must not take
+        // `.fcproj` / Open With away from an installed FilmCraft (L2.2)
         let expected = packaged
             .lines()
-            .filter(|l| !l.starts_with("TryExec="))
+            .take_while(|l| !l.is_empty())
+            .filter(|l| !l.starts_with("TryExec=") && !l.starts_with("MimeType=") && !l.starts_with("Actions="))
             .map(|l| if l.starts_with("Exec=") { "Exec=\"/target/debug/filmcraft\" %F" } else { l })
             .collect::<Vec<_>>()
             .join("\n")

@@ -1277,6 +1277,15 @@ impl SampleEntry {
     pub fn hevc(cfg: HevcConfig, width: u16, height: u16) -> Self {
         Self::video(FourCc(*b"hvc1"), CodecConfig::Hevc(cfg), width, height)
     }
+    /// HEVC entry with parameter sets in band (`hev1`): the stream may carry VPS / SPS / PPS that
+    /// differ from `cfg`'s (fork 6E.3: chunks encoded by two GPUs whose drivers write different
+    /// sets), so every array is marked incomplete.
+    pub fn hevc_inband(mut cfg: HevcConfig, width: u16, height: u16) -> Self {
+        for a in &mut cfg.arrays {
+            a.completeness = false;
+        }
+        Self::video(FourCc(*b"hev1"), CodecConfig::Hevc(cfg), width, height)
+    }
     /// AV1 entry (`av01`).
     pub fn av1(cfg: Av1Config, width: u16, height: u16) -> Self {
         Self::video(FourCc(*b"av01"), CodecConfig::Av1(cfg), width, height)
@@ -1610,6 +1619,30 @@ mod tests {
         let back = HevcConfig::parse(&cfg.to_bytes()).unwrap();
         assert_eq!(back, cfg);
         assert_eq!(back.sps(), vec![&[0x42u8, 1, 2][..]]);
+    }
+
+    /// Fork 6E.3 S8: `hev1` with every array marked incomplete, and it reads back as written.
+    #[test]
+    fn hev1_inband_entry_roundtrip() {
+        let arrays = vec![
+            HevcNalArray { completeness: true, nal_type: 33, nalus: vec![vec![0x42, 1, 2]] },
+            HevcNalArray { completeness: true, nal_type: 34, nalus: vec![vec![0x44, 1]] },
+        ];
+        let cfg = HevcConfig {
+            general_profile_idc: 2,
+            chroma_format_idc: 1,
+            bit_depth_luma: 10,
+            bit_depth_chroma: 10,
+            length_size: 4,
+            num_temporal_layers: 1,
+            arrays,
+            ..Default::default()
+        };
+        let e = SampleEntry::hevc_inband(cfg, 320, 192);
+        assert_eq!(&e.format.0, b"hev1");
+        let CodecConfig::Hevc(c) = &e.codec else { panic!("hevc") };
+        assert!(c.arrays.iter().all(|a| !a.completeness));
+        assert_eq!(roundtrip(&e, false, b"vide"), e);
     }
 
     #[test]

@@ -135,6 +135,66 @@ impl Display {
         }
     }
 
+    /// The display on render node `node` (fork 6E.3: one media stack per GPU): the process's
+    /// decode or encode display when it is on that node, else one opened once per node and kept.
+    pub fn for_node(node: &str) -> Result<Arc<Display>, String> {
+        static NODES: Mutex<Vec<Arc<Display>>> = Mutex::new(Vec::new());
+        for d in [Display::get(), Display::for_encode()].into_iter().flatten() {
+            if d.node == node {
+                return Ok(d);
+            }
+        }
+        let mut open = NODES.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(d) = open.iter().find(|d| d.node == node) {
+            return Ok(d.clone());
+        }
+        // a handful of GPUs at most; a hostile list of names can't grow it without bound
+        if open.len() >= 8 {
+            return Err("too many VA-API displays".into());
+        }
+        let d = Arc::new(Display::open(lib()?, node).map_err(|e| format!("{node}: {e}"))?);
+        log::info!("VA-API: {} on {}", d.vendor, d.node);
+        open.push(d.clone());
+        Ok(d)
+    }
+
+    /// The display that encodes HEVC Main 4:2:2 10 (fork 6E.4): [`Display::for_encode`] when its
+    /// driver has the profile, else the 4:2:2 decoding display ([`Display::for_hevc_422`]) when it
+    /// encodes it too, else the first render node that does (on this machine Intel's media
+    /// engine: AMD's VCN has no 4:2:2 encoder). Chosen once; an error says why none qualifies.
+    pub fn for_encode_422() -> Result<Arc<Display>, String> {
+        static E: OnceLock<Result<Arc<Display>, String>> = OnceLock::new();
+        E.get_or_init(|| {
+            let (profile, enc) = (sys::VAProfile_VAProfileHEVCMain422_10, sys::VAEntrypoint_VAEntrypointEncSlice);
+            let mut why = Vec::new();
+            let mut seen = Vec::new();
+            for d in [Display::for_encode(), Display::for_hevc_422()].into_iter().flatten() {
+                if d.supports(profile, enc) {
+                    log::info!("VA-API HEVC 4:2:2 encode: {} on {}", d.vendor, d.node);
+                    return Ok(d);
+                }
+                why.push(format!("{}: no HEVC Main 4:2:2 10 encoder ({})", d.node, d.vendor));
+                seen.push(d.node.clone());
+            }
+            let lib = lib()?;
+            for node in crate::ffmpeg::render_nodes() {
+                if seen.contains(&node) {
+                    continue;
+                }
+                match Display::open(lib, &node) {
+                    Ok(d) if d.supports(profile, enc) => {
+                        log::info!("VA-API HEVC 4:2:2 encode: {} on {}", d.vendor, d.node);
+                        return Ok(Arc::new(d));
+                    }
+                    Ok(d) => why.push(format!("{node}: no HEVC Main 4:2:2 10 encoder ({})", d.vendor)),
+                    Err(e) => why.push(format!("{node}: {e}")),
+                }
+            }
+            Err(if why.is_empty() { "no DRM render node".to_string() } else { why.join("; ") })
+        })
+        .clone()
+    }
+
     /// The display that decodes HEVC Main 4:2:2 10 (fork Phase 6.1b):
     /// `FILMCRAFT_VAAPI_422_DEVICE` when set, else [`Display::get`] when its driver has the
     /// profile, else the first render node whose driver advertises `VAProfileHEVCMain422_10`
@@ -360,6 +420,7 @@ param_buffer! {
     MiscRateControl => sys::VABufferType_VAEncMiscParameterBufferType,
     MiscHrd => sys::VABufferType_VAEncMiscParameterBufferType,
     MiscFrameRate => sys::VABufferType_VAEncMiscParameterBufferType,
+    MiscQualityLevel => sys::VABufferType_VAEncMiscParameterBufferType,
     // upstream's hand-written decode structs (`vaapi/ffi.rs`, layouts checked against the header
     // in `vaapi/abi_tests.rs`), filled by its front ends: the fork's zero-copy accelerator
     // (`va_accel.rs`, Y1) hands them to this context
@@ -393,11 +454,22 @@ const _: () = {
     assert!(std::mem::size_of::<Misc<sys::VAEncMiscParameterRateControl>>() == 4 + std::mem::size_of::<sys::VAEncMiscParameterRateControl>());
     assert!(std::mem::size_of::<Misc<sys::VAEncMiscParameterHRD>>() == 4 + std::mem::size_of::<sys::VAEncMiscParameterHRD>());
     assert!(std::mem::size_of::<Misc<sys::VAEncMiscParameterFrameRate>>() == 4 + std::mem::size_of::<sys::VAEncMiscParameterFrameRate>());
+    assert!(std::mem::size_of::<Misc<QualityLevel>>() == 4 + 20);
 };
+
+/// `VAEncMiscParameterBufferQualityLevel` (va.h; not in the generated bindings): the level, then
+/// `VA_PADDING_LOW` (4) reserved words that must be zero.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct QualityLevel {
+    pub quality_level: u32,
+    pub va_reserved: [u32; 4],
+}
 
 pub type MiscRateControl = Misc<sys::VAEncMiscParameterRateControl>;
 pub type MiscHrd = Misc<sys::VAEncMiscParameterHRD>;
 pub type MiscFrameRate = Misc<sys::VAEncMiscParameterFrameRate>;
+pub type MiscQualityLevel = Misc<QualityLevel>;
 
 impl MiscRateControl {
     pub fn new(payload: sys::VAEncMiscParameterRateControl) -> Self {
@@ -407,6 +479,11 @@ impl MiscRateControl {
 impl MiscHrd {
     pub fn new(payload: sys::VAEncMiscParameterHRD) -> Self {
         Misc { kind: sys::VAEncMiscParameterType_VAEncMiscParameterTypeHRD, payload }
+    }
+}
+impl MiscQualityLevel {
+    pub fn new(level: u32) -> Self {
+        Misc { kind: sys::VAEncMiscParameterType_VAEncMiscParameterTypeQualityLevel, payload: QualityLevel { quality_level: level, va_reserved: [0; 4] } }
     }
 }
 impl MiscFrameRate {
@@ -615,6 +692,10 @@ impl Context {
             let p = sys::VAPictureHEVC { picture_id: r.id, pic_order_cnt: poc, flags: 0, ..Default::default() };
             pic.reference_frames[0] = p;
             slice.ref_pic_list0[0] = p;
+            if slice.slice_type == 0 {
+                // low-delay B (fork 6E.3 S12): list 1 is list 0
+                slice.ref_pic_list1[0] = p;
+            }
         }
         pic.coded_buf = coded.id;
         // not `ParamBuffer`s: only made here, with the ids checked above

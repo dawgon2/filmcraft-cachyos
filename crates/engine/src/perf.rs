@@ -65,7 +65,17 @@ pub fn export_json() -> Value {
     let hw = filmcraft_export::hw_encode_stats();
     let stages: serde_json::Map<String, Value> =
         filmcraft_export::stage_times().into_iter().map(|(s, ns)| (format!("{}Ms", s.name()), json!(ns as f64 / 1e6))).collect();
-    json!({"hardware": {"frames": hw.frames, "sessions": hw.sessions, "declined": hw.declined}, "stages": stages})
+    // fork 6E.3: the last HEVC export's lanes (empty: one GPU), its sample entry (hvc1 / hev1),
+    // why it ran on one GPU, and the second GPU an export could use
+    let lanes = filmcraft_export::lanes::last_lanes();
+    json!({
+        "hardware": {"frames": hw.frames, "sessions": hw.sessions, "declined": hw.declined},
+        "stages": stages,
+        "lanes": lanes.lanes,
+        "sampleEntry": lanes.sample_entry,
+        "lanesNote": lanes.note,
+        "secondEncodeNode": filmcraft_export::lanes::second_encode_node(),
+    })
 }
 
 /// The engine's `perf.stats`.

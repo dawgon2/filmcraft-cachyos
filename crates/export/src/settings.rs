@@ -153,6 +153,91 @@ impl HevcEncoder {
     }
 }
 
+/// How many GPUs encode one HEVC export (fork 6E.3, `docs/fork/DESIGN-6E3.md` §2.6): the range is
+/// cut into chunks that the GPUs encode at once and that are joined in order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportEngines {
+    /// Both GPUs when the export qualifies (HEVC through VA-API, 4:2:0, a second encoder, enough
+    /// memory), else one.
+    #[default]
+    Auto,
+    /// The primary GPU only (as before 6E.3).
+    Single,
+    /// Every GPU that can encode; falls back to one, with the reason in the log, when the export
+    /// does not qualify.
+    Dual,
+}
+
+impl ExportEngines {
+    pub const ALL: [ExportEngines; 3] = [ExportEngines::Auto, ExportEngines::Single, ExportEngines::Dual];
+    pub fn label(self) -> &'static str {
+        match self {
+            ExportEngines::Auto => "Auto",
+            ExportEngines::Single => "Primary GPU only",
+            ExportEngines::Dual => "All GPUs",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<ExportEngines> {
+        Some(match s.to_ascii_lowercase().replace([' ', '-', '_', '+'], "").as_str() {
+            "auto" | "default" => ExportEngines::Auto,
+            "single" | "one" | "primary" | "primarygpuonly" | "amdonly" => ExportEngines::Single,
+            "dual" | "two" | "both" | "all" | "allgpus" | "amdintel" => ExportEngines::Dual,
+            _ => return None,
+        })
+    }
+}
+
+/// Speed / quality trade-off of the hardware HEVC encoder (fork 6E.2): the VA-API quality level
+/// in process, `-compression_level` through ffmpeg's `hevc_vaapi`. libx265 has its own preset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HwEncodeSpeed {
+    /// The driver's own default (nothing is sent).
+    #[default]
+    Default,
+    /// The fastest level the driver offers.
+    Speed,
+    /// The middle of the driver's range.
+    Balanced,
+    /// The best quality the driver offers (level 1).
+    Quality,
+}
+
+impl HwEncodeSpeed {
+    pub const ALL: [HwEncodeSpeed; 4] = [HwEncodeSpeed::Default, HwEncodeSpeed::Speed, HwEncodeSpeed::Balanced, HwEncodeSpeed::Quality];
+    pub fn label(self) -> &'static str {
+        match self {
+            HwEncodeSpeed::Default => "Driver default",
+            HwEncodeSpeed::Speed => "Speed",
+            HwEncodeSpeed::Balanced => "Balanced",
+            HwEncodeSpeed::Quality => "Quality",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<HwEncodeSpeed> {
+        Some(match s.to_ascii_lowercase().replace([' ', '-', '_'], "").as_str() {
+            "default" | "driverdefault" | "auto" => HwEncodeSpeed::Default,
+            "speed" | "fast" | "fastest" => HwEncodeSpeed::Speed,
+            "balanced" | "medium" => HwEncodeSpeed::Balanced,
+            "quality" | "best" | "slow" => HwEncodeSpeed::Quality,
+            _ => return None,
+        })
+    }
+    /// The quality level for a driver offering `range` levels (1 = best, `range` = fastest;
+    /// `VAConfigAttribEncQualityRange`); `None`: send nothing (driver default, or one level only).
+    pub fn level(self, range: u32) -> Option<u32> {
+        if range <= 1 {
+            return None;
+        }
+        match self {
+            HwEncodeSpeed::Default => None,
+            HwEncodeSpeed::Speed => Some(range),
+            HwEncodeSpeed::Balanced => Some(range.div_ceil(2).max(1)),
+            HwEncodeSpeed::Quality => Some(1),
+        }
+    }
+}
+
 /// Container of H.264 exports.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -666,5 +751,61 @@ pub fn format_bytes(b: u64) -> String {
         format!("{:.0} MB", b / 1e6)
     } else {
         format!("{:.0} KB", (b / 1e3).max(1.0))
+    }
+}
+
+#[cfg(test)]
+mod hw_speed_tests {
+    use super::HwEncodeSpeed;
+
+    #[test]
+    fn levels_stay_inside_the_driver_range() {
+        // one level (or none reported): nothing is sent
+        for r in [0, 1] {
+            assert!(HwEncodeSpeed::ALL.iter().all(|s| s.level(r).is_none()));
+        }
+        for r in [2u32, 3, 7, u32::MAX] {
+            assert_eq!(HwEncodeSpeed::Default.level(r), None);
+            assert_eq!(HwEncodeSpeed::Quality.level(r), Some(1));
+            assert_eq!(HwEncodeSpeed::Speed.level(r), Some(r));
+            let b = HwEncodeSpeed::Balanced.level(r).unwrap_or(0);
+            assert!((1..=r).contains(&b), "{r}: {b}");
+        }
+        assert_eq!(HwEncodeSpeed::Balanced.level(7), Some(4));
+    }
+
+    #[test]
+    fn names_parse_and_round_trip() {
+        assert_eq!(HwEncodeSpeed::from_name("Speed"), Some(HwEncodeSpeed::Speed));
+        assert_eq!(HwEncodeSpeed::from_name("driver default"), Some(HwEncodeSpeed::Default));
+        assert_eq!(HwEncodeSpeed::from_name("nope"), None);
+        for s in HwEncodeSpeed::ALL {
+            let j = serde_json::to_string(&s).unwrap_or_default();
+            assert_eq!(serde_json::from_str::<HwEncodeSpeed>(&j).ok(), Some(s));
+        }
+        // settings written before 6E.2 read as the driver default
+        let old: crate::ExportSettings = serde_json::from_str("{}").unwrap_or_default();
+        assert_eq!(old.hw_encode_speed, HwEncodeSpeed::Default);
+    }
+}
+
+#[cfg(test)]
+mod export_engines_tests {
+    use super::ExportEngines;
+
+    #[test]
+    fn names_round_trip_and_old_settings_read_as_auto() {
+        for e in ExportEngines::ALL {
+            assert_eq!(ExportEngines::from_name(e.label()), Some(e), "{e:?}");
+            let json = serde_json::to_string(&e).unwrap_or_default();
+            assert_eq!(serde_json::from_str::<ExportEngines>(&json).ok(), Some(e));
+        }
+        assert_eq!(ExportEngines::from_name("AMD + Intel"), Some(ExportEngines::Dual));
+        assert_eq!(ExportEngines::from_name("amd-only"), Some(ExportEngines::Single));
+        assert_eq!(ExportEngines::from_name(""), None);
+        assert_eq!(ExportEngines::from_name("three"), None);
+        // settings written before 6E.3
+        let old: crate::ExportSettings = serde_json::from_str("{}").unwrap_or_default();
+        assert_eq!(old.export_engines, ExportEngines::Auto);
     }
 }

@@ -22,8 +22,8 @@
 use egui::{Align2, Color32, Rect, Sense, pos2, vec2};
 use filmcraft_engine::export::presets::{DEFAULT_PRESET, preset_key};
 use filmcraft_engine::export::{
-    AudioCodec, BitrateMode, ExportSettings, FieldOrder, Format, GpuRendering, H264Profile, HardwareEncoding, HevcEncoder, Multiplexer, MxfVideoCodec,
-    Placement, Scaling, TextOverlay, builtin_presets, format_bytes,
+    AudioCodec, BitrateMode, ExportEngines, ExportSettings, FieldOrder, Format, GpuRendering, H264Profile, HardwareEncoding, HevcEncoder, HwEncodeSpeed,
+    Multiplexer, MxfVideoCodec, Placement, Scaling, TextOverlay, builtin_presets, format_bytes,
 };
 use filmcraft_engine::time::{FrameRate, Tick};
 use serde::{Deserialize, Serialize};
@@ -727,13 +727,43 @@ fn video_section(ui: &mut egui::Ui, reg: &mut Reg, s: &mut ExportSettings, t: &T
                             s.hevc_encoder = *e;
                         }
                     });
-                    row(ui, t, tl!("Profile"), |ui| {
-                        let labels = ["Main (8-bit)", "Main 10 (10-bit)"];
-                        let cur = usize::from(s.hevc_bit_depth == 10);
-                        if let Some(i) = combo(ui, reg, "export.video.hevcProfile", labels[cur], &opts(&labels), 160.0) {
-                            s.hevc_bit_depth = if i == 1 { 10 } else { 8 };
+                    // fork 6E.2: the video engine's speed / quality level (x265 has its own preset)
+                    if s.hevc_encoder != HevcEncoder::X265 {
+                        row(ui, t, tl!("Encoder speed"), |ui| {
+                            let labels: Vec<(String, bool)> = HwEncodeSpeed::ALL.iter().map(|e| (e.label().to_string(), true)).collect();
+                            if let Some(i) = combo(ui, reg, "export.video.hwEncodeSpeed", s.hw_encode_speed.label(), &labels, 160.0)
+                                && let Some(e) = HwEncodeSpeed::ALL.get(i)
+                            {
+                                s.hw_encode_speed = *e;
+                            }
+                        });
+                        // fork 6E.3: one GPU or every GPU that can encode (4:2:2 always runs on one)
+                        row(ui, t, tl!("Export engines"), |ui| {
+                            let labels: Vec<(String, bool)> = ExportEngines::ALL.iter().map(|e| (e.label().to_string(), true)).collect();
+                            if let Some(i) = combo(ui, reg, "export.video.exportEngines", s.export_engines.label(), &labels, 160.0)
+                                && let Some(e) = ExportEngines::ALL.get(i)
+                            {
+                                s.export_engines = *e;
+                            }
+                        });
+                    }
+                    // fork 6E.4: 4:2:2 is Main 4:2:2 10 whatever the profile says
+                    row(ui, t, tl!("Chroma"), |ui| {
+                        let labels = ["4:2:0 (delivery)", "4:2:2 (master, 10-bit)"];
+                        let cur = usize::from(s.hevc_chroma_422);
+                        if let Some(i) = combo(ui, reg, "export.video.hevcChroma", labels[cur], &opts(&labels), 160.0) {
+                            s.hevc_chroma_422 = i == 1;
                         }
                     });
+                    if !s.hevc_chroma_422 {
+                        row(ui, t, tl!("Profile"), |ui| {
+                            let labels = ["Main (8-bit)", "Main 10 (10-bit)"];
+                            let cur = usize::from(s.hevc_bit_depth == 10);
+                            if let Some(i) = combo(ui, reg, "export.video.hevcProfile", labels[cur], &opts(&labels), 160.0) {
+                                s.hevc_bit_depth = if i == 1 { 10 } else { 8 };
+                            }
+                        });
+                    }
                     // fork: an HDR sequence exports H.265 as Main 10 whatever the profile says; say so
                     if hevc_promoted_to_main10(seq_hdr, s, filmcraft_engine::export::hdr_available) {
                         row(ui, t, "", |ui| {

@@ -29,22 +29,32 @@ Each wheel has a puck (colour balance) and a ring (brightness of that range, the
 | **Gain** | {ui:grade.wheel.gain} | brightest tones | set the white level, tint highlights |
 | **Offset** | {ui:grade.wheel.offset} | everything evenly | overall brightness or colour cast |
 
-Under each wheel four numbers show red, green, blue and master offsets. Drag the puck toward a
-colour to add it; drag the ring for brightness. Neutral is all zeros. A common order: balance
-with Offset, then shape with Lift / Gamma / Gain.
+The palette is laid out like Resolve's Primaries: a strip of numbers along the top, the four
+wheels, and a second strip under them. Each wheel has a reset (↺) beside its title, id like
+{ui:grade.wheel.lift.reset}. Under each wheel four boxes show the master (Y, white band), red,
+green and blue offsets; drag a box sideways or click it and type. Under the boxes the ridged
+**jog bar** is the master, the brightness of that range (id like {ui:grade.wheel.gamma.master}):
+drag it left or right, double-click it to return to 0. Drag the puck toward a colour to add it;
+double-click the wheel to centre the puck. Neutral is all zeros.
 
-### Sliders
+There is no single right order. Many colourists balance with Offset first, then shape with Lift /
+Gamma / Gain; others set the black and white points with Lift and Gain first and balance after.
+Try both on the same shot and keep the one that gets you there faster.
+
+### The number strips
 
 | Label | Id | Range (neutral) | Does |
 |---|---|---|---|
+| **Temp** | {ui:grade.param.temperature} | -100 to 100 (0) | cool to warm (blue → orange band) |
+| **Tint** | {ui:grade.param.tint} | -100 to 100 (0) | green to magenta |
 | **Contrast** | {ui:grade.param.contrast} | 0 to 4 (1) | stretches brightness around the pivot |
 | **Pivot** | {ui:grade.param.pivot} | 0 to 1 (0.336, mid grey) | the brightness contrast leaves alone |
 | **Saturation** | {ui:grade.param.saturation} | 0 to 4 (1) | 0 is black and white |
-| **Temperature** | {ui:grade.param.temperature} | -100 to 100 (0) | cool to warm |
-| **Tint** | {ui:grade.param.tint} | -100 to 100 (0) | green to magenta |
+| **Grain**, **Grain size**, **Grain softness** | {ui:grade.param.grain.strength} | see [finishing.md](finishing.md#film-grain) | film grain |
 
-Each slider has a reset button (↺), id like {ui:grade.param.contrast.reset}. The node's **Reset**
-{ui:grade.resetNode} returns every control of the node to neutral.
+Drag a box sideways or type a value. **Double-click a label** to reset that control (the label's
+id is like {ui:grade.param.contrast.reset}). The node's **Reset** {ui:grade.resetNode} returns
+every control of the node to neutral. The node's LUT menu sits under the bottom strip.
 
 ## White balance picker and Auto balance
 
@@ -56,14 +66,14 @@ a shirt, a road sign's white. Finding the right Temperature and Tint by eye take
 sliders interact; the picker solves both at once from that one neutral spot.
 
 1. Select the clip and the node to balance (usually the first one), open **Primaries**.
-2. Click **WB picker** {ui:grade.wb.pick} under the Tint slider. The Program monitor shows a
-   crosshair.
+2. Click the pen icon at the start of the top strip, **WB picker** {ui:grade.wb.pick}. The
+   Program monitor shows a crosshair.
 3. Click on something that should be grey or white, or drag a box over a larger neutral area
    (a box averages out noise and texture). Esc cancels.
 4. **Temperature** and **Tint** move so that spot comes out neutral; the status line shows the
    values. The sliders stay adjustable: warm it back up a little by hand if the scene should
    feel warm.
-5. No obvious neutral? Click **Auto balance** {ui:grade.wb.auto}: it averages the near-grey,
+5. No obvious neutral? Click the round **A** before it, **Auto balance** {ui:grade.wb.auto}: it averages the near-grey,
    mid-tone parts of the whole frame (skipping clipped highlights, deep shadows and strongly
    coloured areas) and balances on that.
 
@@ -88,7 +98,7 @@ correction differently, so the numbers won't match between the two applications.
 
 1. Confirm the clip is interpreted as F-Log2 ([color-management.md](color-management.md)).
 2. Select the clip, add a node, open **Primaries**.
-3. Drag the **Gain** ring up until highlights sit where you want, the **Lift** ring until blacks
+3. Drag the **Gain** jog bar right until highlights sit where you want, the **Lift** jog bar until blacks
    are black.
 4. Raise **Contrast** in small steps; keep **Pivot** at 0.336 unless faces get too dark.
 5. Raise **Saturation** until colours look right.

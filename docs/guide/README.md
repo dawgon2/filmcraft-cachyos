@@ -35,15 +35,17 @@ own solver and explanations).
 | [color/secondaries.md](color/secondaries.md) | Qualifier, windows, tracking (G2) | written (G2.1–G2.3) |
 | [color/noise.md](color/noise.md) | Spatial noise reduction on a node (G2.4), temporal per clip (6.7 / 6.7b) | written (G2.4 spatial, 6.7b temporal) |
 | [color/matching.md](color/matching.md) | Stills, wipe / split, copy / paste / append grades, "same grade?", shot comparison, Shot Match, node explainer, AI explanations | written (G0–G2b) |
-| [color/finishing.md](color/finishing.md) | Grain, highlight soft clip, node LUTs, scopes (noise reduction: noise.md) | partial (grain, soft clip, LUT; scopes to write) |
+| [color/finishing.md](color/finishing.md) | Grain, highlight soft clip, node LUTs, scopes (noise reduction: noise.md) | written (grain, soft clip, LUT; scopes GUIDE-8) |
 | [color/lumetri.md](color/lumetri.md) | Lumetri Color (Premiere-style) and how it relates to the node grader | written (cloud) |
 | [color/coach.md](color/coach.md) | Grading Coach: guided lessons (the lesson list, card buttons, outline, progress, the seven lessons, writing a lesson file), context hints (the list, the switch, writing a hint) and Ask the coach | written (G2.12) |
 | [color/recipes.md](color/recipes.md) | Task recipes in plain steps ("make the sky bluer without touching skin", "fix grey skin", "match a wide and a close-up") | written (cloud: 8 recipes) |
 | [render-cache.md](render-cache.md) | The render cache (Phase 6.3): when it renders, the render bar colours, invalidation, the 2 s H.265 pieces, Settings ▸ Media Cache ▸ Render Cache, `cache.*` commands | written (6.3) |
-| [editing.md](editing.md) | Cutting, JKL, proxies and the render cache (Phase 6), multicam | to write |
+| [editing.md](editing.md) | Cutting, three-point editing, JKL, trimming, multicam (links to proxies / render cache) | written (GUIDE-7) |
+| [cards.md](cards.md) | Copying camera cards (LINUX-PLAN L2.4): the verified copy, the checksum list, cards pulled mid-copy, the card bar and Eject, `card.*` commands, copy-first vs import-from-card | written (L2.4) |
 | [proxies.md](proxies.md) | Automatic proxies (which clips get them, the background worker, badges, Auto / On / Off, cancelling, relinked media) | written (6.2) |
 | [export.md](export.md) | Export presets, hardware HEVC and its fallbacks, bitrate vs constant quality (CRF), HDR → Main 10 | written (cloud; YouTube / Shorts specifics to add with Y phases) |
 | [hardware.md](hardware.md) | What runs on the AMD VCN / Intel / CPU, fallbacks, what the badges mean | written (cloud; badges arrive with Phase 6) |
+| [linux.md](linux.md) | Linux desktop integration (LINUX-PLAN L1 / L2): where files live (XDG folders), and the desktop services added as L1 / L2 land | written (L2.1; grows with each step) |
 | [glossary.md](glossary.md) | Plain-language definitions (log, gamut, node, key, matte, LUT, …) with the Resolve and Premiere names side by side | written (cloud) |
 
 ## How pages are written

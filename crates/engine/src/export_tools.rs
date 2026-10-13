@@ -286,6 +286,22 @@ pub fn settings_from_params(s: &Session, p: &Value, cmd: &str) -> Result<(Option
         }
         settings.x265_preset = v.to_string();
     }
+    // fork 6E.4: "422" writes Main 4:2:2 10 (implies 10-bit)
+    if let Some(v) = str_p(p, "chroma").or_else(|| str_p(p, "hevcChroma")) {
+        settings.hevc_chroma_422 = match v.trim().replace([':', ' '], "").as_str() {
+            "420" => false,
+            "422" => true,
+            _ => return Err(bad(cmd, "chroma: 420 | 422")),
+        };
+    }
+    if let Some(v) = str_p(p, "hwEncodeSpeed").or_else(|| str_p(p, "encodeSpeed")) {
+        settings.hw_encode_speed =
+            filmcraft_export::HwEncodeSpeed::from_name(v).ok_or_else(|| bad(cmd, "hwEncodeSpeed: default | speed | balanced | quality"))?;
+    }
+    // fork 6E.3: how many GPUs encode (HEVC through VA-API)
+    if let Some(v) = str_p(p, "exportEngines").or_else(|| str_p(p, "engines")) {
+        settings.export_engines = filmcraft_export::ExportEngines::from_name(v).ok_or_else(|| bad(cmd, "exportEngines: auto | single | dual"))?;
+    }
     if let Some(v) = str_p(p, "mxfVideoCodec") {
         settings.mxf_video_codec = serde_json::from_value(json!(v)).map_err(|_| bad(cmd, "mxfVideoCodec: dnxhr | proRes | h264"))?;
     }
@@ -1138,5 +1154,19 @@ mod guard_tests {
         assert!(progress.finished.load(Ordering::Relaxed));
         assert!(progress.error.lock().unwrap().is_some());
         assert!(matches!(&*result.lock().unwrap(), Some(Err(_))));
+    }
+
+    /// Fork 6E.3 S9: `exportEngines` (alias `engines`) picks one GPU or all; unknown names are an
+    /// error, no parameter keeps Auto.
+    #[test]
+    fn export_engines_param() {
+        use filmcraft_export::ExportEngines;
+        let s = Session::default();
+        let get = |p: Value| settings_from_params(&s, &p, "file.exportMedia").map(|(_, st)| st.export_engines);
+        assert_eq!(get(serde_json::json!({})).ok(), Some(ExportEngines::Auto));
+        assert_eq!(get(serde_json::json!({"exportEngines": "dual"})).ok(), Some(ExportEngines::Dual));
+        assert_eq!(get(serde_json::json!({"engines": "single"})).ok(), Some(ExportEngines::Single));
+        assert_eq!(get(serde_json::json!({"exportEngines": "All GPUs"})).ok(), Some(ExportEngines::Dual));
+        assert!(get(serde_json::json!({"exportEngines": "three"})).is_err());
     }
 }

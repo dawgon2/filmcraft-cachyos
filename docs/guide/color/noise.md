@@ -22,7 +22,8 @@ tool for static or slowly moving shots; spatial is the fallback where things mov
 **[Resolve-style]**
 
 1. Add a node at the **start** of the chain (`grade.insertNode`, **Insert Node Before** on the
-   first node): noise reduction works best on the picture before contrast and saturation.
+   first node): noise reduction works best on the picture before contrast and saturation,
+   so it goes before the grade rather than after it.
 2. Open the **Noise** tab {ui:grade.tab.noise}.
 3. Raise **NR luma** {ui:grade.param.nr.luma} for grainy brightness noise and **NR chroma**
    {ui:grade.param.nr.chroma} for coloured blotches. Start around 0.3 and compare with the node

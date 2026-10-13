@@ -1,0 +1,10 @@
+{
+    "CacheThumbnail": true,
+    "KPlugin": {
+        "Description": "Pictures of FilmCraft projects (their active sequence), drawn by filmcraft-cli",
+        "MimeTypes": [
+            "application/x-filmcraft-project"
+        ],
+        "Name": "FilmCraft projects"
+    }
+}

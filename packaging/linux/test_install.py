@@ -85,6 +85,27 @@ class InstallTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertEqual(launched.read_text().splitlines(), [str(prefix / "bin/filmcraft"), str(document)])
 
+    def test_actions_keep_their_arguments_and_thumbnailer_gets_absolute_path(self):
+        thumb = self.share / "thumbnailers" / f"{APP_ID}.thumbnailer"
+        thumb.parent.mkdir(parents=True)
+        shutil.copyfile(HERE / f"{APP_ID}.thumbnailer", thumb)
+        prefix = self.root / "user programs"
+        result = self.install("--prefix", prefix)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        desktop = (prefix / "share/applications" / f"{APP_ID}.desktop").read_text()
+        self.assertIn(f'Exec="{prefix}/bin/filmcraft" %F\n', desktop)
+        self.assertIn(f'Exec="{prefix}/bin/filmcraft" --empty\n', desktop)
+        self.assertIn(f'Exec="{prefix}/bin/filmcraft" --new-instance\n', desktop)
+        self.assertIn("MimeType=application/x-filmcraft-project;", desktop)
+        installed = (prefix / "share/thumbnailers" / f"{APP_ID}.thumbnailer").read_text()
+        self.assertIn(f'Exec="{prefix}/bin/filmcraft-cli" thumbnail %i %s %o\n', installed)
+        self.assertIn(f"TryExec={prefix}/bin/filmcraft-cli\n", installed)
+        if shutil.which("desktop-file-validate"):
+            subprocess.run(
+                ["desktop-file-validate", str(prefix / "share/applications" / f"{APP_ID}.desktop")],
+                check=True,
+            )
+
     def test_invalid_arguments_fail_before_writing(self):
         for args in (("--prefix",), ("--prefix", "relative"), ("--prefix", "/"), ("--unknown",),
                      ("--prefix", "///"), ("--prefix", "/tmp/../"), ("--prefix", str(self.bundle)),

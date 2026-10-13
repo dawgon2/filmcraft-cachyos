@@ -1002,3 +1002,115 @@ fn marquee_selects_cards_in_freeform_view() {
     assert_eq!(selection(&mut d), sorted(vec![i0, i1]));
     assert!(!d.app().session.project.item(ItemId(i0)).unwrap().metadata.contains_key(FREEFORM_POS), "the marquee moved no card");
 }
+
+/// Files shared from a paired phone (KDE Connect, L2.10) in both workflows: Offer to import shows
+/// a bar in the Project panel (Import puts the files in the Inbox bin, Dismiss forgets them),
+/// Import into the Inbox bin takes them at once, Ignore leaves them alone.
+#[test]
+fn files_shared_from_a_phone_are_offered_for_import() {
+    use filmcraft_engine::settings::Workflow;
+    let dir = std::env::temp_dir().join(format!("filmcraft-phone-shares-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let wav = |name: &str| {
+        let p = dir.join(name);
+        std::fs::write(&p, filmcraft_engine::previews::write_wav_f32(&[0.0; 9600], 48_000)).unwrap();
+        p.to_string_lossy().into_owned()
+    };
+    let (a, b) = (wav("phone a.wav"), wav("phone b.wav"));
+    let inbox = |d: &mut Driver| {
+        d.app().session.project.root.children.iter().find_map(|e| match e {
+            BinEntry::Bin(bin) if bin.name == "Inbox" => Some(bin.children.len()),
+            _ => None,
+        })
+    };
+    for workflow in [Workflow::Premiere, Workflow::Resolve] {
+        let mut d = project_driver();
+        d.app().session.prefs.workflow = workflow;
+        let shared = |d: &mut Driver, path: &str| d.ok("ui.menu.invoke", json!({"id": "kdeconnect.received", "params": {"path": path, "device": "Pixel"}}));
+        // Offer (the default): one bar for the file, shared twice
+        shared(&mut d, &a);
+        shared(&mut d, &a);
+        d.frames(2);
+        assert_eq!(d.app().ui.phone_shares.len(), 1, "{workflow:?}");
+        assert!(d.has("project.phoneShares.import"), "{workflow:?}");
+        assert_eq!(inbox(&mut d), None, "nothing imported before Import");
+        d.click("project.phoneShares.import");
+        d.frames(2);
+        assert!(d.app().ui.phone_shares.is_empty());
+        assert_eq!(inbox(&mut d), Some(1), "{workflow:?}");
+        assert!(!d.has("project.phoneShares.import"), "the bar is gone");
+        // Dismiss forgets them
+        shared(&mut d, &b);
+        d.frames(2);
+        d.click("project.phoneShares.dismiss");
+        d.frames(2);
+        assert!(d.app().ui.phone_shares.is_empty());
+        assert_eq!(inbox(&mut d), Some(1));
+        // Import into the Inbox bin: at once, into the same bin
+        d.exec("prefs.set", json!({"key": "media.phoneShares", "value": "inbox"}));
+        shared(&mut d, &b);
+        assert!(d.app().ui.phone_shares.is_empty());
+        assert_eq!(inbox(&mut d), Some(2), "{workflow:?}");
+        // Ignore
+        d.exec("prefs.set", json!({"key": "media.phoneShares", "value": "off"}));
+        shared(&mut d, &a);
+        assert!(d.app().ui.phone_shares.is_empty());
+        assert_eq!(inbox(&mut d), Some(2));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Camera cards (LINUX-PLAN L2.4), in both workflows: a mounted card gets the Project panel's card
+/// bar; Copy asks for the destination the first time (Settings ▸ Media ▸ Copy camera cards to),
+/// copies and verifies in the background and imports the media into a bin named after the copy;
+/// then the bar offers Eject; Dismiss hides it; Settings ▸ Media ▸ Camera cards ▸ Ignore offers
+/// nothing.
+#[test]
+fn a_mounted_camera_card_is_offered_copied_and_imported() {
+    use filmcraft_engine::settings::Workflow;
+    let root = std::env::temp_dir().join(format!("filmcraft-card-bar-{}", std::process::id()));
+    let card = root.join("FUJI");
+    std::fs::create_dir_all(card.join("DCIM/100_FUJI")).unwrap();
+    std::fs::write(card.join("DCIM/100_FUJI/DSCF0001.WAV"), filmcraft_engine::previews::write_wav_f32(&[0.0; 9600], 48_000)).unwrap();
+    let mount = card.to_string_lossy().into_owned();
+    let card_bin = |d: &mut Driver| {
+        d.app().session.project.root.children.iter().find_map(|e| match e {
+            BinEntry::Bin(bin) if bin.name.starts_with("FUJI ") => Some(bin.children.len()),
+            _ => None,
+        })
+    };
+    for (k, workflow) in [Workflow::Premiere, Workflow::Resolve].into_iter().enumerate() {
+        let drive = root.join(format!("drive{k}"));
+        std::fs::create_dir_all(&drive).unwrap();
+        let mut d = project_driver();
+        d.app().session.prefs.workflow = workflow;
+        let picked = drive.to_string_lossy().into_owned();
+        d.app().hooks.pick_folder = Some(Box::new(move || Some(picked.clone())));
+        d.ok("ui.menu.invoke", json!({"id": "card.detected", "params": {"mount": mount}}));
+        d.frames(2);
+        assert!(d.has("project.card.copy"), "{workflow:?}");
+        assert!(!d.has("project.card.eject"));
+        d.click("project.card.copy");
+        let mut n = 0;
+        while card_bin(&mut d).is_none() && n < 500 {
+            d.frames(1);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            n += 1;
+        }
+        assert_eq!(card_bin(&mut d), Some(1), "{workflow:?}: the clip is imported");
+        assert_eq!(d.app().session.prefs.media.card_destination, drive.to_string_lossy(), "the destination is remembered");
+        d.frames(2);
+        assert!(d.has("project.card.eject"), "{workflow:?}: verified, so Eject");
+        assert!(!d.has("project.card.copy"));
+        d.click("project.card.dismiss");
+        d.frames(2);
+        assert!(d.app().ui.cards.is_empty());
+        assert!(!d.has("project.card.eject"));
+        // Ignore
+        d.exec("prefs.set", json!({"key": "media.cameraCards", "value": "off"}));
+        d.ok("ui.menu.invoke", json!({"id": "card.detected", "params": {"mount": mount}}));
+        d.frames(2);
+        assert!(d.app().ui.cards.is_empty() && !d.has("project.card.copy"), "{workflow:?}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}

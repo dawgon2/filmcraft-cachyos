@@ -59,9 +59,10 @@ Resolve Compatible keys and the Resolve theme, so `settings.getWorkflow` and the
 The Resolve workflow shows the **Resolve** dark theme (near-black bars, cool grey panels, an
 orange-red accent). Choosing **Premiere Pro** puts back the dark theme you had. Settings ▸
 Appearance ▸ Dark Theme (and View ▸ Appearance ▸ **Resolve**, `view.theme.resolve`) lets either
-workflow use any theme, and each workflow remembers its own: pick the Resolve theme while in
-Premiere, or Darkest while in Resolve, and that choice comes back every time you return to that
-workflow (switching only swaps between the two remembered themes). A highlight colour you set yourself still replaces the Resolve accent.
+workflow use any theme, and a theme you pick yourself follows you across workflow switches in both
+directions: pick the Resolve theme while in Premiere, or Darkest while in Resolve, and it stays.
+Only while you have not picked one yourself does the switch swap the theme (Resolve gets the
+Resolve theme; going back to Premiere restores the theme you had before). A highlight colour you set yourself still replaces the Resolve accent.
 
 ### Terminology follows the workflow
 
@@ -125,6 +126,23 @@ full list.
 
 The pages are FilmCraft workspaces, not separate programs, so edits, colour and export share one
 project and one undo history; each page's layout can be rearranged and saved ([pages.md](pages.md)). The keymap is a convenience, not a copy of Resolve.
+
+### Window frame: FilmCraft's or your desktop's
+
+**[Fork]** On Linux and Windows, Settings ▸ General, just below Workflow (`general.titleBar`),
+chooses who draws the top edge of the window:
+
+- **FilmCraft (like DaVinci Resolve)**, the default: no desktop frame. Minimise, maximise and close
+  sit at the right end of the top row; drag the top row to move the window, double-click it to
+  maximise, and drag the window's outer edge or corners to resize it. Dragging to a screen edge
+  still tiles the window, and Plasma's keyboard shortcuts (Meta+Up and so on) still work.
+- **System**: your desktop's own frame (Plasma's decoration theme, for example Breeze or Klassy),
+  with its window menu (Keep Above, window rules), shadow and rounded corners.
+
+Which to pick is taste: FilmCraft's gives the picture a few more pixels and looks like Resolve;
+the desktop's matches your other windows and keeps the decoration's extras. On a tiling window
+manager the System choice usually fits better. The change applies when you press OK. macOS
+always keeps its own window buttons.
 
 ## Import X-M5 clips
 

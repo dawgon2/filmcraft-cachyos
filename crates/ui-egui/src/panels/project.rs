@@ -281,10 +281,103 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         tab_strip(app, ui, strip, &docked);
         rect.min.y = strip.max.y;
     }
+    // files shared from a paired phone (KDE Connect, L2.10) waiting for Import
+    if !app.ui.phone_shares.is_empty() {
+        let bar = Rect::from_min_size(rect.min, vec2(rect.width(), 26.0));
+        phone_share_bar(app, ui, bar, &mut actions);
+        rect.min.y = bar.max.y;
+    }
+    // a camera card the desktop mounted (L2.4): copy, then eject
+    if let Some(card) = app.ui.cards.last().cloned() {
+        let bar = Rect::from_min_size(rect.min, vec2(rect.width(), 26.0));
+        card_bar(app, ui, bar, &card, &mut actions);
+        rect.min.y = bar.max.y;
+    }
     let inst = shown_inst(app);
     let v = view_of(app, inst);
     body(app, ui, rect, &v, &mut actions);
     run(app, ui.ctx(), actions);
+}
+
+/// The offer bar for files a paired phone shared (KDE Connect, L2.10, Settings ▸ Media ▸ Files
+/// shared from a phone ▸ Offer to import): Import puts them in the Inbox bin, Dismiss forgets them.
+fn phone_share_bar(app: &mut FilmcraftApp, ui: &mut egui::Ui, bar: Rect, actions: &mut Actions) {
+    let t = app.tokens;
+    ui.painter().rect_filled(bar, 0.0, t.hover);
+    let n = app.ui.phone_shares.len();
+    let device = app.ui.phone_shares.last().map(|s| s.device.clone()).unwrap_or_default();
+    let text = tlf!("{n} new file(s) from {device}", n = n, device = device).to_string();
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(8.0, 2.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    let dismiss = child.button(tl!("Dismiss"));
+    app.auto.add("project.phoneShares.dismiss", dismiss.rect, "Dismiss");
+    if dismiss.clicked() {
+        actions.push(("kdeconnect.dismissReceived".into(), json!({})));
+    }
+    let import = child.button(tl!("Import"));
+    app.auto.add("project.phoneShares.import", import.rect, "Import");
+    if import.clicked() {
+        actions.push(("kdeconnect.importReceived".into(), json!({})));
+    }
+    child.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.add(egui::Label::new(egui::RichText::new(text).size(11.5).color(t.text)).truncate());
+    });
+}
+
+/// The card bar (L2.4, Settings ▸ Media ▸ Camera cards ▸ Offer to copy): Copy (into Settings ▸
+/// Media ▸ Copy camera cards to, asked the first time) and Dismiss; while copying, the progress;
+/// when the copy is verified, Eject.
+fn card_bar(app: &mut FilmcraftApp, ui: &mut egui::Ui, bar: Rect, card: &crate::desktop::CardOffer, actions: &mut Actions) {
+    use std::sync::atomic::Ordering;
+    let t = app.tokens;
+    ui.painter().rect_filled(bar, 0.0, t.hover);
+    let job = card.job.and_then(|id| app.session.jobs.iter().find(|j| j.id == id));
+    // (finished, error, percent)
+    let state = job.map(|j| {
+        let error = j.progress.error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        (j.progress.finished.load(Ordering::Relaxed), error, (j.progress.fraction().clamp(0.0, 1.0) * 100.0).round() as u32)
+    });
+    let label = card.label.clone();
+    let text = match &state {
+        None if card.job.is_some() => tlf!("{card} is copied", card = label).to_string(),
+        None => tlf!("Camera card {card}", card = label).to_string(),
+        Some((false, _, pct)) => tlf!("Copying {card}… {pct} %", card = label, pct = pct).to_string(),
+        Some((true, None, _)) => tlf!("{card} is copied and verified", card = label).to_string(),
+        Some((true, Some(e), _)) => tlf!("Copying {card} stopped: {error}", card = label, error = e).to_string(),
+    };
+    let mount = card.mount.clone();
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(8.0, 2.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    let copying = matches!(state, Some((false, _, _)));
+    if !copying {
+        let dismiss = child.button(tl!("Dismiss"));
+        app.auto.add("project.card.dismiss", dismiss.rect, "Dismiss");
+        if dismiss.clicked() {
+            actions.push(("card.dismiss".into(), json!({"mount": mount})));
+        }
+    }
+    let copied = matches!(state, Some((true, None, _))) || (state.is_none() && card.job.is_some());
+    if copied && !card.ejecting {
+        let eject = child.button(tl!("Eject"));
+        app.auto.add("project.card.eject", eject.rect, "Eject");
+        if eject.clicked() {
+            actions.push(("card.eject".into(), json!({"mount": mount})));
+        }
+    } else if !copying && !copied {
+        let again = matches!(state, Some((true, Some(_), _)));
+        let copy = child.button(if again { tl!("Copy Again") } else { tl!("Copy") });
+        app.auto.add("project.card.copy", copy.rect, "Copy");
+        if copy.clicked() {
+            // the first time: ask where cards go, and remember it
+            if app.session.prefs.media.card_destination.trim().is_empty()
+                && let Some(dir) = app.hooks.pick_folder.as_mut().and_then(|f| f())
+            {
+                actions.push(("prefs.set".into(), json!({"key": "media.cardDestination", "value": dir})));
+            }
+            actions.push(("card.copy".into(), json!({"mount": mount})));
+        }
+    }
+    child.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.add(egui::Label::new(egui::RichText::new(text).size(11.5).color(t.text)).truncate());
+    });
 }
 
 fn tab_strip(app: &mut FilmcraftApp, ui: &mut egui::Ui, strip: Rect, docked: &[usize]) {

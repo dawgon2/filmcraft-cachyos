@@ -18,6 +18,7 @@ use std::io::Write;
 mod aac_out;
 mod audio_out;
 mod job;
+pub mod lanes;
 mod mxf_out;
 mod pace;
 mod pcm;
@@ -365,6 +366,16 @@ pub struct ExportSettings {
     /// libx265's speed preset (`ultrafast` … `veryslow`; empty or unknown = `medium`).
     #[serde(default)]
     pub x265_preset: String,
+    /// The hardware HEVC encoder's speed / quality level (fork 6E.2).
+    #[serde(default)]
+    pub hw_encode_speed: HwEncodeSpeed,
+    /// How many GPUs encode the export (fork 6E.3).
+    #[serde(default)]
+    pub export_engines: ExportEngines,
+    /// HEVC 4:2:2 10-bit (Main 4:2:2 10; fork 6E.4, the "HEVC 4:2:2 10-bit master" preset)
+    /// instead of 4:2:0; implies 10-bit.
+    #[serde(default)]
+    pub hevc_chroma_422: bool,
     pub bitrate_mode: BitrateMode,
     /// Constant rate factor of [`BitrateMode::Crf`], 0 (best) to 51 (smallest); 23 by default,
     /// 18 is visually near-lossless. H.264: the built-in encoder's CRF; H.265 (fork): x265's CRF
@@ -571,6 +582,9 @@ impl Default for ExportSettings {
             hevc_bit_depth: 8,
             hevc_encoder: HevcEncoder::Auto,
             x265_preset: String::new(),
+            hw_encode_speed: HwEncodeSpeed::Default,
+            export_engines: ExportEngines::Auto,
+            hevc_chroma_422: false,
             bitrate_mode: BitrateMode::default(),
             crf: DEFAULT_CRF,
             hardware_encoding: HardwareEncoding::default(),
@@ -1659,7 +1673,18 @@ pub fn rgba_to_yuv420_8(rgba: &[u8], w: usize, h: usize, y: &mut Vec<u8>, u: &mu
 /// average) from encoded R'G'B' in 0..1: `px(i)` is pixel `i` (row-major). Matrix (Kr, Kb).
 /// `out` is resized to the frame; pixels past the source come out black.
 pub fn rgb_to_yuv420p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: usize, kr: f32, kb: f32, out: &mut Vec<u8>) {
-    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    rgb_to_yuv_p10le(px, w, h, kr, kb, 2, out);
+}
+
+/// [`rgb_to_yuv420p10le`] with full-height chroma: planar `yuv422p10le` (fork 6E.4).
+pub fn rgb_to_yuv422p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: usize, kr: f32, kb: f32, out: &mut Vec<u8>) {
+    rgb_to_yuv_p10le(px, w, h, kr, kb, 1, out);
+}
+
+/// Planar 10-bit Y'CbCr with chroma halved horizontally and `vsub` (1 or 2) vertically.
+fn rgb_to_yuv_p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: usize, kr: f32, kb: f32, vsub: usize, out: &mut Vec<u8>) {
+    let vsub = vsub.clamp(1, 2);
+    let (cw, ch) = (w.div_ceil(2), h.div_ceil(vsub));
     let kg = 1.0 - kr - kb;
     let (sb, sr) = (2.0 * (1.0 - kb), 2.0 * (1.0 - kr));
     out.resize((w * h + 2 * cw * ch) * 2, 0);
@@ -1668,13 +1693,13 @@ pub fn rgb_to_yuv420p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: us
     }
     let (yp, c) = out.split_at_mut(w * h * 2);
     let (up, vp) = c.split_at_mut(cw * ch * 2);
-    yp.par_chunks_mut(w * 4).zip(up.par_chunks_mut(cw * 2).zip(vp.par_chunks_mut(cw * 2))).enumerate().for_each(|(cy, (yr, (ur, vr)))| {
+    yp.par_chunks_mut(w * 2 * vsub).zip(up.par_chunks_mut(cw * 2).zip(vp.par_chunks_mut(cw * 2))).enumerate().for_each(|(cy, (yr, (ur, vr)))| {
         let rows = yr.len() / (w * 2);
         let mut us = vec![0f32; cw];
         let mut vs = vec![0f32; cw];
         let mut cnt = vec![0f32; cw];
         for dy in 0..rows {
-            let row = cy * 2 + dy;
+            let row = cy * vsub + dy;
             for x in 0..w {
                 let [r, g, b] = px(row * w + x);
                 let yy = kr * r + kg * g + kb * b;
@@ -1701,6 +1726,69 @@ pub fn rgb_to_yuv420p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: us
             }
         }
     });
+}
+
+/// An encoder frame as planar `yuv422p10le` (fork 6E.4: the 4:2:2 HEVC master), from its R'G'B'
+/// (HDR floats with the signalled matrix, else 8-bit RGBA as BT.709). A frame that only exists as
+/// 4:2:0 (converted or rendered on the GPU) has its chroma rows doubled; no picture at all is black.
+pub fn frame_to_yuv422p10le(f: &EncoderFrame, signal: ColorSignal, out: &mut Vec<u8>) {
+    let (w, h) = (f.width as usize, f.height as usize);
+    match f.hdr {
+        Some(rgb) if rgb.len() >= w.saturating_mul(h).saturating_mul(3) => {
+            let (kr, kb) = signal.kr_kb();
+            return rgb_to_yuv422p10le(
+                |i| match rgb.get(i * 3..i * 3 + 3) {
+                    Some(p) => [p[0], p[1], p[2]],
+                    None => [0.0; 3],
+                },
+                w,
+                h,
+                kr,
+                kb,
+                out,
+            );
+        }
+        _ => {}
+    }
+    if f.rgba.len() >= w.saturating_mul(h).saturating_mul(4) {
+        return rgb_to_yuv422p10le(
+            |i| match f.rgba.get(i * 4..i * 4 + 3) {
+                Some(p) => [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0],
+                None => [0.0; 3],
+            },
+            w,
+            h,
+            0.2126,
+            0.0722,
+            out,
+        );
+    }
+    let mut yuv420 = Vec::new();
+    frame_to_yuv420p(f, signal, true, &mut yuv420);
+    yuv420_to_422_10(&yuv420, w, h, out);
+}
+
+/// Planar `yuv420p10le` to `yuv422p10le` by repeating each chroma row; a short frame comes out
+/// black (limited range).
+fn yuv420_to_422_10(src: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
+    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    out.clear();
+    if w == 0 || h == 0 {
+        return;
+    }
+    if src.len() < (w * h + 2 * cw * ch) * 2 {
+        out.extend(std::iter::repeat_n(64u16.to_le_bytes(), w * h).flatten());
+        out.extend(std::iter::repeat_n(512u16.to_le_bytes(), 2 * cw * h).flatten());
+        return;
+    }
+    let (y, c) = src.split_at(w * h * 2);
+    out.extend_from_slice(y);
+    for plane in c.chunks_exact(cw * ch * 2).take(2) {
+        for row in 0..h {
+            let r = (row / 2).min(ch.saturating_sub(1));
+            out.extend_from_slice(&plane[r * cw * 2..(r + 1) * cw * 2]);
+        }
+    }
 }
 
 /// An encoder frame as 4:2:0 planar bytes for an external encoder: `yuv420p` (8-bit) or
@@ -2007,19 +2095,80 @@ pub fn encode_still_with_quality(format: Format, rgba: Vec<u8>, w: u32, h: u32, 
     Ok(out.into_inner())
 }
 
+/// A stepped export to the end; the error says whether two-GPU lanes failed.
+fn run_stepped(
+    project: &Arc<Project>,
+    seq: ItemId,
+    settings: &ExportSettings,
+    sources: &dyn SourceProvider,
+    progress: &Progress,
+) -> std::result::Result<Report, (ExportError, bool)> {
+    let mut ex = Exporter::new(project.clone(), seq, settings, progress).map_err(|e| (e, false))?;
+    loop {
+        match ex.step(sources, progress) {
+            Ok(Step::Progress) => {}
+            Ok(Step::Done(r)) => return Ok(r),
+            // only asynchronous (web) sources defer; a blocking export cannot wait for them
+            Ok(Step::Pending) => return Err((ExportError::Io("media data is still loading; run the export as a stepped job".into()), false)),
+            Err(e) => return Err((e, ex.lanes_failed())),
+        }
+    }
+}
+
+/// The one-GPU run after failed lanes (fork 6E.3), on a progress of its own whose frames show
+/// in `progress` only once they pass what the lanes reached: the bar never goes back. Cancel
+/// still reaches it; its status, loudness and finished flag are copied over.
+fn rerun_single(project: &Arc<Project>, seq: ItemId, settings: &ExportSettings, sources: &dyn SourceProvider, progress: &Progress) -> Result<Report> {
+    let inner = Progress::default();
+    let over = AtomicBool::new(false);
+    let forward = |inner: &Progress| {
+        progress.done.fetch_max(inner.done.load(Ordering::Relaxed), Ordering::Relaxed);
+        if progress.cancel.load(Ordering::Relaxed) {
+            inner.cancel.store(true, Ordering::Relaxed);
+        }
+        let status = inner.status.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if !status.is_empty() {
+            progress.set_status(status);
+        }
+    };
+    let r = std::thread::scope(|s| {
+        s.spawn(|| {
+            while !over.load(Ordering::Relaxed) {
+                forward(&inner);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        });
+        let r = run_stepped(project, seq, settings, sources, &inner).map_err(|(e, _)| e);
+        over.store(true, Ordering::Relaxed);
+        r
+    });
+    forward(&inner);
+    *progress.loudness.lock().unwrap_or_else(|e| e.into_inner()) = *inner.loudness.lock().unwrap_or_else(|e| e.into_inner());
+    if inner.finished.load(Ordering::Relaxed) {
+        progress.finished.store(true, Ordering::Relaxed);
+    }
+    r
+}
+
 /// Run an export (blocking; call from a worker thread).
 pub fn export(project: &Arc<Project>, seq: ItemId, settings: &ExportSettings, sources: &dyn SourceProvider, progress: &Progress) -> Result<Report> {
     settings.validate()?;
     if stepped(settings.format) {
-        let mut ex = Exporter::new(project.clone(), seq, settings, progress)?;
-        loop {
-            match ex.step(sources, progress)? {
-                Step::Progress => {}
-                Step::Done(r) => return Ok(r),
-                // only asynchronous (web) sources defer; a blocking export cannot wait for them
-                Step::Pending => return Err(ExportError::Io("media data is still loading; run the export as a stepped job".into())),
+        return match run_stepped(project, seq, settings, sources, progress) {
+            // a two-GPU export whose lanes failed runs again on one GPU from the start (fork 6E.3,
+            // DESIGN-6E3 Q6: simple, and rare)
+            Err((e, true)) if settings.export_engines != ExportEngines::Single => {
+                // the failed lanes' report (which lane failed and why) stays in perf.stats
+                let mut report = lanes::last_lanes();
+                let mut single = settings.clone();
+                single.export_engines = ExportEngines::Single;
+                let r = rerun_single(project, seq, &single, sources, progress);
+                report.note = Some(format!("two GPUs failed ({e}); exported again on one GPU"));
+                lanes::set_last_lanes(report);
+                r
             }
-        }
+            r => r.map_err(|(e, _)| e),
+        };
     }
     let t0 = web_time::Instant::now();
     let range = export_range(project, seq, settings)?;
@@ -2148,3 +2297,49 @@ mod determinism_tests;
 
 #[cfg(test)]
 mod hdr_tests;
+
+#[cfg(test)]
+mod yuv422_tests {
+    use super::*;
+
+    fn frame<'a>(w: u32, h: u32, rgba: &'a [u8], yuv: Option<&'a [u8]>) -> EncoderFrame<'a> {
+        EncoderFrame { width: w, height: h, rgba, hdr: None, yuv, gpu: None, index: 0 }
+    }
+
+    fn at(b: &[u8], i: usize) -> u16 {
+        u16::from_le_bytes([b[i * 2], b[i * 2 + 1]])
+    }
+
+    #[test]
+    fn rgba_keeps_chroma_per_row() {
+        // 2x2: a red row over a blue row; 4:2:0 would average them, 4:2:2 keeps both
+        let rgba = [255, 0, 0, 255, 255, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 255];
+        let mut out = Vec::new();
+        frame_to_yuv422p10le(&frame(2, 2, &rgba, None), ColorSignal::default(), &mut out);
+        assert_eq!(out.len(), (4 + 2 * 2) * 2);
+        let (cb, cr) = ([at(&out, 4), at(&out, 5)], [at(&out, 6), at(&out, 7)]);
+        assert!(cr[0] > 900 && cr[1] < 512, "Cr per row: {cr:?}");
+        assert!(cb[0] < 512 && cb[1] > 900, "Cb per row: {cb:?}");
+    }
+
+    #[test]
+    fn a_420_frame_doubles_its_chroma_rows_and_bad_input_is_black() {
+        // 2x4 yuv420p10le: Y 0..8, U 100,101 (rows 0-1, 2-3), V 200,201
+        let mut src = Vec::new();
+        for v in (0..8u16).chain([100, 101, 200, 201]) {
+            src.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut out = Vec::new();
+        frame_to_yuv422p10le(&frame(2, 4, &[], Some(&src)), ColorSignal::default(), &mut out);
+        let c: Vec<u16> = (8..16).map(|i| at(&out, i)).collect();
+        assert_eq!(c, vec![100, 100, 101, 101, 200, 200, 201, 201]);
+        // a short picture: the right size, pixels past it black; empty frames: nothing, no panic
+        frame_to_yuv422p10le(&frame(4, 2, &[1, 2, 3], None), ColorSignal::default(), &mut out);
+        assert_eq!(out.len(), (8 + 2 * 2 * 2) * 2);
+        assert_eq!((at(&out, 7), at(&out, 15)), (64, 512));
+        frame_to_yuv422p10le(&frame(0, 0, &[], None), ColorSignal::default(), &mut out);
+        assert!(out.is_empty());
+        frame_to_yuv422p10le(&frame(0, 5, &[], None), ColorSignal::default(), &mut out);
+        assert!(out.is_empty());
+    }
+}

@@ -489,6 +489,9 @@ pub struct UiState {
     /// the engine's `EditorState::grade_node`.
     #[serde(default)]
     pub grade_tab: String,
+    /// The Curves panel's tab (fork, Resolve's middle palette): "curves", "qualifier" or "windows".
+    #[serde(default)]
+    pub grade_tab_mid: String,
     /// Collapsed effect sections in Effect Controls ("clip:index").
     pub collapsed_fx: Vec<String>,
     /// Width of Effect Controls' effect list, left of the keyframe area (points; 0 = the default
@@ -507,6 +510,15 @@ pub struct UiState {
     pub show_scopes: bool,
     /// Transient status line shown in the footer.
     pub status: String,
+    /// Files shared from a paired phone (KDE Connect, L2.10) waiting in the Project panel's
+    /// offer bar for Import / Dismiss (Settings ▸ Media ▸ Files shared from a phone ▸ Offer to
+    /// import). Readable over the control channel; never restored.
+    #[serde(default, skip_deserializing)]
+    pub phone_shares: Vec<crate::desktop::PhoneShare>,
+    /// Camera cards the desktop mounted (L2.4), offered in the Project panel's card bar. Readable
+    /// over the control channel; never restored.
+    #[serde(default, skip_deserializing)]
+    pub cards: Vec<crate::desktop::CardOffer>,
     /// The colour parameter an armed eyedropper will fill with the next pixel clicked in the Program
     /// monitor (Esc or a click elsewhere disarms it). Never saved.
     #[serde(skip)]
@@ -1030,6 +1042,7 @@ impl Default for UiState {
             expanded_fx: vec!["Video Transitions".into(), "Video Transitions/Dissolve".into()],
             lumetri_grid_folder: None,
             grade_tab: String::new(),
+            grade_tab_mid: String::new(),
             collapsed_fx: vec![],
             effect_controls_split: 0.0,
             show_menu_bar: true,
@@ -1038,6 +1051,8 @@ impl Default for UiState {
             dark: true,
             show_scopes: false,
             status: String::new(),
+            phone_shares: Vec::new(),
+            cards: Vec::new(),
             eyedropper: None,
             grade_picker: None,
             wb_picker: None,

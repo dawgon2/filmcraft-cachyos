@@ -32,6 +32,7 @@ macro_rules! out {
 
 mod args;
 mod probe;
+mod thumbnail;
 
 use args::{Args, parse_value};
 use filmcraft_automation::BridgeClient;
@@ -75,7 +76,7 @@ SUBCOMMANDS
   inspect [project|sequence]    project tree or active sequence as JSON (default: both)
   import <file>...              import media into the project
   export <out> [--preset name] [--format f] [--range r] [--start s --end s] [--settings json]
-         [--gpu-rendering auto|off]
+         [--gpu-rendering auto|off] [--export-engines auto|single|dual]
          [--scale f] [--quality 0-100] [--no-audio] [--queue]
          [--fps r] [--width w --height h] [--bitrate kbps] [--max-bitrate kbps]
          [--crf 0-51] [--bit-depth 8|10] [--encoder auto|vaapi|x265]
@@ -93,6 +94,9 @@ SUBCOMMANDS
                                 instead of --bitrate / --max-bitrate (kbps)
   export --list-presets [query] list export presets (name, category, format) as JSON
   render --seconds S --out f.png [--scale 0.5]   render one Program frame to PNG
+  thumbnail <file> <size> <out.png>
+                                a PNG of a project (its active sequence) or a media file, the
+                                longer side <size> pixels (16-2048), for file managers
   probe <media> [--image-sequence]
                                 media info as JSON, with MXF / Ogg / BWF details; with
                                 --image-sequence <media> is the first numbered still of a sequence
@@ -445,6 +449,9 @@ async fn cli() {
             if let Some(v) = a.opt("--gpu-rendering") {
                 p["gpuRendering"] = json!(v); // off | auto (validated by the export command)
             }
+            if let Some(v) = a.opt("--export-engines") {
+                p["exportEngines"] = json!(v); // auto | single | dual (fork 6E.3, validated by the command)
+            }
             let mut b = Backend::open(&a);
             let t0 = std::time::Instant::now();
             let r = if a.flag("--queue") {
@@ -480,6 +487,13 @@ async fn cli() {
             let png = filmcraft_automation::png_rgba(img.w as u32, img.h as u32, img.over_black_rgba8(), 0).unwrap_or_else(|e| fail(e));
             std::fs::write(out, png).unwrap_or_else(|e| fail(format!("{out}: {e}")));
             diag(format_args!("rendered {}x{} in {:.1} ms → {out}", img.w, img.h, dt.as_secs_f64() * 1000.0));
+        }
+        "thumbnail" => {
+            let (Some(input), Some(size), Some(out)) = (a.pos(1), a.pos(2), a.pos(3)) else { usage("thumbnail <file> <size> <out.png>") };
+            let size = thumbnail::parse_size(size).unwrap_or_else(|e| usage(e));
+            if let Err(e) = thumbnail::write(std::path::Path::new(input), size, std::path::Path::new(out)) {
+                fail(format!("thumbnail: {e}"));
+            }
         }
         "mcp" => {
             if let Some(opt) = a.unknown_opt(&["--bridge", "--project", "--demo", "--data-dir"]) {

@@ -3546,3 +3546,43 @@
 	Notes for this project: to-dos, instructions, frame numbers… Saved with the project.	Notes pour ce projet : tâches, instructions, numéros d'image… Enregistrées avec le projet.
 	Use Effect Shutter Angle	Utiliser l'angle d'obturation de l'effet
 	Settings	Préférences
+	Use the system accent color	Utiliser la couleur d'accentuation du système
+	Animations	Animations
+	Off (reduce motion)	Désactivé (réduire les animations)
+	Media keys and the desktop's media controls	Touches multimédia et commandes multimédia du bureau
+	Global shortcuts: Play / Pause and Add Marker while another window has focus	Raccourcis globaux : Lecture / Pause et Ajouter un marqueur quand une autre fenêtre a le focus
+	Send via KDE Connect	Envoyer avec KDE Connect
+	Paired Devices (KDE Connect)	Appareils associés (KDE Connect)
+	Sending {name} to {device}	Envoi de {name} vers {device}
+	KDE Connect	KDE Connect
+	Files shared from a phone (KDE Connect)	Fichiers partagés depuis un téléphone (KDE Connect)
+	Offer to import	Proposer de les importer
+	Import into the Inbox bin	Importer dans le chutier Inbox
+	Ignore	Ignorer
+	{n} new file(s) from {device}	{n} nouveau(x) fichier(s) de {device}
+	Dismiss	Ignorer
+	Imported {n} file(s) shared from a phone into the Inbox bin	{n} fichier(s) partagé(s) depuis un téléphone importé(s) dans le chutier Inbox
+	File Shared from a Phone (KDE Connect)	Fichier partagé depuis un téléphone (KDE Connect)
+	Import Files Shared from a Phone	Importer les fichiers partagés depuis un téléphone
+	Dismiss Files Shared from a Phone	Ignorer les fichiers partagés depuis un téléphone
+	Camera cards	Cartes d'appareil photo
+	Offer to copy	Proposer de les copier
+	Copy camera cards to	Copier les cartes d'appareil photo dans
+	Ejecting {card}…	Éjection de {card}…
+	{card} can be removed now	{card} peut être retirée
+	Couldn't eject {card}: {error}	Impossible d'éjecter {card} : {error}
+	Choose where camera cards are copied to (Settings ▸ Media ▸ Copy camera cards to)	Choisissez où copier les cartes d'appareil photo (Préférences ▸ Médias ▸ Copier les cartes d'appareil photo dans)
+	{card} is copied	{card} est copiée
+	Camera card {card}	Carte d'appareil photo {card}
+	Copying {card}… {pct} %	Copie de {card}… {pct} %
+	{card} is copied and verified	{card} est copiée et vérifiée
+	Copying {card} stopped: {error}	La copie de {card} s'est arrêtée : {error}
+	Eject	Éjecter
+	Copy Again	Copier à nouveau
+	Camera Card Mounted	Carte d'appareil photo montée
+	Camera Card Removed	Carte d'appareil photo retirée
+	Copy Camera Card	Copier la carte d'appareil photo
+	Eject Camera Card	Éjecter la carte d'appareil photo
+	Camera Card Ejected	Carte d'appareil photo éjectée
+	Dismiss Camera Card	Ignorer la carte d'appareil photo
+	Card	Carte

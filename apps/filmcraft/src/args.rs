@@ -13,8 +13,10 @@ Options:
   --empty            start with an empty project
   --recover          recover the newest unsaved changes without asking
   --no-recover       start without asking about unsaved changes
-  --data-dir <dir>   folder for auto-save, crash recovery and logs
-                     (also: FILMCRAFT_DATA_DIR)
+  --new-instance     start another window even if FilmCraft is running
+                     (normally files go to the running one)
+  --data-dir <dir>   one folder for auto-save, crash recovery, logs and
+                     the media cache (also: FILMCRAFT_DATA_DIR)
   --version          print the version and exit
   -h, --help         print this help and exit
 ";
@@ -39,6 +41,8 @@ pub struct Launch {
     pub startup_flag: bool,
     pub recover: Option<bool>,
     pub data_dir: Option<std::path::PathBuf>,
+    /// `--new-instance`: don't hand the files to a running FilmCraft (`single_instance`).
+    pub new_instance: bool,
 }
 
 /// Parse the arguments after the program name. `env_control_port` is the value of
@@ -49,7 +53,16 @@ pub struct Launch {
 /// a script waiting for it. That holds for the whole line, so `--version --bogus` is an error
 /// too, and for a port from the environment exactly as for one from `--control`.
 pub fn parse(env_control_port: Option<String>, args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
-    let mut l = Launch { control_port: None, control_input_only: false, files: Vec::new(), demo: true, startup_flag: false, recover: None, data_dir: None };
+    let mut l = Launch {
+        control_port: None,
+        control_input_only: false,
+        files: Vec::new(),
+        demo: true,
+        startup_flag: false,
+        recover: None,
+        data_dir: None,
+        new_instance: false,
+    };
     let (mut help, mut version) = (false, false);
     let mut args = args.into_iter();
     while let Some(a) = args.next() {
@@ -65,6 +78,7 @@ pub fn parse(env_control_port: Option<String>, args: impl IntoIterator<Item = St
             "--empty" => (l.demo, l.startup_flag) = (false, true),
             "--recover" => l.recover = Some(true),
             "--no-recover" => l.recover = Some(false),
+            "--new-instance" => l.new_instance = true,
             "--data-dir" => l.data_dir = Some(args.next().map(std::path::PathBuf::from).ok_or("--data-dir needs a folder")?),
             // everything after `--` is a file, whatever it looks like
             "--" => l.files.extend(args.by_ref()),
@@ -119,7 +133,7 @@ mod tests {
         assert_eq!(parse_args(&["--version"]), Ok(Cli::Version));
         assert_eq!(parse_args(&["--version", "--help"]), Ok(Cli::Help));
         assert_eq!(parse_args(&["a.mp4", "--version"]), Ok(Cli::Version));
-        for flag in ["--control", "--demo", "--empty", "--recover", "--no-recover", "--data-dir", "--version", "--help"] {
+        for flag in ["--control", "--demo", "--empty", "--recover", "--no-recover", "--new-instance", "--data-dir", "--version", "--help"] {
             assert!(USAGE.contains(flag), "usage lists {flag}");
         }
     }
@@ -166,13 +180,24 @@ mod tests {
         let none = launch(&[]);
         assert_eq!(
             none,
-            Launch { control_port: None, control_input_only: false, files: vec![], demo: true, startup_flag: false, recover: None, data_dir: None }
+            Launch {
+                control_port: None,
+                control_input_only: false,
+                files: vec![],
+                demo: true,
+                startup_flag: false,
+                recover: None,
+                data_dir: None,
+                new_instance: false
+            }
         );
         let l = launch(&["--control", "9876", "--empty", "--no-recover", "--data-dir", "/tmp/fc", "cut.fcproj", "a.mp4"]);
         assert_eq!(l.control_port, Some(9876));
         assert_eq!((l.demo, l.startup_flag, l.recover), (false, true, Some(false)));
         assert_eq!(l.data_dir, Some(std::path::PathBuf::from("/tmp/fc")));
         assert_eq!(l.files, ["cut.fcproj", "a.mp4"]);
+        assert!(!l.new_instance);
+        assert!(launch(&["--new-instance", "a.mp4"]).new_instance);
         assert_eq!((launch(&["--demo"]).demo, launch(&["--demo"]).startup_flag, launch(&["--recover"]).recover), (true, true, Some(true)));
         // `--` ends the options; a lone `-` and macOS' process serial number are not options
         assert_eq!(launch(&["--", "--odd name.mov", "-h"]).files, ["--odd name.mov", "-h"]);

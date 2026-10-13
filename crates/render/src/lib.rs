@@ -54,6 +54,14 @@ pub use image::Image;
 /// Resolves project items to media sources (the engine owns the media pool).
 pub trait SourceProvider: Sync {
     fn source(&self, item: ItemId) -> Option<SharedSource>;
+
+    /// A second provider over the same media with sources (and decoders) of its own, for another
+    /// GPU's lane of a two-GPU export (fork 6E.3): two lanes on one source would seek one decoder
+    /// back and forth. `None` (the default): this provider cannot make one; the export stays on
+    /// one GPU.
+    fn lane_copy(&self) -> Option<Arc<dyn SourceProvider + Send + Sync>> {
+        None
+    }
 }
 
 impl<F: Fn(ItemId) -> Option<SharedSource> + Sync> SourceProvider for F {

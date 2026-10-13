@@ -464,6 +464,21 @@ impl MediaPool {
         PoolProvider { pool: self.clone(), project, services, full_res: false }
     }
 
+    /// An empty pool with this one's openers, proxy mode and offline record (shared): its sources
+    /// open the same files again with decoders of their own (fork 6E.3, the second GPU's lane of an
+    /// export; the decoders are made on that lane's threads, so they decode on its GPU).
+    pub fn lane_copy(&self) -> MediaPool {
+        let openers = self.openers.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        MediaPool {
+            sources: RwLock::new(HashMap::new()),
+            proxies: RwLock::new(HashMap::new()),
+            offline: self.offline.clone(),
+            proxy_mode: AtomicU8::new(self.proxy_mode.load(std::sync::atomic::Ordering::Relaxed)),
+            motion: AtomicBool::new(false),
+            openers: RwLock::new(openers),
+        }
+    }
+
     /// A provider that always reads full-resolution media (export).
     pub fn full_res_provider(self: &Arc<Self>, project: Arc<Project>, services: Arc<dyn Services>) -> PoolProvider {
         PoolProvider { pool: self.clone(), project, services, full_res: true }
@@ -482,6 +497,16 @@ pub struct PoolProvider {
 impl filmcraft_render::SourceProvider for PoolProvider {
     fn source(&self, item: ItemId) -> Option<SharedSource> {
         if self.full_res { self.pool.full_res_source(&self.project, item, &*self.services) } else { self.pool.source_for(&self.project, item, &*self.services) }
+    }
+
+    /// The same project snapshot over a [`MediaPool::lane_copy`] (fork 6E.3).
+    fn lane_copy(&self) -> Option<Arc<dyn filmcraft_render::SourceProvider + Send + Sync>> {
+        Some(Arc::new(PoolProvider {
+            pool: Arc::new(self.pool.lane_copy()),
+            project: self.project.clone(),
+            services: self.services.clone(),
+            full_res: self.full_res,
+        }))
     }
 }
 
@@ -666,6 +691,29 @@ mod tests {
             assert!(!session.is_enabled("file.mediaProperties"));
             assert!(session.execute("transcript.generate", serde_json::json!({"items":[a.0]})).is_err());
         }
+    }
+
+    /// Fork 6E.3: a lane copy is a separate pool (its own sources and decoders) with the same
+    /// openers, proxy mode and offline record; the provider's copy reads the same snapshot.
+    #[test]
+    fn lane_copies_open_their_own_sources() {
+        use filmcraft_render::SourceProvider;
+        let pool = Arc::new(MediaPool::default());
+        pool.set_proxy_mode(ProxyMode::On);
+        let copy = pool.lane_copy();
+        assert_eq!(copy.proxy_mode(), ProxyMode::On);
+        assert_eq!(copy.openers.read().map(|o| o.len()).ok(), pool.openers.read().map(|o| o.len()).ok());
+        assert!(Arc::ptr_eq(&copy.offline, &pool.offline));
+        let wav = filmcraft_media::wav::write_wav16(&[0.0, 0.5, -0.5, 0.25], 2, 48_000);
+        let a = copy.open_file("a.wav", &ReaderOnly(wav.clone().into())).expect("copy opens");
+        let b = pool.open_file("a.wav", &ReaderOnly(wav.into())).expect("pool opens");
+        assert!(!Arc::ptr_eq(&a, &b));
+        let provider = pool.full_res_provider(Arc::new(Project::default()), Arc::new(crate::FsServices));
+        let lane = provider.lane_copy().expect("a lane copy");
+        assert!(lane.source(ItemId(1)).is_none(), "same (empty) snapshot");
+        // a plain closure provider cannot make one
+        let f = |_: ItemId| -> Option<SharedSource> { None };
+        assert!(f.lane_copy().is_none());
     }
 
     #[test]

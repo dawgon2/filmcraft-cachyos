@@ -1152,6 +1152,31 @@ fn worker(
 
 impl Drop for FrameServer {
     fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+impl FrameServer {
+    /// Stop the workers and wait at most `timeout` for them to exit (the app is closing; dropping
+    /// the server only tells them to stop). The frames they are rendering are cancelled, so this
+    /// is quick unless a source ignores cancellation. Returns whether every worker exited.
+    pub fn stop_and_wait(&self, timeout: Duration) -> bool {
+        self.stop();
+        let start = Instant::now();
+        let end = start.checked_add(timeout).unwrap_or(start);
+        // each worker holds a reference to the shared state until it exits
+        while Arc::strong_count(&self.shared) > 1 {
+            if Instant::now() >= end {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        true
+    }
+
+    /// Tell the workers to stop: the queue is dropped, frames being rendered are cancelled, and the
+    /// caches are emptied.
+    fn stop(&self) {
         let sh = &self.shared;
         sh.stop.store(true, Ordering::Relaxed);
         sh.queue.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -1487,6 +1512,19 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert_eq!(shared.strong_count(), 0, "the workers exited");
+    }
+
+    /// The app waits for its frame workers when it closes (fork 2026-10-13: a dropped app's
+    /// workers kept rendering for seconds, and the UI test binary, one app per test, piled them up
+    /// until it ran out of memory).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stop_and_wait_returns_once_the_workers_exited() {
+        let s = filmcraft_engine::Session::default();
+        let server = super::FrameServer::new(s.media.clone(), s.services.clone(), s.previews.clone(), 3);
+        let shared = std::sync::Arc::downgrade(&server.shared);
+        assert!(server.stop_and_wait(std::time::Duration::from_secs(5)), "the workers exited in time");
+        assert_eq!(shared.strong_count(), 1, "only the server itself still holds the shared state");
     }
 
     #[test]

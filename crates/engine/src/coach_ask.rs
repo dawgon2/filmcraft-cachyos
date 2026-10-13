@@ -70,9 +70,12 @@ const SYNONYM_WEIGHT: f64 = 0.5;
 pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("README.md", include_str!("../../../docs/guide/README.md")),
     ("getting-started.md", include_str!("../../../docs/guide/getting-started.md")),
+    ("cards.md", include_str!("../../../docs/guide/cards.md")),
+    ("editing.md", include_str!("../../../docs/guide/editing.md")),
     ("export.md", include_str!("../../../docs/guide/export.md")),
     ("glossary.md", include_str!("../../../docs/guide/glossary.md")),
     ("hardware.md", include_str!("../../../docs/guide/hardware.md")),
+    ("linux.md", include_str!("../../../docs/guide/linux.md")),
     ("pages.md", include_str!("../../../docs/guide/pages.md")),
     ("projects.md", include_str!("../../../docs/guide/projects.md")),
     ("proxies.md", include_str!("../../../docs/guide/proxies.md")),
@@ -91,8 +94,10 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("color/secondaries.md", include_str!("../../../docs/guide/color/secondaries.md")),
 ];
 
-/// Pages that are about the guide itself (how it is written), not about the app: not searched.
-const NOT_INDEXED: &[&str] = &["README.md"];
+/// Pages that are about the guide itself (how it is written), not about the app, and pages
+/// about the desktop rather than editing or grading (`linux.md`: its words shifted the Coach's
+/// ranking of colour questions): not searched.
+const NOT_INDEXED: &[&str] = &["README.md", "linux.md"];
 
 /// Sections that are never an answer (page, heading): the glossary's table of Resolve / Premiere
 /// names has no steps and outranks the entry it points to (its useful names are synonyms).

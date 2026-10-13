@@ -3545,3 +3545,43 @@
 	Edit Project Notes	プロジェクトメモを編集
 	Notes for this project: to-dos, instructions, frame numbers… Saved with the project.	このプロジェクトのメモ: やること、指示、フレーム番号など… プロジェクトと一緒に保存されます。
 	GPU acceleration is unavailable; preview renders on the CPU	GPU アクセラレーションを利用できません。プレビューは CPU でレンダリングされます
+	Use the system accent color	システムのアクセントカラーを使用
+	Animations	アニメーション
+	Off (reduce motion)	オフ (動きを減らす)
+	Media keys and the desktop's media controls	メディアキーとデスクトップのメディアコントロール
+	Global shortcuts: Play / Pause and Add Marker while another window has focus	グローバルショートカット: 別のウィンドウにフォーカスがあるときの再生 / 一時停止とマーカーを追加
+	Send via KDE Connect	KDE Connect で送信
+	Paired Devices (KDE Connect)	ペアリング済みのデバイス (KDE Connect)
+	Sending {name} to {device}	{name} を {device} に送信中
+	KDE Connect	KDE Connect
+	Files shared from a phone (KDE Connect)	スマートフォンから共有されたファイル (KDE Connect)
+	Offer to import	読み込みを提案
+	Import into the Inbox bin	Inbox ビンに読み込む
+	Ignore	無視
+	{n} new file(s) from {device}	{device} から新しいファイル {n} 件
+	Dismiss	閉じる
+	Imported {n} file(s) shared from a phone into the Inbox bin	スマートフォンから共有されたファイル {n} 件を Inbox ビンに読み込みました
+	File Shared from a Phone (KDE Connect)	スマートフォンから共有されたファイル (KDE Connect)
+	Import Files Shared from a Phone	スマートフォンから共有されたファイルを読み込む
+	Dismiss Files Shared from a Phone	スマートフォンから共有されたファイルを閉じる
+	Camera cards	カメラのカード
+	Offer to copy	コピーを提案
+	Copy camera cards to	カメラのカードのコピー先
+	Ejecting {card}…	{card} を取り出しています…
+	{card} can be removed now	{card} を取り外せます
+	Couldn't eject {card}: {error}	{card} を取り出せませんでした: {error}
+	Choose where camera cards are copied to (Settings ▸ Media ▸ Copy camera cards to)	カメラのカードのコピー先を選んでください (設定 ▸ メディア ▸ カメラのカードのコピー先)
+	{card} is copied	{card} はコピー済みです
+	Camera card {card}	カメラのカード {card}
+	Copying {card}… {pct} %	{card} をコピー中… {pct} %
+	{card} is copied and verified	{card} はコピーされ、検証済みです
+	Copying {card} stopped: {error}	{card} のコピーが止まりました: {error}
+	Eject	取り出す
+	Copy Again	もう一度コピー
+	Camera Card Mounted	カメラのカードがマウントされました
+	Camera Card Removed	カメラのカードが取り外されました
+	Copy Camera Card	カメラのカードをコピー
+	Eject Camera Card	カメラのカードを取り出す
+	Camera Card Ejected	カメラのカードを取り出しました
+	Dismiss Camera Card	カメラのカードを閉じる
+	Card	カード

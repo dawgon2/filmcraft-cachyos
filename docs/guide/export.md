@@ -33,13 +33,14 @@ does: settings on the left, a preview in the middle, a queue on the side.
 **[FilmCraft] [Fork]**
 
 A preset is a saved set of export settings. Start from the one closest to where the file is
-going, then change only what you need (the Preset box then says "Custom"). The fork adds five
+going, then change only what you need (the Preset box then says "Custom"). The fork adds six
 H.265 presets for 6.2K footage to upstream's list:
 
 | Preset | What it is for |
 |---|---|
 | **YouTube 4K HEVC** | uploads to video sites: 3840×2160, Main 10, Rec. 709, about 80 Mbps |
 | **6.2K Master HEVC** | a full-size master to keep: 6240×4160, Main 10, QuickTime, about 200 Mbps, uncompressed 24-bit audio |
+| **HEVC 4:2:2 10-bit master** | a master that keeps full vertical colour detail (4:2:2) for grading or archiving: Main 4:2:2 10, QuickTime, about 240 Mbps; see Chroma below |
 | **Archive HEVC (x265, quality)** | the smallest file at high quality when time doesn't matter: software x265, constant quality 18 |
 | **Vertical 2160×3840 HEVC** | phone-shaped (9:16) uploads, the picture scaled to fill |
 | **H.265 / HEVC 2160p 4K 10-bit** | a general 4K Main 10 file (upstream's list, kept) |
@@ -69,6 +70,84 @@ The **Encoder** choice {ui:export.video.hevcEncoder} (Video section, only shown 
 1. Leave **Auto** unless you have a reason. Pick **Hardware (VA-API)** when you'd rather know
    than wait for a slow software export; pick **Software (x265)** for archives.
 2. After an export, `perf.stats` names the encoder that was actually used.
+
+**Chroma.** Why: delivery files (YouTube, phones) halve the colour detail in both directions
+(4:2:0). Cameras such as the X-M5 can record 4:2:2, which keeps every row of colour; keying and
+heavy grading later hold up better when the master keeps it too. The **Chroma** choice
+{ui:export.video.hevcChroma} (H.265 only; `file.exportMedia` parameter `chroma`, `420` or `422`):
+
+1. Keep **4:2:0 (delivery)** for anything you upload or send to be watched.
+2. Pick **4:2:2 (master, 10-bit)** for a master you will grade or cut again. It is always 10-bit,
+   so the Profile choice is hidden. FilmCraft picks a video engine that can encode it by
+   itself (here Intel's: the AMD card has none); on a machine without one the export falls back
+   to software x265, which is slow at 6.2K. Many players and phones can't play 4:2:2 HEVC; that is expected for a master.
+
+**Encoder speed.** Why: a video engine can spend more or less effort per picture. More effort gives a slightly
+smaller or cleaner file at the same bitrate or quality setting, less effort exports faster. Which
+matters more depends on the job: a quick review copy wants speed, a final upload wants quality.
+
+The **Encoder speed** choice {ui:export.video.hwEncodeSpeed} (Video section, H.265 with Auto or
+Hardware; command parameter `hwEncodeSpeed` of `file.exportMedia`):
+
+| Choice | What happens |
+|---|---|
+| **Driver default** | FilmCraft sends no setting; the graphics driver uses its own default (what every earlier FilmCraft export did) |
+| **Speed** | the fastest level the driver offers |
+| **Balanced** | the middle of the driver's range |
+| **Quality** | the best quality level the driver offers (slowest) |
+
+1. Leave **Driver default** unless an export is too slow (try **Speed**) or you see blocky
+   detail at your bitrate (try **Quality**).
+2. Drivers offer different numbers of levels (here the AMD card reports 32, the Intel graphics 7),
+   so the same choice is not the same speed on both. The ffmpeg VA-API fallback gets the same
+   level (`-compression_level`); **Software (x265)** ignores it and uses its own preset.
+
+Resolve and Premiere expose encoder effort only for some encoders and under their own names;
+here one choice is mapped onto whatever range the driver reports.
+
+**Two GPUs (Export engines).** [Fork] Why: on a machine with two graphics chips that can both
+encode H.265 (here the AMD card and the Intel graphics in the processor), each one can export a
+different part of the timeline at the same time, and FilmCraft joins the parts into one file.
+For a long 6.2K export that is the difference between slower and faster than real time. It
+costs more memory and keeps both chips busy, so it is a choice, not a rule.
+
+The **Export engines** choice {ui:export.video.exportEngines} (Video section, H.265 with Auto or
+Hardware, under Encoder speed; command parameter `exportEngines` of `file.exportMedia`, CLI
+`--export-engines`):
+
+| Choice | What happens |
+|---|---|
+| **Auto** | both chips when the export qualifies (H.265, 4:2:0, a second chip that encodes, enough free memory), otherwise one |
+| **Primary GPU only** | one chip, as every earlier FilmCraft export did |
+| **All GPUs** | every chip that can encode; if the export doesn't qualify it runs on one and the export log says why |
+
+1. Leave **Auto** for most exports.
+2. Pick **Primary GPU only** when you are playing a game or using the other chip for something
+   else during the export, when memory is tight, or to compare against an earlier single-chip
+   export.
+3. 4:2:2 masters always run on one chip (only the Intel graphics encode 4:2:2 here).
+4. When the two drivers write different stream headers (the AMD and Intel drivers do), the file
+   carries the headers inside the video (`hev1`) instead of once at the start (`hvc1`). Modern
+   players read both; some Apple software prefers `hvc1`, so pick **Primary GPU only** for a file
+   meant for Apple devices if one refuses to play it.
+
+Speed (fork step 6E.3, measured on synthetic test footage, AMD RX 6700 XT + Intel UHD 770):
+6.2K about 26 frames per second on both chips against 19 on one; 4K about 34 against 25.
+**A chip that is much slower drops out by itself.** The Intel graphics share the computer's memory,
+so a heavily graded export (Lumetri, curves, sharpening) runs at a few frames per second on them
+and would hold back the AMD card. After a few seconds FilmCraft compares the two: a chip at less
+than a quarter of the other's speed is stopped, and its part goes back to the faster one; at the
+very end, when the faster chip is idle and would finish the slower one's last part sooner from
+the start, it takes it over. So **All GPUs** is never meant to be slower than one chip; graded
+4K runs at about the one-chip speed. The export log and `perf.stats` show a chip that dropped
+out as "too slow" or "its last chunk is faster on …" (not an error). The one chip that decodes
+4:2:2 footage is kept while 4:2:2 parts are still to be exported.
+If either chip fails during the export, the other one finishes its parts; if both fail, the
+export runs again on one chip. `perf.stats` (`export.lanes`, `export.sampleEntry`,
+`export.lanesNote`) shows what each chip did, or why the export stayed on one.
+
+Neither Resolve nor Premiere offers to split one export across two graphics chips; Resolve's
+render queue can use several machines (remote rendering), which is a different feature.
 
 The software fallbacks run the system ffmpeg as a separate program. The fork plan removes them in
 Phase 7 (FilmCraft's own encoders become the fallback), so treat them as a safety net, not a

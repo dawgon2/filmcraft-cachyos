@@ -28,6 +28,7 @@ const VALUED: &[&str] = &[
     "--bit-depth",
     "--encoder",
     "--gpu-rendering",
+    "--export-engines",
 ];
 
 #[derive(Debug, Default)]

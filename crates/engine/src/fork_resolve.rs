@@ -32,6 +32,7 @@ fn ask(p: &mut Preferences, was_resolve: bool) {
         // only the Resolve look is added, remembering the dark theme in use
         if p.appearance.dark_theme != settings::RESOLVE_THEME {
             p.workflow_return_theme = std::mem::replace(&mut p.appearance.dark_theme, settings::RESOLVE_THEME.into());
+            p.workflow_auto_theme = settings::RESOLVE_THEME.into();
             p.appearance.sync_color_theme();
         }
         return;
@@ -64,6 +65,7 @@ pub fn without_data_dir(s: &mut Session) {
     let p = &mut s.prefs;
     if p.appearance.dark_theme != settings::RESOLVE_THEME && p.workflow_return_theme.is_empty() {
         p.workflow_return_theme = std::mem::replace(&mut p.appearance.dark_theme, settings::RESOLVE_THEME.into());
+        p.workflow_auto_theme = settings::RESOLVE_THEME.into();
         p.appearance.sync_color_theme();
     }
 }

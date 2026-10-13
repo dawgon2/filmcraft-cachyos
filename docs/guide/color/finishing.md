@@ -1,4 +1,4 @@
-# Finishing: film grain, soft clip, LUTs
+# Finishing: film grain, soft clip, LUTs, scopes
 
 **[Fork]** (the grain kernel is this fork's own) · other finishing tools are coming in G2
 
@@ -86,6 +86,59 @@ corrections, and later nodes can still adjust it.
 Gamut sequence). A LUT built for another input (Rec.709, a camera log) gives the wrong result
 there: put a colour space conversion before it, or use it in a Rec.709 sequence. An unknown or
 missing LUT applies nothing.
+
+## Scopes: reading exposure, balance and skin
+
+### Why
+
+**[FilmCraft]** (the Lumetri Scopes panel comes from upstream) · reading advice **[Fork]**
+
+Your eyes adapt and your monitor may be off; the scopes don't. They measure the frame under the
+playhead, so you can set exposure, check that white and black are neutral and see where skin sits
+without guessing. Look at them before and after each correction.
+
+### Which scope for which job
+
+**[Fork]**
+
+| Scope | What it shows | Reach for it to |
+|---|---|---|
+| **Waveform** | brightness of every column of the picture, left to right; bottom = black, top = white | set exposure: blacks just above the bottom, highlights below the top, faces in the middle |
+| **Parade** | the same, split into side-by-side traces (RGB, YUV or RGB-White) | check balance: on something white or grey the red, green and blue traces sit at the same height |
+| **Vectorscope YUV** | hue as the angle, saturation as the distance from the centre | check skin (it should lie along the skin-tone line) and spot colour casts (a neutral shot clusters in the centre) |
+| **Vectorscope HLS** | the same idea with hue labels around the circle | name a cast by its hue |
+| **Histogram** | how many pixels sit at each brightness | see clipping (a pile-up at either end) and overall contrast |
+
+### Steps: set exposure and balance with the scopes
+
+**[Fork]**
+
+1. Open the **Lumetri Scopes** panel: on the Color page click its button in the page toolbar
+   {ui:pageToolbar.LumetriScopes}; in the Premiere workflow it is a tab in the Color workspace.
+2. Click the wrench {ui:scopes.wrench} (or right-click the scopes) and tick **Waveform** and
+   **Parade**; untick the others to give them more room.
+3. In the waveform, adjust **Lift** until the darkest part of the trace sits just above the bottom
+   line, then **Gain** until the brightest part sits just below the top
+   ([primaries.md](primaries.md)).
+4. Adjust **Gamma** until faces sit roughly in the middle of the scale.
+5. Find something that should be white or grey. In the parade its red, green and blue traces
+   should line up; if one is higher, correct it with **Temperature / Tint** or the wheels.
+6. Tick **Vectorscope YUV** and check that skin points along the skin-tone line; a shot with no
+   strong colours should stay near the centre.
+7. Turn on **Clamp Signal** {ui:scopes.clamp} only if you want to hide values outside the legal
+   range; leave it off while grading so you can see clipping.
+
+The bottom bar picks the colour space the scopes measure in {ui:scopes.space} (Automatic follows
+the sequence: Rec. 2100 for an HDR working space, otherwise Rec. 709) and the signal scale
+{ui:scopes.scale} (8 Bit, Float or HDR). Agents read the same numbers with `scopes.read`.
+
+### If you know Resolve or Premiere
+
+**[Resolve-style]**
+
+The scopes are one panel with several scopes side by side, as in Premiere's Lumetri Scopes; Resolve
+shows them in its own scope viewer. The readings mean the same: Resolve's "Waveform", "Parade",
+"Vectorscope" and "Histogram" map one to one.
 
 ## If you know Resolve
 

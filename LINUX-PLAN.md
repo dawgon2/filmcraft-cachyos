@@ -39,6 +39,10 @@ Tags `linux-1`, `linux-2`; builds per §1a.9 (or grouped per §1a.41 if a phase 
    monitors; the Program monitor maps image pixels 1:1 at 100 % zoom on any scale.
 3. **Window decorations.** Server-side decorations from KWin (`xdg-decoration`) so the title bar
    is Plasma's own (fixes #433 class bugs); client-side fallback for compositors without it.
+   **Changed by the owner (FORK-PLAN §1a.57, 2026-10-13): FilmCraft's own Resolve-style title bar
+   is the default (built, `window_chrome.rs`); KWin's SSD is the Settings ▸ General ▸ Window title
+   bar = System choice; the lane's Adwaita frame (L1.3, 2026-10-13) serves System on GNOME. Size /
+   maximised restore: built on the lane.**
    Window size / position / maximised state restored per monitor.
 4. **Follow the desktop's look.** Light / dark from the portal (exists; audit live switching),
    **accent colour** (portal `org.freedesktop.appearance accent-color`) used for selection /

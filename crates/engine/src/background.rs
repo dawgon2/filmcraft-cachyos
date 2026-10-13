@@ -313,9 +313,23 @@ struct Handle {
 
 impl Drop for Handle {
     fn drop(&mut self) {
-        self.shared.lock().shutdown = true;
-        self.shared.wake.notify_all();
-        self.shared.changed.notify_all();
+        self.shared.stop();
+    }
+}
+
+impl Shared {
+    /// Stop the worker: nothing new starts, queued jobs are cleaned up, and the running job is
+    /// cancelled, so it stops at its next cancellation check instead of finishing its step (a
+    /// render-cache batch is seconds of work nobody is left to want).
+    fn stop(&self) {
+        let mut st = self.lock();
+        st.shutdown = true;
+        for e in &st.entries {
+            e.cancel.store(true, Ordering::Relaxed);
+        }
+        drop(st);
+        self.wake.notify_all();
+        self.changed.notify_all();
     }
 }
 
@@ -364,6 +378,9 @@ impl BackgroundWorker {
                     // next `submit` starts a new thread)
                     for _ in 0..MAX_RESTARTS {
                         if guarded(|| run(shared.clone())).is_some() {
+                            // stopped: [`BackgroundWorker::stop_and_wait`] waits for this
+                            shared.lock().started = false;
+                            shared.changed.notify_all();
                             return;
                         }
                         log::error!("the background media worker hit an internal error; restarting it");
@@ -527,6 +544,26 @@ impl BackgroundWorker {
     pub fn is_idle(&self) -> bool {
         let st = self.shared().lock();
         st.entries.is_empty() && st.graveyard.is_empty() && !st.in_hand
+    }
+
+    /// Stop the worker for good (its session is closing; every clone stops with it): queued jobs
+    /// are cancelled and cleaned up, the running one is cancelled, and this waits at most
+    /// `timeout` for the worker thread to finish. Returns whether it did (or never started).
+    pub fn stop_and_wait(&self, timeout: Duration) -> bool {
+        self.shared().stop();
+        let start = Instant::now();
+        let end = start.checked_add(timeout).unwrap_or(start);
+        let mut st = self.shared().lock();
+        loop {
+            if !st.started {
+                return true;
+            }
+            let now = Instant::now();
+            if now >= end {
+                return false;
+            }
+            st = self.shared().changed.wait_timeout(st, end.saturating_duration_since(now)).unwrap_or_else(PoisonError::into_inner).0;
+        }
     }
 
     /// Block until no job is queued or running, at most `timeout` (CLI `wait`, tests). Returns

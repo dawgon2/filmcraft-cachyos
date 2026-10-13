@@ -308,3 +308,28 @@ fn a_panic_while_rendering_ahead_is_an_error() {
         assert!(matches!(r, Err(ExportError::Encode(_))), "{:?}", r.map(|_| ()));
     });
 }
+
+#[test]
+fn a_cancelled_job_renders_no_more_frames() {
+    // Fork 2026-10-13: a background render-cache step whose job was cancelled (its session
+    // closed) rendered its whole batch on the pool before it noticed.
+    let s = ExportSettings { format: Format::Mjpeg, path: tmp("job-cancel.mov"), include_audio: false, ..Default::default() };
+    let (p, seq, m) = project();
+    let counting = Flaky::new(&m, 0..0);
+    pool(3).install(|| {
+        let prog = Progress::default();
+        let mut ex = Exporter::new(p, seq, &s, &prog).unwrap();
+        ex.set_batch(4);
+        ex.set_overlap(false);
+        let flag = Arc::new(AtomicBool::new(false));
+        let first = filmcraft_media::cancel::with_cancel(&flag, || ex.step(&counting, &prog).unwrap());
+        assert!(matches!(first, Step::Progress));
+        let before = counting.calls.load(Ordering::SeqCst);
+        assert!(before > 0, "the first batch asked for its media");
+        flag.store(true, Ordering::Relaxed);
+        let step = filmcraft_media::cancel::with_cancel(&flag, || ex.step(&counting, &prog).unwrap());
+        assert!(matches!(step, Step::Pending), "a cancelled batch is incomplete");
+        assert_eq!(counting.calls.load(Ordering::SeqCst), before, "no frame of a cancelled job asked for its media");
+        assert_eq!(prog.done.load(Ordering::Relaxed), 4, "nothing more was encoded");
+    });
+}

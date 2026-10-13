@@ -206,3 +206,84 @@ a fork of a core dependency to maintain). **Provisional: (a) now, (b) when upstr
 (the lane re-checks at each upstream sync). Reversible: nothing is built that blocks DnD later.
 
 **Owner's answer (2026-10-12, live): "ok sounds good"** — (a) now, (b) when upstream upgrades. Resolved.
+
+## Q11 (2026-10-12, L1.9): HDR output on KWin: build it, and when?
+
+L1.9 was "investigate only". Findings (no code written): wgpu 30's Vulkan backend can already
+create an extended-sRGB-linear (`Rgba16Float`) or HDR10 swapchain (`VK_EXT_swapchain_colorspace`)
+from safe Rust; on Wayland, Mesa's Vulkan driver (not the app) speaks `wp_color_management_v1` to
+KWin when KWin has HDR switched on for that output (Plasma 6.2+, Mesa 25+). So **no `unsafe` and
+nothing in `crates/platform` is needed**. What is missing is above wgpu: eframe 0.36 creates its
+surface in an 8-bit sRGB format and knows nothing about HDR, so the Program monitor would need
+either an eframe change (surface format option, upstreamable to egui) or its own `wgpu::Surface`
+in a child window, plus a tone-mapped SDR UI around a true HDR picture, an "HDR display" toggle in
+Settings, and checks on both GPUs. Size: **20–30 h**. Options: (a) not now: revisit after G4 /
+A3 (HDR grading tools exist by then); (b) schedule as its own phase after L2; (c) wait for egui
+to gain HDR surfaces upstream. **Provisional: (a)** (nothing built; reversible by scheduling it).
+
+## Q12 (2026-10-13, §1a.56 DC1): the Dell build-and-test service needs your hand to install
+
+The runner drafted DC1 (`fork/dell-ci/`: `dell-ci.sh`, a systemd **user** timer every 2 min,
+`intel.list`, `soaks/`, `install.sh`), but Claude Code's auto-mode safety classifier refused to
+install a persistent timer on the Dell ("Unauthorized Persistence"), and then also refused further
+DC1 commands in that run. The runner did not try to get around it. The draft is in
+`git stash` on this PC ("DC1 draft fork/dell-ci …", 2026-10-13); it is not committed and not on the Dell.
+Options: (a) you install it yourself: `git stash pop`, commit, copy `fork/dell-ci/` to the Dell and
+run `bash fork/dell-ci/install.sh` there (also `loginctl enable-linger` needs sudo, so the timer only
+runs while you're logged in); (b) add a Claude Code permission rule that allows the runner to run
+`ssh dell` installs, then a later run does it; (c) drop DC1 and keep using the Dell lane / manual ssh.
+**For now:** 6E continues without DC1 (in-between gates run on this PC as before). Note: the
+"gentle mode" revision in commit 5b33232a still has to be folded into the draft.
+
+## Q13 (2026-10-12, L2.7): background work at a lower CPU priority: dropped for now
+
+L2.7 first lowered the background worker's and Create Proxies' threads to nice 10. Review found
+it backfires: on Linux a thread passes its nice to everything it creates, and a normal user can't
+lower it back. The background worker and playback share decoders (the GOP caches, their VA-API
+reader threads and the fork's ffmpeg children) and lazily created pools (rayon's global pool,
+the VA-API conversion pool); whichever thread touches them first creates them. So a render cache
+or proxy job that starts before the first playback would leave playback itself niced for the
+rest of the session: the opposite of the goal. The worker already stays out of the way without
+it (it waits while you play, scrub or export, and its hardware decoding is paced and served
+last). Options: (a) drop it (nothing to set up, no risk); (b) nice only child processes the
+background starts (ffmpeg proxy transcodes), ~2 h, after RS3 when `crates/platform` may be
+touched; (c) warm every shared pool at start-up and give background jobs their own decoders,
+~8 h, fragile (every future lazy pool must be remembered). **Provisional: (a)** now, (b) as a
+later small step if proxies ever make the desktop feel slow (reversible).
+
+## Q14 (2026-10-13, L2.8): a Settings switch for journal logging: dropped (FYI)
+
+The plan listed a Settings switch for the journal next to the media-controls one (that one is in:
+Settings ▸ Playback ▸ Media keys and the desktop's media controls, `3eafdb9d`). The journal path
+is only used when FilmCraft's standard error is *already* connected to the journal (launched by
+Plasma / GNOME as a systemd scope, `JOURNAL_STREAM` matches); it then sends each record with its
+level instead of a plain line. Switching it off would put the same messages into the same journal,
+just without levels, so a switch adds a setting and no choice. Options: (a) no switch (decided);
+(b) a switch that keeps FilmCraft's messages out of the journal entirely, which would mean
+closing standard error under systemd (loses panics that bypass the logger) ~1 h; (c) only a log
+level setting (Settings ▸ General ▸ Log detail), ~2 h, useful for bug reports, not Linux-specific.
+**Provisional: (a)**; (c) is a candidate for a later general step if bug reports need more detail
+(reversible; `RUST_LOG` already does it).
+
+## Q15 (2026-10-13, L1.4): the desktop's text size as a UI scale hint: moved to part 2 (FYI)
+
+L1.4 also listed using the desktop's font size (GNOME `text-scaling-factor`, KDE's General font
+point size) as a hint for UI Scale ▸ Auto. FilmCraft can't scale only its text without
+re-laying out every panel, so the hint would scale the whole interface: a Plasma user who set an
+11 pt font would suddenly get a 110 % UI. Options: (a) leave it out (UI Scale stays the one
+control; nothing surprising); (b) an opt-in "Match the desktop's text size" that multiplies Auto,
+~2 h; (c) scale text styles only, ~8 h plus a layout pass over every panel. **Provisional: (a)
+for part 1, (b) as a part 2 candidate** (reversible). Reduced motion (the other half of L1.4) is
+in: Settings ▸ Appearance ▸ Animations (`909ce174`).
+
+## Q16 (2026-10-13, L2.4): how FilmCraft notices a camera card, and what the copy is (FYI)
+
+The audit's route was UDisks2 signals (`InterfacesAdded`) with directory polling as the fallback.
+Built instead: **the mount table** (`/proc/self/mounts`, read every 2 s, mounts under `/run/media` and
+`/media` only) for noticing, and UDisks2 only for **Eject** (Unmount + PowerOff). Same result on
+Plasma, GNOME, X11 and Wayland with one code path and no system-bus dependency; a card shows up within
+2 s of the desktop mounting it. Options: (a) mount table (decided); (b) UDisks2 signals, instant, but a
+second path for systems without it and more D-Bus surface, ~3 h; (c) both. The copy is the whole card
+(sidecars and folder layout kept) with a CRC-32 read-back check per file and a plain checksum list
+(`offload-crc32.txt`), not MHL / xxHash (xxhash-rust is BSL-1.0, outside the MIT / Apache / BSD rule).
+**Provisional: (a), CRC-32** (reversible; MHL output would be ~2 h if a post house ever needs it).

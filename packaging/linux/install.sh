@@ -39,15 +39,28 @@ cp -R -- "$source_dir/share/." "$prefix/share/"
 # Use an absolute path so launching from the application menu does not depend on PATH.
 # Escape the Exec argument, then the desktop entry's string value (two separate layers).
 # https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html
-exec_path="$(printf '%s' "$prefix/bin/filmcraft" | sed 's/[\\"`$]/\\&/g; s/\\/\\\\/g')"
-try_path="$(printf '%s' "$prefix/bin/filmcraft" | sed 's/\\/\\\\/g')"
-while IFS= read -r line || [ -n "$line" ]; do
-  case "$line" in
-    Exec=*) printf 'Exec="%s" %%F\n' "$exec_path" ;;
-    TryExec=*) printf 'TryExec=%s\n' "$try_path" ;;
-    *) printf '%s\n' "$line" ;;
-  esac
-done <"$source_dir/share/applications/$app_id.desktop" >"$prefix/share/applications/$app_id.desktop"
+# Every Exec line keeps its arguments (`%F`, the actions' `--empty` / `--new-instance`).
+exec_value() { printf '%s' "$1" | sed 's/[\\"`$]/\\&/g; s/\\/\\\\/g'; }
+try_value() { printf '%s' "$1" | sed 's/\\/\\\\/g'; }
+# rewrite_exec <program name> <absolute path> <file>: `Exec=<name> args` -> `Exec="<path>" args`
+rewrite_exec() {
+  local name="$1" exec_path try_path line
+  exec_path="$(exec_value "$2")"
+  try_path="$(try_value "$2")"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "Exec=$name"*) printf 'Exec="%s"%s\n' "$exec_path" "${line#"Exec=$name"}" ;;
+      TryExec=*) printf 'TryExec=%s\n' "$try_path" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <"$3"
+}
+rewrite_exec filmcraft "$prefix/bin/filmcraft" "$source_dir/share/applications/$app_id.desktop" >"$prefix/share/applications/$app_id.desktop"
+# The thumbnailer runs without our PATH (GNOME runs it in a sandbox): absolute path too.
+thumbnailer="share/thumbnailers/$app_id.thumbnailer"
+if [ -f "$source_dir/$thumbnailer" ]; then
+  rewrite_exec filmcraft-cli "$prefix/bin/filmcraft-cli" "$source_dir/$thumbnailer" >"$prefix/$thumbnailer"
+fi
 
 # Cache tools are optional; installing binaries must also work on minimal systems.
 if command -v update-desktop-database >/dev/null 2>&1; then

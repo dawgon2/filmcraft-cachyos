@@ -1362,9 +1362,25 @@ impl GpuCompositor {
     /// frames on Linux (unless `FILMCRAFT_NO_GPU_IMPORT` is set).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+        Self::headless_device_on(None)
+    }
+
+    /// [`headless_device`](Self::headless_device) on the GPU with PCI ids `pci` (vendor,
+    /// device; fork 6E.3: one export compositor per GPU); `None`: the high-performance adapter.
+    /// No adapter with those ids: `None`. (Two identical cards: the first one.)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn headless_device_on(pci: Option<(u32, u32)>) -> Option<(wgpu::Device, wgpu::Queue)> {
         let instance = wgpu::Instance::default();
-        let opts = wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() };
-        let adapter = pollster::block_on(instance.request_adapter(&opts)).ok()?;
+        let adapter = match pci {
+            None => {
+                let opts = wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() };
+                pollster::block_on(instance.request_adapter(&opts)).ok()?
+            }
+            Some((vendor, device)) => pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all())).into_iter().find(|a| {
+                let i = a.get_info();
+                i.vendor == vendor && i.device == device
+            })?,
+        };
         let desc = wgpu::DeviceDescriptor {
             label: Some("filmcraft export device"),
             // adapter-specific format features: `R16Unorm` / `Rg16Unorm` render targets (P010

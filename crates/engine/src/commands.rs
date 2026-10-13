@@ -1321,6 +1321,7 @@ fn build() -> Vec<CommandSpec> {
             if next.workflow != s.prefs.workflow
                 || next.workflow_return_preset != s.prefs.workflow_return_preset
                 || next.workflow_return_theme != s.prefs.workflow_return_theme
+                || next.workflow_auto_theme != s.prefs.workflow_auto_theme
             {
                 return Err(bad("prefs.set", "the workflow changes the keyboard preset too: use settings.setWorkflow"));
             }
@@ -1340,6 +1341,7 @@ fn build() -> Vec<CommandSpec> {
                         workflow: s.prefs.workflow,
                         workflow_return_preset: s.prefs.workflow_return_preset.clone(),
                         workflow_return_theme: s.prefs.workflow_return_theme.clone(),
+                        workflow_auto_theme: s.prefs.workflow_auto_theme.clone(),
                         ..Default::default()
                     }
                 }
@@ -1352,7 +1354,7 @@ fn build() -> Vec<CommandSpec> {
             "Media…",
             ["File", "Export"],
             None,
-            r#"{"path":str,"preset":str?,"settings":ExportSettings?,"format":"h264|hevc|prores|dnxhr|apv|mjpeg|mxf-op1a|mxf-opatom|png|tiff|bmp|jpg|tga|dpx|exr|gif|wav|aiff|aac"?,"width":u32?,"height":u32?,"fps":f64?,"bitrateKbps":u32?,"maxBitrateKbps":u32?,"bitrateMode":"cbr|vbr1Pass|vbr2Pass|crf"?,"crf":0..51=23,"hardwareEncoding":"off|auto"?,"bitDepth":"8|10"?,"hevcEncoder":"auto|vaapi|x265"?,"scale":f32=1,"audio":bool=true,"quality":0..100,"burnCaptions":bool=false,"alpha":bool=false,"captionSidecar":"srt|vtt"?,"loudnessLufs":f64?,"proresProfile":"proxy|lt|standard|hq|4444|4444xq"?,"dnxProfile":"lb|sq|hq|hqx"?,"apvProfile":"422-10|422-12|444-10|444-12"?,"mxfVideoCodec":"dnxhr|proRes|h264"?,"sequence":id?,"range":"entire|inOut|workArea|custom"?,"startSeconds":f64?,"endSeconds":f64?,"wait":bool=false}"#,
+            r#"{"path":str,"preset":str?,"settings":ExportSettings?,"format":"h264|hevc|prores|dnxhr|apv|mjpeg|mxf-op1a|mxf-opatom|png|tiff|bmp|jpg|tga|dpx|exr|gif|wav|aiff|aac"?,"width":u32?,"height":u32?,"fps":f64?,"bitrateKbps":u32?,"maxBitrateKbps":u32?,"bitrateMode":"cbr|vbr1Pass|vbr2Pass|crf"?,"crf":0..51=23,"hardwareEncoding":"off|auto"?,"bitDepth":"8|10"?,"hevcEncoder":"auto|vaapi|x265"?,"hwEncodeSpeed":"default|speed|balanced|quality"?,"exportEngines":"auto|single|dual"?,"chroma":"420|422"?,"scale":f32=1,"audio":bool=true,"quality":0..100,"burnCaptions":bool=false,"alpha":bool=false,"captionSidecar":"srt|vtt"?,"loudnessLufs":f64?,"proresProfile":"proxy|lt|standard|hq|4444|4444xq"?,"dnxProfile":"lb|sq|hq|hqx"?,"apvProfile":"422-10|422-12|444-10|444-12"?,"mxfVideoCodec":"dnxhr|proRes|h264"?,"sequence":id?,"range":"entire|inOut|workArea|custom"?,"startSeconds":f64?,"endSeconds":f64?,"wait":bool=false}"#,
             has_seq,
             crate::export_tools::export_media
         ),
@@ -3033,6 +3035,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::shortcuts::commands());
     v.extend(crate::relink::commands());
     v.extend(crate::proxies::commands());
+    v.extend(crate::card_offload::commands());
     v.extend(crate::render_cache::commands());
     v.extend(crate::project_manager::commands());
     v.extend(crate::masks::commands());

@@ -167,6 +167,12 @@ pub fn cancelled() -> bool {
     CURRENT.with(|c| c.borrow().as_ref().is_some_and(|f| f.load(Ordering::Relaxed)))
 }
 
+/// This thread's cancellation flag, if it has one. The flag is per thread, so work that fans out
+/// to a thread pool (rayon) takes it along: [`with_cancel`] on each task, or poll it directly.
+pub fn current() -> Option<Arc<AtomicBool>> {
+    CURRENT.with(|c| c.borrow().clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +187,24 @@ mod tests {
             assert!(cancelled());
         });
         assert!(!cancelled());
+    }
+
+    #[test]
+    fn current_hands_the_flag_to_other_threads() {
+        assert!(current().is_none());
+        let flag = Arc::new(AtomicBool::new(false));
+        with_cancel(&flag, || {
+            let mine = current();
+            assert!(mine.as_ref().is_some_and(|f| Arc::ptr_eq(f, &flag)));
+            flag.store(true, Ordering::Relaxed);
+            let seen = std::thread::spawn(move || {
+                let theirs = mine.unwrap_or_default();
+                with_cancel(&theirs, cancelled)
+            })
+            .join();
+            assert_eq!(seen.ok(), Some(true));
+        });
+        assert!(current().is_none());
     }
 
     #[test]

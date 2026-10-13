@@ -91,12 +91,12 @@ pub const IN_FLIGHT_BUDGET: u64 = 1 << 29;
 /// One rendered picture: straight RGBA8, for HDR exports the encoded R'G'B' floats, or (H.265 with
 /// a GPU renderer registered, fork Phase 5.1 / 5.2c) planar Y'CbCr 4:2:0 bytes from the GPU, or a
 /// picture rendered straight into the encoder's input memory. Exactly one of the four is set.
-type Frame = (Vec<u8>, Vec<f32>, Option<Vec<u8>>, Option<Arc<dyn crate::GpuPicture>>);
+pub(crate) type Frame = (Vec<u8>, Vec<f32>, Option<Vec<u8>>, Option<Arc<dyn crate::GpuPicture>>);
 
 /// How the frames of a batch are rendered: on the CPU, or for H.265 with a registered GPU frame
 /// renderer ([`crate::gpu_frames`]) composited and converted to 4:2:0 on the GPU, into the
 /// encoder's input memory when it offers one ([`VideoEncoder::gpu_target`], zero-copy).
-struct RenderMode {
+pub(crate) struct RenderMode {
     yuv: bool,
     kr_kb: (f32, f32),
     ten_bit: bool,
@@ -104,8 +104,10 @@ struct RenderMode {
 }
 
 impl RenderMode {
-    fn of(settings: &ExportSettings, venc: &dyn VideoEncoder) -> Self {
-        let yuv = settings.video_format() == Format::Hevc && crate::gpu_frames().is_some();
+    /// `pipe`'s GPU renderer: the registered one, or a two-GPU lane's own (fork 6E.3).
+    pub(crate) fn of(settings: &ExportSettings, pipe: &Pipeline, venc: &dyn VideoEncoder) -> Self {
+        // (4:2:2 HEVC: converted on the CPU from RGB; the GPU converts to 4:2:0 only, fork 6E.4)
+        let yuv = settings.video_format() == Format::Hevc && !settings.hevc_chroma_422 && pipe.gpu().is_some();
         RenderMode { yuv, kr_kb: settings.signal.kr_kb(), ten_bit: settings.hevc_bit_depth == 10, target: if yuv { venc.gpu_target() } else { None } }
     }
 }
@@ -133,15 +135,22 @@ struct Ahead {
 /// Render frames `f..end` in parallel (the GPU path serialises its own GPU work; planning and
 /// decoding still run in parallel, and a frame the GPU cannot take falls back to the CPU). `None`
 /// when a source was not ready for one of them (the pending flag, taken after every frame because
-/// it is per thread): the batch is incomplete and must be rendered again.
-fn render_batch(pipe: &Pipeline, f: i64, end: i64, sources: &dyn SourceProvider, mode: &RenderMode) -> Option<Vec<Frame>> {
+/// it is per thread): the batch is incomplete and must be rendered again. Also `None` once the
+/// calling thread's job is cancelled ([`filmcraft_media::cancel`]): the flag goes along to every
+/// frame, and the frames not started yet are skipped.
+pub(crate) fn render_batch(pipe: &Pipeline, f: i64, end: i64, sources: &dyn SourceProvider, mode: &RenderMode) -> Option<Vec<Frame>> {
     let pending = AtomicBool::new(false);
     let (kr, kb) = mode.kr_kb;
     let target = mode.target.as_deref();
+    let cancel = filmcraft_media::cancel::current().unwrap_or_default();
     let frames: Vec<Frame> = (f..end)
         .into_par_iter()
         .map(|fi| {
-            let frame = match mode.yuv.then(|| pipe.frame_yuv(fi, sources, kr, kb, mode.ten_bit, target)).flatten() {
+            if cancel.load(Ordering::Relaxed) {
+                pending.store(true, Ordering::Relaxed);
+                return (Vec::new(), Vec::new(), None, None);
+            }
+            let render = || match mode.yuv.then(|| pipe.frame_yuv(fi, sources, kr, kb, mode.ten_bit, target)).flatten() {
                 Some(GpuOut::Bytes(y)) => (Vec::new(), Vec::new(), Some(y), None),
                 Some(GpuOut::Picture(p)) => (Vec::new(), Vec::new(), None, Some(p)),
                 None => {
@@ -149,7 +158,8 @@ fn render_batch(pipe: &Pipeline, f: i64, end: i64, sources: &dyn SourceProvider,
                     (rgba, hdr, None, None)
                 }
             };
-            if filmcraft_media::pending::take() {
+            let frame = filmcraft_media::cancel::with_cancel(&cancel, render);
+            if filmcraft_media::pending::take() || cancel.load(Ordering::Relaxed) {
                 pending.store(true, Ordering::Relaxed);
             }
             frame
@@ -212,6 +222,42 @@ pub struct Exporter {
     vt: usize,
     at: Option<usize>,
     t0: web_time::Instant,
+    /// The two-GPU decision was taken (at the first video step, fork 6E.3).
+    lanes_checked: bool,
+    /// The lanes of a two-GPU export (fork 6E.3); `None`: one GPU, as always.
+    dual: Option<crate::lanes::lane::Dual>,
+    /// What the lanes did (`perf.stats`), kept until the export ends.
+    lanes_report: crate::lanes::LanesReport,
+    /// The lanes failed (not cancelled): [`crate::export`] runs the export again on one GPU.
+    lanes_failed: bool,
+}
+
+/// The video track of a two-GPU export (fork 6E.3): the lanes encoded every packet; this only
+/// describes their stream to the muxer (the first chunk's sample entry).
+struct JoinedVideo {
+    entry: Option<SampleEntry>,
+    timescale: u32,
+    media_start: Option<i64>,
+    size: (u16, u16),
+}
+
+impl VideoEncoder for JoinedVideo {
+    fn sample_entry(&self) -> SampleEntry {
+        // (the muxer opens only after the first chunk set the entry)
+        self.entry.clone().unwrap_or_else(|| SampleEntry::hevc(filmcraft_isobmff::HevcConfig::default(), self.size.0, self.size.1))
+    }
+    fn timescale(&self) -> u32 {
+        self.timescale
+    }
+    fn encode(&mut self, _frame: &EncoderFrame) -> Result<Vec<EncodedPacket>> {
+        Err(ExportError::Encode("internal: a two-GPU export encodes in its lanes".into()))
+    }
+    fn flush(&mut self) -> Result<Vec<EncodedPacket>> {
+        Ok(Vec::new())
+    }
+    fn media_start(&self) -> Option<i64> {
+        self.media_start
+    }
 }
 
 /// Whether [`Exporter`] handles a format.
@@ -323,6 +369,10 @@ impl Exporter {
             vt: 0,
             at: None,
             t0: web_time::Instant::now(),
+            lanes_checked: false,
+            dual: None,
+            lanes_report: crate::lanes::LanesReport::default(),
+            lanes_failed: false,
             settings,
         })
     }
@@ -496,6 +546,13 @@ impl Exporter {
             }
             return Ok(Step::Progress);
         }
+        if !self.lanes_checked && self.next < self.f1 {
+            self.lanes_checked = true;
+            self.start_lanes(sources, progress);
+        }
+        if self.dual.is_some() && self.next < self.f1 {
+            return self.step_chunk(sources, progress);
+        }
         if self.next < self.f1 {
             return self.step_batch(sources, progress);
         }
@@ -561,7 +618,7 @@ impl Exporter {
 
     /// Encode (and mux) the batch starting at `self.next`, rendering the one after it meanwhile.
     fn step_batch(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {
-        let mode = RenderMode::of(&self.settings, self.venc.as_ref());
+        let mode = RenderMode::of(&self.settings, &self.pipe, self.venc.as_ref());
         let (f, frames) = match self.ahead.take() {
             Some(a) if a.first == self.next => (a.first, a.frames),
             _ => {
@@ -593,9 +650,12 @@ impl Exporter {
         let pipe = self.pipe.clone();
         let mut slot: Option<std::thread::Result<Option<Vec<Frame>>>> = None;
         let mut encode_done: Option<web_time::Instant> = None;
+        // the batch ahead renders on a pool thread: it takes this job's cancellation along
+        let cancel = filmcraft_media::cancel::current().unwrap_or_default();
         let encoded = rayon::in_place_scope(|s| {
             s.spawn(|_| {
-                slot = Some(catch_unwind(AssertUnwindSafe(|| timed(Stage::Render, || render_batch(&pipe, a, b, sources, &mode)))));
+                let render = || timed(Stage::Render, || render_batch(&pipe, a, b, sources, &mode));
+                slot = Some(catch_unwind(AssertUnwindSafe(|| filmcraft_media::cancel::with_cancel(&cancel, render))));
             });
             let r = self.encode_batch(f, frames, sources);
             encode_done = Some(web_time::Instant::now());
@@ -651,22 +711,127 @@ impl Exporter {
         }
         let mut mixed = mixed.into_iter();
         for (k, frame) in frames.into_iter().enumerate() {
+            // a cancelled job (a background render whose session closed) stops between frames;
+            // the file is incomplete and its owner deletes it
+            if filmcraft_media::cancel::cancelled() {
+                return Err(ExportError::Cancelled);
+            }
             let fi = f + k as i64;
             let packets = timed(Stage::Encode, || self.encode(std::slice::from_ref(&frame), fi))?;
             self.queued.extend(packets);
             if cuts.contains(&(fi + 1)) {
-                timed(Stage::Mux, || -> Result<()> {
-                    if self.mux.is_none() && self.mxf.is_none() {
-                        self.open_mux()?;
-                    }
-                    let packets = std::mem::take(&mut self.queued);
-                    self.write_video(packets)
-                })?;
-                let pcm = mixed.next().flatten();
-                timed(Stage::Audio, || self.write_audio(pcm))?;
+                self.mux_group(mixed.next().flatten())?;
             }
         }
         Ok(Encoded::Done)
+    }
+
+    /// Write the queued video packets of one [`INTERLEAVE`] group (creating the muxer at the
+    /// first), then the group's audio.
+    fn mux_group(&mut self, pcm: Option<Vec<Vec<f32>>>) -> Result<()> {
+        timed(Stage::Mux, || -> Result<()> {
+            if self.mux.is_none() && self.mxf.is_none() {
+                self.open_mux()?;
+            }
+            let packets = std::mem::take(&mut self.queued);
+            self.write_video(packets)
+        })?;
+        timed(Stage::Audio, || self.write_audio(pcm))
+    }
+
+    /// The lanes failed (not cancelled), so the export can run again on one GPU.
+    pub fn lanes_failed(&self) -> bool {
+        self.lanes_failed
+    }
+
+    /// Decide on two GPUs (fork 6E.3) and start the lanes; on one GPU nothing changes.
+    fn start_lanes(&mut self, sources: &dyn SourceProvider, progress: &Progress) {
+        let inputs = crate::lanes::lane::DualInputs {
+            settings: &self.settings,
+            project: &self.project,
+            seq: self.seq,
+            hdr_out: self.pipe.hdr_out,
+            w: self.pipe.w,
+            h: self.pipe.h,
+            rate: self.pipe.rate,
+            f0: self.f0,
+            f1: self.f1,
+            two_pass: self.first_pass || !matches!(self.settings.h264_pass, H264Pass::Single),
+        };
+        match crate::lanes::lane::start(&inputs, sources) {
+            Ok(dual) => {
+                self.lanes_report = crate::lanes::LanesReport { sample_entry: Some(if dual.in_band { "hev1" } else { "hvc1" }.into()), ..Default::default() };
+                // the lanes encode: the exporter's own encoder only held a session
+                let size = (u16::try_from(self.pipe.w).unwrap_or(u16::MAX), u16::try_from(self.pipe.h).unwrap_or(u16::MAX));
+                self.venc = Box::new(JoinedVideo { entry: None, timescale: self.venc.timescale(), media_start: None, size });
+                if !self.settings.part_of_batch {
+                    progress.set_status(format!("Exporting {} frames ({}) on two GPUs", self.frames(), self.settings.format.label()));
+                }
+                self.dual = Some(dual);
+            }
+            Err(why) => self.lanes_report = crate::lanes::LanesReport { note: Some(why), ..Default::default() },
+        }
+        crate::lanes::set_last_lanes(self.lanes_report.clone());
+    }
+
+    /// Mux the next chunk the lanes finished (in file order), interleaved with the audio exactly
+    /// as [`Self::encode_batch`] does: the same groups of global frame indices.
+    fn step_chunk(&mut self, sources: &dyn SourceProvider, progress: &Progress) -> Result<Step> {
+        let Some(dual) = self.dual.as_mut() else { return Err(ExportError::Encode("internal: no export lanes".into())) };
+        let got = timed(Stage::Wait, || dual.coord.next_chunk(&progress.cancel, &progress.done));
+        let report = dual.coord.report();
+        let (chunk, packets, done) = match got {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                self.dual = None;
+                return Err(ExportError::Encode("internal: the lanes ended before the last frame".into()));
+            }
+            Err(e) => {
+                self.lanes_failed = !matches!(e, ExportError::Cancelled);
+                self.lanes_report.lanes = report;
+                self.lanes_report.note = Some(e.to_string());
+                crate::lanes::set_last_lanes(self.lanes_report.clone());
+                self.dual = None;
+                return Err(e);
+            }
+        };
+        if chunk.start != self.next {
+            let e = ExportError::Encode(format!("internal: chunk {} starts at frame {}, expected {}", chunk.index, chunk.start, self.next));
+            self.lanes_failed = true;
+            self.lanes_report.lanes = report;
+            self.lanes_report.note = Some(e.to_string());
+            crate::lanes::set_last_lanes(self.lanes_report.clone());
+            self.dual = None;
+            return Err(e);
+        }
+        if chunk.index == 0 {
+            let size = (u16::try_from(self.pipe.w).unwrap_or(u16::MAX), u16::try_from(self.pipe.h).unwrap_or(u16::MAX));
+            self.venc = Box::new(JoinedVideo { entry: Some(done.entry), timescale: done.timescale, media_start: done.media_start, size });
+        }
+        let sr = self.audio.as_ref().map(|a| a.sr);
+        for (k, p) in packets.into_iter().enumerate() {
+            let fi = chunk.start.saturating_add(i64::try_from(k).unwrap_or(i64::MAX));
+            self.queued.push(EncodedPacket { data: p.data, key: p.key, duration: p.duration, composition_offset: p.cts });
+            let g = fi.saturating_add(1);
+            if (g - self.f0) % INTERLEAVE == 0 {
+                let pcm = match sr {
+                    Some(sr) => {
+                        let until = self.sample_at_frame(g, sr);
+                        timed(Stage::Audio, || self.audio.as_mut().and_then(|a| a.pull(until, sources)))
+                    }
+                    None => None,
+                };
+                self.mux_group(pcm)?;
+            }
+        }
+        self.next = chunk.end;
+        if self.next >= self.f1 {
+            // every chunk is in: the lanes stop, their spill directory goes
+            self.lanes_report.lanes = report;
+            crate::lanes::set_last_lanes(self.lanes_report.clone());
+            self.dual = None;
+        }
+        Ok(Step::Progress)
     }
 
     fn encode(&mut self, frames: &[Frame], f: i64) -> Result<Vec<EncodedPacket>> {

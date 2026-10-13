@@ -993,14 +993,18 @@ fn export(o: &Opts) -> Vec<Value> {
             add_tnr_clip(&mut s, seq);
         }
         let frames = s.project.sequence(seq).map(|q| q.settings.frame_rate.frame_at(q.duration())).unwrap_or(0);
+        // FILMCRAFT_BENCH_ENGINES=single|dual|auto: Export ▸ Export engines (fork 6E.3; default auto)
+        let engines = std::env::var("FILMCRAFT_BENCH_ENGINES").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "auto".into());
         for _ in 0..o.repeat {
             let out = dir.join("out.mp4");
             let smp = Sampler::start();
             let g0 = filmcraft_codecs::gop_stats();
+            let st0 = filmcraft_export::stage_times();
+            let _ = filmcraft_export::trace::take();
             let (t0, c0) = (Instant::now(), filmcraft_ui_egui::frames::process_cpu_time().unwrap_or_default());
             let r = s.execute(
                 "file.exportMedia",
-                json!({"path": out.to_string_lossy(), "format": "hevc", "bitDepth": "10", "bitrateKbps": 100_000, "bitrateMode": "vbr1Pass", "wait": true}),
+                json!({"path": out.to_string_lossy(), "format": "hevc", "bitDepth": "10", "bitrateKbps": 100_000, "bitrateMode": "vbr1Pass", "exportEngines": engines, "wait": true}),
             );
             let dt = t0.elapsed().as_secs_f64();
             let cpu = ms(filmcraft_ui_egui::frames::process_cpu_time().unwrap_or_default().saturating_sub(c0));
@@ -1017,13 +1021,18 @@ fn export(o: &Opts) -> Vec<Value> {
             let g = filmcraft_codecs::gop_stats() - g0;
             eprintln!("{name}: {frames} frames in {dt:.1} s = {fps:.1} fps (GOP seeks {}, decoded {}, evicted {})", g.seeks, g.decoded, g.evicted);
             // FILMCRAFT_BENCH_KEEP=<dir>: keep the output (`<case>.mp4`) for comparisons
-            if let Some(keep) = std::env::var_os("FILMCRAFT_BENCH_KEEP") {
+            if let Some(keep) = std::env::var_os("FILMCRAFT_BENCH_KEEP").filter(|k| !k.is_empty()) {
                 let _ = std::fs::copy(&out, std::path::Path::new(&keep).join(format!("{}.mp4", name.replace(' ', "-"))));
             }
             rows.push(json!({
                 "case": name, "frames": frames, "seconds": dt, "fps": fps, "realtime": fps / FPS_29_97.as_f64(),
                 "cpu_ms_per_frame": cpu / frames.max(1) as f64, "mbytes": std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0) as f64 / 1e6,
                 "sampled": smp.json(), "load": load_avg(), "gop_seeks": g.seeks, "gop_decoded": g.decoded, "gop_evicted": g.evicted,
+                "engines": engines, "lanes": filmcraft_export::lanes::last_lanes(),
+                // wall seconds per export stage, summed over lanes and threads (fork 6E.3 S11)
+                "stages_s": filmcraft_export::stage_times().iter().zip(&st0).map(|((k, b), (_, a))| (k.name().to_string(), json!(b.saturating_sub(*a) as f64 / 1e9))).collect::<serde_json::Map<_, _>>(),
+                // FILMCRAFT_EXPORT_TRACE=1: render / encode breakdown in ms (lock waits, GPU record, VA encode)
+                "trace": filmcraft_export::trace::on().then(filmcraft_export::trace::take),
             }));
         }
     }

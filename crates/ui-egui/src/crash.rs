@@ -81,10 +81,18 @@ mod tests {
     fn hook_records_and_logs_worker_panics() {
         let dir = std::env::temp_dir().join(format!("fc-crash-{}", std::process::id()));
         super::install(Some(dir.clone()));
-        let _ = super::take_last();
-        let r = std::thread::Builder::new().name("filmcraft-test-worker".into()).spawn(|| panic!("boom in a worker")).unwrap().join();
-        assert!(r.is_err());
-        let last = super::take_last().expect("recorded");
+        // the hook is process-wide: another test's deliberate panic (a poisoned lock) can land
+        // between ours and `take_last`, so try a few times
+        let mut last = String::new();
+        for _ in 0..5 {
+            let _ = super::take_last();
+            let r = std::thread::Builder::new().name("filmcraft-test-worker".into()).spawn(|| panic!("boom in a worker")).unwrap().join();
+            assert!(r.is_err());
+            last = super::take_last().expect("recorded");
+            if last.contains("boom in a worker") {
+                break;
+            }
+        }
         assert!(last.contains("boom in a worker") && last.contains("filmcraft-test-worker"), "{last}");
         let log = std::fs::read_to_string(super::log_path().unwrap()).unwrap();
         assert!(log.contains("boom in a worker"));

@@ -15,6 +15,7 @@ pub mod ai_explain;
 pub mod autosave;
 pub mod background;
 pub mod captions;
+pub mod card_offload;
 pub mod clip_ops;
 pub mod coach;
 pub mod coach_ask;
@@ -22,6 +23,7 @@ pub mod coach_hints;
 pub mod color;
 pub mod commands;
 pub mod demo;
+pub mod dirs;
 pub mod essential_sound;
 pub mod export_tools;
 #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
@@ -68,6 +70,7 @@ pub mod tnr;
 pub mod transcript;
 pub mod trim;
 pub mod voiceover;
+pub mod window_state;
 
 use std::sync::Arc;
 
@@ -432,6 +435,8 @@ pub struct Session {
     pub mask_jobs: Vec<masks::PendingTrack>,
     /// Scene Edit Detection jobs whose results are applied when they finish.
     pub scene_jobs: Vec<scene_detect::PendingScene>,
+    /// Card offloads whose copies are imported when they finish (LINUX-PLAN L2.4).
+    pub card_jobs: Vec<card_offload::PendingOffload>,
     /// Effect presets (built-in + the user's, persisted in the data directory).
     pub presets: presets::PresetLibrary,
     /// Export presets (built-in + the user's, persisted in the data directory) and favourites.
@@ -553,6 +558,7 @@ impl Session {
             media_jobs: Vec::new(),
             mask_jobs: Vec::new(),
             scene_jobs: Vec::new(),
+            card_jobs: Vec::new(),
             presets: Default::default(),
             export_presets: Default::default(),
             export_queue: Default::default(),
@@ -657,6 +663,7 @@ impl Session {
         proxies::poll(self);
         masks::poll(self);
         scene_detect::poll(self);
+        card_offload::poll(self);
         export_tools::pump_queue(self, false);
         panels::log_jobs(self);
         // fork 6.3: the render cache (throttled; cheap when nothing changed)
@@ -1188,6 +1195,8 @@ mod autosave_tests;
 #[cfg(test)]
 mod background_tests;
 #[cfg(test)]
+mod card_offload_tests;
+#[cfg(test)]
 mod clip_ops_tests;
 #[cfg(test)]
 mod coach_ask_tests;
@@ -1197,6 +1206,8 @@ mod coach_hints_tests;
 mod coach_tests;
 #[cfg(test)]
 mod color_tests;
+#[cfg(test)]
+mod dirs_tests;
 #[cfg(test)]
 mod essential_sound_tests;
 #[cfg(test)]
@@ -1301,6 +1312,8 @@ mod vfx_tests;
 mod voiceover_tests;
 #[cfg(test)]
 mod wb_tests;
+#[cfg(test)]
+mod window_state_tests;
 #[cfg(test)]
 mod workflow_tests;
 

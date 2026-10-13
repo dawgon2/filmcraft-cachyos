@@ -45,7 +45,7 @@ pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "exportTemplate.control.*", "find.match.*", "find.row.*.column", "find.row.*.operator", "find.row.*.text", "fxEditor.*.*",
     "fxEditor.*.close", "fxEditor.*.curve", "fxEditor.*.curve.*", "fxEditor.*.node.*", "fxEditor.*.param.*", "fxEditor.*.plot",
     "fxEditor.*.reset", "fxEditor.*.toggle.*", "gfxTemplates.control.*", "gfxTemplates.item.*", "grade.curve.*", "grade.node.*",
-    "grade.param.**", "grade.param.**.reset", "grade.qual.show.*", "grade.tab.*", "grade.wheel.*", "grade.window.*",
+    "grade.param.**", "grade.param.**.reset", "grade.qual.show.*", "grade.tab.*", "grade.wheel.*", "grade.wheel.*.master", "grade.wheel.*.reset", "grade.window.*",
     "grade.window.*.delete", "grade.window.*.invert", "grade.window.*.softness", "grade.window.*.track.*", "grade.window.add.*",
     "graphics.*", "graphics.align.*", "graphics.arrange.*", "graphics.distribute.*", "graphics.layers.*", "graphics.layers.*.visible",
     "graphics.pin.*", "graphics.prop.*", "graphics.roll.*", "graphics.section.*", "graphics.textProperties.type.*", "graphics.time.*",
@@ -60,7 +60,7 @@ pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "pm.preset.*", "pm.seq.*", "presetManager.favorite.*", "presetManager.item.*", "program.compare.*", "program.layer.*.*",
     "program.layer.*.*.anchor", "program.layer.*.*.corner.*", "program.layer.*.*.handle.*", "program.mask.*", "program.mask.*.*",
     "program.mask.vertex.*", "program.multicam.*", "program.multicam.angle.*", "program.split.*", "progress.cancel.*", "progress.job.*", "project.itemMenu.*",
-    "project.menu.*", "project.menu.fontSize.*", "project.menu.restoreViewPreset.*", "project.menu.view.*", "project.searchBin.*",
+    "project.itemMenu.kdeconnect.*", "project.menu.*", "project.menu.fontSize.*", "project.menu.restoreViewPreset.*", "project.menu.view.*", "project.searchBin.*",
     "project.tab.*", "project.tab.*.close", "projectBin.*", "projectBin.*.window", "projectDialog.*", "projectDialog.down.*",
     "projectDialog.field.*", "projectDialog.preset.*", "projectDialog.up.*", "projectSettings.*.*", "projectSettings.scratch.*",
     "projectSettings.scratch.*.browse", "projectSettings.scratch.*.same", "projectSettings.tab.*", "projects.crumb.*",
@@ -130,6 +130,7 @@ pub fn narrowed(id: &str) -> Option<bool> {
     }
     let rest = |prefix: &str| id.strip_prefix(prefix);
     if let Some(k) = rest("grade.wheel.") {
+        let k = k.strip_suffix(".reset").or_else(|| k.strip_suffix(".master")).unwrap_or(k);
         return Some(WHEELS.iter().any(|w| w.0 == k));
     }
     if let Some(k) = rest("grade.curve.") {

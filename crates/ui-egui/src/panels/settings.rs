@@ -218,7 +218,8 @@ fn theme_card(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, key: &
     let t = app.tokens;
     let current = choice_text(get(&d.values, key));
     let shown = opts.iter().find(|(v, _)| *v == current).or(opts.first()).map_or("darkest", |(v, _)| v);
-    let highlight = settings::parse_hex(&choice_text(get(&d.values, "appearance.highlightColor")));
+    let follow = get(&d.values, "appearance.followSystemAccent").as_bool().unwrap_or(false);
+    let highlight = app.highlight(ui.ctx(), &choice_text(get(&d.values, "appearance.highlightColor")), follow);
     let contrast = get(&d.values, "appearance.accessibleContrast").as_bool().unwrap_or(false);
     let look = Tokens::for_kind(crate::theme::ThemeKind::from_pref(shown)).with_appearance(highlight, contrast);
     let r = Frame::new()
@@ -707,12 +708,25 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
                 "DaVinci Resolve: page bar (Media, Edit, Color, Fairlight, Deliver), the Color page opens the node grader, and the DaVinci Resolve Compatible keyboard shortcuts. Premiere Pro restores your previous shortcuts. Applies at once.",
             );
             if let Some(w) = picked.filter(|w| w.as_str() != cur) {
+                // a dark theme picked in this dialog but not applied yet counts as hand-picked:
+                // apply it first so the switch keeps it
+                let theme = get(&d.values, "appearance.darkTheme").clone();
+                if !d.base.is_null()
+                    && theme.is_string()
+                    && theme != *get(&d.base, "appearance.darkTheme")
+                    && app.session.execute("prefs.set", json!({"key": "appearance.darkTheme", "value": theme})).is_ok()
+                {
+                    put(&mut d.base, "appearance.darkTheme", theme);
+                    let ct = json!(app.session.prefs.appearance.color_theme);
+                    put(&mut d.base, "appearance.colorTheme", ct.clone());
+                    put(&mut d.values, "appearance.colorTheme", ct);
+                }
                 match app.session.execute("settings.setWorkflow", json!({ "workflow": w })) {
                     Ok(_) => {
                         // keep the draft in step (other edits stay) so OK doesn't write it back
                         put(&mut d.values, "workflow", json!(w));
                         put(&mut d.values, "workflowReturnPreset", json!(app.session.prefs.workflow_return_preset));
-                        // the switch also swapped the dark theme (each workflow keeps its own): the
+                        // the switch may have swapped the dark theme: the
                         // draft and its base follow, so OK neither writes the old theme back nor
                         // trips over the remembered one
                         let a = &app.session.prefs.appearance;
@@ -720,6 +734,7 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
                             ("appearance.darkTheme", json!(a.dark_theme)),
                             ("appearance.colorTheme", json!(a.color_theme)),
                             ("workflowReturnTheme", json!(app.session.prefs.workflow_return_theme)),
+                            ("workflowAutoTheme", json!(app.session.prefs.workflow_auto_theme)),
                         ] {
                             put(&mut d.values, k, v.clone());
                             put(&mut d.base, k, v);
@@ -1020,6 +1035,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) -> bool {
         changes.remove("workflow");
         changes.remove("workflowReturnPreset");
         changes.remove("workflowReturnTheme");
+        changes.remove("workflowAutoTheme");
         match if changes.is_empty() { Ok(Value::Null) } else { app.session.execute("prefs.set", json!({ "values": changes })) } {
             Ok(_) => {
                 close = true;
@@ -1132,6 +1148,91 @@ mod tests {
         let mut out = Map::new();
         diff("", &a, &b, &mut out);
         assert_eq!(Value::Object(out), json!({"timeline.x": 2, "labels.colors.rose.name": "Hero"}));
+    }
+
+    /// Use the system accent color (L1.4): off by default, follows the host's accent as it
+    /// changes, falls back to the Highlight Color without an answer, in both workflows.
+    #[test]
+    fn the_system_accent_replaces_the_highlight_when_followed() {
+        use filmcraft_engine::settings::Workflow;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        for workflow in [Workflow::Premiere, Workflow::Resolve] {
+            let ctx = egui::Context::default();
+            let mut session = filmcraft_engine::Session::default();
+            session.prefs.workflow = workflow;
+            let mut app = FilmcraftApp::new(session);
+            let system = Arc::new(AtomicU32::new(0x013d_aee9));
+            let read = system.clone();
+            app.hooks.system_accent = Some(Box::new(move |_| {
+                let v = read.load(Ordering::Relaxed);
+                (v != 0).then_some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
+            }));
+            app.apply_prefs(&ctx);
+            let own = app.tokens.accent;
+            assert_ne!(own, Color32::from_rgb(0x3d, 0xae, 0xe9), "{workflow:?}: off by default");
+            app.session.execute("prefs.set", json!({"key": "appearance.followSystemAccent", "value": true})).unwrap();
+            app.apply_prefs(&ctx);
+            assert_eq!(app.tokens.accent, Color32::from_rgb(0x3d, 0xae, 0xe9), "{workflow:?}");
+            // the desktop changes its accent while FilmCraft runs
+            system.store(0x01e0_457b, Ordering::Relaxed);
+            app.apply_prefs(&ctx);
+            assert_eq!(app.tokens.accent, Color32::from_rgb(0xe0, 0x45, 0x7b), "{workflow:?}");
+            // no accent from the desktop: the Highlight Color again
+            system.store(0, Ordering::Relaxed);
+            app.apply_prefs(&ctx);
+            assert_eq!(app.tokens.accent, own, "{workflow:?}");
+            system.store(0x01e0_457b, Ordering::Relaxed);
+            app.session.execute("prefs.set", json!({"key": "appearance.followSystemAccent", "value": false})).unwrap();
+            app.apply_prefs(&ctx);
+            assert_eq!(app.tokens.accent, own, "{workflow:?}: switched off");
+        }
+    }
+
+    /// Animations (L1.4): Sync with system by default, switching egui's animations off while the
+    /// desktop asks for reduced motion and back on when it stops; On and Off ignore the desktop.
+    #[test]
+    fn animations_follow_the_desktops_reduced_motion() {
+        use filmcraft_engine::settings::Workflow;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let instant = egui::style::ScrollAnimation::none();
+        for workflow in [Workflow::Premiere, Workflow::Resolve] {
+            let ctx = egui::Context::default();
+            let mut session = filmcraft_engine::Session::default();
+            session.prefs.workflow = workflow;
+            let mut app = FilmcraftApp::new(session);
+            let system = Arc::new(AtomicBool::new(false));
+            let read = system.clone();
+            app.hooks.system_reduced_motion = Some(Box::new(move |_| read.load(Ordering::Relaxed)));
+            app.apply_prefs(&ctx);
+            let normal = ctx.global_style().animation_time;
+            assert!(normal > 0.0, "{workflow:?}: animations on by default");
+            assert_ne!(ctx.global_style().scroll_animation, instant);
+            // the desktop asks for reduced motion while FilmCraft runs
+            system.store(true, Ordering::Relaxed);
+            app.apply_prefs(&ctx);
+            assert_eq!(ctx.global_style().animation_time, 0.0, "{workflow:?}");
+            assert_eq!(ctx.global_style().scroll_animation, instant, "{workflow:?}");
+            // a theme change keeps them off
+            app.session.execute("prefs.set", json!({"key": "appearance.highlightColor", "value": "#e0457b"})).unwrap();
+            app.apply_prefs(&ctx);
+            assert_eq!(ctx.global_style().animation_time, 0.0, "{workflow:?}");
+            // On ignores the desktop
+            app.session.execute("prefs.set", json!({"key": "appearance.motion", "value": "on"})).unwrap();
+            app.apply_prefs(&ctx);
+            assert_eq!(ctx.global_style().animation_time, normal, "{workflow:?}");
+            assert_ne!(ctx.global_style().scroll_animation, instant, "{workflow:?}");
+            // Off ignores it too
+            system.store(false, Ordering::Relaxed);
+            app.session.execute("prefs.set", json!({"key": "appearance.motion", "value": "off"})).unwrap();
+            app.apply_prefs(&ctx);
+            assert_eq!(ctx.global_style().animation_time, 0.0, "{workflow:?}");
+            // back to Sync with system, which no longer asks
+            app.session.execute("prefs.set", json!({"key": "appearance.motion", "value": "system"})).unwrap();
+            app.apply_prefs(&ctx);
+            assert_eq!(ctx.global_style().animation_time, normal, "{workflow:?}");
+        }
     }
 
     #[test]

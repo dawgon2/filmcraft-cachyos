@@ -88,6 +88,10 @@ pub struct GeneralPrefs {
     /// `~/Videos/FilmCraft Projects`, created on first use.
     #[serde(with = "crate::projects::folder_serde")]
     pub projects_folder: Option<PathBuf>,
+    /// "Window title bar" (fork): `filmcraft` = FilmCraft draws its own title bar (window
+    /// buttons and resize edges, like DaVinci Resolve) on Linux and Windows; `system` = the
+    /// desktop's title bar (KWin, Mutter, Windows). macOS always keeps its own traffic lights.
+    pub title_bar: String,
 }
 
 impl Default for GeneralPrefs {
@@ -112,6 +116,7 @@ impl Default for GeneralPrefs {
             recent_projects: Vec::new(),
             startup_show: None,
             projects_folder: None,
+            title_bar: "filmcraft".into(),
         }
     }
 }
@@ -137,6 +142,13 @@ pub struct AppearancePrefs {
     pub accessible_contrast: bool,
     /// Highlight (accent) colour of selections, focus and primary buttons (`#rrggbb`).
     pub highlight_color: String,
+    /// "Use the system accent color" (L1.4): the desktop's accent colour (XDG desktop portal
+    /// `accent-color`; KDE Plasma, GNOME 47+) replaces the highlight colour while the desktop
+    /// reports one, and follows it when it changes. Off by default.
+    pub follow_system_accent: bool,
+    /// "Animations" (L1.4): `system` (default: off when the desktop asks for reduced motion) |
+    /// `on` | `off` (menus, collapsing sections and scrolling jump instead of sliding).
+    pub motion: String,
     /// "UI Scale": `auto` (default: the scale the operating system reports) or a fixed
     /// percentage of [`UI_SCALES`] (`100` = one point per physical pixel).
     pub ui_scale: String,
@@ -151,6 +163,8 @@ impl Default for AppearancePrefs {
             light_theme: "light".into(),
             accessible_contrast: false,
             highlight_color: DEFAULT_HIGHLIGHT.into(),
+            follow_system_accent: false,
+            motion: "system".into(),
             ui_scale: "auto".into(),
         }
     }
@@ -162,6 +176,16 @@ impl AppearancePrefs {
     pub fn ui_scale_factor(&self) -> Option<f32> {
         // `auto` doesn't parse; every other listed value is a positive whole percentage
         UI_SCALES.iter().any(|(k, _)| *k == self.ui_scale).then(|| self.ui_scale.parse::<f32>().ok()).flatten().map(|pct| pct / 100.0)
+    }
+
+    /// Whether animations are off: "Animations" `off`, or `system` (and any unknown value) while the
+    /// desktop asks for reduced motion (`system_reduced`).
+    pub fn reduced_motion(&self, system_reduced: bool) -> bool {
+        match self.motion.as_str() {
+            "off" => true,
+            "on" => false,
+            _ => system_reduced,
+        }
     }
 
     /// The theme to show (`darkest` | `dark` | `light`): the light or dark theme of the mode. Auto
@@ -734,11 +758,13 @@ const fn float(min: f64, max: f64, decimals: usize, unit: &'static str) -> Kind 
 const STARTUP: &[(&str, &str)] = &[("showHome", "Show Home"), ("openMostRecent", "Open Most Recent"), ("emptyProject", "Start with an Empty Project")];
 const STARTUP_SHOW: &[(&str, &str)] =
     &[("workflowDefault", "Workflow default"), ("projectManager", "Project Manager"), ("lastProject", "Last project"), ("newEmpty", "New empty project")];
+const TITLE_BAR: &[(&str, &str)] = &[("filmcraft", "FilmCraft (like DaVinci Resolve)"), ("system", "System (desktop title bar)")];
 const OPENING: &[(&str, &str)] = &[("showOpenDialog", "Show Open Dialog"), ("showHome", "Show Home")];
 const BIN_OPEN: &[(&str, &str)] = &[("openInPlace", "Open in place"), ("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
 const PROJECT_OPEN: &[(&str, &str)] = &[("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
 const THEMES: &[(&str, &str)] = &[("darkest", "Darkest"), ("dark", "Dark"), ("light", "Light"), ("resolve", "Resolve")];
 pub const APPEARANCE_MODES: &[(&str, &str)] = &[("auto", "Sync with system"), ("dark", "Dark"), ("light", "Light")];
+pub const MOTION: &[(&str, &str)] = &[("system", "Sync with system"), ("on", "On"), ("off", "Off (reduce motion)")];
 pub const UI_SCALES: &[(&str, &str)] = &[
     ("auto", "Auto (system)"),
     ("75", "75%"),
@@ -805,6 +831,8 @@ const CACHE_MGMT: &[(&str, &str)] = &[
 const AUTO_SCROLL: &[(&str, &str)] = &[("noScroll", "No Scroll"), ("pageScroll", "Page Scroll"), ("smoothScroll", "Smooth Scroll")];
 const MOUSE_SCROLL: &[(&str, &str)] = &[("vertical", "Vertical"), ("horizontal", "Horizontal")];
 const HW_DECODE: &[(&str, &str)] = &[("auto", "Auto"), ("off", "Off")];
+const PHONE_SHARES: &[(&str, &str)] = &[("offer", "Offer to import"), ("inbox", "Import into the Inbox bin"), ("off", "Ignore")];
+const CAMERA_CARDS: &[(&str, &str)] = &[("offer", "Offer to copy"), ("off", "Ignore")];
 const TRACKS: &[(&str, &str)] = &[("useFile", "Use File"), ("mono", "Mono"), ("stereo", "Stereo"), ("5.1", "5.1"), ("adaptive", "Adaptive")];
 pub const DURATION_UNITS: &[(&str, &str)] = &[("frames", "Frames"), ("seconds", "Seconds")];
 
@@ -842,6 +870,8 @@ static CATEGORIES: &[Category] = &[
             ),
             // fork GRADE-PLAN G1.8: switched at once through `settings.setWorkflow`, not OK
             Row::Custom("workflow"),
+            // fork: FilmCraft's own window title bar or the desktop's
+            f("general.titleBar", "Window title bar", Kind::Choice(TITLE_BAR), true),
             f("general.atStartup", "At Startup", Kind::Choice(STARTUP), true),
             // fork RS2: the Project Manager home screen
             f("general.startupShow", "At startup show", Kind::Choice(STARTUP_SHOW), true),
@@ -885,6 +915,8 @@ static CATEGORIES: &[Category] = &[
             f("appearance.colorTheme", "Color Theme", Kind::Choice(THEMES), true),
             b("appearance.accessibleContrast", "Accessible color contrast", true),
             f("appearance.highlightColor", "Highlight Color", Kind::Color, true),
+            b("appearance.followSystemAccent", "Use the system accent color", true),
+            f("appearance.motion", "Animations", Kind::Choice(MOTION), true),
             f("appearance.uiScale", "UI Scale", Kind::Choice(UI_SCALES), true),
         ],
     },
@@ -1065,6 +1097,9 @@ static CATEGORIES: &[Category] = &[
             ),
             b("media.hardwareDecoding", "Enable hardware accelerated decoding (requires restart)", false),
             b("media.proresHardwareEncoding", "Enable ProRes hardware accelerated encoding, if available", false),
+            f("media.phoneShares", "Files shared from a phone (KDE Connect)", Kind::Choice(PHONE_SHARES), true),
+            f("media.cameraCards", "Camera cards", Kind::Choice(CAMERA_CARDS), true),
+            f("media.cardDestination", "Copy camera cards to", Kind::Path, true),
         ],
     },
     Category {
@@ -1147,6 +1182,8 @@ static CATEGORIES: &[Category] = &[
             b("playback.disableVideoInBackground", "Disable video output when in the background", false),
             b("playback.draftDecode", "Draft decoding at reduced playback resolution (H.264: faster, some frames less filtered)", true),
             f("playback.hardwareDecoding", "Hardware decoding", Kind::Choice(HW_DECODE), true),
+            b("playback.desktopMediaControls", "Media keys and the desktop's media controls", true),
+            b("playback.desktopGlobalShortcuts", "Global shortcuts: Play / Pause and Add Marker while another window has focus", true),
             Row::Note(
                 "Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.",
             ),
@@ -1271,8 +1308,10 @@ pub fn sanitize(v: &mut Value, defaults: &Value) {
         if m.get("workflowReturnPreset").is_some_and(|w| !w.is_string()) {
             m.remove("workflowReturnPreset");
         }
-        if m.get("workflowReturnTheme").is_some_and(|w| !w.is_string()) {
-            m.remove("workflowReturnTheme");
+        for key in ["workflowReturnTheme", "workflowAutoTheme"] {
+            if m.get(key).is_some_and(|w| !w.is_string()) {
+                m.remove(key);
+            }
         }
     }
     for (_, f) in fields() {
@@ -1470,12 +1509,13 @@ pub fn apply_media_scaling(ti: &mut filmcraft_project::TrackItem, scaling: &str,
 
 // ------------------------------------------------------------------ media cache
 
-/// The media cache folder: the configured location, else `<data dir>/Media Cache`.
+/// The media cache folder: the configured location, else `Media Cache` in the cache directory
+/// (`$XDG_CACHE_HOME/filmcraft` for a default Linux install, else `<data dir>`; [`crate::dirs`]).
 pub fn media_cache_dir(prefs: &MediaCachePrefs, data_dir: Option<&Path>) -> Option<PathBuf> {
     if !prefs.location.trim().is_empty() {
         return Some(PathBuf::from(prefs.location.trim()));
     }
-    data_dir.map(|d| d.join("Media Cache"))
+    data_dir.map(|d| crate::dirs::AppDirs::for_data_dir(d).media_cache())
 }
 
 /// Where unsaved projects keep their render previews inside the media cache.
@@ -1658,6 +1698,18 @@ fn schema(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"categories": cats}))
 }
 
+/// `app.paths`: the data / config / cache / state folders and where logs and the media cache go
+/// (`null` folders in a session without a data directory: tests, the web, the CLI).
+fn app_paths(s: &mut Session, _: &Value) -> Result<Value> {
+    let dirs = s.prefs_path.as_deref().and_then(Path::parent).filter(|_| !cfg!(target_arch = "wasm32")).map(crate::dirs::AppDirs::for_data_dir);
+    let mut v = dirs.map(|d| d.to_json()).unwrap_or_else(|| json!({"data": null, "config": null, "cache": null, "state": null, "logs": null}));
+    if let Some(o) = v.as_object_mut() {
+        o.insert("mediaCache".into(), json!(s.media_cache_dir().map(|d| d.to_string_lossy().into_owned())));
+        o.insert("xdg".into(), json!(crate::dirs::xdg_platform()));
+    }
+    Ok(v)
+}
+
 fn cache_info(s: &mut Session, _: &Value) -> Result<Value> {
     let dir = s.media_cache_dir();
     let (bytes, files) = dir.as_deref().map(cache_usage).unwrap_or((0, 0));
@@ -1679,6 +1731,10 @@ fn workflow_json(s: &Session) -> Value {
     json!({"workflow": s.prefs.workflow, "keyboardPreset": s.shortcuts.preset, "returnPreset": s.prefs.workflow_return_preset})
 }
 
+/// `Preferences::workflow_auto_theme` once a hand-picked theme was kept across a switch: it is no
+/// theme name, so the theme in use never counts as set by a switch again.
+const HAND_PICKED_THEME: &str = "hand-picked";
+
 impl Session {
     /// Settings ▸ Workflow: switch the keyboard between Premiere conventions and Resolve's.
     ///
@@ -1688,7 +1744,9 @@ impl Session {
     /// while in Resolve, that one stays; otherwise an edited Resolve set is saved as "DaVinci
     /// Resolve Compatible (edited)" (free name; failure refuses the switch) and the remembered
     /// preset is restored (FilmCraft Default when there is none or it was deleted). Saved presets
-    /// are never overwritten. The choice persists in the preferences.
+    /// are never overwritten. The dark theme swaps only when it is the one the last switch set
+    /// itself (Resolve theme in Resolve, the remembered one back in Premiere); a theme picked by
+    /// hand follows you in both directions. The choice persists in the preferences.
     pub fn set_workflow(&mut self, w: Workflow) -> Result<()> {
         use crate::shortcuts::{DEFAULT_PRESET, RESOLVE_PRESET};
         const CMD: &str = "settings.setWorkflow";
@@ -1708,26 +1766,36 @@ impl Session {
                     next.workflow_return_preset = back;
                 }
                 self.shortcuts.load_preset(RESOLVE_PRESET).map_err(|e| bad(CMD, e))?;
-                // each workflow keeps its own dark theme (`workflow_return_theme` holds the other
-                // one's): Premiere's is remembered for the way back, even when it is the Resolve
-                // theme, and Resolve's last one comes back (the Resolve theme the first time)
-                let mine = std::mem::replace(&mut next.workflow_return_theme, next.appearance.dark_theme.clone());
-                let want = if DARK_THEMES.iter().any(|(v, _)| *v == mine) { mine } else { RESOLVE_THEME.to_string() };
-                if next.appearance.dark_theme != want {
-                    next.appearance.dark_theme = want;
+                // a dark theme the user picked by hand (different from the one the last switch set
+                // itself) follows them; otherwise Premiere's is remembered for the way back and
+                // the Resolve theme shows (`workflow_auto_theme` = what the switch set last)
+                let cur = next.appearance.dark_theme.clone();
+                if !next.workflow_auto_theme.is_empty() && cur != next.workflow_auto_theme {
+                    next.workflow_return_theme.clear();
+                    next.workflow_auto_theme = HAND_PICKED_THEME.to_string();
+                } else {
+                    next.workflow_return_theme = cur;
+                    next.workflow_auto_theme = RESOLVE_THEME.to_string();
+                    next.appearance.dark_theme = RESOLVE_THEME.to_string();
                     next.appearance.sync_color_theme();
                 }
             }
             Workflow::Premiere => {
                 let want = std::mem::take(&mut next.workflow_return_preset);
-                // Premiere's remembered dark theme comes back (the default when there is none); the
-                // one used in Resolve is remembered for the next switch ("" = the Resolve theme)
-                let resolve_side = if next.appearance.dark_theme == RESOLVE_THEME { String::new() } else { next.appearance.dark_theme.clone() };
-                let back = std::mem::replace(&mut next.workflow_return_theme, resolve_side);
-                let back = if DARK_THEMES.iter().any(|(v, _)| *v == back) { back } else { AppearancePrefs::default().dark_theme };
-                if next.appearance.dark_theme != back {
-                    next.appearance.dark_theme = back;
-                    next.appearance.sync_color_theme();
+                // a hand-picked theme stays; the Resolve theme the switch set goes back to the one
+                // Premiere had (the default when there is none); no record yet = the Resolve theme
+                let auto = if next.workflow_auto_theme.is_empty() { RESOLVE_THEME } else { next.workflow_auto_theme.as_str() };
+                if next.appearance.dark_theme != auto {
+                    next.workflow_return_theme.clear();
+                    next.workflow_auto_theme = HAND_PICKED_THEME.to_string();
+                } else {
+                    let back = std::mem::take(&mut next.workflow_return_theme);
+                    let back = if DARK_THEMES.iter().any(|(v, _)| *v == back) { back } else { AppearancePrefs::default().dark_theme };
+                    next.workflow_auto_theme = back.clone();
+                    if next.appearance.dark_theme != back {
+                        next.appearance.dark_theme = back;
+                        next.appearance.sync_color_theme();
+                    }
                 }
                 // another preset chosen by hand while in Resolve stays
                 if self.shortcuts.preset == RESOLVE_PRESET {
@@ -1762,6 +1830,7 @@ pub fn commands() -> Vec<CommandSpec> {
             false,
         ),
         spec("prefs.schema", "Settings Schema", r#"{"category":str?}"#, schema, false),
+        spec("app.paths", "Application Folders", "{}", app_paths, false),
         spec("mediaCache.info", "Media Cache Info", "{}", cache_info, false),
         spec("mediaCache.clean", "Delete Media Cache Files", r#"{"all":bool?}"#, cache_clean, true),
     ]

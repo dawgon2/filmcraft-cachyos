@@ -293,21 +293,59 @@ fn summary(n: &GradeNode) -> String {
 pub(crate) const WHEELS: [(&str, &str, f32, f32); 4] =
     [("lift", "Lift", 0.25, 0.5), ("gamma", "Gamma", 0.25, 0.5), ("gain", "Gain", 0.5, 1.0), ("offset", "Offset", 0.25, 0.5)];
 
-/// Smallest and largest wheel (points), the gap between wheels, and the height a wheel's title and
-/// numbers take besides the wheel itself.
+/// Smallest and largest wheel (points), the gap between wheel columns, and the height a wheel's
+/// title, numbers and jog bar take besides the wheel itself.
 const WHEEL_MIN: f32 = 72.0;
-const WHEEL_MAX: f32 = 240.0;
+const WHEEL_MAX: f32 = 220.0;
 const WHEEL_GAP: f32 = 12.0;
-const WHEEL_CHROME: f32 = 44.0;
-/// The slider column beside the wheels on a wide panel, and the gap before it.
-const SIDE_W: f32 = 330.0;
-const SIDE_GAP: f32 = 24.0;
+const WHEEL_CHROME: f32 = 74.0;
+/// Height of one number strip (above and below the wheels), and of the LUT row with the spacing
+/// around it.
+const STRIP_H: f32 = 34.0;
+const LUT_H: f32 = 44.0;
+/// A strip number box's width and the gap after it.
+const FIELD_W: f32 = 56.0;
+const FIELD_GAP: f32 = 14.0;
 
-/// Number sliders below the wheels; `""` draws a separator (the film grain group follows).
-const SLIDERS: [&str; 9] = ["contrast", "pivot", "saturation", "temperature", "tint", "", "grain.strength", "grain.size", "grain.softness"];
+/// Decimals a strip number shows (Resolve: Temp / Tint 0.0, the rest 0.000).
+fn field_decimals(key: &str) -> usize {
+    if matches!(key, "temperature" | "tint") { 1 } else { 3 }
+}
+
+/// The colour band under a strip number: what the control does, at a glance.
+fn field_band(key: &str) -> widgets::color::Band {
+    use widgets::color::Band;
+    match key {
+        "temperature" => Band::Gradient(Color32::from_rgb(0x3a, 0x7b, 0xf0), Color32::from_rgb(0xf0, 0x9a, 0x30)),
+        "tint" => Band::Gradient(Color32::from_rgb(0x40, 0xc8, 0x50), Color32::from_rgb(0xe0, 0x40, 0xd0)),
+        "contrast" => Band::Gradient(Color32::BLACK, Color32::WHITE),
+        "pivot" => Band::Gradient(Color32::from_gray(0x30), Color32::from_gray(0xc0)),
+        "saturation" => Band::Hues,
+        _ => Band::Solid(Color32::from_gray(0x70)),
+    }
+}
+
+/// A small round icon button (the white-balance tools at the start of the top strip).
+fn round_icon(ui: &mut egui::Ui, glyph: &str, on: bool, t: &crate::theme::Tokens) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+    let p = ui.painter();
+    let col = if on {
+        t.accent
+    } else if resp.hovered() {
+        t.text
+    } else {
+        t.text_dim
+    };
+    p.circle_stroke(r.center(), 9.0, Stroke::new(1.0, col));
+    p.text(r.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(11.0), col);
+    resp
+}
 
 /// The tabs of the grade panel (`grade.tab.{id}`).
 pub(crate) const TABS: [&str; 6] = ["primaries", "curves", "qualifier", "windows", "noise", "match"];
+
+/// The tabs the Curves panel takes over when it is in the layout (Resolve's middle palette).
+const MIDDLE_TABS: [&str; 3] = ["curves", "qualifier", "windows"];
 
 /// The window shapes the Windows tab adds (`grade.window.add.{shape}`).
 pub(crate) const WINDOW_SHAPES: [&str; 3] = ["ellipse", "rectangle", "linear"];
@@ -343,12 +381,26 @@ pub(crate) fn rgb_of(puck: [f32; 2], scale: f32) -> [f32; 3] {
 }
 
 pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
+    palette(app, ui, rect, false);
+}
+
+/// The Curves panel (fork, Resolve's middle palette): the Curves, Qualifier and Windows tabs of the
+/// grade palette (see [`palette`]); its curve sits left of the channel buttons and soft clip.
+pub fn show_curves(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
+    palette(app, ui, rect, true);
+}
+
+/// The grade palette: the tabbed Primaries panel, or (`middle`) the Curves panel. With the Curves
+/// panel in the layout (the Color page), the tabs are split as in Resolve: Primaries, Noise
+/// (Resolve's Motion Effects) and Match on the left, Curves, Qualifier and Windows in the middle;
+/// without it the Primaries panel has all six.
+fn palette(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, middle: bool) {
     let t = app.tokens;
     let Some((clip, it)) = selected(app) else {
         crate::dock::placeholder(ui, rect, &t, "(select a video clip to grade)");
         return;
     };
-    let mut bui = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(10.0, 6.0))).id_salt("grade-primaries"));
+    let mut bui = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(10.0, 6.0))).id_salt(("grade-primaries", middle)));
     let Some(grade) = it.grade.clone().filter(|g| !g.nodes.is_empty()) else {
         bui.add_space(8.0);
         bui.label(egui::RichText::new(format!("{} has no grade", short(&it.name, 40))).color(t.text_dim));
@@ -371,14 +423,12 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let mut autos: Vec<(String, Rect, String)> = Vec::new();
     let gest = gesture(&bui);
     let key_of = |what: &str| format!("{node_id}:{what}#{gest}");
-    let mut tab = match app.ui.grade_tab.as_str() {
-        "curves" => "curves",
-        "qualifier" => "qualifier",
-        "windows" => "windows",
-        "noise" => "noise",
-        "match" => "match",
-        _ => "primaries",
-    };
+    let split = middle
+        || app.ui.dock.contains(crate::dock::PanelKind::ColorCurves)
+        || app.ui.floating.iter().any(|g| g.panels.contains(&crate::dock::PanelKind::ColorCurves));
+    let shown: Vec<&'static str> = TABS.into_iter().filter(|id| !split || middle == MIDDLE_TABS.contains(id)).collect();
+    let stored = if middle { app.ui.grade_tab_mid.as_str() } else { app.ui.grade_tab.as_str() };
+    let mut tab: &'static str = shown.iter().copied().find(|id| *id == stored).or_else(|| shown.first().copied()).unwrap_or("primaries");
     let mut cmds: Vec<(&'static str, Value)> = Vec::new();
     let mut arm: Option<bool> = None;
     let armed = app.ui.grade_picker.filter(|a| a.clip == clip.0 && a.node == node_id).map(|a| a.add);
@@ -388,6 +438,9 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     bui.horizontal(|ui| {
         let labels = [tl!("Primaries"), tl!("Curves"), tl!("Qualifier"), tl!("Windows"), tl!("Noise"), tl!("Match")];
         for (id, label) in TABS.into_iter().zip(labels) {
+            if !shown.contains(&id) {
+                continue;
+            }
             let r = ui.selectable_label(tab == id, label);
             autos.push((format!("grade.tab.{id}"), r.rect, label.to_string()));
             if r.clicked() {
@@ -422,129 +475,138 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     // a Grading Coach step about one of these controls scrolls it into view (once per step)
     let coach_scroll = super::coach::scroll_request(app, bui.ctx());
     let mut coach_scrolled = false;
-    egui::ScrollArea::vertical().id_salt(("grade-primaries", tab)).auto_shrink([false, false]).show(&mut sui, |bui| {
+    egui::ScrollArea::vertical().id_salt(("grade-primaries", tab, middle)).auto_shrink([false, false]).show(&mut sui, |bui| {
         if tab == "primaries" {
-            // Resolve's Color page: four wheels in a row sized to the panel's height as well as its
-            // width (so they never hide below a short panel), with the sliders beside them when
-            // the panel is wide enough; else the wheels two by two and the sliders below
-            let wheel = |ui: &mut egui::Ui,
-                         &(key, title, scale, master_scale): &(&'static str, &'static str, f32, f32),
-                         size: f32,
-                         sets: &mut Vec<Value>,
-                         autos: &mut Vec<(String, Rect, String)>| {
-                ui.vertical(|ui| {
-                    ui.set_width(size);
-                    let w = node.wheel_at(key, mt);
-                    ui.label(egui::RichText::new(title).color(t.text_dim));
-                    let puck = puck_of([w[0], w[1], w[2]], scale);
-                    let light = (w[3] / master_scale * 100.0).clamp(-100.0, 100.0);
-                    let wheel_rect = Rect::from_min_size(ui.cursor().min, vec2(size, size));
-                    let ch = widgets::color::color_wheel(ui, puck, light, size, &t, egui::Id::new(("grade-wl", clip.0, node_id, key)));
-                    autos.push((format!("grade.wheel.{key}"), wheel_rect, title.to_string()));
-                    let mean = (w[0] + w[1] + w[2]) / 3.0;
-                    if let Some(p) = ch.puck {
-                        let c = rgb_of(p, scale);
-                        let v = [mean + c[0], mean + c[1], mean + c[2], w[3]];
-                        sets.push(set(key, json!(v), Some(key_of(key))));
-                    }
-                    if let Some(l) = ch.lightness {
-                        sets.push(set(key, json!([w[0], w[1], w[2], l / 100.0 * master_scale]), Some(key_of(key))));
-                    }
-                    // one line (a narrow wheel cuts it short; the full values are on hover)
-                    let nums = format!("{:+.2} {:+.2} {:+.2} {:+.2}", w[0], w[1], w[2], w[3]);
-                    ui.add(egui::Label::new(egui::RichText::new(&nums).monospace().size(9.5).color(t.text_faint)).truncate())
-                        .on_hover_text(format!("R G B, master: {nums}"));
-                });
-            };
-            let sliders = |ui: &mut egui::Ui, sets: &mut Vec<Value>, autos: &mut Vec<(String, Rect, String)>, cmds: &mut Vec<(&'static str, Value)>| {
-                for key in SLIDERS {
-                    if key.is_empty() {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new("Film grain").color(t.text_dim));
-                        continue;
-                    }
-                    let Some(def) = node_param(key) else { continue };
-                    let NodeParamKind::Float { min, max, .. } = def.kind else { continue };
-                    let mut v = node.float_at(key, mt);
-                    ui.horizontal(|ui| {
-                        ui.add_sized(vec2(84.0, 18.0), egui::Label::new(egui::RichText::new(def.label).color(t.text_dim)));
-                        let r = ui.add(egui::Slider::new(&mut v, min..=max).max_decimals(3));
-                        autos.push((format!("grade.param.{key}"), r.rect, def.label.to_string()));
-                        if r.changed() {
-                            sets.push(set(key, json!(v), Some(key_of(key))));
-                        }
-                        let reset = ui.small_button("↺").on_hover_text(format!("Reset {}", def.label));
-                        autos.push((format!("grade.param.{key}.reset"), reset.rect, format!("Reset {}", def.label)));
-                        if reset.clicked() {
-                            sets.push(json!({"reset": key}));
-                        }
-                    });
-                    if key == "tint" {
-                        // white balance: solve Temperature and Tint from something neutral
-                        ui.horizontal(|ui| {
-                            ui.add_space(88.0);
-                            let label = tl!("WB picker");
-                            let r = ui.selectable_label(wb_armed, label).on_hover_text(tl!(
-                                "Click or drag on something that should be grey or white in the Program monitor: Temperature and Tint are set so it becomes neutral (Esc cancels)"
-                            ));
-                            autos.push(("grade.wb.pick".to_string(), r.rect, label.to_string()));
-                            if r.clicked() {
-                                wb_toggle.set(true);
-                            }
-                            let label = tl!("Auto balance");
-                            let r = ui.button(label).on_hover_text(tl!("Balance Temperature and Tint from the greys in the whole frame"));
-                            autos.push(("grade.wb.auto".to_string(), r.rect, label.to_string()));
-                            if r.clicked() {
-                                cmds.push(("grade.wb.auto", json!({"node": node_id})));
-                            }
-                        });
-                    }
+            // Resolve's Primaries palette: a strip of numbers (Temp, Tint, Contrast, Pivot) with
+            // the white-balance tools, four wheels with their numbers and a master jog bar each,
+            // then a strip with Saturation and film grain, and the node's LUT
+            let field = |ui: &mut egui::Ui, key: &'static str, label: &str, sets: &mut Vec<Value>, autos: &mut Vec<(String, Rect, String)>| {
+                let Some(def) = node_param(key) else { return };
+                let NodeParamKind::Float { min, max, .. } = def.kind else { return };
+                let mut v = node.float_at(key, mt);
+                let lw = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), egui::FontId::proportional(13.0), t.text_dim).size().x) + 2.0;
+                let (lr, l) = ui.allocate_exact_size(vec2(lw, 18.0), Sense::click());
+                let l = l.on_hover_text(format!("{} · {}", def.label, tl!("double-click to reset")));
+                autos.push((format!("grade.param.{key}.reset"), l.rect, format!("Reset {}", def.label)));
+                if l.double_clicked() {
+                    sets.push(json!({"reset": key}));
                 }
-                ui.separator();
-                lut_row(ui, &node, &luts, &t, cmds, autos);
-                if !node.lut.is_empty() {
-                    let mut edits = Vec::new();
-                    float_rows(ui, &node, mt, &t, &["lut.mix"], true, &mut edits, autos);
-                    for (key, v) in edits {
-                        sets.push(match v {
-                            Some(v) => set(key, v, Some(key_of(key))),
-                            None => json!({"reset": key}),
-                        });
-                    }
+                let r = widgets::color::value_box(ui, &mut v, FIELD_W, min..=max, field_decimals(key), field_band(key));
+                // the label, centred on the box's height
+                let col = if l.hovered() { t.text } else { t.text_dim };
+                ui.painter().text(pos2(lr.max.x, r.rect.center().y), Align2::RIGHT_CENTER, label, egui::FontId::proportional(13.0), col);
+                autos.push((format!("grade.param.{key}"), r.rect, def.label.to_string()));
+                if r.changed() {
+                    sets.push(set(key, json!(v), Some(key_of(key))));
                 }
+                ui.add_space(FIELD_GAP);
             };
-            // room for a wheel's title above it and its numbers below
-            let by_height = (view_h - WHEEL_CHROME).max(0.0);
+            bui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                // white balance: Auto (from the greys of the frame) and the picker
+                let r = round_icon(ui, "A", false, &t).on_hover_text(tl!("Balance Temperature and Tint from the greys in the whole frame"));
+                autos.push(("grade.wb.auto".to_string(), r.rect, tl!("Auto balance").to_string()));
+                if r.clicked() {
+                    cmds.push(("grade.wb.auto", json!({"node": node_id})));
+                }
+                let r = round_icon(ui, "✒", wb_armed, &t).on_hover_text(tl!(
+                    "Click or drag on something that should be grey or white in the Program monitor: Temperature and Tint are set so it becomes neutral (Esc cancels)"
+                ));
+                autos.push(("grade.wb.pick".to_string(), r.rect, tl!("WB picker").to_string()));
+                if r.clicked() {
+                    wb_toggle.set(true);
+                }
+                ui.add_space(FIELD_GAP);
+                for (key, label) in [("temperature", tl!("Temp")), ("tint", tl!("Tint")), ("contrast", tl!("Contrast")), ("pivot", tl!("Pivot"))] {
+                    field(ui, key, label, &mut sets, &mut autos);
+                }
+            });
+            bui.add_space(6.0);
             let width = bui.available_width();
-            if width >= 4.0 * WHEEL_MIN + 3.0 * WHEEL_GAP + SIDE_GAP + SIDE_W {
+            let cols = if width >= 4.0 * (WHEEL_MIN + WHEEL_GAP) { 4 } else { 2 };
+            let col_w = ((width - WHEEL_GAP * (cols as f32 - 1.0)) / cols as f32).max(WHEEL_MIN);
+            let rows = (WHEELS.len() / cols) as f32;
+            let by_height = ((view_h - 2.0 * STRIP_H - LUT_H) / rows - WHEEL_CHROME).max(0.0);
+            let size = (col_w * 0.78).min(by_height).clamp(WHEEL_MIN, WHEEL_MAX);
+            for row in WHEELS.chunks(cols) {
                 bui.horizontal_top(|ui| {
-                    let wheels_w = width - SIDE_GAP - SIDE_W;
-                    let size = ((wheels_w - 3.0 * WHEEL_GAP) / 4.0).min(by_height).clamp(WHEEL_MIN, WHEEL_MAX);
                     ui.spacing_mut().item_spacing.x = WHEEL_GAP;
-                    for w in &WHEELS {
-                        wheel(ui, w, size, &mut sets, &mut autos);
+                    for &(key, title, scale, master_scale) in row {
+                        ui.allocate_ui_with_layout(vec2(col_w, size + WHEEL_CHROME), egui::Layout::top_down(egui::Align::Center), |ui| {
+                            ui.set_width(col_w);
+                            let w = node.wheel_at(key, mt);
+                            let range = match node_param(key).map(|d| d.kind) {
+                                Some(NodeParamKind::Wheel { range }) => range,
+                                _ => 1.0,
+                            };
+                            // title, centred, with the wheel's reset at its right
+                            let (tr, _) = ui.allocate_exact_size(vec2(col_w, 18.0), Sense::hover());
+                            ui.painter().text(tr.center(), egui::Align2::CENTER_CENTER, crate::i18n::t(title), egui::FontId::proportional(13.0), t.text);
+                            let rr = Rect::from_center_size(pos2((tr.center().x + size / 2.0).min(tr.max.x - 9.0), tr.center().y), vec2(18.0, 18.0));
+                            let reset = ui.interact(rr, egui::Id::new(("grade-wheel-reset", clip.0, node_id, key)), Sense::click()).on_hover_text(format!("{} {}", tl!("Reset"), crate::i18n::t(title)));
+                            crate::icons::paint(ui.painter(), rr.shrink(3.0), crate::icons::Icon::Undo, if reset.hovered() { t.text } else { t.text_dim });
+                            autos.push((format!("grade.wheel.{key}.reset"), rr, format!("Reset {title}")));
+                            if reset.clicked() {
+                                sets.push(json!({"reset": key}));
+                            }
+                            let puck = puck_of([w[0], w[1], w[2]], scale);
+                            let wheel_rect = Rect::from_min_size(pos2(ui.cursor().min.x + (col_w - size) / 2.0, ui.cursor().min.y), vec2(size, size));
+                            let ch = widgets::color::grade_wheel(ui, puck, size);
+                            autos.push((format!("grade.wheel.{key}"), wheel_rect, title.to_string()));
+                            let mean = (w[0] + w[1] + w[2]) / 3.0;
+                            if let Some(p) = ch {
+                                let c = rgb_of(p, scale);
+                                sets.push(set(key, json!([mean + c[0], mean + c[1], mean + c[2], w[3]]), Some(key_of(key))));
+                            }
+                            ui.add_space(4.0);
+                            // Y (master), R, G, B, centred under the wheel
+                            let bw = ((col_w - 3.0 * 4.0) / 4.0).clamp(30.0, 46.0);
+                            let row_w = 4.0 * bw + 3.0 * 4.0;
+                            ui.allocate_ui_with_layout(vec2(col_w, 22.0), egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                ui.add_space(((col_w - row_w) / 2.0).max(0.0) - 4.0);
+                                let bands = [Color32::from_gray(0xe0), Color32::from_rgb(0xe0, 0x40, 0x40), Color32::from_rgb(0x40, 0xc8, 0x50), Color32::from_rgb(0x40, 0x70, 0xf0)];
+                                for (i, ch) in [3usize, 0, 1, 2].into_iter().enumerate() {
+                                    let mut v = w[ch];
+                                    let r = widgets::color::value_box(ui, &mut v, bw, -range..=range, 2, widgets::color::Band::Solid(bands[i]));
+                                    if r.changed() {
+                                        let mut nv = w;
+                                        nv[ch] = v;
+                                        sets.push(set(key, json!(nv), Some(key_of(key))));
+                                    }
+                                }
+                            });
+                            ui.add_space(6.0);
+                            let (jr, dx) = widgets::color::jog_bar(ui, (size * 1.15).min(col_w), egui::Id::new(("grade-jog", clip.0, node_id, key)));
+                            autos.push((format!("grade.wheel.{key}.master"), jr.rect, format!("{title} master")));
+                            if dx.is_nan() {
+                                sets.push(set(key, json!([w[0], w[1], w[2], 0.0]), Some(key_of(key))));
+                            } else if dx != 0.0 {
+                                let m = (w[3] + dx / 400.0 * master_scale).clamp(-range, range);
+                                sets.push(set(key, json!([w[0], w[1], w[2], m]), Some(key_of(key))));
+                            }
+                        });
                     }
-                    ui.add_space(SIDE_GAP - WHEEL_GAP);
-                    ui.vertical(|ui| {
-                        ui.set_width(SIDE_W);
-                        sliders(ui, &mut sets, &mut autos, &mut cmds);
-                    });
                 });
-            } else {
-                let cols = if width >= 4.0 * WHEEL_MIN + 3.0 * WHEEL_GAP { 4 } else { 2 };
-                let rows = (WHEELS.len() / cols) as f32;
-                let size = ((width - WHEEL_GAP * (cols as f32 - 1.0)) / cols as f32).min(by_height / rows).clamp(WHEEL_MIN, WHEEL_MAX);
-                for row in WHEELS.chunks(cols) {
-                    bui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = WHEEL_GAP;
-                        for w in row {
-                            wheel(ui, w, size, &mut sets, &mut autos);
-                        }
-                    });
-                    bui.add_space(4.0);
+                bui.add_space(4.0);
+            }
+            bui.separator();
+            bui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for (key, label) in [("saturation", tl!("Saturation")), ("grain.strength", tl!("Grain")), ("grain.size", tl!("Grain size")), ("grain.softness", tl!("Grain softness"))] {
+                    field(ui, key, label, &mut sets, &mut autos);
                 }
-                bui.separator();
-                sliders(bui, &mut sets, &mut autos, &mut cmds);
+            });
+            lut_row(bui, &node, &luts, &t, &mut cmds, &mut autos);
+            if !node.lut.is_empty() {
+                let mut edits = Vec::new();
+                float_rows(bui, &node, mt, &t, &["lut.mix"], true, &mut edits, &mut autos);
+                for (key, v) in edits {
+                    sets.push(match v {
+                        Some(v) => set(key, v, Some(key_of(key))),
+                        None => json!({"reset": key}),
+                    });
+                }
             }
         } else if tab == "match" {
             if let Some(mv) = &mview {
@@ -585,46 +647,77 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 });
             }
         } else {
-            let key = egui::Id::new("grade-curve-channel");
-            let mut ch: usize = bui.data(|d| d.get_temp(key)).unwrap_or(0);
-            bui.horizontal(|ui| {
-                for (i, (k, label)) in CURVES.iter().enumerate() {
-                    let r = ui.selectable_label(ch == i, *label);
-                    autos.push((format!("grade.curve.{}", k.trim_start_matches("curve.")), r.rect, format!("{label} curve")));
-                    if r.clicked() {
-                        ch = i;
-                    }
+            // the Curves panel: the curve on the left, channels and soft clip beside it (Resolve);
+            // the Primaries panel's Curves tab: one above the other
+            let side = middle && bui.available_width() >= 400.0;
+            let curve_w = if side { (view_h - 12.0).clamp(120.0, 300.0).min(bui.available_width() - 260.0) } else { bui.available_width() };
+            let mut controls: Vec<Value> = Vec::new();
+            let mut curve_part = |ui: &mut egui::Ui, autos: &mut Vec<(String, Rect, String)>| {
+                ui.set_max_width(curve_w);
+                let key = egui::Id::new("grade-curve-channel");
+                let ch: usize = ui.data(|d| d.get_temp(key)).unwrap_or(0);
+                let (k, _) = CURVES.get(ch).copied().unwrap_or(CURVES[0]);
+                let col = match ch {
+                    1 => Color32::from_rgb(0xe0, 0x50, 0x50),
+                    2 => Color32::from_rgb(0x50, 0xc0, 0x50),
+                    3 => Color32::from_rgb(0x50, 0x80, 0xf0),
+                    _ => Color32::from_gray(0xd0),
+                };
+                let pts = node.curve(k).unwrap_or_else(|| vec![[0.0, 0.0], [1.0, 1.0]]);
+                if let Some(new_pts) = widgets::color::curve_editor(ui, &pts, false, col, &t, egui::Id::new(("grade-curve", clip.0, node_id, k, middle))) {
+                    let v: Vec<Value> = new_pts.iter().map(|q| json!([q[0], q[1]])).collect();
+                    controls.push(set(k, json!(v), Some(key_of(k))));
                 }
-            });
-            bui.data_mut(|d| d.insert_temp(key, ch));
-            let (k, _) = CURVES.get(ch).copied().unwrap_or(CURVES[0]);
-            let col = match ch {
-                1 => Color32::from_rgb(0xe0, 0x50, 0x50),
-                2 => Color32::from_rgb(0x50, 0xc0, 0x50),
-                3 => Color32::from_rgb(0x50, 0x80, 0xf0),
-                _ => Color32::from_gray(0xd0),
+                let _ = autos;
             };
-            let pts = node.curve(k).unwrap_or_else(|| vec![[0.0, 0.0], [1.0, 1.0]]);
-            if let Some(new_pts) = widgets::color::curve_editor(bui, &pts, false, col, &t, egui::Id::new(("grade-curve", clip.0, node_id, k))) {
-                let v: Vec<Value> = new_pts.iter().map(|q| json!([q[0], q[1]])).collect();
-                sets.push(set(k, json!(v), Some(key_of(k))));
-            }
-            let r = bui.small_button("Reset curve");
-            autos.push(("grade.curve.reset".into(), r.rect, "Reset curve".into()));
-            if r.clicked() {
-                sets.push(json!({"reset": k}));
-            }
-            // highlight soft clip (G2.5), like the soft clip beside Resolve's curves
-            bui.separator();
-            bui.label(egui::RichText::new(tl!("Soft clip")).color(t.text_dim));
-            let mut edits = Vec::new();
-            float_rows(bui, &node, mt, &t, &["hl.rolloff", "hl.knee"], true, &mut edits, &mut autos);
-            for (key, v) in edits {
-                sets.push(match v {
-                    Some(v) => set(key, v, Some(key_of(key))),
-                    None => json!({"reset": key}),
+            let channel_part = |ui: &mut egui::Ui, sets: &mut Vec<Value>, autos: &mut Vec<(String, Rect, String)>| {
+                let key = egui::Id::new("grade-curve-channel");
+                let mut ch: usize = ui.data(|d| d.get_temp(key)).unwrap_or(0);
+                ui.horizontal(|ui| {
+                    for (i, (k, label)) in CURVES.iter().enumerate() {
+                        let r = ui.selectable_label(ch == i, *label);
+                        autos.push((format!("grade.curve.{}", k.trim_start_matches("curve.")), r.rect, format!("{label} curve")));
+                        if r.clicked() {
+                            ch = i;
+                        }
+                    }
                 });
+                ui.data_mut(|d| d.insert_temp(key, ch));
+                let (k, _) = CURVES.get(ch).copied().unwrap_or(CURVES[0]);
+                let r = ui.small_button("Reset curve");
+                autos.push(("grade.curve.reset".into(), r.rect, "Reset curve".into()));
+                if r.clicked() {
+                    sets.push(json!({"reset": k}));
+                }
+            };
+            let soft_clip_part = |ui: &mut egui::Ui, sets: &mut Vec<Value>, autos: &mut Vec<(String, Rect, String)>| {
+                // highlight soft clip (G2.5), like the soft clip beside Resolve's curves
+                ui.separator();
+                ui.label(egui::RichText::new(tl!("Soft clip")).color(t.text_dim));
+                let mut edits = Vec::new();
+                float_rows(ui, &node, mt, &t, &["hl.rolloff", "hl.knee"], true, &mut edits, autos);
+                for (key, v) in edits {
+                    sets.push(match v {
+                        Some(v) => set(key, v, Some(key_of(key))),
+                        None => json!({"reset": key}),
+                    });
+                }
+            };
+            if side {
+                bui.horizontal_top(|ui| {
+                    ui.vertical(|ui| curve_part(ui, &mut autos));
+                    ui.add_space(10.0);
+                    ui.vertical(|ui| {
+                        channel_part(ui, &mut sets, &mut autos);
+                        soft_clip_part(ui, &mut sets, &mut autos);
+                    });
+                });
+            } else {
+                channel_part(bui, &mut sets, &mut autos);
+                curve_part(bui, &mut autos);
+                soft_clip_part(bui, &mut sets, &mut autos);
             }
+            sets.extend(controls);
         }
         if let Some(want) = &coach_scroll
             && let Some((_, r, _)) = autos.iter().find(|(id, ..)| want.contains(id))
@@ -642,28 +735,17 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             app.auto.add(&id, r, &label);
         }
     }
-    app.ui.grade_tab = tab.to_string();
-    match arm {
-        Some(add) if armed == Some(add) => app.ui.grade_picker = None,
-        Some(add) => {
-            app.ui.grade_picker = Some(crate::state::GradePicker { clip: clip.0, node: node_id, add });
-            // (one armed picker at a time: a click fills one thing)
-            app.ui.eyedropper = None;
-            app.ui.wb_picker = None;
-        }
-        None if tab != "qualifier" || armed.is_none() => app.ui.grade_picker = None,
-        None => {}
+    if middle {
+        app.ui.grade_tab_mid = tab.to_string();
+    } else {
+        app.ui.grade_tab = tab.to_string();
     }
-    if wb_toggle.get() {
-        app.ui.wb_picker = if wb_armed { None } else { Some(crate::state::WbPicker { clip: clip.0, node: Some(node_id) }) };
-        if app.ui.wb_picker.is_some() {
-            // (one armed picker at a time: a click fills one thing)
-            app.ui.grade_picker = None;
-            app.ui.eyedropper = None;
-        }
-    } else if (wb_armed && tab != "primaries") || app.ui.wb_picker.is_some_and(|w| w.clip == clip.0 && w.node.is_some_and(|n| n != node_id)) {
-        // (another tab, or another node selected while armed)
-        app.ui.wb_picker = None;
+    // each picker follows the panel that has its tab
+    if shown.contains(&"qualifier") {
+        qualifier_picker_state(app, clip, node_id, tab, arm, armed);
+    }
+    if shown.contains(&"primaries") {
+        wb_picker_state(app, clip, node_id, tab, wb_toggle.get(), wb_armed);
     }
     for (cmd, mut p) in cmds {
         // (the Match tab's results: kept per clip until the next request, shown in the tab)
@@ -705,6 +787,37 @@ pub fn show_primaries(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         } else {
             run(app, "grade.setParam", p);
         }
+    }
+}
+
+/// After a pass of the panel with the Qualifier tab: keep the qualifier picker in step with what
+/// was clicked (one armed picker at a time; leaving the tab disarms it).
+fn qualifier_picker_state(app: &mut FilmcraftApp, clip: ClipId, node_id: u64, tab: &str, arm: Option<bool>, armed: Option<bool>) {
+    match arm {
+        Some(add) if armed == Some(add) => app.ui.grade_picker = None,
+        Some(add) => {
+            app.ui.grade_picker = Some(crate::state::GradePicker { clip: clip.0, node: node_id, add });
+            // (one armed picker at a time: a click fills one thing)
+            app.ui.eyedropper = None;
+            app.ui.wb_picker = None;
+        }
+        None if tab != "qualifier" || armed.is_none() => app.ui.grade_picker = None,
+        None => {}
+    }
+}
+
+/// After a pass of the panel with the Primaries tab: the white-balance picker, likewise.
+fn wb_picker_state(app: &mut FilmcraftApp, clip: ClipId, node_id: u64, tab: &str, wb_toggle: bool, wb_armed: bool) {
+    if wb_toggle {
+        app.ui.wb_picker = if wb_armed { None } else { Some(crate::state::WbPicker { clip: clip.0, node: Some(node_id) }) };
+        if app.ui.wb_picker.is_some() {
+            // (one armed picker at a time: a click fills one thing)
+            app.ui.grade_picker = None;
+            app.ui.eyedropper = None;
+        }
+    } else if (wb_armed && tab != "primaries") || app.ui.wb_picker.is_some_and(|w| w.clip == clip.0 && w.node.is_some_and(|n| n != node_id)) {
+        // (another tab, or another node selected while armed)
+        app.ui.wb_picker = None;
     }
 }
 

@@ -353,6 +353,20 @@ fn item_menu(app: &mut FilmcraftApp, ui: &mut egui::Ui, id: ItemId, kind: &ItemK
                 ui.close();
             }
         }
+        // KDE Connect (L2.10): only while a paired device is reachable
+        let phones = app.hooks.desktop.as_ref().map(|h| h.phones()).unwrap_or_default();
+        if !phones.is_empty() {
+            ui.menu_button(tl!("Send via KDE Connect"), |ui| {
+                for p in phones.iter().take(crate::desktop::MAX_PHONES) {
+                    let b = ui.button(&p.name);
+                    app.auto.add(&format!("project.itemMenu.kdeconnect.{}", p.id), b.rect, &p.name);
+                    if b.clicked() {
+                        actions.push(("kdeconnect.send".into(), json!({"item": id.0, "device": p.id})));
+                        ui.close();
+                    }
+                }
+            });
+        }
         ui.menu_button(tl!("Proxy"), |ui| {
             for (label, cmd) in [
                 (tl!("Create Proxies…"), "media.createProxies"),

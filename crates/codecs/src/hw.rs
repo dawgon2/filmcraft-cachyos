@@ -30,6 +30,22 @@ pub fn hardware_decoding() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
 
+thread_local! {
+    static DECODE_NODE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The render node (e.g. `/dev/dri/renderD128`) hardware decoders made on this thread decode on
+/// (fork 6E.3: each lane of a two-GPU export decodes on its own GPU); `None`, the default: the
+/// process's decode device. A decoder keeps the node it was made with.
+pub fn set_thread_decode_node(node: Option<String>) {
+    DECODE_NODE.with(|n| *n.borrow_mut() = node);
+}
+
+/// This thread's decode node ([`set_thread_decode_node`]).
+pub fn decode_node() -> Option<String> {
+    DECODE_NODE.with(|n| n.borrow().clone())
+}
+
 static BACKEND: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
 
 /// Record the OS decoder backend `filmcraft_platform::register` put in front of our decoders
@@ -443,6 +459,17 @@ impl NalStreamInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_node_is_per_thread() {
+        assert_eq!(decode_node(), None);
+        set_thread_decode_node(Some("/dev/dri/renderD128".into()));
+        let other = std::thread::spawn(decode_node).join().unwrap_or(Some(String::new()));
+        assert_eq!(other, None, "another thread keeps the default");
+        assert_eq!(decode_node().as_deref(), Some("/dev/dri/renderD128"));
+        set_thread_decode_node(None);
+        assert_eq!(decode_node(), None);
+    }
 
     #[test]
     fn switch_defaults_to_auto() {

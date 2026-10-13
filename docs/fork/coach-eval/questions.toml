@@ -1501,11 +1501,13 @@ q = "how do I use the scopes to set exposure"
 kind = "how"
 origin = "agent"
 context = "Color page, Lumetri Scopes"
-status = "uncovered"
-should = "color/finishing.md 'Scopes' (listed as 'to write' in the guide README): waveform / parade / vectorscope, where skin and white sit, reading the DaVinci Intermediate scale"
+page = "color/finishing.md"
+heading = "Steps: set exposure and balance with the scopes"
+alt = [{ page = "color/finishing.md", heading = "Scopes: reading exposure, balance and skin" }, { page = "color/finishing.md", heading = "Which scope for which job" }]
+status = "covered"
 needs_clip = false
-facts = ["must say the guide doesn't cover it; 'Lumetri Scopes' is only mentioned in passing (README layout, primaries step 7)"]
-note = "Risk: 'exposure' → gain gamma synonyms make primaries sections score; coverage ('scope' missing) should keep it under 0.75."
+facts = ["waveform: blacks just above the bottom, highlights below the top, faces in the middle", "parade traces line up on white or grey", "skin along the vectorscope's skin-tone line"]
+note = "Was uncovered until GUIDE-8 (2026-10-13) wrote the Scopes section."
 
 [[question]]
 id = "uncovered-stabilise"

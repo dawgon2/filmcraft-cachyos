@@ -52,6 +52,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 web-time = "1"
+# Card offload (LINUX-PLAN L2.4): CRC-32 of every copied file, read back.
+crc32fast = "1"
 # Grading Coach lesson files (assets/lessons/*.toml), embedded and parsed at run time.
 toml = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }

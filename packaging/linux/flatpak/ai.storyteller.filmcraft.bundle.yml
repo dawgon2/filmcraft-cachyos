@@ -38,6 +38,17 @@ finish-args:
   - --filesystem=/media
   - --filesystem=/run/media
   - --filesystem=/mnt
+  # Desktop integration (LINUX-PLAN L1.7 / L2.3): MPRIS media keys, notifications with "Show in
+  # Folder", the file manager selecting a file. Portals and our app-id names need no grant.
+  - --own-name=org.mpris.MediaPlayer2.filmcraft
+  - --own-name=org.mpris.MediaPlayer2.filmcraft.*
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.FileManager1
+  # Send a file to a paired phone, and files shared from it (LINUX-PLAN L2.10): the KDE Connect
+  # daemon on the session bus. Without KDE Connect installed the name is simply absent.
+  - --talk-name=org.kde.kdeconnect
+  # Eject a camera card after its verified copy (LINUX-PLAN L2.4): UDisks2 on the system bus.
+  - --system-talk-name=org.freedesktop.UDisks2
   # Deliberately not granted: network (the optional --control server listens on 127.0.0.1 in
   # the sandbox; `flatpak override --user --share=network ai.storyteller.filmcraft` exposes it
   # to host agents) and host-wide filesystem access.

@@ -3856,3 +3856,71 @@
 # Fork 6.7b: the clip Temporal NR rows (Effect Controls / Inspector, Noise tab).
 	Temporal NR (clip)	时域降噪（片段）
 	Enabled	启用
+	Encoder speed	编码器速度
+	Driver default	驱动默认
+	Balanced	平衡
+# Fork 6E.3: Export ▸ Export engines (one GPU or every GPU that can encode).
+	Export engines	导出引擎
+	Primary GPU only	仅主 GPU
+	All GPUs	所有 GPU
+	HEVC 4:2:2 10-bit master	HEVC 4:2:2 10 位母版
+	HEVC Main 4:2:2 10 at the sequence's frame size and rate in QuickTime, VBR 240 Mbps target, 300 Mbps max, 24-bit 48 kHz PCM; keeps full vertical colour resolution for grading or archiving; Intel's media engine encodes it, other machines fall back to x265 (slower)	HEVC Main 4:2:2 10，沿用序列的画面尺寸和帧率，QuickTime 封装，VBR 目标 240 Mbps、最高 300 Mbps，24 位 48 kHz PCM；保留完整的垂直色度分辨率，便于调色或归档；由 Intel 媒体引擎编码，其他机器改用 x265（较慢）
+	4:2:0 (delivery)	4:2:0（交付）
+	4:2:2 (master, 10-bit)	4:2:2（母版，10 位）
+	Application Folders	应用程序文件夹
+	Failed	失败
+	Finished	已完成
+	Show in Folder	在文件夹中显示
+	Playing	正在播放
+	Save or close the current project first, then open {name} again	请先保存或关闭当前项目，然后再次打开 {name}
+	Use the system accent color	使用系统强调色
+	Animations	动画
+	Off (reduce motion)	关闭（减少动态效果）
+	Media keys and the desktop's media controls	媒体键和桌面媒体控制
+	Window title bar	窗口标题栏
+	FilmCraft (like DaVinci Resolve)	FilmCraft（类似 DaVinci Resolve）
+	System (desktop title bar)	系统（桌面标题栏）
+	Minimize	最小化
+	Maximize	最大化
+	Temp	色温
+	Pivot	轴心
+	Grain	颗粒
+	Grain size	颗粒大小
+	Grain softness	颗粒柔和度
+	double-click to reset	双击可重置
+	Global shortcuts: Play / Pause and Add Marker while another window has focus	全局快捷键：在其他窗口获得焦点时播放 / 暂停和添加标记
+	Send via KDE Connect	通过 KDE Connect 发送
+	Paired Devices (KDE Connect)	已配对的设备 (KDE Connect)
+	Sending {name} to {device}	正在将 {name} 发送到 {device}
+	KDE Connect	KDE Connect
+	Files shared from a phone (KDE Connect)	从手机共享的文件 (KDE Connect)
+	Offer to import	提示导入
+	Import into the Inbox bin	导入到 Inbox 素材箱
+	Ignore	忽略
+	{n} new file(s) from {device}	来自 {device} 的 {n} 个新文件
+	Dismiss	关闭
+	Imported {n} file(s) shared from a phone into the Inbox bin	已将从手机共享的 {n} 个文件导入到 Inbox 素材箱
+	File Shared from a Phone (KDE Connect)	从手机共享的文件 (KDE Connect)
+	Import Files Shared from a Phone	导入从手机共享的文件
+	Dismiss Files Shared from a Phone	关闭从手机共享的文件
+	Camera cards	相机存储卡
+	Offer to copy	提示复制
+	Copy camera cards to	相机存储卡复制到
+	Ejecting {card}…	正在弹出 {card}…
+	{card} can be removed now	现在可以取出 {card}
+	Couldn't eject {card}: {error}	无法弹出 {card}：{error}
+	Choose where camera cards are copied to (Settings ▸ Media ▸ Copy camera cards to)	请选择相机存储卡的复制位置（设置 ▸ 媒体 ▸ 相机存储卡复制到）
+	{card} is copied	{card} 已复制
+	Camera card {card}	相机存储卡 {card}
+	Copying {card}… {pct} %	正在复制 {card}… {pct} %
+	{card} is copied and verified	{card} 已复制并校验
+	Copying {card} stopped: {error}	{card} 的复制已停止：{error}
+	Eject	弹出
+	Copy Again	再次复制
+	Camera Card Mounted	相机存储卡已挂载
+	Camera Card Removed	相机存储卡已移除
+	Copy Camera Card	复制相机存储卡
+	Eject Camera Card	弹出相机存储卡
+	Camera Card Ejected	相机存储卡已弹出
+	Dismiss Camera Card	关闭相机存储卡提示
+	Card	存储卡

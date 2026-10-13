@@ -25,6 +25,8 @@ struct GpuExport {
     broken: Arc<AtomicBool>,
     /// Rendering into encoder surfaces failed once: frames are read back from then on.
     no_targets: AtomicBool,
+    /// The GPU's PCI ids (vendor, device); None: the high-performance adapter (fork 6E.3).
+    pci: Option<(u32, u32)>,
 }
 
 /// A frame rendered into an encoder input surface ([`crate::va_enc::EncodeTarget`]).
@@ -123,7 +125,7 @@ impl filmcraft_export::GpuPicture for VaPicture {
 
 impl GpuExport {
     fn create(&self) -> Option<GpuCompositor> {
-        let (device, queue) = GpuCompositor::headless_device()?;
+        let (device, queue) = GpuCompositor::headless_device_on(self.pci)?;
         let flag = self.broken.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
             log::error!("export GPU error, rendering export frames on the CPU from now on: {e}");
@@ -166,7 +168,7 @@ impl filmcraft_export::GpuFrames for GpuExport {
         target: &(dyn std::any::Any + Send + Sync),
     ) -> Option<Arc<dyn filmcraft_export::GpuPicture>> {
         let t = target.downcast_ref::<crate::va_enc::EncodeTarget>()?;
-        if t.ten_bit != ten_bit || self.no_targets.load(Ordering::Relaxed) || std::env::var_os("FILMCRAFT_NO_ZERO_COPY").is_some() {
+        if t.ten_bit != ten_bit || t.chroma_422 || self.no_targets.load(Ordering::Relaxed) || std::env::var_os("FILMCRAFT_NO_ZERO_COPY").is_some() {
             return None;
         }
         // the surface first: it is exported outside the compositor lock
@@ -196,6 +198,12 @@ impl filmcraft_export::GpuFrames for GpuExport {
             Ok((sub, c.device().clone()))
         }));
         filmcraft_export::trace::add(filmcraft_export::trace::GPU_RECORD, clock);
+        // diagnostic (6E.3 graded lanes): wait for each frame's GPU work and print how long it took
+        if let (Ok(Ok((sub, device))), Some(_)) = (&out, std::env::var_os("FILMCRAFT_EXPORT_GPU_PROBE")) {
+            let clock = std::time::Instant::now();
+            let done = GpuCompositor::wait_for(device, sub.clone());
+            eprintln!("gpu-probe pci={:04x?} gpu_ms={:.1} done={done}", self.pci, clock.elapsed().as_secs_f64() * 1e3);
+        }
         match out {
             Ok(Ok((sub, device))) if !self.broken.load(Ordering::Relaxed) => Some(Arc::new(VaPicture {
                 surface: Arc::new(surface),
@@ -245,6 +253,27 @@ pub fn register() {
     filmcraft_export::register_gpu_frames(Box::new(GpuExport::default()));
 }
 
+/// An export renderer of its own on the GPU behind render node `node` (fork 6E.3: one pipeline
+/// per GPU); `None` when the node's PCI ids can't be read. Its device is made on first use, and
+/// a GPU without a usable adapter renders nothing (the caller falls back to the CPU).
+pub fn frames_on(node: &str) -> Option<Box<dyn filmcraft_export::GpuFrames>> {
+    let pci = pci_ids(node)?;
+    Some(Box::new(GpuExport { pci: Some(pci), ..Default::default() }))
+}
+
+/// The PCI (vendor, device) ids of a DRM render node (`/dev/dri/renderD128`), from sysfs.
+pub fn pci_ids(node: &str) -> Option<(u32, u32)> {
+    let name = std::path::Path::new(node).file_name()?.to_str()?;
+    if !name.starts_with("renderD") || name.len() > 16 || !name.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let read = |f: &str| {
+        let t = std::fs::read_to_string(format!("/sys/class/drm/{name}/device/{f}")).ok()?;
+        u32::from_str_radix(t.trim().trim_start_matches("0x"), 16).ok()
+    };
+    Some((read("vendor")?, read("device")?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,6 +309,31 @@ mod tests {
     /// with its padding repeating the last row), and encodes to the same bitstream. Run on AMD and
     /// Intel (`FILMCRAFT_VAAPI_DEVICE` and `MESA_VK_DEVICE_SELECT` on the same GPU). Skipped
     /// without VA-API HEVC encode or a GPU; reports when the driver cannot render into surfaces.
+    /// One export renderer per GPU (fork 6E.3): each render node's GPU renders the same plan, and
+    /// the GPUs agree within a code or two (10-bit). Hostile node names give `None`.
+    #[test]
+    fn a_renderer_on_each_gpu() {
+        assert!(frames_on("/dev/dri/../../etc/passwd").is_none() && frames_on("renderD999").is_none() && pci_ids("").is_none());
+        let p = plan(320, 176);
+        let mut frames = Vec::new();
+        for node in crate::ffmpeg::render_nodes() {
+            let Some(g) = frames_on(&node) else { continue };
+            match g.yuv420(&p, 0.2126, 0.0722, true, false) {
+                Some(f) => frames.push((node, f)),
+                None => eprintln!("{node}: no usable GPU"),
+            }
+        }
+        eprintln!("rendered on {:?}", frames.iter().map(|f| &f.0).collect::<Vec<_>>());
+        if let [(_, a), rest @ ..] = frames.as_slice() {
+            for (node, b) in rest {
+                assert_eq!(a.len(), b.len(), "{node}");
+                let at = |v: &[u8], i: usize| u16::from_le_bytes([v[i * 2], v[i * 2 + 1]]) as i32;
+                let worst = (0..a.len() / 2).map(|i| (at(a, i) - at(b, i)).abs()).max().unwrap_or(0);
+                assert!(worst <= 4, "{node}: up to {worst} codes from the first GPU");
+            }
+        }
+    }
+
     #[test]
     fn frames_rendered_into_encoder_surfaces_match_the_read_back() {
         let g = GpuExport::default();
@@ -294,7 +348,19 @@ mod tests {
                 eprintln!("no GPU; skipped");
                 return;
             };
-            let params = EncodeParams { width: w, height: h, rate_num: 24, rate_den: 1, ten_bit: ten, keyint: 30, rc: RateControl::Cqp(24), colour: (1, 1, 1) };
+            let params = EncodeParams {
+                width: w,
+                height: h,
+                rate_num: 24,
+                rate_den: 1,
+                ten_bit: ten,
+                keyint: 30,
+                rc: RateControl::Cqp(24),
+                colour: (1, 1, 1),
+                speed: Default::default(),
+                chroma_422: false,
+                low_power: false,
+            };
             let mut a = VaHevcEncoder::new(params.clone()).expect("encoder");
             let mut b = VaHevcEncoder::new(params).expect("encoder");
             let t = a.target();

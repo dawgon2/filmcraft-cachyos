@@ -11,3 +11,13 @@ StartupNotify=true
 StartupWMClass=ai.storyteller.filmcraft
 Categories=AudioVideo;Video;AudioVideoEditing;
 Keywords=video;editor;film;timeline;color;grading;nle;
+MimeType=application/x-filmcraft-project;video/mp4;video/quicktime;video/x-matroska;video/webm;video/mp2t;video/x-msvideo;application/mxf;video/mpeg;video/3gpp;
+Actions=new-project;new-window;
+
+[Desktop Action new-project]
+Name=New Project
+Exec=filmcraft --empty
+
+[Desktop Action new-window]
+Name=New Window
+Exec=filmcraft --new-instance

@@ -166,6 +166,13 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
             "HEVC Main 10 6240×4160 master in QuickTime, VBR 200 Mbps target, 240 Mbps max, 24-bit 48 kHz PCM",
             ExportSettings { multiplexer: Multiplexer::Mov, audio: pcm24(), ..hevc(Some((6240, 4160)), 200_000, 240_000, 10) },
         ),
+        // fork 6E.4: 4:2:2 kept for grading / mastering (the Intel media engine's encoder, else x265)
+        p(
+            "HEVC 4:2:2 10-bit master",
+            hv,
+            "HEVC Main 4:2:2 10 at the sequence's frame size and rate in QuickTime, VBR 240 Mbps target, 300 Mbps max, 24-bit 48 kHz PCM; keeps full vertical colour resolution for grading or archiving; Intel's media engine encodes it, other machines fall back to x265 (slower)",
+            ExportSettings { multiplexer: Multiplexer::Mov, audio: pcm24(), hevc_chroma_422: true, ..hevc(None, 240_000, 300_000, 10) },
+        ),
         p(
             "Archive HEVC (x265, quality)",
             hv,

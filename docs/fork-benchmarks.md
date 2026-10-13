@@ -310,3 +310,180 @@ VCN of the RX 6700 XT is: the 6.2K decode (24.4 ms/frame alone) and the 4K encod
 it, so ≈ 31 fps is the ceiling; with the decoder flat out the encoder slows from ~10 to ~54 ms per
 frame. Encoding on the Intel UHD 750 instead was slower (18.5 fps, 4K). 6.2K export is at its
 encode ceiling. A later dedicated 6.2K optimisation phase may revisit this (FORK-PLAN §1a.16).
+
+## Phase 6E (export: two GPUs)
+
+All synthetic (x265-made xm5 fixtures), this PC (RX 6700 XT renderD129 + UHD 750 renderD128).
+
+**2026-10-13, 6E.1 item 5: joining one chunk per device (correctness, not timed; the owner was
+running a game, so no speed numbers this run).** `xm5_420_2997_30s_b.mov` frames 0–29 encoded on
+AMD and 30–59 on Intel with ffmpeg `hevc_vaapi` (Main 10, CQP 24, `-g 30 -idr_interval 0`,
+Annex B), then `cat a.hevc b.hevc`: ffprobe counts 60 frames, `ffmpeg -v error … -f null -`
+decodes with no error. **The two drivers' parameter sets differ** (VPS 32 vs 33 bytes, SPS 45 vs
+46, PPS 6 vs 7; Intel's stream also has B-frames, AMD's none). So a joined MP4 cannot keep one
+`hvc1` sample entry: either write identical parameter sets on both devices (our in-process
+encoder writes its own VPS / SPS / PPS, `crates/hevc/src/write.rs`, from each driver's attributes:
+use the intersection of both drivers' block sizes / features) or in-band sets per chunk (`hev1`).
+Our encoder writes P-only on both, so B-frame reordering is not an issue there.
+
+**Encoder quality range (6E.2):** `VAConfigAttribEncQualityRange` for HEVC Main 10 `EncSlice`:
+AMD (radeonsi) 32 levels, Intel (iHD) 7.
+
+**EncSliceLP (Intel VDEnc) first try:** our in-process encoder on `EncSliceLP` (Main 10, CQP,
+P pictures) fails on the first coded-buffer map with "internal encoding error" (iHD). VDEnc
+likely wants low-delay B pictures instead of P (and possibly other SPS limits). Not pursued until
+6E.1 item 1 (`hevc_vaapi -low_power 1` vs `0`, ffmpeg, idle machine) shows LP is worth it.
+
+**2026-10-13 01:41–01:45, 6E.1 items 1–4 (ffmpeg only, idle machine: load 0.6, no game, no
+owner `filmcraft`; single runs, synthetic).** Source `xm5_420_2997_30s_b.mov` (6240×4160 Main 10
+4:2:0). Encode-only runs feed 180 raw P010 frames from page cache through `hwupload` (so they
+include the CPU → GPU upload; reading the raw frames alone runs at 81 fps). All `hevc_vaapi
+-profile:v main10 -qp 24`, output discarded.
+
+| Run | fps |
+|---|---|
+| Intel encode only, `-low_power 1` (VDEnc / EncSliceLP) | 18.2 |
+| Intel encode only, `-low_power 0` (EncSlice) | 14.0 |
+| AMD encode only, `-compression_level 0` (driver default) | 33.3 |
+| AMD encode only, `-compression_level 1` / `15` / `31` | 28.3 / 25.3 / 23.5 |
+| Intel decode only (renderD128, hw surfaces) | 69.7 |
+| AMD decode only (renderD129, hw surfaces) | 35.4 |
+| Intel decode + encode, LP 1 | 20.9 |
+| Intel decode + encode, LP 0 | 16.4 |
+| AMD decode + encode, level 0 | 18.1 |
+| **Both at once** (AMD frames 0–179 + Intel LP 1 frames 180–359, two processes) | **36.3 combined** |
+
+Findings: (1) Intel's low-power encoder is ~30 % faster than EncSlice at 6.2K, so EncSliceLP is
+worth the low-delay-B work (HANDOFF step 3). (2) Intel's decoder is about twice AMD's VCN at 6.2K
+(69.7 vs 35.4 fps): on this PC the AMD lane is decode-bound (decode + encode 18.1 fps, VCN shares
+one engine for both). (3) Running both GPUs at once doubles throughput (36.3 vs 18.1 fps, no
+render stage): Intel adds ~18 fps, far above EXPORT-PLAN's ~4 fps go threshold, so **6E.3 is a
+go**. (4) On radeonsi, higher `compression_level` numbers are slower here (0 = driver default is
+fastest), the opposite of what the name suggests; our `hwEncodeSpeed` mapping should be checked
+against our own encoder's levels (owed: `va_enc_speed` run). Not yet measured: our in-process
+encoder's levels, the render stage, item 6 (4:2:2 export).
+
+**2026-10-13 ~01:50, our in-process encoder per speed level (`va_enc_speed`, 6240×4160 Main 10,
+CPU frames uploaded each frame, two runs each, synthetic).** ms/frame including upload (upload
+alone: AMD 29.3, Intel 47.2):
+
+| Device | Default | Speed | Balanced | Quality |
+|---|---|---|---|---|
+| AMD (32 levels; sends –/32/16/1) | 31.3 | 31.3 | 30.4 | 35.6 |
+| Intel EncSlice (7 levels; –/7/4/1) | 73.9 | 71.8 | 73.8 | 87.5 |
+
+The CPU → GPU upload dominates this test, so the encoders themselves differ little between
+Default, Speed and Balanced; Quality costs ~5 ms (AMD) / ~14 ms (Intel) per frame. Our mapping
+(1 = best, range = fastest) matches what the drivers do with our encoder. Intel EncSlice ≈ 13.6
+fps here, the same as ffmpeg `-low_power 0` (14.0); ffmpeg's LP path (18.2) suggests EncSliceLP
+is the real Intel win.
+
+**2026-10-13 ~02:00, 6E.1 item 6: export from the 6.2K 4:2:2 original (`xm5_422_2997_20s.mov`,
+`filmcraft-cli export --start 0 --end 4 --no-audio`, 120 frames, release build, single runs,
+synthetic).**
+
+| Run | Time | fps | Output (ffprobe) |
+|---|---|---|---|
+| Decode only (`bench-decode --frames 60`) | 2.04 s / 60 | 29.4 | – |
+| Preset "6.2K Master HEVC" (4:2:0 Main 10), GPU Rendering auto | 5.0 s | 24 | Main 10, yuv420p10le, 120 frames |
+| Preset "HEVC 4:2:2 10-bit master", GPU Rendering auto | 44.2 s | 2.7 | Rext, yuv422p10le, 120 frames, decodes clean |
+| Same, GPU Rendering off | 41.9 s | 2.9 | Rext, yuv422p10le, 120 frames |
+
+The 4:2:2 master export is ~9× slower than the 4:2:0 one from the same source, and GPU Rendering
+on / off makes no difference: the 4:2:2 path reads RGB frames back and converts them to 4:2:2 on
+the CPU (`RenderMode::of`, `crates/export/src/job.rs`: the GPU converts to 4:2:0 only) instead of
+the zero-copy GPU path. Decoding (29 fps) is not the limit. Follow-up:
+a GPU render → Y210 path for the 4:2:2 preset (EXPORT-PLAN 6E.4 follow-up), measured per stage.
+
+### 6E.3 S11 acceptance bench, first pass (2026-10-13 07:56–08:10, idle machine, commit 54795eb3, synthetic)
+
+`FILMCRAFT_BENCH_ENGINES=<single|dual> cargo xtask bench --sections xm5 --only xm5-export-6k`
+(full length: 1798 frames of the xm5 6.2K clip → HEVC Main 10 VBR 100 Mb/s; the bench rows now
+carry `stages_s`, wall seconds per export stage summed over lanes and threads).
+
+| Engines | fps | render | encode | wait | lanes |
+|---|---|---|---|---|---|
+| single | 19.4 | 53 s | 90 s | 0.5 s | – |
+| dual | 16.2 (17.0 on a repeat without stages) | 208 s | 7 s | 109 s | AMD 8.6 fps (1018 fr, 9 chunks), Intel 7.5 fps (780 fr, 7 chunks), `hev1` |
+| `--quick` (149 frames) | single 18.8, dual 16.9 | | | | |
+
+**Not accepted: dual is slower than single.** Single is encode-bound (render overlaps fully,
+wait ≈ 0). Dual is render-bound: each lane spends ≈ 116 ms rendering a frame vs ≈ 30 ms on the
+single path, and the two lanes together render about as fast as one serial lane would, while GPU
+busy averages 12 % and CPU 9.8 ms / frame (single 3.9). So a lane waits on something shared or
+takes a slower render path. Leads for the diagnosis (next step): whether the lane encoders give
+`gpu_target()` (`RenderMode::of`, `crates/export/src/job.rs`; without it frames are read back as
+bytes instead of zero-copy pictures), lock contention between the lanes' render pools (decoders /
+source copies from `lane_copy`, the decode cache, the compositor `Mutex` in
+`crates/platform/src/gpu_export.rs`), and whether the AMD lane's thread-bound decode node matches
+its render GPU. 6E.1 had 36.3 fps for decode + encode on both GPUs without rendering, so the
+headroom is there.
+
+Traced rerun (`FILMCRAFT_EXPORT_TRACE=1`, bench rows now carry `trace`; ms summed over threads;
+08:18–08:24, idle): single 19.4 fps: plan+decode 76 509, encoder GPU wait 142, VA encode 91 869,
+encoder queue full 88 172. Dual 16.2 fps: **plan+decode 279 845** (≈ 3.7× per frame), encoder GPU
+wait 89 604, VA encode 23 554, GPU lock wait 331. So the lanes lose their time in planning /
+decoding the source, not in the compositor lock or the encoders. Lane pool threads are bound to
+the lane's decode node (`start_handler`, `lanes/lane.rs`), and both lanes are about equally slow,
+which points at something the two lanes share while decoding (GOP / decode cache, decoder or
+surface pools, `lane_copy` sources). An earlier traced pair at 08:13 (dual 9.2, single 16.6) ran
+while something else loaded the machine and is discarded.
+
+**Root cause and fix (08:20–08:35):** `crates/codecs/src/hwgate.rs` let one hardware decode call
+run at a time in the whole process ("a GPU has one decode engine"), so the AMD and Intel lanes
+took turns decoding (equal per-lane rates although Intel decodes twice as fast). The gate is now
+per decode node (the calling thread's `hw::decode_node()`; playback / the default GPU keep one
+shared gate; at most 8 nodes). Diagnosis by an Opus diagnostician, change reviewed by Opus (cap
+off-by-one fixed). Full length, idle machine, synthetic:
+
+| Engines | fps | lanes | plan+decode ms | render s | encode s |
+|---|---|---|---|---|---|
+| dual (fixed) | **25.0**, repeat 24.9 | AMD 17.6 fps (1260 fr), Intel 7.5 fps (538 fr), `hev1` | 124 207 | 108 | 60 |
+| single (fixed) | 19.4 (unchanged) | – | 74 905 | 53 | 90 |
+
+**6E.3 speed acceptance (≥ 24 fps) met; target 26+ not yet.** The Intel lane is now the weak one
+(7.5 fps; it decodes, composites 6.2K and encodes on the iGPU, sharing memory bandwidth with the
+CPU): a follow-up worth measuring per stage (`FILMCRAFT_EXPORT_TRACE`) before group acceptance.
+
+**Export suite with the fix (08:36–08:50, idle, synthetic; full length, 1798 frames each):**
+
+| Case | dual fps (AMD / Intel lane) | single fps |
+|---|---|---|
+| `xm5-export-4k` | **38.6** (27.1 / 11.6) | 24.6 |
+| `xm5-export-4k graded` | **18.4** (16.6 / 1.8) | 22.3 |
+| `xm5-export-6k` | **25.1** (17.6 / 7.5) | 19.4 |
+
+Every dual output: HEVC Main 10, `yuv420p10le`, 1798 frames, `hev1`, mpv plays it (`--vo=null`,
+exit 0), `ffmpeg -f null` decodes it without errors. **Graded 4K is slower on two GPUs:** the Intel
+lane took one 180-frame chunk and spent ~100 s on it (1.8 fps), as long as AMD took for the other
+1618 frames; traced plan+decode 560 s summed (vs 124 s for ungraded 6.2K), CPU 8 ms / frame, so the
+graded frames on the Intel lane take a slow (CPU-heavy) path that also slows the AMD lane (16.6 vs
+22.3 single). To fix before acceptance: find why a graded frame is slow on the Intel lane
+(GPU grade ops missing on the iGPU device → CPU fallback?), and make the coordinator safe against a
+slow lane (take its unfinished tail chunk back, or let Auto choose one GPU for such projects).
+
+**Graded lanes diagnosed and fixed (2026-10-13 09:05–09:20, idle machine, synthetic, full length).**
+GPU-time probe (`FILMCRAFT_EXPORT_GPU_PROBE=1`, `crates/platform/src/gpu_export.rs`: waits for each
+frame's GPU work and prints its time per device) on `xm5-export-4k graded`, dual: **Intel iGPU
+509 ms / frame (180 frames, max 634), AMD 18.8 ms** (1618 frames). So no CPU fallback: the
+integrated GPU runs the whole graded effect stage (`Rgba32Float`, Sharpen's blurs) through shared
+memory at ~2 fps. Fix: the coordinator's **slow-lane rule** (`Coordinator::retire_slow_lanes`,
+`crates/export/src/lanes/coordinator.rs`): after 4 s of work, a lane below 25 % of another live
+lane's speed is given up on (its chunk back to the queue), and with the queue empty an idle lane
+takes over a chunk it would redo 1.5× sooner than the holder finishes it. Never the last lane;
+never a 4:2:2 chunk to a lane that can't decode it.
+
+| Case | dual before | dual with the rule (two runs) | single | what the rule did |
+|---|---|---|---|---|
+| `xm5-export-4k graded` | 18.4 | **22.3 / 23.8** | 22.3 | Intel retired after ~4 s ("too slow: 4.3–5.0 fps vs 17.4–25.9") |
+| `xm5-export-4k` | 38.6 (one run) | 31.3 / 35.7 | 24.6 | Intel's last chunk taken over by AMD |
+| `xm5-export-6k` | 25.0 / 25.1 | **25.9** | 19.4 | Intel's last chunk taken over by AMD |
+
+The 4K ungraded drop is within this machine's run-to-run spread (AMD lane 20.9 vs 25.0 fps between
+the two runs with the same code, load ~4 from other sessions); the rule only acts at the very end
+there. Optional follow-up: `Rgba16Float` effect stage on integrated GPUs, so Intel helps graded
+exports instead of being retired.
+
+**Acceptance suite after the review fixes (10:20, fefc140f, synthetic, full length, dual):** 4K
+33.9 fps, 4K graded 24.2, 6.2K **25.8**; every output HEVC Main 10, `yuv420p10le`, `hev1`, 1798
+frames, mpv exit 0, `ffmpeg -f null` without errors. One-GPU baselines as above (24.6 / 22.3 / 19.4).

@@ -41,26 +41,23 @@ fn workflow_switch_swaps_the_theme_and_back() {
     run(&mut h, "settings.setWorkflow", json!({"workflow": "premiere"}));
     assert_eq!(kind(&h), ThemeKind::Dark, "back to Premiere: the theme it had");
 
-    // a Premiere theme chosen before the switch comes back too
+    // a Premiere theme picked by hand before the switch is kept by it
     run(&mut h, "prefs.set", json!({"key": "appearance.darkTheme", "value": "dark"}));
     assert_eq!(kind(&h), ThemeKind::Medium);
     run(&mut h, "settings.setWorkflow", json!({"workflow": "resolve"}));
-    assert_eq!(kind(&h), ThemeKind::Resolve);
+    assert_eq!(kind(&h), ThemeKind::Medium);
     run(&mut h, "settings.setWorkflow", json!({"workflow": "premiere"}));
     assert_eq!(kind(&h), ThemeKind::Medium);
 
-    // either workflow can pick any theme
+    // a theme picked by hand follows across the switch, in both directions
     run(&mut h, "prefs.set", json!({"key": "appearance.darkTheme", "value": "resolve"}));
     assert_eq!(kind(&h), ThemeKind::Resolve, "Resolve theme in the Premiere workflow");
     run(&mut h, "settings.setWorkflow", json!({"workflow": "resolve"}));
+    assert_eq!(kind(&h), ThemeKind::Resolve);
     run(&mut h, "prefs.set", json!({"key": "appearance.darkTheme", "value": "darkest"}));
     assert_eq!(kind(&h), ThemeKind::Dark, "Premiere theme in the Resolve workflow");
-
-    // each workflow keeps its own choice across a round trip
     run(&mut h, "settings.setWorkflow", json!({"workflow": "premiere"}));
-    assert_eq!(kind(&h), ThemeKind::Resolve, "the Resolve theme chosen in Premiere comes back");
+    assert_eq!(kind(&h), ThemeKind::Dark, "the Darkest theme chosen in Resolve follows back to Premiere");
     run(&mut h, "settings.setWorkflow", json!({"workflow": "resolve"}));
-    assert_eq!(kind(&h), ThemeKind::Dark, "the Darkest theme chosen in Resolve comes back");
-    run(&mut h, "settings.setWorkflow", json!({"workflow": "premiere"}));
-    assert_eq!(kind(&h), ThemeKind::Resolve);
+    assert_eq!(kind(&h), ThemeKind::Dark, "and on to Resolve again");
 }

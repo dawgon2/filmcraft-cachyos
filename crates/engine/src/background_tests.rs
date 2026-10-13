@@ -296,6 +296,61 @@ fn dropping_the_last_handle_cancels_queued_jobs() {
     assert_eq!(p.steps.load(Ordering::SeqCst), 0);
 }
 
+/// A step that runs until its job is cancelled (bounded, so a regression fails, not hangs).
+struct UntilCancelled {
+    started: Arc<AtomicBool>,
+    saw_cancel: Arc<AtomicBool>,
+}
+
+impl BackgroundJob for UntilCancelled {
+    fn step(&mut self) -> Result<JobStep, String> {
+        self.started.store(true, Ordering::SeqCst);
+        let end = Instant::now() + WAIT;
+        while Instant::now() < end {
+            if filmcraft_media::cancel::cancelled() {
+                self.saw_cancel.store(true, Ordering::SeqCst);
+                return Ok(JobStep::More);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(JobStep::Done)
+    }
+    fn fraction(&self) -> f32 {
+        0.0
+    }
+    fn cancelled(&mut self) {}
+}
+
+#[test]
+fn dropping_the_last_handle_cancels_the_running_step() {
+    // Fork 2026-10-13: a closed app's render-cache batch kept rendering for seconds after its
+    // session was gone (the UI test binary piled them up until it ran out of memory).
+    let (started, saw_cancel) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let w = BackgroundWorker::new(cfg());
+    w.submit(spec(JobKind::Cache, "c", false, 0), Box::new(UntilCancelled { started: started.clone(), saw_cancel: saw_cancel.clone() })).unwrap();
+    assert!(until(|| started.load(Ordering::SeqCst)), "the step started");
+    drop(w);
+    assert!(until(|| saw_cancel.load(Ordering::SeqCst)), "the running step saw the cancellation");
+}
+
+#[test]
+fn stop_and_wait_cancels_the_running_step_and_waits_for_the_thread() {
+    assert!(BackgroundWorker::new(cfg()).stop_and_wait(Duration::ZERO), "a worker that never started has nothing to wait for");
+    let (started, saw_cancel) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let p = Arc::new(Probe::default());
+    let w = BackgroundWorker::new(cfg());
+    w.submit(spec(JobKind::Cache, "c", false, 0), Box::new(UntilCancelled { started: started.clone(), saw_cancel: saw_cancel.clone() })).unwrap();
+    w.submit(spec(JobKind::Cache, "q", false, 1), Fake::new("Q", 3, &p).boxed()).unwrap();
+    assert!(until(|| started.load(Ordering::SeqCst)), "the step started");
+    let t = Instant::now();
+    assert!(w.stop_and_wait(WAIT), "the worker thread finished");
+    assert!(t.elapsed() < WAIT / 2, "the running step stopped early ({:?})", t.elapsed());
+    assert!(saw_cancel.load(Ordering::SeqCst), "the running step saw the cancellation");
+    assert!(p.cancelled.load(Ordering::SeqCst), "the queued job was cleaned up");
+    assert_eq!(p.steps.load(Ordering::SeqCst), 0);
+    assert!(w.submit(spec(JobKind::Cache, "late", false, 0), Fake::new("L", 1, &p).boxed()).is_err(), "a stopped worker takes no more jobs");
+}
+
 #[test]
 fn status_serializes_for_commands() {
     let w = BackgroundWorker::new(cfg());

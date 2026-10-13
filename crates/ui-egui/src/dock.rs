@@ -43,6 +43,9 @@ pub enum PanelKind {
     ColorNodes,
     /// Color grading: primaries wheels / curves of the selected node.
     ColorPrimaries,
+    /// Color grading: the selected node's curves and soft clip on their own (fork: the middle
+    /// palette of Resolve's Color page, between the wheels and the scopes).
+    ColorCurves,
     /// Color grading: the stills gallery (grab, compare, apply a still's grade).
     Gallery,
     ProjectNotes,
@@ -57,7 +60,7 @@ pub enum PanelKind {
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 32] = [
+    pub const ALL: [PanelKind; 33] = [
         PanelKind::Project,
         PanelKind::MediaBrowser,
         PanelKind::Libraries,
@@ -90,6 +93,7 @@ impl PanelKind {
         PanelKind::Gallery,
         PanelKind::ProjectNotes,
         PanelKind::ColorClips,
+        PanelKind::ColorCurves,
     ];
     /// Panels only the Resolve workflow's pages use (fork RS3), kept out of [`PanelKind::ALL`].
     pub const RESOLVE_ONLY: [PanelKind; 2] = [PanelKind::RenderSettings, PanelKind::RenderQueue];
@@ -124,6 +128,7 @@ impl PanelKind {
             PanelKind::Timecode => "Timecode",
             PanelKind::ColorNodes => "Nodes",
             PanelKind::ColorPrimaries => "Primaries",
+            PanelKind::ColorCurves => "Curves",
             PanelKind::Gallery => "Gallery",
             PanelKind::ProjectNotes => "Project Notes",
             PanelKind::ColorClips => "Clips",
@@ -448,16 +453,21 @@ pub fn workspace(name: &str) -> DockNode {
         // tab away) across the whole width, with no tools or meters beside them; primaries /
         // curves and scopes below
         "Color Grading" => vsplit(
-            Ratio(0.52),
+            Ratio(0.46),
             hsplit(
                 FixedA(250.0),
                 tabs(&[Gallery, Project, MediaBrowser], 0),
                 hsplit(FixedB(400.0), tabs(&[Program, Source, ReferenceMonitor], 0), tabs(&[ColorNodes, Info, History], 0)),
             ),
             vsplit(
-                FixedA(190.0),
+                FixedA(150.0),
                 tabs(&[ColorClips, Timeline], 0),
-                hsplit(Ratio(0.64), tabs(&[ColorPrimaries, LumetriColor, EffectControls], 0), tabs(&[LumetriScopes, Markers], 0)),
+                // wheels | curves | scopes, as Resolve's Color page
+                hsplit(
+                    Ratio(0.47),
+                    tabs(&[ColorPrimaries, LumetriColor, EffectControls], 0),
+                    hsplit(Ratio(0.5), tabs(&[ColorCurves], 0), tabs(&[LumetriScopes, Markers], 0)),
+                ),
             ),
         ),
         "Effects" => hsplit(
@@ -1078,6 +1088,8 @@ mod tests {
 
     /// Fork RS3: the Premiere workflow's built-in workspaces stay byte-for-byte what they were
     /// before the Resolve pages (FNV-1a of each layout's JSON, measured on the pre-RS3 tree).
+    /// Color Grading is the fork's own (G1, shared with the Resolve Color page): re-measured when
+    /// it gained the Curves panel (FORK-PLAN §1a.57).
     #[test]
     fn premiere_builtin_workspaces_are_unchanged() {
         fn fnv(s: &str) -> u64 {
@@ -1088,7 +1100,7 @@ mod tests {
             ("Editing", 0x2d97a8099673ed40),
             ("Assembly", 0xee28d0d99897cb70),
             ("Color", 0xca51e1b14eabdf32),
-            ("Color Grading", 0x860864f12f91d43d),
+            ("Color Grading", 0x52bc1a0377904630),
             ("Effects", 0xbd17ffaeeb6d7ce9),
             ("Audio", 0x24656433eab1d7cf),
             ("Captions and Graphics", 0x83110857e008a2ee),

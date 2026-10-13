@@ -1904,6 +1904,9 @@ fn multicam_menu(app: &mut FilmcraftApp, ui: &mut egui::Ui, picked: &[&TrackItem
     }
 }
 
+/// The most a frame's wheel and trackpad input can scroll, in points.
+const WHEEL_MAX: f32 = 100_000.0;
+
 /// What the wheel and the trackpad did this frame.
 pub(crate) struct WheelInput {
     /// Scroll in points (wheel lines and pages converted), positive = content moves right / down.
@@ -1929,8 +1932,10 @@ pub(crate) fn wheel_input(ctx: &egui::Context) -> WheelInput {
                         egui::MouseWheelUnit::Line => 40.0,
                         egui::MouseWheelUnit::Page => 400.0,
                     };
-                    if delta.x.is_finite() && delta.y.is_finite() {
-                        w.delta += *delta * points;
+                    // hostile deltas (NaN, infinities, f32::MAX lines) must not reach the view
+                    let d = *delta * points;
+                    if d.x.is_finite() && d.y.is_finite() {
+                        w.delta = (w.delta + d).clamp(egui::Vec2::splat(-WHEEL_MAX), egui::Vec2::splat(WHEEL_MAX));
                     }
                     w.command |= modifiers.command || modifiers.mac_cmd || modifiers.ctrl;
                     w.alt |= modifiers.alt;

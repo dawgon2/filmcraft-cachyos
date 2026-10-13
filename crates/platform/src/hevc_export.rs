@@ -128,6 +128,34 @@ struct Params {
     no_b: bool,
     /// libx265's speed preset.
     x265_preset: &'static str,
+    /// The hardware encoder's speed / quality level (fork 6E.2).
+    hw_speed: filmcraft_export::HwEncodeSpeed,
+    /// Main 4:2:2 10 (fork 6E.4; `ten_bit` is then set too): frames are `yuv422p10le`.
+    chroma_422: bool,
+    /// A lane of a two-GPU export (fork 6E.3): the in-process encoder only, on this GPU, writing
+    /// this stream, and no ffmpeg fallback (it would write other parameter sets).
+    lane: Option<LaneTarget>,
+}
+
+/// Where a lane's encoder runs and what it writes (fork 6E.3).
+#[derive(Clone, Debug, Default)]
+pub struct LaneTarget {
+    /// Render node (`None`: the process's encode device).
+    pub node: Option<String>,
+    /// The stream all lanes share ([`HevcEncoder::lane_stream`]); `None`: the driver's own.
+    pub stream: Option<filmcraft_hevc::write::StreamParams>,
+    /// Keep the parameter sets in every IDR access unit and describe the file as `hev1`: for
+    /// lanes whose drivers can't share one stream (`lane_stream` is `None`, fork 6E.3 S8).
+    pub in_band: bool,
+}
+
+impl LaneTarget {
+    fn display(&self) -> std::result::Result<Arc<crate::va::Display>, String> {
+        match &self.node {
+            Some(n) => crate::va::Display::for_node(n),
+            None => crate::va::Display::for_encode(),
+        }
+    }
 }
 
 impl Params {
@@ -146,13 +174,18 @@ impl Params {
             keyint: self.keyint.max(1),
             rc,
             colour: (self.signal.primaries, self.signal.transfer, self.signal.matrix),
+            speed: self.hw_speed,
+            chroma_422: self.chroma_422,
+            // a lane of a two-GPU export takes Intel's low-power encoder where it works (6E.3 S12)
+            low_power: self.lane.is_some(),
         }
     }
 
     /// One black frame in the input format.
     fn black(&self) -> Vec<u8> {
         if self.ten_bit {
-            let (y, c) = (self.w as usize * self.h as usize, 2 * (self.w as usize).div_ceil(2) * (self.h as usize).div_ceil(2));
+            let ch = if self.chroma_422 { self.h as usize } else { (self.h as usize).div_ceil(2) };
+            let (y, c) = (self.w as usize * self.h as usize, 2 * (self.w as usize).div_ceil(2) * ch);
             let mut v = Vec::with_capacity(self.frame_bytes());
             v.extend(std::iter::repeat_n(64u16.to_le_bytes(), y).flatten());
             v.extend(std::iter::repeat_n(512u16.to_le_bytes(), c).flatten());
@@ -167,7 +200,8 @@ impl Params {
 
     fn frame_bytes(&self) -> usize {
         let (w, h) = (self.w as usize, self.h as usize);
-        (w * h + 2 * w.div_ceil(2) * h.div_ceil(2)) * if self.ten_bit { 2 } else { 1 }
+        let ch = if self.chroma_422 { h } else { h.div_ceil(2) };
+        (w * h + 2 * w.div_ceil(2) * ch) * if self.ten_bit { 2 } else { 1 }
     }
 
     /// ffmpeg's command line for `backend`, reading raw frames on stdin, writing Annex B on stdout.
@@ -178,14 +212,22 @@ impl Params {
         if let (Backend::Vaapi, Some(dev)) = (backend, device) {
             push(&["-vaapi_device", dev]);
         }
-        let (pix, hw) = if self.ten_bit { ("yuv420p10le", "p010") } else { ("yuv420p", "nv12") };
+        let (pix, hw) = match (self.chroma_422, self.ten_bit) {
+            (true, _) => ("yuv422p10le", "y210"),
+            (false, true) => ("yuv420p10le", "p010"),
+            (false, false) => ("yuv420p", "nv12"),
+        };
         let size = format!("{}x{}", self.w, self.h);
         let fps = format!("{}/{}", self.rate.num.max(1), self.rate.den.max(1));
         push(&["-f", "rawvideo", "-pix_fmt", pix, "-s", &size, "-framerate", &fps, "-i", "pipe:0", "-an", "-sn", "-dn"]);
         // tagged on the frames (setparams) so the encoders write the VUI colour description
         let (p, t, m) = color_names(self.signal);
         let tag = format!("setparams=color_primaries={p}:color_trc={t}:colorspace={m}:range=tv");
-        let profile = if self.ten_bit { "main10" } else { "main" };
+        let profile = match (self.chroma_422, self.ten_bit) {
+            (true, _) => "rext",
+            (false, true) => "main10",
+            (false, false) => "main",
+        };
         let keyint = self.keyint.max(1).to_string();
         let (tk, mk) = (format!("{}k", self.target_kbps.max(100)), format!("{}k", self.max_kbps.max(self.target_kbps).max(100)));
         let bufsize = format!("{}k", self.max_kbps.max(self.target_kbps).max(100).saturating_mul(2));
@@ -194,6 +236,10 @@ impl Params {
             Backend::Vaapi | Backend::VaNative => {
                 let vf = format!("{tag},format={hw},hwupload");
                 push(&["-vf", &vf, "-c:v", "hevc_vaapi", "-profile:v", profile, "-g", &keyint, "-idr_interval", "0"]);
+                // the driver's quality level; ffmpeg clamps a level above the driver's range
+                if let Some(level) = self.hw_speed.level(VaHevcEncoder::quality_range(self.ten_bit).unwrap_or(7)) {
+                    push(&["-compression_level", &level.to_string()]);
+                }
                 // continuing a stream without reordering (after the in-process encoder failed):
                 // no B-frames (AMD's encoder makes none anyway, Intel's does)
                 if self.no_b {
@@ -211,6 +257,7 @@ impl Params {
             Backend::X265 => {
                 let bframes = if self.no_b { ":bframes=0" } else { "" };
                 let x265 = format!("log-level=error:keyint={keyint}:min-keyint={keyint}:open-gop=0:repeat-headers=1{bframes}");
+                let profile = if self.chroma_422 { "main422-10" } else { profile };
                 push(&["-vf", &tag, "-c:v", "libx265", "-preset", self.x265_preset, "-profile:v", profile, "-pix_fmt", pix, "-x265-params", &x265]);
                 match self.crf {
                     Some(q) => {
@@ -568,10 +615,18 @@ fn probe(args: &[String], p: &Params) -> std::result::Result<Parser, String> {
 
 /// Encode one black frame in process and return the parser that saw its parameter sets.
 fn probe_native(p: &Params) -> std::result::Result<Parser, String> {
-    let mut enc = VaHevcEncoder::new(p.va())?;
+    let mut enc = native_encoder(p)?;
     let mut out: Vec<u8> = enc.encode(&p.black())?.concat();
     out.extend(enc.flush()?.concat());
     parse_probe(&out)
+}
+
+/// The in-process encoder for `p`: on the lane's GPU with the lane's stream, else the default.
+fn native_encoder(p: &Params) -> std::result::Result<VaHevcEncoder, String> {
+    match &p.lane {
+        Some(l) => VaHevcEncoder::new_on_with(p.va(), l.display()?, l.stream.clone()),
+        None => VaHevcEncoder::new(p.va()),
+    }
 }
 
 fn parse_probe(out: &[u8]) -> std::result::Result<Parser, String> {
@@ -643,12 +698,12 @@ struct VaWorker {
 }
 
 impl VaWorker {
-    fn start(mut enc: VaHevcEncoder, queue: usize) -> std::result::Result<VaWorker, String> {
+    fn start(mut enc: VaHevcEncoder, queue: usize, _node: Option<&str>) -> std::result::Result<VaWorker, String> {
         let (tx, frames) = std::sync::mpsc::sync_channel::<Input>(queue.max(1));
         let target = Arc::new(enc.target());
         let (out, rx) = std::sync::mpsc::channel();
         #[cfg(test)]
-        let fail_after = tests::FAIL_AFTER.swap(0, std::sync::atomic::Ordering::SeqCst);
+        let fail_after = tests::take_fail_after(_node);
         thread("hevc-va", move || {
             let send = |r: std::result::Result<Vec<Vec<u8>>, String>| match r {
                 Ok(aus) => aus.into_iter().all(|au| out.send(Ok(au)).is_ok()),
@@ -764,7 +819,7 @@ impl HevcEncoder {
             w,
             h,
             rate,
-            ten_bit: s.hevc_bit_depth == 10,
+            ten_bit: s.hevc_bit_depth == 10 || s.hevc_chroma_422,
             keyint: s.keyframe_distance.unwrap_or(0).max(1),
             crf: (s.bitrate_mode == filmcraft_export::BitrateMode::Crf).then(|| s.crf.round().clamp(0.0, 51.0) as u8),
             cbr: s.bitrate_mode == filmcraft_export::BitrateMode::Cbr,
@@ -773,7 +828,44 @@ impl HevcEncoder {
             signal: s.signal,
             no_b: false,
             x265_preset: filmcraft_export::X265_PRESETS.iter().find(|p| **p == s.x265_preset).copied().unwrap_or("medium"),
+            hw_speed: s.hw_encode_speed,
+            chroma_422: s.hevc_chroma_422,
+            lane: None,
         })
+    }
+
+    /// An encoder for one lane of a two-GPU export (fork 6E.3): in process only, on `lane`'s GPU,
+    /// writing its stream; a failure is an error (the chunk goes to another lane), never ffmpeg.
+    pub fn for_lane(w: u32, h: u32, rate: FrameRate, s: &ExportSettings, lane: LaneTarget) -> Result<Self> {
+        let mut params = Self::params(w, h, rate, s)?;
+        if params.chroma_422 {
+            return Err(ExportError::Unsupported("two-GPU export of 4:2:2".into()));
+        }
+        params.lane = Some(lane);
+        Self::with_backends(params, &[Backend::VaNative])
+    }
+
+    /// The stream every one of `nodes` (`None`: the process's encode device) can write for this
+    /// export, so their chunks share one set of parameter sets (fork 6E.3); `None` when one of
+    /// them has no encoder for it or the drivers have nothing in common.
+    pub fn lane_stream(w: u32, h: u32, rate: FrameRate, s: &ExportSettings, nodes: &[Option<String>]) -> Option<filmcraft_hevc::write::StreamParams> {
+        let params = Self::params(w, h, rate, s).ok()?;
+        // as the lanes will open them (`Params::va` with a lane): LP where usable (6E.3 S12)
+        let va = EncodeParams { low_power: true, ..params.va() };
+        let mut common: Option<filmcraft_hevc::write::StreamParams> = None;
+        for node in nodes {
+            let d = LaneTarget { node: node.clone(), ..LaneTarget::default() }.display().ok()?;
+            // LP's stream within what EncSlice writes too, so a lane whose LP encoder fails to
+            // open still accepts the shared stream on EncSlice (6E.3 S12 review)
+            let slice = VaHevcEncoder::stream_params_for(&EncodeParams { low_power: false, ..va.clone() }, &d).ok()?;
+            let lp = VaHevcEncoder::stream_params_for(&va, &d).ok()?;
+            let own = filmcraft_hevc::write::common_stream(&lp, &slice).unwrap_or(slice);
+            common = Some(match common {
+                None => own,
+                Some(c) => filmcraft_hevc::write::common_stream(&c, &own)?,
+            });
+        }
+        common
     }
 
     /// The first of `order` that starts (tests force a backend with it).
@@ -788,12 +880,19 @@ impl HevcEncoder {
             let started = match backend {
                 Backend::VaNative => probe_native(&params).and_then(|probe| {
                     let config = probe.config()?;
-                    let enc = VaHevcEncoder::new(params.va())?;
-                    let worker = VaWorker::start(enc, write_queue(params.w, params.h, params.ten_bit))?;
+                    let enc = native_encoder(&params)?;
+                    let worker = VaWorker::start(enc, write_queue(params.w, params.h, params.ten_bit), params.lane.as_ref().and_then(|l| l.node.as_deref()))?;
                     Ok((probe, config, Engine::Va(worker)))
                 }),
                 _ => {
-                    let args = params.args(backend, vaapi_device());
+                    // the in-process encoder's device when one is set; 4:2:2 on a device that encodes
+                    // it (fork 6E.4: Intel)
+                    let encode_node = if params.chroma_422 {
+                        VaHevcEncoder::node_422()
+                    } else {
+                        std::env::var("FILMCRAFT_VAAPI_ENCODE_DEVICE").ok().filter(|v| !v.trim().is_empty())
+                    };
+                    let args = params.args(backend, encode_node.as_deref().or(vaapi_device()));
                     probe(&args, &params).and_then(|probe| {
                         let config = probe.config()?;
                         let proc = Proc::start(&args, write_queue(params.w, params.h, params.ten_bit))?;
@@ -805,7 +904,9 @@ impl HevcEncoder {
                 Ok((probe, config, engine)) => {
                     log::info!("HEVC export: {} {}x{} {}-bit", backend.name(), w, h, if params.ten_bit { 10 } else { 8 });
                     let mut parser = Parser::new();
-                    parser.configured = config.arrays.iter().flat_map(|a| a.nalus.iter().cloned()).collect();
+                    if !params.lane.as_ref().is_some_and(|l| l.in_band) {
+                        parser.configured = config.arrays.iter().flat_map(|a| a.nalus.iter().cloned()).collect();
+                    }
                     let reorder = probe.reorder();
                     return Ok(HevcEncoder { params, backend, engine, parser, config, reorder, fed: 0, yuv: Vec::new() });
                 }
@@ -830,6 +931,9 @@ impl HevcEncoder {
     /// go to ffmpeg (`hevc_vaapi`, else libx265 without B-frames), which starts with an IDR
     /// picture. The output order stays the decode order, as the stream so far has no reordering.
     fn fall_back(&mut self, why: String) -> Result<()> {
+        if self.params.lane.is_some() {
+            return Err(ExportError::Encode(why));
+        }
         let Engine::Va(worker) = &mut self.engine else { return Err(ExportError::Encode(why)) };
         let pending: Vec<Vec<u8>> = std::mem::take(&mut worker.pending)
             .into_iter()
@@ -889,7 +993,12 @@ impl HevcEncoder {
 
 impl VideoEncoder for HevcEncoder {
     fn sample_entry(&self) -> SampleEntry {
-        let mut e = SampleEntry::hevc(self.config.clone(), self.params.w as u16, self.params.h as u16);
+        let (w, h) = (self.params.w as u16, self.params.h as u16);
+        let mut e = if self.params.lane.as_ref().is_some_and(|l| l.in_band) {
+            SampleEntry::hevc_inband(self.config.clone(), w, h)
+        } else {
+            SampleEntry::hevc(self.config.clone(), w, h)
+        };
         self.params.signal.apply_to(&mut e, false);
         e
     }
@@ -903,7 +1012,10 @@ impl VideoEncoder for HevcEncoder {
             return Err(ExportError::Encode(format!("frame is {}x{}, the encoder {}x{}", f.width, f.height, self.params.w, self.params.h)));
         }
         // rendered into the encoder's own input surface: encoded in place (fork Phase 5.2c)
-        if let (Engine::Va(worker), Some(gpu), None) = (&mut self.engine, &f.gpu, f.yuv) {
+        // (4:2:2 never is: its surfaces are Y210, which the compositor doesn't write)
+        if !self.params.chroma_422
+            && let (Engine::Va(worker), Some(gpu), None) = (&mut self.engine, &f.gpu, f.yuv)
+        {
             self.fed += 1;
             let sent = worker.send(Input::Gpu(gpu.clone()));
             let (bytes, failed) = worker.take(false);
@@ -916,7 +1028,11 @@ impl VideoEncoder for HevcEncoder {
             Engine::Va(worker) => worker.free.pop().unwrap_or_default(),
             Engine::Ffmpeg(_) => std::mem::take(&mut self.yuv),
         };
-        filmcraft_export::frame_to_yuv420p(f, self.params.signal, self.params.ten_bit, &mut yuv);
+        if self.params.chroma_422 {
+            filmcraft_export::frame_to_yuv422p10le(f, self.params.signal, &mut yuv);
+        } else {
+            filmcraft_export::frame_to_yuv420p(f, self.params.signal, self.params.ten_bit, &mut yuv);
+        }
         self.fed += 1;
         let bytes = match &mut self.engine {
             Engine::Ffmpeg(proc) => {
@@ -976,11 +1092,135 @@ mod tests {
     /// The next in-process encoder started fails on this frame (1-based; 0: never).
     pub(super) static FAIL_AFTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+    /// When set, only an encoder started on this render node takes [`FAIL_AFTER`] (one lane fails).
+    static FAIL_NODE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+    pub(super) fn take_fail_after(node: Option<&str>) -> u64 {
+        let only = FAIL_NODE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match only.as_deref() {
+            Some(n) if Some(n) != node => 0,
+            _ => FAIL_AFTER.swap(0, std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+
+    /// Tests that start in-process encoders while another may set [`FAIL_AFTER`] run one at a time.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Fork 6E.3: an encoder per GPU on the shared stream; each lane's chunk (a fresh encoder, so
+    /// it starts with an IDR) decodes with that lane's sample entry, and a failing lane encoder is
+    /// an error, not ffmpeg. Whether the lanes' entries are equal (one `hvc1`) depends on the
+    /// driver: radeonsi rewrites the SPS / PPS, iHD writes ours (S8 picks `hvc1` or `hev1`).
+    #[test]
+    fn lanes_on_every_gpu_join_into_one_stream() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (w, h, n) = (320u32, 192u32, 6u64);
+        let s = ExportSettings {
+            format: Format::Hevc,
+            hevc_bit_depth: 10,
+            bitrate_mode: filmcraft_export::BitrateMode::Crf,
+            crf: 24.0,
+            keyframe_distance: Some(30),
+            ..Default::default()
+        };
+        let rate = FrameRate::new(24, 1);
+        let mut nodes: Vec<Option<String>> = vec![None];
+        nodes.extend(
+            crate::ffmpeg::render_nodes()
+                .into_iter()
+                .filter(|n| {
+                    crate::va::Display::for_node(n)
+                        .is_ok_and(|d| d.supports(crate::va_sys::VAProfile_VAProfileHEVCMain10, crate::va_sys::VAEntrypoint_VAEntrypointEncSlice))
+                })
+                .map(Some),
+        );
+        if HevcEncoder::lane_stream(w, h, rate, &s, &[None]).is_none() {
+            eprintln!("no in-process encoder; skipped");
+            return;
+        }
+        // `None`: the drivers can't write one stream (radeonsi + iHD, fork 6E.3 S8): each lane
+        // keeps its driver's own parameter sets and the file carries them in band (hev1)
+        let stream = HevcEncoder::lane_stream(w, h, rate, &s, &nodes);
+        eprintln!("lanes {nodes:?}: one shared stream: {}", stream.is_some());
+        assert!(HevcEncoder::lane_stream(w, h, rate, &s, &[Some("/dev/dri/no-such-node".into())]).is_none());
+        let mut entries = Vec::new();
+        let mut firsts = Vec::new();
+        let mut joined = Vec::new();
+        for node in &nodes {
+            let lane = LaneTarget { node: node.clone(), stream: stream.clone(), in_band: stream.is_none() };
+            let mut enc = HevcEncoder::for_lane(w, h, rate, &s, lane).expect("lane encoder");
+            let entry = enc.sample_entry();
+            let mut chunk = Vec::new();
+            for i in 0..n {
+                let rgba: Vec<u8> = (0..w * h).flat_map(|_| [(i * 30) as u8, 90, 160, 255]).collect();
+                chunk.extend(enc.encode(&EncoderFrame { width: w, height: h, rgba: &rgba, hdr: None, yuv: None, gpu: None, index: i }).expect("encode"));
+            }
+            chunk.extend(enc.flush().expect("flush"));
+            assert_eq!(chunk.len() as u64, n, "{node:?}");
+            assert!(chunk.first().is_some_and(|p| p.key), "a chunk starts with an IDR");
+            firsts.push(chunk.first().map(|p| p.data.clone()).unwrap_or_default());
+            joined.extend(chunk.iter().map(|p| p.data.clone()));
+            let mut d = filmcraft_codecs::software_video_decoder(&entry).expect("decoder");
+            let mut frames = Vec::new();
+            for (k, p) in chunk.iter().enumerate() {
+                frames.extend(d.decode(&p.data, k as i64 * 1000 + p.composition_offset as i64).expect("decode"));
+            }
+            frames.extend(d.flush());
+            assert_eq!(frames.len() as u64, n, "{node:?}");
+            entries.push(entry);
+        }
+        if stream.is_some() {
+            assert!(entries.windows(2).all(|w| w[0] == w[1]), "lanes {nodes:?}: one hvcC for all");
+        }
+        // in band: hev1, and each chunk's IDR carries its own VPS / SPS / PPS
+        let nal_types = |au: &[u8]| {
+            let mut out = Vec::new();
+            let mut rest = au;
+            while let (Some(len), Some(tail)) = (rest.get(..4), rest.get(4..)) {
+                let len = u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
+                out.push(tail.first().map_or(0, |b| (b >> 1) & 0x3f));
+                rest = tail.get(len..).unwrap_or(&[]);
+            }
+            out
+        };
+        for (e, first) in entries.iter().zip(&firsts) {
+            assert_eq!(&e.format.0, if stream.is_some() { b"hvc1" } else { b"hev1" });
+            assert_eq!(nal_types(first).iter().filter(|t| (32..=34).contains(*t)).count(), if stream.is_some() { 0 } else { 3 });
+        }
+        // the joined file: one sample entry (the first lane's), every chunk decodes after it
+        let mut d = filmcraft_codecs::software_video_decoder(&entries[0]).expect("decoder");
+        let mut frames = 0;
+        for (k, p) in joined.iter().enumerate() {
+            frames += d.decode(p, k as i64 * 1000).expect("decode joined").len();
+        }
+        frames += d.flush().len();
+        assert_eq!(frames, joined.len(), "every picture of every chunk");
+        // a lane's encoder failing mid-chunk is an error for the coordinator
+        FAIL_AFTER.store(3, std::sync::atomic::Ordering::SeqCst);
+        let lane = LaneTarget { node: None, in_band: stream.is_none(), stream };
+        let mut enc = HevcEncoder::for_lane(w, h, rate, &s, lane).expect("lane encoder");
+        let rgba = vec![128u8; (w * h * 4) as usize];
+        let mut failed = false;
+        for i in 0..12 {
+            if enc.encode(&EncoderFrame { width: w, height: h, rgba: &rgba, hdr: None, yuv: None, gpu: None, index: i }).is_err() {
+                failed = true;
+                break;
+            }
+        }
+        failed = failed || enc.flush().is_err();
+        FAIL_AFTER.store(0, std::sync::atomic::Ordering::SeqCst);
+        assert!(failed, "the failure reaches the caller");
+        assert_eq!(enc.backend(), Backend::VaNative, "no ffmpeg fallback in a lane");
+        // 4:2:2 has no two-GPU path
+        let s422 = ExportSettings { hevc_chroma_422: true, ..s };
+        assert!(HevcEncoder::for_lane(w, h, rate, &s422, LaneTarget::default()).is_err());
+    }
+
     /// The in-process encoder failing mid-stream (simulated at frame 11, with pictures still in
     /// flight): ffmpeg encodes the unfinished frames again and carries on; every frame comes out
     /// once, in order. Skipped without the in-process encoder or ffmpeg's encoders.
     #[test]
     fn a_failing_in_process_encoder_falls_back_to_ffmpeg() {
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (w, h, n) = (320u32, 192u32, 30u64);
         let s = ExportSettings { format: Format::Hevc, hevc_bit_depth: 8, bitrate_kbps: 4000, keyframe_distance: Some(12), ..Default::default() };
         FAIL_AFTER.store(11, std::sync::atomic::Ordering::SeqCst);
@@ -1015,5 +1255,120 @@ mod tests {
             let want = 16.0 + 219.0 * level(i as u64) as f64 / 255.0;
             assert!((mean - want).abs() < 3.0, "frame {i}: luma {mean:.1}, want {want:.1}");
         }
+    }
+
+    /// Fork 6E.3 S10 (DESIGN-6E3 §2.7): the second GPU's real encoder fails mid-chunk; its chunk
+    /// goes to the first GPU and the export still has every frame once, decodable, with the reason
+    /// in the lanes report. A cancelled two-GPU export leaves no spill directory behind. Skips
+    /// without two VA-API HEVC encoders.
+    #[test]
+    fn a_failing_lane_hands_its_chunks_to_the_other_gpu() {
+        use filmcraft_media::generators::GeneratorSource;
+        use filmcraft_media::{Generator, MediaSource, SharedSource};
+        use filmcraft_project::{ItemId, ItemKind, Label, MediaClip, MediaRef, Project, SequenceSettings, TrackKind};
+        use filmcraft_render::{SourceMap, SourceProvider};
+        use filmcraft_time::{TICKS_PER_SECOND, Tick, TimeRange};
+        use std::sync::atomic::Ordering;
+
+        struct Lanes(Arc<SourceMap>);
+        impl SourceProvider for Lanes {
+            fn source(&self, item: ItemId) -> Option<SharedSource> {
+                self.0.source(item)
+            }
+            fn lane_copy(&self) -> Option<Arc<dyn SourceProvider + Send + Sync>> {
+                Some(Arc::new(Lanes(self.0.clone())))
+            }
+        }
+
+        let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = crate::register();
+        crate::export_lanes::register();
+        let Some(second) = crate::export_lanes::second_encode_node() else {
+            eprintln!("SKIPPED: no second GPU with an HEVC encoder");
+            return;
+        };
+        // 6 s of bars, 24 fps: six one-second GOPs
+        let mut p = Project::new("fail");
+        let r = FrameRate::FPS_24;
+        let len = Tick(6 * TICKS_PER_SECOND);
+        let g = GeneratorSource::new(Generator::BarsAndTone, 320, 180, r, len);
+        let info = g.info().clone();
+        let clip = MediaClip {
+            media: MediaRef::Generator(g.generator.clone()),
+            info: info.clone(),
+            interpret: Default::default(),
+            mark_in: None,
+            mark_out: None,
+            markers: vec![],
+            offline: false,
+            proxy: None,
+            identity: None,
+        };
+        let id = p.add_item(&info.name, Label::Iris, ItemKind::Media(clip), None);
+        let mut m = SourceMap::default();
+        m.0.insert(id, Arc::new(g));
+        let seq = p.new_sequence("s", SequenceSettings { width: 320, height: 180, frame_rate: r, ..Default::default() }, 1, 0, None);
+        let v = p.make_track_item(id, TrackKind::Video, Tick::ZERO, TimeRange::new(Tick::ZERO, len), r).unwrap();
+        p.sequence_mut(seq).unwrap().video_tracks[0].items.push(v);
+        let src = Lanes(Arc::new(m));
+        let dir = std::env::temp_dir().join(format!("fc-dual-fail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("fail.mp4").to_string_lossy().into_owned();
+        let s = ExportSettings {
+            format: Format::Hevc,
+            path: out.clone(),
+            hevc_bit_depth: 8,
+            keyframe_distance: Some(24),
+            export_engines: filmcraft_export::ExportEngines::Dual,
+            ..Default::default()
+        };
+        let spill_dirs = || std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().ends_with(".chunks")).count();
+
+        *FAIL_NODE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(second.clone());
+        FAIL_AFTER.store(5, Ordering::SeqCst);
+        let progress = filmcraft_export::Progress::default();
+        let p = Arc::new(p);
+        let result = filmcraft_export::export(&p, seq, &s, &src, &progress);
+        FAIL_AFTER.store(0, Ordering::SeqCst);
+        *FAIL_NODE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        let report = filmcraft_export::lanes::last_lanes();
+        eprintln!("{report:?}");
+        let result = result.expect("the export survives a failing lane");
+        if report.lanes.is_empty() {
+            eprintln!("SKIPPED: {}", report.note.unwrap_or_default());
+            return;
+        }
+        assert_eq!(result.frames, 144);
+        assert_eq!(progress.done.load(Ordering::Relaxed), 144);
+        let failed = report.lanes.iter().find(|l| l.node.as_deref() == Some(second.as_str())).expect("the second GPU's lane");
+        assert!(failed.failed.as_deref().is_some_and(|why| !why.is_empty()), "the reason is reported: {report:?}");
+        assert_eq!(report.lanes.iter().map(|l| l.frames).sum::<u64>(), 144, "every frame once: {report:?}");
+        assert_eq!(spill_dirs(), 0, "the spill directory is removed");
+        let bytes = std::fs::read(&out).unwrap();
+        let file = filmcraft_isobmff::open(bytes.clone()).unwrap();
+        let vt = file.tracks.iter().position(|t| t.kind == filmcraft_isobmff::TrackKind::Video).unwrap();
+        let mut d = filmcraft_codecs::software_video_decoder(&file.tracks[vt].entries[0]).unwrap();
+        let mut decoded = 0;
+        for (k, smp) in file.tracks[vt].samples.iter().enumerate() {
+            decoded += d.decode(&file.read_sample(&bytes, vt, k).unwrap(), smp.pts).unwrap().len();
+        }
+        decoded += d.flush().len();
+        assert_eq!(decoded, 144, "every frame decodes");
+
+        // cancelled part-way: an error, and no chunk directory left behind
+        let progress = Arc::new(filmcraft_export::Progress::default());
+        let watch = progress.clone();
+        let canceller = std::thread::spawn(move || {
+            let t = std::time::Instant::now();
+            while watch.done.load(Ordering::Relaxed) < 30 && t.elapsed() < std::time::Duration::from_secs(60) {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            watch.cancel.store(true, Ordering::SeqCst);
+        });
+        let cancelled = filmcraft_export::export(&p, seq, &s, &src, &progress);
+        let _ = canceller.join();
+        assert!(cancelled.is_err() || progress.done.load(Ordering::Relaxed) == 144, "cancel stops the export");
+        assert_eq!(spill_dirs(), 0, "cancel removes the spill directory");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

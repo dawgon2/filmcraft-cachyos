@@ -17,7 +17,7 @@ use std::sync::Arc;
 use filmcraft_hevc::write::{self as hw, SlicePic, StreamParams};
 use rayon::prelude::*;
 
-use crate::va::{CodedBuffer, Config, Context, Display, MiscFrameRate, MiscHrd, MiscRateControl, Surface, SurfacePool};
+use crate::va::{CodedBuffer, Config, Context, Display, MiscFrameRate, MiscHrd, MiscQualityLevel, MiscRateControl, Surface, SurfacePool};
 use crate::va_sys as sys;
 
 /// Pictures submitted before the oldest is read back.
@@ -51,6 +51,15 @@ pub struct EncodeParams {
     pub rc: RateControl,
     /// H.273 primaries, transfer, matrix.
     pub colour: (u8, u8, u8),
+    /// Speed / quality level (fork 6E.2), mapped onto the driver's quality range.
+    pub speed: filmcraft_export::HwEncodeSpeed,
+    /// 4:2:2 (Main 4:2:2 10, fork 6E.4; needs `ten_bit`) instead of 4:2:0.
+    pub chroma_422: bool,
+    /// Prefer the driver's low-power entry point, `VAEntrypointEncSliceLP` (Intel's fixed-function
+    /// encoder, fork 6E.3 S12): non-IDR pictures are then low-delay B (iHD's LP mode takes no P).
+    /// Used only where the driver offers it for the profile and a small trial encode works
+    /// ([`lp_usable`]); otherwise, or when it fails to open, `EncSlice` as before.
+    pub low_power: bool,
 }
 
 /// Where the export may render this encoder's input (fork Phase 5.2c): surfaces of `pool`
@@ -58,6 +67,8 @@ pub struct EncodeParams {
 pub struct EncodeTarget {
     pub pool: Arc<SurfacePool>,
     pub ten_bit: bool,
+    /// Y210 (4:2:2) surfaces: the compositor doesn't render into these yet (fork 6E.4).
+    pub chroma_422: bool,
     pub size: (u32, u32),
 }
 
@@ -99,6 +110,13 @@ pub struct VaHevcEncoder {
     /// Position in the GOP of the next picture (0: IDR).
     gop_pos: u32,
     coded_bytes: usize,
+    /// The quality level sent with each sequence (`None`: the driver's default).
+    quality_level: Option<u32>,
+    /// This driver writes its own SPS / PPS ([`StreamParams::rewritten`]): it gets the QP as
+    /// before (`pic_init_qp` = the QP), not `stream.init_qp` + a slice delta.
+    rewrites: bool,
+    /// On `VAEntrypointEncSliceLP`: non-IDR pictures are low-delay B (fork 6E.3 S12).
+    lp: bool,
 }
 
 impl Drop for VaHevcEncoder {
@@ -109,6 +127,18 @@ impl Drop for VaHevcEncoder {
             let _ = f.source.surface().sync();
         }
     }
+}
+
+/// What [`VaHevcEncoder::probe`] found on a device.
+struct Probe {
+    stream: StreamParams,
+    prof: sys::VAProfile,
+    ep: sys::VAEntrypoint,
+    rt: u32,
+    rc_mode: u32,
+    packed: u32,
+    /// `VAConfigAttribEncQualityRange` (0: not reported).
+    quality_range: u32,
 }
 
 /// Two-bit fields of the driver's HEVC feature / block-size attributes.
@@ -122,36 +152,185 @@ impl VaHevcEncoder {
         Display::for_encode().is_ok_and(|d| d.supports(profile(ten_bit), sys::VAEntrypoint_VAEntrypointEncSlice))
     }
 
+    /// Whether a device encodes Main 4:2:2 10 (fork 6E.4: Intel's, not AMD's).
+    pub fn supported_422() -> bool {
+        Display::for_encode_422().is_ok()
+    }
+
+    /// The render node 4:2:2 is encoded on ([`Display::for_encode_422`]), for ffmpeg's fallback.
+    pub fn node_422() -> Option<String> {
+        Display::for_encode_422().ok().map(|d| d.node.clone())
+    }
+
+    /// How many quality levels the encode device's HEVC encoder offers
+    /// (`VAConfigAttribEncQualityRange`; `None`: no encoder, or it does not say).
+    pub fn quality_range(ten_bit: bool) -> Option<u32> {
+        let d = Display::for_encode().ok()?;
+        let a = d.config_attribs(profile(ten_bit), sys::VAEntrypoint_VAEntrypointEncSlice, &[sys::VAConfigAttribType_VAConfigAttribEncQualityRange]).ok()?;
+        a.first().copied().flatten()
+    }
+
+    /// The quality level this encoder sends (`None`: the driver's default).
+    pub fn quality_level(&self) -> Option<u32> {
+        self.quality_level
+    }
+
+    /// An encoder on the process's encode display ([`Display::for_encode`]; 4:2:2 on
+    /// [`Display::for_encode_422`]).
     pub fn new(params: EncodeParams) -> Result<Self, String> {
-        let EncodeParams { width: w, height: h, ten_bit, .. } = params;
+        let d = if params.chroma_422 { Display::for_encode_422()? } else { Display::for_encode()? };
+        Self::new_on(params, d)
+    }
+
+    /// An encoder on display `d` (fork 6E.3: one per GPU, e.g. [`Display::for_node`]).
+    pub fn new_on(params: EncodeParams, d: Arc<Display>) -> Result<Self, String> {
+        Self::new_on_with(params, d, None)
+    }
+
+    /// The stream an encoder on display `d` would write for `params` (fork 6E.3: two GPUs agree on
+    /// one with [`hw::common_stream`] and pass it to [`VaHevcEncoder::new_on_with`]).
+    pub fn stream_params_for(params: &EncodeParams, d: &Display) -> Result<StreamParams, String> {
+        Ok(Self::probe(params, d)?.stream)
+    }
+
+    /// An encoder on display `d` writing `stream` instead of the driver's own choice (fork 6E.3:
+    /// identical parameter sets on two GPUs). `stream` must stay inside what this driver offers
+    /// (block sizes, tools, the same picture), else an error. With [`EncodeParams::low_power`]
+    /// an LP encoder that fails to open falls back to `EncSlice` (never an error because of LP).
+    pub fn new_on_with(params: EncodeParams, d: Arc<Display>, stream: Option<StreamParams>) -> Result<Self, String> {
+        let probe = Self::probe(&params, &d)?;
+        if probe.ep != sys::VAEntrypoint_VAEntrypointEncSliceLP {
+            return Self::open(params, d, stream, probe);
+        }
+        #[cfg(test)]
+        let lp = if tests::FAIL_LP_OPEN.with(|f| f.get()) {
+            Err("LP open failure injected by a test".to_string())
+        } else {
+            Self::open(params.clone(), d.clone(), stream.clone(), probe)
+        };
+        #[cfg(not(test))]
+        let lp = Self::open(params.clone(), d.clone(), stream.clone(), probe);
+        lp.or_else(|e| {
+            eprintln!("VA-API HEVC: the low-power encoder on {} did not open ({e}); EncSlice", d.vendor);
+            Self::open(params.clone(), d.clone(), stream, Self::probe_ep(&params, &d, false)?)
+        })
+    }
+
+    /// Whether this encoder runs on `VAEntrypointEncSliceLP` with low-delay B pictures.
+    pub fn low_power(&self) -> bool {
+        self.lp
+    }
+
+    fn open(params: EncodeParams, d: Arc<Display>, stream: Option<StreamParams>, probe: Probe) -> Result<Self, String> {
+        let Probe { stream: own, prof, ep, rt, rc_mode, packed, quality_range } = probe;
+        let lp = ep == sys::VAEntrypoint_VAEntrypointEncSliceLP;
+        let rewrites = own.rewritten;
+        let stream = match stream {
+            None => own,
+            Some(s) => {
+                if hw::common_stream(&own, &s).as_ref() != Some(&s) {
+                    return Err(format!("the driver ({}) cannot write the shared stream", d.vendor));
+                }
+                s
+            }
+        };
+        let ten_bit = params.ten_bit;
+        let c422 = params.chroma_422;
+        use sys::{
+            VAConfigAttribType_VAConfigAttribEncPackedHeaders as PACKED, VAConfigAttribType_VAConfigAttribRTFormat as RT,
+            VAConfigAttribType_VAConfigAttribRateControl as RC,
+        };
+        let config = Arc::new(Config::with_attribs(&d, prof, ep, &[(RT, rt), (RC, rc_mode), (PACKED, packed)])?);
+        let ctx = Context::new(&config, stream.coded_width, stream.coded_height)?;
+        let fourcc = match (c422, ten_bit) {
+            (true, _) => sys::VA_FOURCC_Y210,
+            (false, true) => sys::VA_FOURCC_P010,
+            (false, false) => sys::VA_FOURCC_NV12,
+        };
+        let sources = SurfacePool::new(&d, rt, fourcc, stream.coded_width, stream.coded_height);
+        let recons = SurfacePool::new(&d, rt, fourcc, stream.coded_width, stream.coded_height);
+        // a picture rarely compresses worse than 1 byte per pixel; overflow is reported
+        let coded_bytes = (stream.coded_width as usize * stream.coded_height as usize).saturating_add(1 << 20);
+        let quality_level = params.speed.level(quality_range);
+        Ok(VaHevcEncoder {
+            inflight: VecDeque::new(),
+            spare: Vec::new(),
+            reference: None,
+            sources,
+            recons,
+            ctx,
+            _config: config,
+            params,
+            stream,
+            gop_pos: 0,
+            coded_bytes,
+            quality_level,
+            rewrites,
+            lp,
+        })
+    }
+
+    /// The next picture starts a new GOP with an IDR (fork 6E.3: a chunk of a two-GPU export).
+    pub fn restart_gop(&mut self) {
+        self.gop_pos = 0;
+    }
+
+    /// Checks `params` against display `d`'s encoder and works out the stream it writes: on
+    /// `EncSliceLP` when asked for and usable there (its own attributes), else `EncSlice`.
+    fn probe(params: &EncodeParams, d: &Display) -> Result<Probe, String> {
+        let prof = if params.chroma_422 { sys::VAProfile_VAProfileHEVCMain422_10 } else { profile(params.ten_bit) };
+        if params.low_power
+            && d.supports(prof, sys::VAEntrypoint_VAEntrypointEncSliceLP)
+            && lp_usable(d, params)
+            && let Ok(p) = Self::probe_ep(params, d, true)
+        {
+            return Ok(p);
+        }
+        Self::probe_ep(params, d, false)
+    }
+
+    /// [`probe`](Self::probe) on one entry point (`lp`: `EncSliceLP`).
+    fn probe_ep(params: &EncodeParams, d: &Display, lp: bool) -> Result<Probe, String> {
+        let &EncodeParams { width: w, height: h, ten_bit, .. } = params;
         if w == 0 || h == 0 || w > 8192 || h > 8192 || w % 2 != 0 || h % 2 != 0 {
             return Err(format!("{w}x{h}"));
         }
         if params.rate_num == 0 || params.rate_den == 0 {
             return Err("frame rate".into());
         }
-        let d = Display::for_encode()?;
-        let (prof, ep) = (profile(ten_bit), sys::VAEntrypoint_VAEntrypointEncSlice);
+        let c422 = params.chroma_422;
+        if c422 && !ten_bit {
+            return Err("4:2:2 is encoded as 10-bit only".into());
+        }
+        let prof = if c422 { sys::VAProfile_VAProfileHEVCMain422_10 } else { profile(ten_bit) };
+        let ep = if lp { sys::VAEntrypoint_VAEntrypointEncSliceLP } else { sys::VAEntrypoint_VAEntrypointEncSlice };
         if !d.supports(prof, ep) {
-            return Err(format!("the driver ({}) has no HEVC {} encoder", d.vendor, if ten_bit { "Main 10" } else { "Main" }));
+            let name = if c422 {
+                "Main 4:2:2 10"
+            } else if ten_bit {
+                "Main 10"
+            } else {
+                "Main"
+            };
+            return Err(format!("the driver ({}) has no HEVC {name} encoder", d.vendor));
         }
         use sys::{
             VAConfigAttribType_VAConfigAttribEncHEVCBlockSizes as BLOCKS, VAConfigAttribType_VAConfigAttribEncHEVCFeatures as FEATURES,
-            VAConfigAttribType_VAConfigAttribEncPackedHeaders as PACKED, VAConfigAttribType_VAConfigAttribMaxPictureHeight as MAX_H,
-            VAConfigAttribType_VAConfigAttribMaxPictureWidth as MAX_W, VAConfigAttribType_VAConfigAttribRTFormat as RT,
-            VAConfigAttribType_VAConfigAttribRateControl as RC,
+            VAConfigAttribType_VAConfigAttribEncPackedHeaders as PACKED, VAConfigAttribType_VAConfigAttribEncQualityRange as QR,
+            VAConfigAttribType_VAConfigAttribMaxPictureHeight as MAX_H, VAConfigAttribType_VAConfigAttribMaxPictureWidth as MAX_W,
+            VAConfigAttribType_VAConfigAttribRTFormat as RT, VAConfigAttribType_VAConfigAttribRateControl as RC,
         };
-        let a = d.config_attribs(prof, ep, &[RT, RC, PACKED, FEATURES, BLOCKS, MAX_W, MAX_H])?;
+        let a = d.config_attribs(prof, ep, &[RT, RC, PACKED, FEATURES, BLOCKS, MAX_W, MAX_H, QR])?;
         let get = |i: usize| a.get(i).copied().flatten();
-        let rt = if ten_bit { sys::VA_RT_FORMAT_YUV420_10 } else { sys::VA_RT_FORMAT_YUV420 };
+        let rt = match (c422, ten_bit) {
+            (true, _) => sys::VA_RT_FORMAT_YUV422_10,
+            (false, true) => sys::VA_RT_FORMAT_YUV420_10,
+            (false, false) => sys::VA_RT_FORMAT_YUV420,
+        };
         if get(0).is_some_and(|v| v & rt == 0) {
             return Err("the encoder does not take this picture format".into());
         }
-        let rc_mode = match params.rc {
-            RateControl::Cqp(_) => sys::VA_RC_CQP,
-            RateControl::Cbr { .. } => sys::VA_RC_CBR,
-            RateControl::Vbr { .. } => sys::VA_RC_VBR,
-        };
+        let rc_mode = rc_mode(params.rc);
         if get(1).is_some_and(|v| v & rc_mode == 0) {
             return Err(format!("the encoder has no rate control mode {rc_mode:#x}"));
         }
@@ -164,6 +343,7 @@ impl VaHevcEncoder {
         }
 
         let mut stream = StreamParams::new(w, h, if ten_bit { 10 } else { 8 });
+        stream.chroma_422 = c422;
         // the driver's coding tools and block sizes (defaults: what Mesa's encoders report)
         if let Some(b) = get(4) {
             stream.log2_ctb = field(b, 0) + 3;
@@ -202,29 +382,20 @@ impl VaHevcEncoder {
             RateControl::Cqp(q) => q.clamp(1, 51) as i32,
             _ => 26,
         };
+        if d.vendor.contains("radeonsi") {
+            // radeonsi writes its own SPS / PPS whatever packed headers it gets (seen on Mesa
+            // 26.2, fork 6E.3 S8): describe what it really writes, so a stream shared with
+            // another GPU can match it byte for byte
+            let max_depth = stream.log2_ctb.saturating_sub(stream.log2_min_tb);
+            stream.max_th_depth_inter = max_depth.min(4);
+            stream.max_th_depth_intra = max_depth.min(4);
+            stream.dependent_slices = true;
+            stream.init_qp = 26;
+            stream.rewritten = true;
+        }
         stream.colour = params.colour;
         stream.timing = Some((params.rate_den, params.rate_num));
-
-        let config = Arc::new(Config::with_attribs(&d, prof, ep, &[(RT, rt), (RC, rc_mode), (PACKED, packed)])?);
-        let ctx = Context::new(&config, stream.coded_width, stream.coded_height)?;
-        let fourcc = if ten_bit { sys::VA_FOURCC_P010 } else { sys::VA_FOURCC_NV12 };
-        let sources = SurfacePool::new(&d, rt, fourcc, stream.coded_width, stream.coded_height);
-        let recons = SurfacePool::new(&d, rt, fourcc, stream.coded_width, stream.coded_height);
-        // a picture rarely compresses worse than 1 byte per pixel; overflow is reported
-        let coded_bytes = (stream.coded_width as usize * stream.coded_height as usize).saturating_add(1 << 20);
-        Ok(VaHevcEncoder {
-            inflight: VecDeque::new(),
-            spare: Vec::new(),
-            reference: None,
-            sources,
-            recons,
-            ctx,
-            _config: config,
-            params,
-            stream,
-            gop_pos: 0,
-            coded_bytes,
-        })
+        Ok(Probe { stream, prof, ep, rt, rc_mode, packed, quality_range: get(7).unwrap_or(0) })
     }
 
     /// The parameter sets the stream starts with (Annex B: VPS, SPS, PPS).
@@ -243,19 +414,28 @@ impl VaHevcEncoder {
     }
 
     /// Encode one frame given as planar `yuv420p10le` (10-bit) or `yuv420p` of the encoder's
-    /// size. Returns the access units (Annex B) of pictures that finished.
+    /// size (`yuv422p10le` for a 4:2:2 encoder). Returns the access units (Annex B) of pictures that finished.
     pub fn encode(&mut self, yuv: &[u8]) -> Result<Vec<Vec<u8>>, String> {
         let source = self.sources.get()?;
         let (w, h) = (self.params.width as usize, self.params.height as usize);
         let ten = self.params.ten_bit;
-        source.write(|img, offsets, pitches| fill_semiplanar(img, offsets, pitches, yuv, w, h, ten))?;
+        if self.params.chroma_422 {
+            source.write(|img, offsets, pitches| fill_y210(img, offsets[0], pitches[0], yuv, w, h))?;
+        } else {
+            source.write(|img, offsets, pitches| fill_semiplanar(img, offsets, pitches, yuv, w, h, ten))?;
+        }
         self.submit(Source::Own(source))?;
         self.finished()
     }
 
     /// Where frames may be rendered for [`encode_surface`](Self::encode_surface).
     pub fn target(&self) -> EncodeTarget {
-        EncodeTarget { pool: self.sources.clone(), ten_bit: self.params.ten_bit, size: (self.params.width, self.params.height) }
+        EncodeTarget {
+            pool: self.sources.clone(),
+            ten_bit: self.params.ten_bit,
+            chroma_422: self.params.chroma_422,
+            size: (self.params.width, self.params.height),
+        }
     }
 
     /// Encode a frame already in one of the encoder's input surfaces ([`target`](Self::target)),
@@ -311,11 +491,18 @@ impl VaHevcEncoder {
             None => self.ctx.coded_buffer(self.coded_bytes)?,
         };
         let s = &self.stream;
-        let (qp, qp_delta) = match self.params.rc {
-            RateControl::Cqp(q) => (q.clamp(1, 51), 0),
-            _ => (26, 0),
+        let target = match self.params.rc {
+            RateControl::Cqp(q) => q.clamp(1, 51),
+            _ => 26,
         };
-        let slice_pic = SlicePic { idr, poc: self.gop_pos, qp_delta };
+        // the PPS's init_qp plus the slice's delta gives the QP (fork 6E.3 S8: a shared stream
+        // may carry another driver's init_qp); a rewriting driver writes both itself
+        let init = if self.rewrites { target } else { u8::try_from(s.init_qp_clamped()).unwrap_or(26) };
+        let (qp, qp_delta) = (init, i32::from(target) - i32::from(init));
+        // iHD's low-power encoder takes low-delay B, not P (fork 6E.3 S12): the same one
+        // reference in both lists
+        let b = self.lp && !idr;
+        let slice_pic = SlicePic { idr, poc: self.gop_pos, qp_delta, low_delay_b: b };
 
         let ctx = &self.ctx;
         let mut before = Vec::new();
@@ -339,16 +526,25 @@ impl VaHevcEncoder {
         pic.nal_unit_type = if idr { hw::NAL_IDR_W_RADL } else { hw::NAL_TRAIL_R };
         let mut f = sys::_VAEncPictureParameterBufferHEVC__bindgen_ty_1__bindgen_ty_1::default();
         f.set_idr_pic_flag(idr as u32);
-        f.set_coding_type(if idr { 1 } else { 2 });
+        f.set_coding_type(match (idr, b) {
+            (true, _) => 1,
+            (false, true) => 3,
+            (false, false) => 2,
+        });
         f.set_reference_pic_flag(1);
         f.set_transform_skip_enabled_flag(s.transform_skip as u32);
         f.set_cu_qp_delta_enabled_flag(s.cu_qp_delta as u32);
+        f.set_dependent_slice_segments_enabled_flag(s.dependent_slices as u32);
         f.set_pps_loop_filter_across_slices_enabled_flag(1);
         pic.pic_fields.bits = f;
 
         let mut slice = sys::VAEncSliceParameterBufferHEVC {
             num_ctu_in_slice: s.ctbs(),
-            slice_type: if idr { 2 } else { 1 },
+            slice_type: match (idr, b) {
+                (true, _) => 2,
+                (false, true) => 0,
+                (false, false) => 1,
+            },
             max_num_merge_cand: 5,
             slice_qp_delta: qp_delta as i8,
             ..Default::default()
@@ -357,6 +553,12 @@ impl VaHevcEncoder {
         sf.set_last_slice_of_pic_flag(1);
         sf.set_slice_sao_luma_flag(s.sao as u32);
         sf.set_slice_sao_chroma_flag(s.sao as u32);
+        if b {
+            // as the packed slice header says (temporal MVP is off: collocated_from_l0 inferred 1;
+            // mvd_l1_zero_flag 0, which iHD codes whatever it is told: SlicePic::low_delay_b)
+            sf.set_mvd_l1_zero_flag(0);
+            sf.set_collocated_from_l0_flag(1);
+        }
         slice.slice_fields.bits = sf;
 
         let refs = reference.as_ref().map(|(r, p)| (r, *p));
@@ -376,7 +578,14 @@ impl VaHevcEncoder {
             RateControl::Cbr { kbps } | RateControl::Vbr { kbps, .. } => kbps.saturating_mul(1000),
         };
         let mut q = sys::VAEncSequenceParameterBufferHEVC {
-            general_profile_idc: if p.ten_bit { 2 } else { 1 },
+            // Main 4:2:2 10 (RExt, 4) / Main 10 / Main: must match the packed VPS / SPS
+            general_profile_idc: if s.chroma_422 {
+                4
+            } else if p.ten_bit {
+                2
+            } else {
+                1
+            },
             general_level_idc: s.level_idc,
             general_tier_flag: s.high_tier as u8,
             intra_period: p.keyint.max(1),
@@ -398,7 +607,7 @@ impl VaHevcEncoder {
             ..Default::default()
         };
         let mut f = sys::_VAEncSequenceParameterBufferHEVC__bindgen_ty_1__bindgen_ty_1::default();
-        f.set_chroma_format_idc(1);
+        f.set_chroma_format_idc(if s.chroma_422 { 2 } else { 1 });
         f.set_bit_depth_luma_minus8(s.bit_depth - 8);
         f.set_bit_depth_chroma_minus8(s.bit_depth - 8);
         f.set_amp_enabled_flag(s.amp as u32);
@@ -416,8 +625,12 @@ impl VaHevcEncoder {
 
     fn misc_buffers(&self) -> Result<Vec<crate::va::Buffer<'_>>, String> {
         let p = &self.params;
+        let mut out = Vec::new();
+        if let Some(level) = self.quality_level {
+            out.push(self.ctx.param_buffer(&MiscQualityLevel::new(level))?);
+        }
         let (kbps, max_kbps) = match p.rc {
-            RateControl::Cqp(_) => return Ok(Vec::new()),
+            RateControl::Cqp(_) => return Ok(out),
             RateControl::Cbr { kbps } => (kbps, kbps),
             RateControl::Vbr { kbps, max_kbps } => (kbps, max_kbps.max(kbps)),
         };
@@ -432,8 +645,139 @@ impl VaHevcEncoder {
         let hrd = sys::VAEncMiscParameterHRD { buffer_size: max_bps, initial_buffer_fullness: max_bps / 4 * 3, ..Default::default() };
         let rate = if p.rate_num <= 0xffff && p.rate_den <= 0xffff { p.rate_num | (p.rate_den << 16) } else { p.rate_num.div_ceil(p.rate_den.max(1)) };
         let fr = sys::VAEncMiscParameterFrameRate { framerate: rate, ..Default::default() };
-        Ok(vec![self.ctx.param_buffer(&MiscRateControl::new(rc))?, self.ctx.param_buffer(&MiscHrd::new(hrd))?, self.ctx.param_buffer(&MiscFrameRate::new(fr))?])
+        out.push(self.ctx.param_buffer(&MiscRateControl::new(rc))?);
+        out.push(self.ctx.param_buffer(&MiscHrd::new(hrd))?);
+        out.push(self.ctx.param_buffer(&MiscFrameRate::new(fr))?);
+        Ok(out)
     }
+}
+
+/// Whether display `d`'s `EncSliceLP` encodes low-delay B pictures for `params`' profile (fork
+/// 6E.3 S12). A rate-control mode LP does not offer is `false` before any trial. Otherwise a
+/// small trial encode (IDR + two B pictures of moving texture, constant QP 26 for a CQP export,
+/// the default speed: the caller's QP and speed don't decide) that FilmCraft's own decoder must
+/// read back close to the source, once per render node, bit depth, chroma and rate-control mode.
+/// Only definite results are kept (the driver refused the profile / mode, or the trial ran and
+/// its stream did or did not decode well); a transient error (display, context, surface or
+/// picture submission) is `false` this time and tried again at the next open.
+fn lp_usable(d: &Display, params: &EncodeParams) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock, PoisonError};
+    static SEEN: OnceLock<Mutex<HashMap<(String, bool, bool, u32), bool>>> = OnceLock::new();
+    let rc = rc_mode(params.rc);
+    let prof = if params.chroma_422 { sys::VAProfile_VAProfileHEVCMain422_10 } else { profile(params.ten_bit) };
+    let offered = d.config_attribs(prof, sys::VAEntrypoint_VAEntrypointEncSliceLP, &[sys::VAConfigAttribType_VAConfigAttribRateControl]);
+    if !offered.is_ok_and(|a| a.first().copied().flatten().is_some_and(|v| v & rc != 0)) {
+        return false;
+    }
+    let key = (d.node.clone(), params.ten_bit, params.chroma_422, rc);
+    let seen = SEEN.get_or_init(Default::default);
+    // not held during the trial: two lanes racing may both try it, which is harmless
+    if let Some(&ok) = seen.lock().unwrap_or_else(PoisonError::into_inner).get(&key) {
+        return ok;
+    }
+    let ok = match lp_trial(d, params) {
+        Ok(()) => Some(true),
+        Err(Trial::Definite(e)) => {
+            eprintln!("VA-API HEVC: low-power encoding on {} ({}) is not usable: {e}", d.node, d.vendor);
+            Some(false)
+        }
+        Err(Trial::Transient(e)) => {
+            eprintln!("VA-API HEVC: low-power trial on {} ({}) failed, EncSlice this time: {e}", d.node, d.vendor);
+            None
+        }
+    };
+    if let Some(ok) = ok {
+        seen.lock().unwrap_or_else(PoisonError::into_inner).insert(key, ok);
+    }
+    ok.unwrap_or(false)
+}
+
+/// Why a low-power trial failed: kept for the process, or worth another try.
+enum Trial {
+    Definite(String),
+    Transient(String),
+}
+
+fn rc_mode(rc: RateControl) -> u32 {
+    match rc {
+        RateControl::Cqp(_) => sys::VA_RC_CQP,
+        RateControl::Cbr { .. } => sys::VA_RC_CBR,
+        RateControl::Vbr { .. } => sys::VA_RC_VBR,
+    }
+}
+
+fn lp_trial(d: &Display, params: &EncodeParams) -> Result<(), Trial> {
+    use Trial::{Definite, Transient};
+    let (w, h) = (256usize, 144usize);
+    let rc = match params.rc {
+        RateControl::Cqp(_) => RateControl::Cqp(26),
+        other => other,
+    };
+    let small = EncodeParams { width: w as u32, height: h as u32, keyint: 30, rc, speed: Default::default(), ..params.clone() };
+    let display = Display::for_node(&d.node).map_err(Transient)?;
+    // the profile, entry point, picture format, rate control or packed headers refused
+    let probe = VaHevcEncoder::probe_ep(&small, &display, true).map_err(Definite)?;
+    let mut enc = VaHevcEncoder::open(small.clone(), display, None, probe).map_err(Transient)?;
+    let ten = small.ten_bit;
+    // a moving ramp with fine detail: inter prediction with real motion vectors
+    let luma = |x: usize, y: usize, i: usize| {
+        let v = ((x + y + i * 3) % 128) * 3 + (x.wrapping_mul(31) ^ y.wrapping_mul(17)) % 16;
+        if ten { 64 + 2 * v as u16 } else { 16 + (v / 2) as u16 }
+    };
+    let rows = if small.chroma_422 { h } else { h / 2 };
+    let chroma = w / 2 * rows * 2;
+    let frames = 3;
+    let mut stream = Vec::new();
+    for i in 0..frames {
+        let mut yuv = Vec::with_capacity((w * h + chroma) * 2);
+        for y in 0..h {
+            for x in 0..w {
+                if ten {
+                    yuv.extend_from_slice(&luma(x, y, i).to_le_bytes());
+                } else {
+                    yuv.push(u8::try_from(luma(x, y, i)).unwrap_or(u8::MAX));
+                }
+            }
+        }
+        for _ in 0..chroma {
+            if ten {
+                yuv.extend_from_slice(&512u16.to_le_bytes());
+            } else {
+                yuv.push(128);
+            }
+        }
+        stream.extend(enc.encode(&yuv).map_err(Transient)?.concat());
+    }
+    stream.extend(enc.flush().map_err(Transient)?.concat());
+    let mut dec = filmcraft_hevc::Decoder::new();
+    let mut pics = dec.decode(&stream, 0).map_err(|e| Definite(format!("our decoder: {e}")))?;
+    pics.extend(dec.flush());
+    if pics.len() != frames {
+        return Err(Definite(format!("{} of {frames} pictures decode", pics.len())));
+    }
+    for (i, p) in pics.iter().enumerate() {
+        let mut se = 0f64;
+        for y in 0..h {
+            for x in 0..w {
+                let at = y.saturating_mul(p.y_stride).saturating_add(x);
+                let got = match &p.y {
+                    filmcraft_hevc::Plane::U8(v) => v.get(at).map(|&s| f64::from(s)),
+                    filmcraft_hevc::Plane::U16(v) => v.get(at).map(|&s| f64::from(s)),
+                }
+                .ok_or_else(|| Definite("a decoded picture smaller than the source".into()))?;
+                se += (f64::from(luma(x, y, i)) - got).powi(2);
+            }
+        }
+        let peak = if ten { 1023.0f64 } else { 255.0 };
+        let psnr = 10.0 * (peak * peak / (se / (w * h) as f64).max(1e-9)).log10();
+        // slice data coded with other syntax than its header says (mvd_l1_zero_flag 1 on iHD,
+        // measured) decodes far below this; a working stream is well above at any export QP
+        if psnr < 25.0 {
+            return Err(Definite(format!("picture {i} decodes at {psnr:.1} dB luma PSNR")));
+        }
+    }
+    Ok(())
 }
 
 fn profile(ten_bit: bool) -> sys::VAProfile {
@@ -495,9 +839,158 @@ fn fill_semiplanar(img: &mut [u8], offsets: [usize; 2], pitches: [usize; 2], yuv
     Ok(())
 }
 
+/// Planar `yuv422p10le` of `w`×`h` (`w` even) into a Y210 image (fork 6E.4): one packed plane at
+/// `offset` with `pitch`, each pixel pair as Y0 U Y1 V, 16-bit words with the 10 bits at the top
+/// (Intel's 4:2:2 encode surface). Anything outside `img` is an error.
+fn fill_y210(img: &mut [u8], offset: usize, pitch: usize, yuv: &[u8], w: usize, h: usize) -> Result<(), String> {
+    if !w.is_multiple_of(2) || w == 0 || h == 0 {
+        return Err(format!("{w}x{h}"));
+    }
+    let cw = w / 2;
+    let need = (w * h + 2 * cw * h) * 2;
+    if yuv.len() < need {
+        return Err(format!("frame has {} bytes, {need} needed", yuv.len()));
+    }
+    let row_bytes = w * 4;
+    if pitch < row_bytes {
+        return Err("image pitch smaller than the frame".into());
+    }
+    let plane = img.get_mut(offset..).ok_or("image offset")?;
+    if plane.len() < pitch * (h - 1) + row_bytes {
+        return Err("image smaller than the frame".into());
+    }
+    let (ysrc, rest) = yuv.split_at(w * h * 2);
+    let (usrc, vsrc) = rest.split_at(cw * h * 2);
+    let word = |s: &[u8]| (u16::from_le_bytes([s[0], s[1]]) << 6).to_le_bytes();
+    let rows = ysrc.par_chunks(w * 2).zip(usrc.par_chunks(cw * 2).zip(vsrc.par_chunks(cw * 2)));
+    plane.par_chunks_mut(pitch).zip(rows).for_each(|(row, (y, (u, v)))| {
+        let quads = row[..row_bytes].as_chunks_mut::<8>().0;
+        for (i, d) in quads.iter_mut().enumerate() {
+            let (y0, y1) = (&y[i * 4..i * 4 + 2], &y[i * 4 + 2..i * 4 + 4]);
+            d[0..2].copy_from_slice(&word(y0));
+            d[2..4].copy_from_slice(&word(&u[i * 2..i * 2 + 2]));
+            d[4..6].copy_from_slice(&word(y1));
+            d[6..8].copy_from_slice(&word(&v[i * 2..i * 2 + 2]));
+        }
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    thread_local! {
+        /// Makes [`VaHevcEncoder::new_on_with`]'s LP open fail on this thread (fork 6E.3 S12).
+        pub(super) static FAIL_LP_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// The render nodes whose driver offers `EncSliceLP` for Main 10.
+    fn lp_displays() -> Vec<Arc<Display>> {
+        crate::ffmpeg::render_nodes()
+            .iter()
+            .filter_map(|n| Display::for_node(n).ok())
+            .filter(|d| d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP))
+            .collect()
+    }
+
+    fn lp_params(rc: RateControl) -> EncodeParams {
+        EncodeParams {
+            width: 256,
+            height: 144,
+            rate_num: 24,
+            rate_den: 1,
+            ten_bit: true,
+            keyint: 30,
+            rc,
+            colour: (1, 1, 1),
+            speed: Default::default(),
+            chroma_422: false,
+            low_power: true,
+        }
+    }
+
+    /// Encodes 3 grey 10-bit frames and checks our decoder reads 3 pictures back.
+    fn three_frames_decode(enc: &mut VaHevcEncoder) {
+        let yuv: Vec<u8> = std::iter::repeat_n(400u16.to_le_bytes(), 256 * 144 * 3 / 2).flatten().collect();
+        let mut stream = Vec::new();
+        for _ in 0..3 {
+            stream.extend(enc.encode(&yuv).expect("encode").concat());
+        }
+        stream.extend(enc.flush().expect("flush").concat());
+        let mut dec = filmcraft_hevc::Decoder::new();
+        let mut pics = dec.decode(&stream, 0).expect("decode");
+        pics.extend(dec.flush());
+        assert_eq!(pics.len(), 3);
+    }
+
+    /// Fork 6E.3 S12: VBR / CBR asked for with `low_power` on a device whose LP encoder lacks
+    /// those modes (iHD 26.3: CQP only) opens `EncSlice`; where LP has them, LP. Skips without LP.
+    #[test]
+    fn low_power_without_the_rate_control_mode_opens_encslice() {
+        let displays = lp_displays();
+        if displays.is_empty() {
+            eprintln!("SKIPPED: no VA-API HEVC Main 10 EncSliceLP");
+        }
+        for d in displays {
+            for rc in [RateControl::Vbr { kbps: 4_000, max_kbps: 6_000 }, RateControl::Cbr { kbps: 4_000 }] {
+                let lp_has = d
+                    .config_attribs(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP, &[sys::VAConfigAttribType_VAConfigAttribRateControl])
+                    .ok()
+                    .and_then(|a| a.first().copied().flatten())
+                    .is_some_and(|v| v & rc_mode(rc) != 0);
+                let mut enc = VaHevcEncoder::new_on(lp_params(rc), d.clone()).expect("encoder");
+                if !lp_has {
+                    assert!(!enc.low_power(), "{} {rc:?}", d.vendor);
+                }
+                eprintln!("{} {rc:?}: low power {}", d.vendor, enc.low_power());
+                three_frames_decode(&mut enc);
+            }
+        }
+    }
+
+    /// Fork 6E.3 S12: an LP encoder that fails to open (injected) gives an `EncSlice` encoder,
+    /// never an error; the shared stream of the EncSlice side is still accepted. Skips without LP.
+    #[test]
+    fn low_power_open_failure_falls_back_to_encslice() {
+        let displays = lp_displays();
+        if displays.is_empty() {
+            eprintln!("SKIPPED: no VA-API HEVC Main 10 EncSliceLP");
+        }
+        for d in displays {
+            let params = lp_params(RateControl::Cqp(24));
+            assert!(VaHevcEncoder::new_on(params.clone(), d.clone()).expect("encoder").low_power(), "{}: LP usable", d.vendor);
+            let stream = VaHevcEncoder::stream_params_for(&EncodeParams { low_power: false, ..params.clone() }, &d).expect("stream");
+            FAIL_LP_OPEN.with(|f| f.set(true));
+            let enc = VaHevcEncoder::new_on_with(params.clone(), d.clone(), Some(stream.clone()));
+            FAIL_LP_OPEN.with(|f| f.set(false));
+            let mut enc = enc.expect("EncSlice fallback");
+            assert!(!enc.low_power(), "{}", d.vendor);
+            assert_eq!(enc.stream(), &stream);
+            three_frames_decode(&mut enc);
+        }
+    }
+
+    #[test]
+    fn y210_fill_packs_and_shifts() {
+        // 4x2: Y 0..8, U 100,101 / 102,103, V 200,201 / 202,203 (per row: 4:2:2)
+        let mut yuv = Vec::new();
+        for v in (0..8u16).chain(100..104).chain(200..204) {
+            yuv.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut img = vec![0u8; 4 + 2 * 20];
+        fill_y210(&mut img, 4, 20, &yuv, 4, 2).expect("fill");
+        let at = |o: usize| u16::from_le_bytes([img[o], img[o + 1]]) >> 6;
+        let row = |r: usize| (0..8).map(|i| at(4 + r * 20 + i * 2)).collect::<Vec<_>>();
+        assert_eq!(row(0), vec![0, 100, 1, 200, 2, 101, 3, 201]);
+        assert_eq!(row(1), vec![4, 102, 5, 202, 6, 103, 7, 203]);
+        // too small an image, frame or pitch, an odd width: errors, not panics
+        assert!(fill_y210(&mut img[..39], 4, 20, &yuv, 4, 2).is_err());
+        assert!(fill_y210(&mut img, 4, 20, &yuv[..10], 4, 2).is_err());
+        assert!(fill_y210(&mut img, 4, 8, &yuv, 4, 2).is_err());
+        assert!(fill_y210(&mut img, 4, 20, &yuv, 3, 2).is_err());
+        assert!(fill_y210(&mut img, 999, 20, &yuv, 4, 2).is_err());
+    }
 
     #[test]
     fn semiplanar_fill_interleaves_and_shifts() {
@@ -525,9 +1018,378 @@ mod tests {
             eprintln!("no VA-API HEVC encoder; skipped");
             return;
         }
+        // every speed / quality level the driver offers gives a stream our decoder reads (6E.2)
+        let range = VaHevcEncoder::quality_range(true);
+        eprintln!("quality range {range:?}");
+        for speed in filmcraft_export::HwEncodeSpeed::ALL {
+            encode_and_decode(speed, range);
+        }
+    }
+
+    /// Main 4:2:2 10 (fork 6E.4): a vertical chroma gradient (only 4:2:2 keeps it per row) comes
+    /// back through FilmCraft's own 4:2:2 decoder, on whichever device encodes 4:2:2 (Intel's here).
+    /// Skipped where none does.
+    #[test]
+    fn encodes_422_our_decoder_reads() {
         let (w, h) = (320u32, 184u32);
-        let params = EncodeParams { width: w, height: h, rate_num: 30, rate_den: 1, ten_bit: true, keyint: 4, rc: RateControl::Cqp(20), colour: (1, 1, 1) };
+        let params = EncodeParams {
+            width: w,
+            height: h,
+            rate_num: 30,
+            rate_den: 1,
+            ten_bit: true,
+            keyint: 4,
+            rc: RateControl::Cqp(18),
+            colour: (1, 1, 1),
+            speed: Default::default(),
+            chroma_422: true,
+            low_power: false,
+        };
+        if !VaHevcEncoder::supported_422() {
+            // refused cleanly, not a crash
+            assert!(VaHevcEncoder::new(params).is_err());
+            eprintln!("no VA-API HEVC 4:2:2 encoder; skipped");
+            return;
+        }
+        // 8-bit 4:2:2 is refused
+        assert!(VaHevcEncoder::new(EncodeParams { ten_bit: false, ..params.clone() }).is_err());
         let mut enc = VaHevcEncoder::new(params).expect("encoder");
+        let cw = w / 2;
+        let chroma = |y: u32| 200 + y * 3; // per row: lost if the chroma were 4:2:0
+        let mut stream = Vec::new();
+        let frames = 3;
+        for _ in 0..frames {
+            let mut yuv = Vec::new();
+            for y in 0..h {
+                for x in 0..w {
+                    yuv.extend_from_slice(&(300 + ((x + 2 * y) % 200) as u16).to_le_bytes());
+                }
+            }
+            for plane in 0..2u32 {
+                for y in 0..h {
+                    for _ in 0..cw {
+                        yuv.extend_from_slice(&((chroma(y) + plane * 50) as u16).to_le_bytes());
+                    }
+                }
+            }
+            for au in enc.encode(&yuv).expect("encode") {
+                stream.extend(au);
+            }
+        }
+        for au in enc.flush().expect("flush") {
+            stream.extend(au);
+        }
+        let mut dec = filmcraft_hevc::Decoder::new();
+        let mut pics = dec.decode(&stream, 0).expect("decode");
+        pics.extend(dec.flush());
+        assert_eq!(pics.len(), frames);
+        for p in &pics {
+            assert_eq!(p.chroma_format, filmcraft_hevc::ChromaFormat::Yuv422);
+            assert_eq!((p.width, p.height, p.chroma_width, p.chroma_height, p.bit_depth), (w, h, cw, h, 10));
+            // chroma rows follow the gradient within a few codes (QP 18)
+            let mut worst = 0i64;
+            for y in 0..h {
+                for x in [0, cw / 2, cw - 1] {
+                    let at = y as usize * p.uv_stride + x as usize;
+                    worst = worst.max((p.u.get(at) as i64 - chroma(y) as i64).abs());
+                    worst = worst.max((p.v.get(at) as i64 - (chroma(y) + 50) as i64).abs());
+                }
+            }
+            assert!(worst <= 8, "chroma off by {worst}");
+        }
+    }
+
+    /// One encoder per GPU in one process (fork 6E.3): every render node with an HEVC Main 10
+    /// encoder encodes a few pictures our decoder reads; a missing node is an error.
+    #[test]
+    fn an_encoder_on_each_gpu() {
+        assert!(Display::for_node("/dev/dri/no-such-node").is_err());
+        let mut encoded = Vec::new();
+        for node in crate::ffmpeg::render_nodes() {
+            let Ok(d) = Display::for_node(&node) else { continue };
+            if !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice) {
+                continue;
+            }
+            let (w, h) = (256u32, 144u32);
+            let params = EncodeParams {
+                width: w,
+                height: h,
+                rate_num: 24,
+                rate_den: 1,
+                ten_bit: true,
+                keyint: 2,
+                rc: RateControl::Cqp(22),
+                colour: (1, 1, 1),
+                speed: Default::default(),
+                chroma_422: false,
+                low_power: false,
+            };
+            let mut enc = VaHevcEncoder::new_on(params, d.clone()).expect("encoder");
+            let yuv: Vec<u8> = std::iter::repeat_n(400u16.to_le_bytes(), (w * h * 3 / 2) as usize).flatten().collect();
+            let mut stream = Vec::new();
+            for _ in 0..3 {
+                stream.extend(enc.encode(&yuv).expect("encode").concat());
+            }
+            stream.extend(enc.flush().expect("flush").concat());
+            let mut dec = filmcraft_hevc::Decoder::new();
+            let mut pics = dec.decode(&stream, 0).expect("decode");
+            pics.extend(dec.flush());
+            assert_eq!(pics.len(), 3, "{node}");
+            // the same node twice gives the same display
+            assert!(Arc::ptr_eq(&d, &Display::for_node(&node).expect("again")));
+            encoded.push(format!("{} ({})", node, d.vendor));
+        }
+        eprintln!("encoded on {encoded:?}");
+    }
+
+    /// Fork 6E.3 S8: AMD's Mesa driver is recognised as radeonsi (it rewrites the SPS / PPS), so
+    /// its stream is marked `rewritten`; a vendor string that stops saying "radeonsi" fails here
+    /// instead of silently sharing one `hvc1` entry with another GPU. Skips without an AMD encoder.
+    #[test]
+    fn amd_mesa_is_recognised_as_radeonsi() {
+        let params = EncodeParams {
+            width: 256,
+            height: 144,
+            rate_num: 24,
+            rate_den: 1,
+            ten_bit: true,
+            keyint: 30,
+            rc: RateControl::Cqp(22),
+            colour: (1, 1, 1),
+            speed: Default::default(),
+            chroma_422: false,
+            low_power: false,
+        };
+        let mut seen = false;
+        for d in crate::ffmpeg::render_nodes().iter().filter_map(|n| Display::for_node(n).ok()) {
+            let amd = d.vendor.contains("Mesa") && d.vendor.contains("AMD");
+            if !amd || !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice) {
+                continue;
+            }
+            seen = true;
+            assert!(d.vendor.contains("radeonsi"), "AMD Mesa vendor string changed: {}", d.vendor);
+            let s = VaHevcEncoder::stream_params_for(&params, &d).expect("stream");
+            assert!(s.rewritten && s.dependent_slices && s.init_qp == 26, "{}", d.vendor);
+        }
+        if !seen {
+            eprintln!("SKIPPED: no AMD VA-API HEVC encoder");
+        }
+    }
+
+    /// Two GPUs on one stream description (fork 6E.3): every encoder accepts the common stream of
+    /// all devices and hands its driver byte-equal packed headers, and chunks from each device
+    /// (each starting a new GOP, with its own in-band parameter sets) joined in order decode as
+    /// one stream. A stream a driver cannot write is refused.
+    #[test]
+    fn one_shared_stream_on_every_gpu() {
+        let (w, h) = (256u32, 144u32);
+        let params = EncodeParams {
+            width: w,
+            height: h,
+            rate_num: 24,
+            rate_den: 1,
+            ten_bit: true,
+            keyint: 30,
+            rc: RateControl::Cqp(22),
+            colour: (1, 1, 1),
+            speed: Default::default(),
+            chroma_422: false,
+            low_power: false,
+        };
+        let displays: Vec<Arc<Display>> = crate::ffmpeg::render_nodes()
+            .iter()
+            .filter_map(|n| Display::for_node(n).ok())
+            .filter(|d| d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice))
+            .collect();
+        let Some(first) = displays.first() else { return };
+        let mut common = VaHevcEncoder::stream_params_for(&params, first).expect("stream");
+        // the GPUs whose drivers can write one stream with the first (radeonsi + iHD can't:
+        // radeonsi writes transform depth 4, iHD codes 2 at most; such lanes use hev1, S8)
+        let mut sharing = vec![first.clone()];
+        for d in displays.get(1..).unwrap_or(&[]) {
+            let s = VaHevcEncoder::stream_params_for(&params, d).expect("stream");
+            match hw::common_stream(&common, &s) {
+                Some(c) => {
+                    common = c;
+                    sharing.push(d.clone());
+                }
+                None => eprintln!("{} cannot share a stream with {}: hev1", d.vendor, first.vendor),
+            }
+        }
+        let displays = sharing;
+        // a different picture is refused
+        let other = StreamParams { width: w + 16, ..common.clone() };
+        assert!(VaHevcEncoder::new_on_with(params.clone(), first.clone(), Some(other)).is_err());
+        // textured luma (a ramp plus fine detail) so the transform trees split: a driver that
+        // ignored the shared transform depths would decode as garbage (fork 6E.3 S8)
+        let luma = |x: u32, y: u32| 64 + ((x + y) % 256) as u16 * 3 + ((x.wrapping_mul(31) ^ y.wrapping_mul(17)) % 64) as u16;
+        let mut yuv = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                yuv.extend_from_slice(&luma(x, y).to_le_bytes());
+            }
+        }
+        for c in [400u16, 600] {
+            for _ in 0..(w / 2) * (h / 2) {
+                yuv.extend_from_slice(&c.to_le_bytes());
+            }
+        }
+        let mut joined = Vec::new();
+        let mut headers = None;
+        for d in &displays {
+            let mut enc = VaHevcEncoder::new_on_with(params.clone(), d.clone(), Some(common.clone())).expect("encoder");
+            let hd = enc.headers();
+            assert_eq!(headers.get_or_insert_with(|| hd.clone()), &hd, "{}", d.vendor);
+            enc.restart_gop();
+            let start = joined.len();
+            for _ in 0..3 {
+                joined.extend(enc.encode(&yuv).expect("encode").concat());
+            }
+            joined.extend(enc.flush().expect("flush").concat());
+            // what the driver actually wrote: iHD writes our packed headers verbatim; radeonsi
+            // rewrites the SPS / PPS from its own parameters, which the shared stream now carries
+            // (fork 6E.3 S8), so every chunk starts with the same bytes: one `hvcC`
+            let verbatim = joined.get(start..).is_some_and(|c| c.starts_with(&hd));
+            assert!(verbatim, "{}: the driver's headers differ from the shared stream", d.vendor);
+        }
+        let mut dec = filmcraft_hevc::Decoder::new();
+        let mut pics = dec.decode(&joined, 0).expect("decode");
+        pics.extend(dec.flush());
+        assert_eq!(pics.len(), 3 * displays.len());
+        for (i, p) in pics.iter().enumerate() {
+            let mut se = 0f64;
+            for y in 0..h {
+                for x in 0..w {
+                    let got = p.y.get(y as usize * p.y_stride + x as usize) as f64;
+                    se += (f64::from(luma(x, y)) - got).powi(2);
+                }
+            }
+            let psnr = 10.0 * (1023.0f64.powi(2) / (se / f64::from(w * h)).max(1e-9)).log10();
+            assert!(psnr > 34.0, "picture {i}: luma PSNR {psnr:.1} dB");
+            eprintln!("picture {i}: luma PSNR {psnr:.1} dB");
+        }
+        eprintln!("shared stream on {:?}", displays.iter().map(|d| d.vendor.clone()).collect::<Vec<_>>());
+    }
+
+    /// Fork 6E.3 S12: on every device whose driver offers `EncSliceLP` for Main 10 (Intel's iHD),
+    /// 60 pictures of a moving 10-bit 4:2:0 picture go through the low-power encoder as IDR +
+    /// low-delay B, and FilmCraft's own decoder reads every one back close to the source. The
+    /// slices are B with both lists one picture back. Skipped where no driver offers LP.
+    #[test]
+    fn low_power_low_delay_b_our_decoder_reads() {
+        use filmcraft_hevc::params::{Pps, Sps};
+        use filmcraft_hevc::slice::{NalHeader, SliceHeader};
+        let (w, h) = (320u32, 184u32);
+        let params = EncodeParams {
+            width: w,
+            height: h,
+            rate_num: 30,
+            rate_den: 1,
+            ten_bit: true,
+            keyint: 30,
+            rc: RateControl::Cqp(20),
+            colour: (1, 1, 1),
+            speed: Default::default(),
+            chroma_422: false,
+            low_power: true,
+        };
+        let luma = |x: u32, y: u32, i: u32| 64 + ((x + y + i * 5) % 256) as u16 * 3 + ((x.wrapping_mul(31) ^ y.wrapping_mul(17)) % 32) as u16;
+        let mut seen = false;
+        for node in crate::ffmpeg::render_nodes() {
+            let Ok(d) = Display::for_node(&node) else { continue };
+            if !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP) {
+                continue;
+            }
+            seen = true;
+            let mut enc = VaHevcEncoder::new_on(params.clone(), d.clone()).expect("encoder (LP or its EncSlice fallback)");
+            assert!(enc.low_power(), "{} ({}) offers EncSliceLP but the LP encoder was not used (see the log above)", node, d.vendor);
+            let frames = 60u32;
+            let mut stream = Vec::new();
+            for i in 0..frames {
+                let mut yuv = Vec::new();
+                for y in 0..h {
+                    for x in 0..w {
+                        yuv.extend_from_slice(&luma(x, y, i).to_le_bytes());
+                    }
+                }
+                for c in [400u16, 600] {
+                    for _ in 0..(w / 2) * (h / 2) {
+                        yuv.extend_from_slice(&c.to_le_bytes());
+                    }
+                }
+                stream.extend(enc.encode(&yuv).expect("encode").concat());
+            }
+            stream.extend(enc.flush().expect("flush").concat());
+            // the slice headers: I at each IDR, else B with one picture back in both lists
+            let nals = crate::ffmpeg::annexb_nals(&stream);
+            let unit = |t: u8| {
+                nals.iter().find(|n| n.first().is_some_and(|b| (b >> 1) & 0x3f == t)).map(|n| filmcraft_bitstream::unescape_rbsp(n.get(2..).unwrap_or(&[])))
+            };
+            let sps = Arc::new(Sps::parse(&unit(33).expect("sps")).expect("sps"));
+            let pps = Arc::new(Pps::parse(&unit(34).expect("pps")).expect("pps"));
+            let mut kinds = String::new();
+            for n in nals.iter().filter(|n| n.first().is_some_and(|b| (b >> 1) & 0x3f < 32)) {
+                let header = NalHeader::parse(n).expect("nal header");
+                let r = filmcraft_bitstream::unescape_rbsp(n.get(2..).unwrap_or(&[]));
+                let (sh, _, _) = SliceHeader::parse(&r, header, |_| Ok((pps.clone(), sps.clone())), None).expect("slice header");
+                if header.is_idr() {
+                    kinds.push('I');
+                } else {
+                    assert!(sh.is_b(), "a non-IDR LP picture is B");
+                    assert_eq!((sh.st_rps.s0.clone(), sh.st_rps.s1.len(), sh.num_ref_idx), (vec![(-1, true)], 0, [1, 1]));
+                    kinds.push('B');
+                }
+            }
+            assert_eq!(kinds, format!("I{}I{}", "B".repeat(29), "B".repeat(29)));
+            let mut dec = filmcraft_hevc::Decoder::new();
+            let mut pics = dec.decode(&stream, 0).expect("decode");
+            pics.extend(dec.flush());
+            assert_eq!(pics.len(), frames as usize, "{node}: every picture decodes");
+            let mut worst = f64::MAX;
+            for (i, p) in pics.iter().enumerate() {
+                assert_eq!((p.width, p.height, p.bit_depth), (w, h, 10));
+                let mut se = 0f64;
+                for y in 0..h {
+                    for x in 0..w {
+                        let got = p.y.get(y as usize * p.y_stride + x as usize) as f64;
+                        se += (f64::from(luma(x, y, i as u32)) - got).powi(2);
+                    }
+                }
+                let psnr = 10.0 * (1023.0f64.powi(2) / (se / f64::from(w * h)).max(1e-9)).log10();
+                assert!(psnr > 38.0, "{node} picture {i}: luma PSNR {psnr:.1} dB");
+                worst = worst.min(psnr);
+            }
+            eprintln!("{node} ({}): LP low-delay B, {} bytes, worst luma PSNR {worst:.1} dB", d.vendor, stream.len());
+            // asked for LP where there is none: EncSlice as before
+            if let Some(amd) = crate::ffmpeg::render_nodes().iter().filter_map(|n| Display::for_node(n).ok()).find(|d| {
+                d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice) && !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP)
+            }) {
+                let enc = VaHevcEncoder::new_on(params.clone(), amd.clone()).expect("encoder");
+                assert!(!enc.low_power(), "{}", amd.vendor);
+            }
+        }
+        if !seen {
+            eprintln!("SKIPPED: no VA-API HEVC Main 10 EncSliceLP");
+        }
+    }
+
+    fn encode_and_decode(speed: filmcraft_export::HwEncodeSpeed, range: Option<u32>) {
+        let (w, h) = (320u32, 184u32);
+        let params = EncodeParams {
+            width: w,
+            height: h,
+            rate_num: 30,
+            rate_den: 1,
+            ten_bit: true,
+            keyint: 4,
+            rc: RateControl::Cqp(20),
+            colour: (1, 1, 1),
+            speed,
+            chroma_422: false,
+            low_power: false,
+        };
+        let mut enc = VaHevcEncoder::new(params).expect("encoder");
+        assert_eq!(enc.quality_level(), speed.level(range.unwrap_or(0)), "{speed:?}");
         let mut stream = Vec::new();
         let frames = 6;
         for i in 0..frames {
@@ -599,8 +1461,13 @@ mod speed {
             keyint: 30,
             rc: RateControl::Vbr { kbps: 80_000, max_kbps: 100_000 },
             colour: (1, 1, 1),
+            // FILMCRAFT_ENC_SPEED=speed|balanced|quality (fork 6E.1 / 6E.2)
+            speed: std::env::var("FILMCRAFT_ENC_SPEED").ok().and_then(|v| filmcraft_export::HwEncodeSpeed::from_name(&v)).unwrap_or_default(),
+            chroma_422: false,
+            low_power: false,
         };
         let mut enc = VaHevcEncoder::new(params).expect("encoder");
+        eprintln!("quality range {:?}, level {:?}", VaHevcEncoder::quality_range(true), enc.quality_level());
         let n = (w * h * 3 / 2) as usize;
         let yuv: Vec<u8> = (0..n)
             .flat_map(|i| {
@@ -641,5 +1508,71 @@ mod speed {
         }
         enc.flush().expect("flush");
         eprintln!("encode incl. upload: {:.1} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / 60.0);
+    }
+
+    /// Fork 6E.3 S12: `EncSliceLP` (low-delay B) against `EncSlice` (P) on each device that offers
+    /// LP for Main 10, same frames, same settings: encode incl. upload, frames per second.
+    /// `FILMCRAFT_ENC_SPEED_SIZE=WxH` (default 3840x2160).
+    /// `cargo test --release -p filmcraft-platform --lib va_enc_lp_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn va_enc_lp_speed() {
+        let (w, h) = std::env::var("FILMCRAFT_ENC_SPEED_SIZE")
+            .ok()
+            .and_then(|v| v.split_once('x').and_then(|(a, b)| Some((a.parse().ok()?, b.parse().ok()?))))
+            .unwrap_or((3840u32, 2160u32));
+        let n = (w * h * 3 / 2) as usize;
+        let frames: Vec<Vec<u8>> = (0..3u64)
+            .map(|k| {
+                (0..n)
+                    .flat_map(|i| {
+                        let x = (i as u64 ^ (k << 40)).wrapping_mul(0x9E3779B97F4A7C15) >> 54;
+                        (64 + (i * 7 % 700) as u16 + x as u16 / 8).to_le_bytes()
+                    })
+                    .collect()
+            })
+            .collect();
+        for node in crate::ffmpeg::render_nodes() {
+            let Ok(d) = Display::for_node(&node) else { continue };
+            if !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP) {
+                continue;
+            }
+            for low_power in [false, true] {
+                let params = EncodeParams {
+                    width: w,
+                    height: h,
+                    rate_num: 30,
+                    rate_den: 1,
+                    ten_bit: true,
+                    keyint: 30,
+                    // constant QP: iHD 26.3's LP encoder offers no other rate control here (no
+                    // HuC bit-rate control), so VBR / CBR stay on EncSlice
+                    rc: RateControl::Cqp(24),
+                    colour: (1, 1, 1),
+                    speed: Default::default(),
+                    chroma_422: false,
+                    low_power,
+                };
+                let mut enc = VaHevcEncoder::new_on(params, d.clone()).expect("encoder");
+                // warm-up (the first IDR, surface allocation)
+                enc.encode(&frames[0]).expect("encode");
+                let t = std::time::Instant::now();
+                let count = 90;
+                let mut bytes = 0;
+                for i in 0..count {
+                    bytes += enc.encode(&frames[i % 3]).expect("encode").iter().map(Vec::len).sum::<usize>();
+                }
+                bytes += enc.flush().expect("flush").iter().map(Vec::len).sum::<usize>();
+                let s = t.elapsed().as_secs_f64();
+                eprintln!(
+                    "{node} ({}) {w}x{h} {}: {:.1} fps ({:.1} ms/frame incl. upload), {} kB",
+                    d.vendor,
+                    if enc.low_power() { "EncSliceLP (low-delay B)" } else { "EncSlice (P)" },
+                    count as f64 / s,
+                    s * 1000.0 / count as f64,
+                    bytes / 1000
+                );
+            }
+        }
     }
 }

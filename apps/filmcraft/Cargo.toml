@@ -36,7 +36,9 @@ log = { workspace = true }
 rfd = { workspace = true }
 cpal = { version = "0.18", features = ["pulseaudio"] }
 # Files and images on the system clipboard for Paste (#611); egui already uses it for text.
-arboard = "3"
+# `wayland-data-control`: the Wayland clipboard directly where the compositor offers it (KDE Plasma,
+# wlroots); elsewhere (GNOME) arboard falls back to X11 through XWayland as before (L1.6).
+arboard = { version = "3", features = ["wayland-data-control"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 sys-locale = "0.3"
 # Help menu / About / Discord links in the system browser (MIT; as PhotoCraft).
@@ -57,6 +59,11 @@ winit = { version = "0.30", default-features = false }
 # Settings ▸ Appearance ▸ Sync with system: the XDG desktop portal's colour scheme. The zbus the
 # portal file dialogs (rfd) and accesskit already use.
 zbus = "5.19"
+# Title bar and borders drawn by the app where the compositor draws none (GNOME's Mutter has no
+# xdg-decoration; KWin and most others decorate the window themselves, #433). Same winit as
+# eframe; sctk-adwaita is MIT. `notitle`: frame and buttons without title text, because the
+# titled variant embeds its own font file (fonts come only from craft-fonts, AGENTS.md §1.9).
+winit = { version = "0.30", default-features = false, features = ["wayland-csd-adwaita-notitle"] }
 
 # Icon + VERSIONINFO for filmcraft.exe (build.rs); only needed when building on Windows.
 [target.'cfg(windows)'.build-dependencies]

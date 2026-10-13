@@ -152,6 +152,19 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("help.appPage", "FilmCraft on getartcraft.com", ["Help"], None),
     uic!("help.github", "FilmCraft on GitHub", ["Help"], None),
     uic!("help.reportIssue", "Report an Issue…", ["Help"], None),
+    // KDE Connect (LINUX-PLAN L2.10): the Project panel's Send via KDE Connect submenu
+    uic!("kdeconnect.devices", "Paired Devices (KDE Connect)", [], None),
+    uic!("kdeconnect.send", "Send via KDE Connect", [], None),
+    uic!("kdeconnect.received", "File Shared from a Phone (KDE Connect)", [], None),
+    uic!("kdeconnect.importReceived", "Import Files Shared from a Phone", [], None),
+    uic!("kdeconnect.dismissReceived", "Dismiss Files Shared from a Phone", [], None),
+    // camera cards (LINUX-PLAN L2.4): the Project panel's card bar
+    uic!("card.detected", "Camera Card Mounted", [], None),
+    uic!("card.removed", "Camera Card Removed", [], None),
+    uic!("card.copy", "Copy Camera Card", [], None),
+    uic!("card.eject", "Eject Camera Card", [], None),
+    uic!("card.ejected", "Camera Card Ejected", [], None),
+    uic!("card.dismiss", "Dismiss Camera Card", [], None),
     uic!("help.revealLogFiles", "Reveal Log Files…", ["Help"], None),
     uic!("help.systemCompatibilityReport", "System Compatibility Report…", ["Help"], None),
     uic!("coach.showLessons", "Grading Lessons…", ["Help"], None),
@@ -251,6 +264,9 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
     }
     // fork RS2: the Project Manager home screen (dialogs and pickers for the `projects.*` commands)
     if let Some(r) = crate::panels::home::route(app, id, &params) {
+        return r;
+    }
+    if let Some(r) = crate::desktop::route(app, id, &params) {
         return r;
     }
     if id == "perf.stats" {

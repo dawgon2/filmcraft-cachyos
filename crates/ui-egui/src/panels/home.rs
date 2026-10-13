@@ -34,7 +34,7 @@ use crate::theme::Tokens;
 /// Tile thumbnail size at the default thumbnail scale.
 pub const TILE_W: f32 = 214.0;
 pub const TILE_H: f32 = 120.0;
-const TITLE_H: f32 = 36.0;
+pub(crate) const TITLE_H: f32 = 36.0;
 const BAR_H: f32 = 38.0;
 const FOOTER_H: f32 = 48.0;
 const SIDEBAR_W: f32 = 200.0;

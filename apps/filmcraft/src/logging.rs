@@ -3,8 +3,9 @@
 //! Without a logger every `log::warn!`/`log::error!` in the workspace (GPU compositor fallbacks,
 //! audio output problems, a panicked frame job or audio mixer, container warnings) vanished. A
 //! launch from a desktop menu has no terminal, so the file is what a bug report can attach:
-//! `<data dir>/Logs/filmcraft.log`, next to the crash logs (`--data-dir`, `FILMCRAFT_DATA_DIR` or
-//! `filmcraft_engine::autosave::default_data_dir`; Help ▸ Reveal Log Files opens the folder). Each
+//! `<state dir>/Logs/filmcraft.log`, next to the crash logs (`filmcraft_engine::dirs`: the data
+//! directory from `--data-dir`, `FILMCRAFT_DATA_DIR` or `autosave::default_data_dir`, or
+//! `$XDG_STATE_HOME/filmcraft` for a default Linux install; Help ▸ Reveal Log Files opens it). Each
 //! start moves the previous log to `filmcraft.1.log` (and that one to `.2`), so the log of a run
 //! that crashed survives the next launch.
 //!
@@ -32,8 +33,6 @@ use log::LevelFilter;
 
 /// The current log file's name inside the log directory.
 pub const LOG_FILE: &str = "filmcraft.log";
-/// The log directory inside the data directory (shared with the crash logs and Reveal Log Files).
-pub const LOG_DIR: &str = "Logs";
 /// How many previous logs are kept (`filmcraft.1.log` … `filmcraft.<KEEP>.log`).
 pub const KEEP: usize = 2;
 /// The log file stops growing past this size (a runaway warning can't fill the disk).
@@ -221,16 +220,32 @@ impl Sink {
     }
 }
 
-/// The installed logger: a [`Filter`], standard error and a [`Sink`].
+/// The installed logger: a [`Filter`], standard error (or the systemd journal when standard
+/// error is the journal: `journal`) and a [`Sink`].
 pub struct AppLogger {
     filter: Filter,
     stderr: bool,
     sink: Mutex<Sink>,
+    #[cfg(target_os = "linux")]
+    journal: Option<crate::journal::Journal>,
 }
 
 impl AppLogger {
     pub fn new(filter: Filter, stderr: bool) -> AppLogger {
-        AppLogger { filter, stderr, sink: Mutex::new(Sink::new(MAX_FILE_BYTES)) }
+        AppLogger {
+            filter,
+            stderr,
+            sink: Mutex::new(Sink::new(MAX_FILE_BYTES)),
+            #[cfg(target_os = "linux")]
+            journal: None,
+        }
+    }
+
+    /// Send records to the journal with their levels instead of plain standard-error lines.
+    #[cfg(target_os = "linux")]
+    pub fn with_journal(mut self, journal: Option<crate::journal::Journal>) -> AppLogger {
+        self.journal = journal;
+        self
     }
 
     /// Rotate the logs in `dir` and send records to the fresh file; returns its path.
@@ -265,8 +280,13 @@ impl log::Log for AppLogger {
         }
         // Format before taking the lock, so the lock covers one write only.
         let thread = std::thread::current();
-        let line = format_line(&timestamp(SystemTime::now()), record.level(), thread.name().unwrap_or("?"), record.target(), &record.args().to_string());
-        if self.stderr {
+        let message = record.args().to_string();
+        let line = format_line(&timestamp(SystemTime::now()), record.level(), thread.name().unwrap_or("?"), record.target(), &message);
+        #[cfg(target_os = "linux")]
+        let journaled = self.journal.as_ref().is_some_and(|j| j.send(record.level(), record.target(), &message));
+        #[cfg(not(target_os = "linux"))]
+        let journaled = false;
+        if self.stderr && !journaled {
             let _ = std::io::stderr().write_all(line.as_bytes());
         }
         self.sink.lock().unwrap_or_else(PoisonError::into_inner).write(&line);
@@ -282,6 +302,9 @@ pub fn install() -> Option<&'static AppLogger> {
     let spec = std::env::var("RUST_LOG").ok().filter(|s| !s.trim().is_empty());
     let filter = Filter::parse(spec.as_deref().unwrap_or(DEFAULT_FILTER));
     let max = filter.max();
+    #[cfg(target_os = "linux")]
+    let logger = LOGGER.get_or_init(|| AppLogger::new(filter, true).with_journal(crate::journal::Journal::detect()));
+    #[cfg(not(target_os = "linux"))]
     let logger = LOGGER.get_or_init(|| AppLogger::new(filter, true));
     log::set_logger(logger).ok()?;
     log::set_max_level(max);

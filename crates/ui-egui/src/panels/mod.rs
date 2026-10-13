@@ -106,6 +106,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, p: PanelKind, rect: Rect)
         PanelKind::Timecode => timecode::show(app, ui, rect),
         PanelKind::ColorNodes => grade::show_nodes(app, ui, rect),
         PanelKind::ColorPrimaries => grade::show_primaries(app, ui, rect),
+        PanelKind::ColorCurves => grade::show_curves(app, ui, rect),
         PanelKind::Gallery => stills::show(app, ui, rect),
         PanelKind::ColorClips => color_clips::show(app, ui, rect),
         PanelKind::Events => events::events(app, ui, rect),

@@ -94,6 +94,68 @@ fn exec_inspect_and_describe() {
     assert_eq!(bad.status.code(), Some(1));
 }
 
+/// Width and height from a PNG's IHDR chunk.
+fn png_size(png: &[u8]) -> (u32, u32) {
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"), "not a PNG");
+    let be = |i: usize| u32::from_be_bytes([png[i], png[i + 1], png[i + 2], png[i + 3]]);
+    (be(16), be(20))
+}
+
+/// L2.2: `thumbnail` for file managers: a project's active sequence, bounded size, hostile files fail cleanly.
+#[test]
+fn thumbnail_of_a_project_and_bad_inputs() {
+    let dir = std::env::temp_dir().join(format!("fc-cli-thumb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let proj = dir.join("Film.FCPROJ");
+    let p = proj.to_str().unwrap();
+    json_out(&cli(&["--demo", "exec", "file.newBin", "name=Thumb", "--save-as", p]));
+    let out = dir.join("t.png");
+    let o = cli(&["thumbnail", p, "128", out.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let (w, h) = png_size(&std::fs::read(&out).unwrap());
+    assert!(w.max(h) <= 128 && w.max(h) >= 100 && w.min(h) > 0, "{w}x{h}");
+    assert!(!dir.read_dir().unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".tmp")), "no temp file left");
+    // a huge size is capped
+    let o = cli(&["thumbnail", p, "100000", out.to_str().unwrap()]);
+    assert!(o.status.success());
+    assert!(png_size(&std::fs::read(&out).unwrap()).0 <= 2048);
+    // usage errors: exit 2
+    assert_eq!(cli(&["thumbnail", p, "big", out.to_str().unwrap()]).status.code(), Some(2));
+    assert_eq!(cli(&["thumbnail", p]).status.code(), Some(2));
+    // hostile files: exit 1, no output written
+    let garbage = dir.join("garbage.fcproj");
+    std::fs::write(&garbage, b"\x00\xff{not json at all").unwrap();
+    let empty = dir.join("empty.fcproj");
+    std::fs::write(&empty, b"").unwrap();
+    let junk_media = dir.join("junk.mov");
+    std::fs::write(&junk_media, vec![0x42u8; 4096]).unwrap();
+    let missing = dir.join("missing.mov");
+    for bad in [&garbage, &empty, &junk_media, &missing, &dir] {
+        let o2 = dir.join("bad.png");
+        let r = cli(&["thumbnail", bad.to_str().unwrap(), "128", o2.to_str().unwrap()]);
+        assert_eq!(r.status.code(), Some(1), "{}: {}", bad.display(), String::from_utf8_lossy(&r.stderr));
+        assert!(!o2.exists(), "{}", bad.display());
+    }
+    // a project file far too big is refused without reading it
+    let huge = dir.join("huge.fcproj");
+    std::fs::File::create(&huge).unwrap().set_len(300 * 1024 * 1024).unwrap();
+    let o2 = dir.join("huge.png");
+    let r = cli(&["thumbnail", huge.to_str().unwrap(), "128", o2.to_str().unwrap()]);
+    assert_eq!(r.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&r.stderr).contains("too big"), "{}", String::from_utf8_lossy(&r.stderr));
+    // a real media file (a still rendered from the demo): its own picture
+    let still = dir.join("still.png");
+    let r = cli(&["--demo", "render", "--seconds", "1", "--scale", "0.25", "--out", still.to_str().unwrap()]);
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    let o3 = dir.join("still-thumb.png");
+    let r = cli(&["thumbnail", still.to_str().unwrap(), "64", o3.to_str().unwrap()]);
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    let (w, h) = png_size(&std::fs::read(&o3).unwrap());
+    assert!(w.max(h) <= 64 && w.min(h) > 0, "{w}x{h}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn exec_save_as_then_reopen() {
     let dir = std::env::temp_dir().join(format!("fc-cli-{}", std::process::id()));

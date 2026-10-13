@@ -36,6 +36,7 @@ pub mod coach_ids;
 pub mod control;
 pub mod crash;
 pub mod credits;
+pub mod desktop;
 pub mod dock;
 mod dock_shared;
 mod dock_ui;
@@ -55,6 +56,7 @@ pub mod source_playback;
 pub mod state;
 pub mod theme;
 pub mod widgets;
+pub mod window_chrome;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -151,9 +153,20 @@ pub struct HostHooks {
     /// whose Wayland compositor sends no theme to winit). Without it, or without an answer, Auto
     /// uses `egui::Context::system_theme`.
     pub system_theme: Option<SystemThemeFn>,
+    /// The desktop's accent colour (Linux: the XDG desktop portal's `accent-color`), for Settings ▸
+    /// Appearance ▸ Use the system accent color. Without it, or without an answer, the highlight
+    /// colour applies.
+    pub system_accent: Option<SystemAccentFn>,
+    /// Whether the desktop asks for reduced motion (Linux: the XDG desktop portal, KDE's animation
+    /// speed, GNOME's Animations switch), for Settings ▸ Appearance ▸ Animations ▸ Follow the
+    /// system. Without it animations stay on.
+    pub system_reduced_motion: Option<SystemReducedMotionFn>,
     /// Files or an image on the system clipboard, for Paste in the Timeline and the Project panel
     /// (#611). Without it Paste only pastes clips copied in FilmCraft.
     pub clipboard_media: Option<Box<dyn FnMut() -> Option<ClipboardMedia>>>,
+    /// Desktop shell integration (taskbar progress, notifications, idle inhibit, single
+    /// instance, media keys; [`desktop`]). Without it nothing is published.
+    pub desktop: Option<Box<dyn desktop::DesktopHost>>,
 }
 
 /// What [`HostHooks::clipboard_media`] found on the system clipboard.
@@ -166,6 +179,13 @@ pub enum ClipboardMedia {
 
 /// Reads the system appearance (Settings ▸ Appearance ▸ Appearance Mode ▸ Sync with system).
 pub type SystemThemeFn = Box<dyn Fn(&egui::Context) -> Option<egui::Theme>>;
+
+/// Reads the desktop's accent colour as 8-bit sRGB (Settings ▸ Appearance ▸ Use the system accent
+/// color).
+pub type SystemAccentFn = Box<dyn Fn(&egui::Context) -> Option<[u8; 3]>>;
+
+/// Reads whether the desktop asks for reduced motion (Settings ▸ Appearance ▸ Animations).
+pub type SystemReducedMotionFn = Box<dyn Fn(&egui::Context) -> bool>;
 
 /// The command a [`HostHooks::pick_file_for_relink`] caller runs with the chosen file, for hosts
 /// that can only run it later.
@@ -312,6 +332,10 @@ pub struct FilmcraftApp {
     pub quit_confirmed: bool,
     fonts_ready: bool,
     pub integrated_titlebar: bool,
+    /// FilmCraft draws the window's title bar itself (fork; Settings ▸ General ▸ Window title
+    /// bar): window buttons and resize edges ([`window_chrome`]), no desktop decorations. Follows
+    /// the preference in [`Self::apply_prefs`]; the host opens the window to match.
+    pub window_controls: bool,
     pub last_timeline_width: f32,
     /// The sequence whose view `ui.timeline` holds, and that view as it was last exchanged with
     /// `session.state.timeline_views` (see `sync_timeline_view`).
@@ -338,10 +362,16 @@ pub struct FilmcraftApp {
     pub gpu: Option<GpuState>,
     /// Preview render job being watched (job id, where to start playing when it completes).
     watched_render: Option<(u64, Tick)>,
+    /// Jobs seen running, to tell the desktop host once when each finishes ([`desktop`]).
+    desktop_jobs: desktop::JobWatch,
     /// Settings last applied to the UI (theme, tooltips, frame cache, audio device).
     applied_prefs: Option<filmcraft_engine::autosave::Preferences>,
     /// Settings ▸ Appearance ▸ UI Scale last applied, with the system scale it was applied for.
     applied_ui_scale: Option<(Option<f32>, f32)>,
+    /// The system accent colour the theme was last set with (`None` while it isn't followed).
+    shown_system_accent: Option<[u8; 3]>,
+    /// Whether the style was last set with animations off (Settings ▸ Appearance ▸ Animations).
+    shown_reduced_motion: bool,
     workspace_restored: bool,
     /// Window ▸ Workspaces: saved layouts ([`dock::WORKSPACES_FILE`] in the data directory).
     pub workspaces: dock::WorkspacePrefs,
@@ -661,6 +691,7 @@ impl FilmcraftApp {
             quit_confirmed: false,
             fonts_ready: false,
             integrated_titlebar: false,
+            window_controls: false,
             last_timeline_width: 1000.0,
             timeline_view_of: None,
             pending_timeline_drop: None,
@@ -677,8 +708,11 @@ impl FilmcraftApp {
             v_down: false,
             gpu: None,
             watched_render: None,
+            desktop_jobs: Default::default(),
             applied_prefs: None,
             applied_ui_scale: None,
+            shown_system_accent: None,
+            shown_reduced_motion: false,
             workspace_restored: false,
             workspaces,
             menu_workspaces: Default::default(),
@@ -738,9 +772,11 @@ impl FilmcraftApp {
     /// Show theme `k` with the Settings ▸ Appearance highlight colour and contrast.
     pub fn set_theme(&mut self, ctx: &egui::Context, k: ThemeKind) {
         let a = &self.session.prefs.appearance;
-        let highlight = filmcraft_engine::settings::parse_hex(&a.highlight_color);
+        self.shown_system_accent = if a.follow_system_accent { self.system_accent(ctx) } else { None };
+        let highlight = self.highlight(ctx, &a.highlight_color, a.follow_system_accent);
         self.tokens = Tokens::for_kind(k).with_appearance(highlight, a.accessible_contrast);
         theme::apply_visuals(ctx, &self.tokens);
+        self.apply_motion(ctx);
         self.apply_tooltips(ctx);
         self.ui.dark = k != ThemeKind::Light;
     }
@@ -748,6 +784,39 @@ impl FilmcraftApp {
     /// The system appearance: the host's reading, else what the windowing toolkit reports.
     pub fn system_theme(&self, ctx: &egui::Context) -> Option<egui::Theme> {
         self.hooks.system_theme.as_ref().and_then(|read| read(ctx)).or_else(|| ctx.system_theme())
+    }
+
+    /// Whether animations are off now (Settings ▸ Appearance ▸ Animations, following the desktop
+    /// when it is `system`).
+    pub fn reduced_motion(&self, ctx: &egui::Context) -> bool {
+        let system = self.hooks.system_reduced_motion.as_ref().is_some_and(|read| read(ctx));
+        self.session.prefs.appearance.reduced_motion(system)
+    }
+
+    /// Switch egui's animations (menus, collapsing sections, scrolling) off or back on. Runs after
+    /// [`theme::apply_visuals`], which sets the normal animation time.
+    fn apply_motion(&mut self, ctx: &egui::Context) {
+        let reduced = self.reduced_motion(ctx);
+        self.shown_reduced_motion = reduced;
+        ctx.global_style_mut(|s| {
+            if reduced {
+                s.animation_time = 0.0;
+                s.scroll_animation = egui::style::ScrollAnimation::none();
+            } else {
+                s.scroll_animation = egui::style::ScrollAnimation::default();
+            }
+        });
+    }
+
+    /// The desktop's accent colour, if the host reads one.
+    pub fn system_accent(&self, ctx: &egui::Context) -> Option<[u8; 3]> {
+        self.hooks.system_accent.as_ref().and_then(|read| read(ctx))
+    }
+
+    /// The highlight colour to show: the system accent when `follow_system` is on and the desktop
+    /// reports one, else the Highlight Color `pref` (`#rrggbb`).
+    pub fn highlight(&self, ctx: &egui::Context, pref: &str, follow_system: bool) -> Option<[u8; 3]> {
+        follow_system.then(|| self.system_accent(ctx)).flatten().or_else(|| filmcraft_engine::settings::parse_hex(pref))
     }
 
     /// The theme Settings ▸ Appearance selects: the light or dark theme of the Appearance Mode,
@@ -787,9 +856,12 @@ impl FilmcraftApp {
         self.apply_ui_scale(ctx);
         // Appearance Mode ▸ Sync with system: follow the system while running. The host reports
         // changes as they happen (no polling) and wakes the UI only when the value changes.
+        // The same for Use the system accent color and Animations ▸ Sync with system.
         if self.applied_prefs.is_some() {
             let k = self.appearance_kind(ctx);
-            if k != self.tokens.kind {
+            let accent_changed = self.session.prefs.appearance.follow_system_accent && self.system_accent(ctx) != self.shown_system_accent;
+            let motion_changed = self.reduced_motion(ctx) != self.shown_reduced_motion;
+            if k != self.tokens.kind || accent_changed || motion_changed {
                 self.set_theme(ctx, k);
             }
         }
@@ -798,6 +870,15 @@ impl FilmcraftApp {
         }
         let p = self.session.prefs.clone();
         let prev = self.applied_prefs.take();
+        // Window title bar: FilmCraft's own or the desktop's (also on the first apply, in case the
+        // host opened the window the other way)
+        let own = window_chrome::wants_own(&p.general.title_bar);
+        if prev.is_none() || own != self.window_controls {
+            self.window_controls = own;
+            if window_chrome::SUPPORTED {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!own));
+            }
+        }
         if prev.as_ref().is_none_or(|q| q.appearance != p.appearance || q.general.show_tool_tips != p.general.show_tool_tips) {
             let k = self.appearance_kind(ctx);
             self.set_theme(ctx, k);
@@ -2002,7 +2083,8 @@ impl FilmcraftApp {
 
 impl FilmcraftApp {
     /// The "FilmCraft hit an error" window after a caught UI panic. Automation ids:
-    /// `error.dismiss`, `error.save`.
+    /// `error.dismiss`, `error.save`, `error.report` (shows the crash log in the file manager and
+    /// opens the issue tracker; nothing is uploaded).
     fn error_window(&mut self, ctx: &egui::Context) {
         let Some(msg) = self.ui_error.clone() else { return };
         let mut close = false;
@@ -2026,6 +2108,16 @@ impl FilmcraftApp {
                     if s.clicked() {
                         let _ = crate::menus::invoke(self, ctx, "file.save", serde_json::json!({}));
                     }
+                    let r = ui.button(tl!("Report an Issue…"));
+                    self.auto.add("error.report", r.rect, "Report an Issue…");
+                    if r.clicked() {
+                        if let (Some(p), Some(open)) = (crash::log_path(), self.hooks.open_path.as_mut()) {
+                            // past UTC midnight today's file may not exist yet: show the folder
+                            let p = if p.exists() { p } else { p.parent().map(|d| d.to_path_buf()).unwrap_or(p) };
+                            let _ = open(&p.to_string_lossy(), true);
+                        }
+                        let _ = crate::menus::invoke(self, ctx, "help.reportIssue", serde_json::json!({}));
+                    }
                     let d = ui.button(tl!("Continue"));
                     self.auto.add("error.dismiss", d.rect, "Continue");
                     close |= d.clicked();
@@ -2033,6 +2125,24 @@ impl FilmcraftApp {
             });
         if close {
             self.ui_error = None;
+        }
+    }
+}
+
+/// How long a closing app waits for its background jobs, and then for its frame workers, to stop.
+const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+impl Drop for FilmcraftApp {
+    /// Stop the session's background jobs (the render cache, proxies) and the frame workers, and
+    /// wait briefly for them: their work is cancelled, not finished. Left running, a closed app's
+    /// work kept rendering for seconds, holding its frames and media in memory; the UI test
+    /// binary (one app per test) piled them up until it ran out of memory (fork, 2026-10-13).
+    fn drop(&mut self) {
+        if !self.session.background.stop_and_wait(CLOSE_WAIT) {
+            log::warn!("closing: a background job did not stop within {CLOSE_WAIT:?}");
+        }
+        if !self.frames.stop_and_wait(CLOSE_WAIT) {
+            log::warn!("closing: a frame worker did not stop within {CLOSE_WAIT:?}");
         }
     }
 }
@@ -2119,12 +2229,17 @@ impl eframe::App for FilmcraftApp {
                 let _ = w.send(json!({"ok": true, "result": null}));
             }
         }
+        self.desktop_tick(ctx);
         let settled = !std::mem::take(&mut self.monitor_inexact) && self.timeline_still > 0;
         self.issue_screenshots(ctx, settled);
         self.collect_screenshots(ctx);
     }
 
     fn on_exit(&mut self) {
+        // taskbar progress, inhibitors and the single-instance name go first (`desktop`)
+        if let Some(host) = self.hooks.desktop.as_mut() {
+            host.shutdown();
+        }
         // Flush the recovery journal and stop the auto-save worker; a session with nothing unsaved
         // removes its journal, one with unsaved changes keeps it for the next launch.
         self.session.shutdown();
@@ -2140,7 +2255,12 @@ impl eframe::App for FilmcraftApp {
         self.frames.pump(std::time::Duration::from_millis(if self.playback.playing { 24 } else { 40 }));
         // A panic in one panel must not close the app (losing unsaved work) or leave a blank
         // window: catch it, keep the session, and say what happened.
-        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.frame(ui))).is_err() {
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.frame(ui);
+            window_chrome::show(self, ui);
+        }))
+        .is_err()
+        {
             self.ui_error = Some(crash::take_last().unwrap_or_else(|| "unknown error".into()));
             self.playback.playing = false;
         }

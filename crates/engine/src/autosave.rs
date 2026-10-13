@@ -88,6 +88,14 @@ pub struct PlaybackPrefs {
     /// or `off` (always FilmCraft's own decoders). Media already open keeps its decoder until it
     /// is reopened.
     pub hardware_decoding: String,
+    /// "Media keys and the desktop's media controls" (Linux MPRIS, L2.3): the Plasma media
+    /// widget, the lock screen and the keyboard's media keys control the Program monitor. On by
+    /// default; off releases the media-player entry at once.
+    pub desktop_media_controls: bool,
+    /// "Global shortcuts" (Linux GlobalShortcuts portal, L1.8): Play / Pause and Add Marker keys
+    /// that work while another window has focus. Off by default; the desktop asks once which keys
+    /// to use.
+    pub desktop_global_shortcuts: bool,
 }
 
 impl Default for PlaybackPrefs {
@@ -101,6 +109,8 @@ impl Default for PlaybackPrefs {
             disable_video_in_background: true,
             draft_decode: false,
             hardware_decoding: "auto".into(),
+            desktop_media_controls: true,
+            desktop_global_shortcuts: false,
         }
     }
 }
@@ -174,8 +184,10 @@ pub struct Preferences {
     /// The keyboard preset to return to when the workflow goes back to Premiere ("" = FilmCraft
     /// Default). Set when switching to Resolve; not shown in the dialog.
     pub workflow_return_preset: String,
-    /// The dark theme to return to when the workflow goes back to Premiere ("" = the default).
+    /// The dark theme the other workflow's automatic swap puts back ("" = its default); cleared when a hand-picked theme is kept.
     pub workflow_return_theme: String,
+    /// The dark theme the last workflow switch set by itself ("" = none yet): a different current theme was picked by hand and follows the switch.
+    pub workflow_auto_theme: String,
     /// Fork RS1: this file (or its absence) asks for the one-time switch to Resolve, which the
     /// session performs through `set_workflow` once the keyboard presets are loaded. Never saved.
     #[serde(skip)]
@@ -210,6 +222,7 @@ impl Default for Preferences {
             workflow: Default::default(),
             workflow_return_preset: String::new(),
             workflow_return_theme: String::new(),
+            workflow_auto_theme: String::new(),
             pending_resolve_migration: false,
         }
     }
@@ -273,6 +286,15 @@ pub struct MediaPrefs {
     pub growing_refresh_seconds: u32,
     pub hardware_decoding: bool,
     pub prores_hardware_encoding: bool,
+    /// "Files shared from a phone (KDE Connect)" (Linux, L2.10): `offer` (a bar in the Project
+    /// panel offers to import them), `inbox` (imported into the Inbox bin at once) or `off`.
+    pub phone_shares: String,
+    /// "Camera cards" (L2.4): `offer` (a bar in the Project panel offers to copy a card the
+    /// desktop mounts) or `off`.
+    pub camera_cards: String,
+    /// "Copy camera cards to" (L2.4): the folder card copies go into (each in its own folder);
+    /// empty = asked the first time.
+    pub card_destination: String,
 }
 
 impl Default for MediaPrefs {
@@ -298,6 +320,9 @@ impl Default for MediaPrefs {
             growing_refresh_seconds: 60,
             hardware_decoding: true,
             prores_hardware_encoding: true,
+            phone_shares: "offer".into(),
+            camera_cards: "offer".into(),
+            card_destination: String::new(),
         }
     }
 }

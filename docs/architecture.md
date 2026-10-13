@@ -763,6 +763,12 @@ Until they exist, that work lives elsewhere: keyframes and effect definitions in
 and the audio mix in `render`, playback in `ui-egui`, and OS integration (cpal, rfd,
 native menus) in `apps/filmcraft`. [roadmap.md](roadmap.md) has the milestone status and [gaps.md](gaps.md) what is missing.
 
+**Deleting files (rule).** FilmCraft only ever deletes files it owns and can rebuild: render
+previews, the media cache, half-written proxies or exports after a failure or cancel, and
+temporary files. It never deletes a user's media, projects or exports. A future feature that
+removes a user file on their behalf must move it to the desktop's trash instead (the
+freedesktop trash spec, e.g. the `trash` crate, MIT/Apache-2.0), never `remove_file`.
+
 ## Revision history
 
 | Date | Change | Summary |

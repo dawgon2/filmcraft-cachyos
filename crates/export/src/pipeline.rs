@@ -130,6 +130,9 @@ pub(crate) struct Pipeline {
     /// Free the pool's float images when the export ends: a standalone export, not one part of a
     /// batch (`ExportSettings::part_of_batch`).
     trim_pool: bool,
+    /// The GPU frame renderer of a two-GPU export's lane (fork 6E.3); `None`: the registered one
+    /// ([`crate::gpu_frames`]).
+    gpu: Option<Arc<dyn crate::GpuFrames>>,
 }
 
 impl Drop for Pipeline {
@@ -214,7 +217,25 @@ impl Pipeline {
             out_tf,
             effects,
             overlay,
+            gpu: None,
         })
+    }
+
+    /// This pipeline for a lane of a two-GPU export (fork 6E.3): frames render on `gpu` (`None`:
+    /// the registered renderer), and the frame pool is left to the exporter's own pipeline.
+    pub fn for_lane(mut self, gpu: Option<Arc<dyn crate::GpuFrames>>) -> Self {
+        self.gpu = gpu;
+        self.trim_pool = false;
+        self
+    }
+
+    /// The GPU frame renderer this pipeline uses, unless `FILMCRAFT_EXPORT_CPU` is set.
+    pub fn gpu(&self) -> Option<&dyn crate::GpuFrames> {
+        match &self.gpu {
+            Some(g) if std::env::var_os("FILMCRAFT_EXPORT_CPU").is_none() => Some(g.as_ref()),
+            Some(_) => None,
+            None => crate::gpu_frames(),
+        }
     }
 
     /// Output frame `f` as straight sRGB RGBA8 at the output size, or for HDR exports the encoded
@@ -290,7 +311,7 @@ impl Pipeline {
         ten_bit: bool,
         target: Option<&(dyn std::any::Any + Send + Sync)>,
     ) -> Option<GpuOut> {
-        let gpu = crate::gpu_frames()?;
+        let gpu = self.gpu()?;
         let fx = &self.effects;
         if self.hdr_out || self.overlay.is_some() || fx.name_overlay.enabled || fx.timecode_overlay.enabled || fx.video_limiter.enabled {
             return None;

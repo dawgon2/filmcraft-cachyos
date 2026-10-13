@@ -3862,3 +3862,71 @@
 # Fork 6.7b: the clip Temporal NR rows (Effect Controls / Inspector, Noise tab).
 	Temporal NR (clip)	RR temporal (clip)
 	Enabled	Activado
+	Encoder speed	Velocidad del codificador
+	Driver default	Predeterminado del controlador
+	Balanced	Equilibrado
+# Fork 6E.3: Export ▸ Export engines (one GPU or every GPU that can encode).
+	Export engines	Motores de exportación
+	Primary GPU only	Solo la GPU principal
+	All GPUs	Todas las GPU
+	HEVC 4:2:2 10-bit master	Máster HEVC 4:2:2 10 bits
+	HEVC Main 4:2:2 10 at the sequence's frame size and rate in QuickTime, VBR 240 Mbps target, 300 Mbps max, 24-bit 48 kHz PCM; keeps full vertical colour resolution for grading or archiving; Intel's media engine encodes it, other machines fall back to x265 (slower)	HEVC Main 4:2:2 10 con el tamaño y la frecuencia de la secuencia en QuickTime, VBR de 240 Mbps objetivo y 300 Mbps máximo, PCM de 24 bits a 48 kHz; conserva toda la resolución vertical del color para etalonar o archivar; lo codifica el motor multimedia de Intel, y en otros equipos se recurre a x265 (más lento)
+	4:2:0 (delivery)	4:2:0 (entrega)
+	4:2:2 (master, 10-bit)	4:2:2 (máster, 10 bits)
+	Application Folders	Carpetas de la aplicación
+	Failed	Error
+	Finished	Terminado
+	Show in Folder	Mostrar en la carpeta
+	Playing	Reproduciendo
+	Save or close the current project first, then open {name} again	Guarda o cierra primero el proyecto actual y luego vuelve a abrir {name}
+	Use the system accent color	Usar el color de acento del sistema
+	Animations	Animaciones
+	Off (reduce motion)	Desactivado (reducir movimiento)
+	Media keys and the desktop's media controls	Teclas multimedia y controles multimedia del escritorio
+	Window title bar	Barra de título de la ventana
+	FilmCraft (like DaVinci Resolve)	FilmCraft (como DaVinci Resolve)
+	System (desktop title bar)	Sistema (barra de título del escritorio)
+	Minimize	Minimizar
+	Maximize	Maximizar
+	Temp	Temp.
+	Pivot	Pivote
+	Grain	Grano
+	Grain size	Tamaño del grano
+	Grain softness	Suavidad del grano
+	double-click to reset	doble clic para restablecer
+	Global shortcuts: Play / Pause and Add Marker while another window has focus	Atajos globales: Reproducir / Pausa y Añadir marcador mientras otra ventana tiene el foco
+	Send via KDE Connect	Enviar con KDE Connect
+	Paired Devices (KDE Connect)	Dispositivos vinculados (KDE Connect)
+	Sending {name} to {device}	Enviando {name} a {device}
+	KDE Connect	KDE Connect
+	Files shared from a phone (KDE Connect)	Archivos compartidos desde un teléfono (KDE Connect)
+	Offer to import	Ofrecer importarlos
+	Import into the Inbox bin	Importar en la bandeja Inbox
+	Ignore	Ignorar
+	{n} new file(s) from {device}	{n} archivo(s) nuevo(s) de {device}
+	Dismiss	Descartar
+	Imported {n} file(s) shared from a phone into the Inbox bin	{n} archivo(s) compartido(s) desde un teléfono importado(s) en la bandeja Inbox
+	File Shared from a Phone (KDE Connect)	Archivo compartido desde un teléfono (KDE Connect)
+	Import Files Shared from a Phone	Importar archivos compartidos desde un teléfono
+	Dismiss Files Shared from a Phone	Descartar archivos compartidos desde un teléfono
+	Camera cards	Tarjetas de cámara
+	Offer to copy	Ofrecer copiarlas
+	Copy camera cards to	Copiar las tarjetas de cámara en
+	Ejecting {card}…	Expulsando {card}…
+	{card} can be removed now	Ya se puede retirar {card}
+	Couldn't eject {card}: {error}	No se pudo expulsar {card}: {error}
+	Choose where camera cards are copied to (Settings ▸ Media ▸ Copy camera cards to)	Elija dónde se copian las tarjetas de cámara (Ajustes ▸ Medios ▸ Copiar las tarjetas de cámara en)
+	{card} is copied	{card} está copiada
+	Camera card {card}	Tarjeta de cámara {card}
+	Copying {card}… {pct} %	Copiando {card}… {pct} %
+	{card} is copied and verified	{card} está copiada y verificada
+	Copying {card} stopped: {error}	La copia de {card} se detuvo: {error}
+	Eject	Expulsar
+	Copy Again	Copiar de nuevo
+	Camera Card Mounted	Tarjeta de cámara montada
+	Camera Card Removed	Tarjeta de cámara retirada
+	Copy Camera Card	Copiar tarjeta de cámara
+	Eject Camera Card	Expulsar tarjeta de cámara
+	Camera Card Ejected	Tarjeta de cámara expulsada
+	Dismiss Camera Card	Descartar tarjeta de cámara
+	Card	Tarjeta
