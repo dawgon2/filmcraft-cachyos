@@ -99,6 +99,14 @@ const OP_VIDEO_LIMITER: u32 = 31;
 const OP_DENOISE: u32 = 32;
 const OP_DENOISE_YCC: u32 = 33;
 const OP_TEMPORAL_INIT: u32 = 34;
+/// Up to three box passes along one axis in one dispatch (`fx.wgsl` `fx_box3`, [`fuse_boxes`]).
+const OP_BOX3: u32 = 35;
+/// Unsharp Mask with at most one box per axis in one pass (`fx.wgsl`, [`fused_steps`]).
+const OP_UNSHARP_DIRECT: u32 = 36;
+/// The largest box radius [`OP_UNSHARP_DIRECT`] takes ((2r + 1)² loads per pixel).
+const UNSHARP_DIRECT_MAX: u32 = 3;
+/// Pixels per `fx_box3` workgroup (`BOX3_TILE` in `fx.wgsl`).
+const BOX3_TILE: u32 = 256;
 /// Neighbour slots of the temporal pass (`tnr::MAX_NEIGHBOURS`).
 const TEMPORAL_SLOTS: usize = 4;
 // (Lumetri is not one op: it is a colour chain, `FxOp::ColorChain`, fork ADR 0003)
@@ -114,6 +122,8 @@ type Target = (wgpu::Texture, wgpu::TextureView);
 pub(crate) struct FxStage {
     px: wgpu::ComputePipeline,
     run: wgpu::ComputePipeline,
+    /// Fused box cascades (`fx_box3`; None: the device's workgroup memory is too small).
+    box3: Option<wgpu::ComputePipeline>,
     /// A colour-operation chain (`colorops.wgsl`), one pass.
     chain: wgpu::ComputePipeline,
     /// A key chain writing its mask, and a chain correcting `aux` inside the mask in `src`.
@@ -147,6 +157,8 @@ pub(crate) struct FxStage {
     px_special: Mutex<HashMap<u32, Option<wgpu::ComputePipeline>>>,
     /// Run every pass on the generic shaders (tests compare the two).
     interpret_only: bool,
+    /// Fuse passes ([`fuse_passes`]; tests compare with the unfused passes).
+    fuse: bool,
 }
 
 /// Specialised chain pipelines kept at most (the cache is cleared when full).
@@ -158,11 +170,124 @@ pub(crate) fn specialise_chains() -> bool {
     !cfg!(target_arch = "wasm32") && std::env::var("FILMCRAFT_CHAIN_SPECIALISE").map_or(true, |v| v != "0")
 }
 
+/// Whether a layer's passes are fused (fork X422 2b, `docs/fork/DESIGN-X422-FUSED.md`; on unless
+/// `FILMCRAFT_FX_FUSE=0`, for A/B checks).
+pub(crate) fn fuse_passes() -> bool {
+    std::env::var("FILMCRAFT_FX_FUSE").map_or(true, |v| v != "0")
+}
+
+/// Workgroup memory `fx_box3` needs (two shared rows of `BOX3_TILE + 2 × 3 × BOX_PER_PIXEL_MAX`
+/// RGBA f32 texels).
+const BOX3_SHARED_BYTES: u32 = 2 * (BOX3_TILE + 6 * BOX_PER_PIXEL_MAX) * 16;
+
+/// Runs of 2–3 adjacent per-pixel box passes along the same axis with the same edge mode become
+/// one `fx_box3` pass (same arithmetic: `fx_box3` runs the cascade in workgroup memory). Running-sum
+/// passes (radius > [`BOX_PER_PIXEL_MAX`]) and everything else stay as they are.
+fn fuse_boxes(steps: Vec<Step>) -> Vec<Step> {
+    let fusable = |s: &Step| {
+        s.code == OP_BOX && !s.run && s.program.is_none() && !s.combine && !s.save && !s.restore && s.temporal.is_none() && s.i1[0] <= BOX_PER_PIXEL_MAX
+    };
+    let mut out: Vec<Step> = Vec::with_capacity(steps.len());
+    let mut run: Vec<Step> = Vec::new();
+    let flush = |run: &mut Vec<Step>, out: &mut Vec<Step>| {
+        if let (true, Some(first)) = (run.len() >= 2, run.first()) {
+            let mut packed = 0u32;
+            for (k, s) in run.iter().enumerate() {
+                packed |= s.i1[0].min(BOX_PER_PIXEL_MAX) << (8 * k);
+            }
+            let mut f = step(OP_BOX3, [packed, first.i1[1], first.i1[2], run.len() as u32], &[]);
+            f.unsharp_blur = first.unsharp_blur;
+            out.push(f);
+            run.clear();
+        } else {
+            out.append(run);
+        }
+    };
+    for s in steps {
+        let joins = fusable(&s) && run.first().is_none_or(|f| f.i1[1] == s.i1[1] && f.i1[2] == s.i1[2] && f.unsharp_blur == s.unsharp_blur) && run.len() < 3;
+        if !joins {
+            flush(&mut run, &mut out);
+        }
+        if fusable(&s) {
+            run.push(s);
+        } else {
+            out.push(s);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
+/// The passes of `op` with fusion on: Unsharp Mask with at most one small box per axis (Sharpen at
+/// typical sizes) is one pass that sums its blur itself; box cascades become [`fuse_boxes`] passes.
+fn fused_steps(op: &FxOp) -> Vec<Step> {
+    // HSL Secondary without Denoise or Blur: key and correct in one plain chain
+    if let FxOp::HslSecondary { key, median_r, denoise, blur, correct } = op
+        && !(*denoise > 0.0 && *median_r > 0)
+        && blur.iter().all(|r| *r == 0)
+        && let (Some((kp, kc)), Some((cp, cc))) = (crate::colorops::program_and_codes(key), crate::colorops::program_and_codes(correct))
+    {
+        use crate::colorops::{CO_KEY_BEGIN, CO_KEY_END};
+        let mut p = Vec::with_capacity(kp.len() + cp.len() + 2);
+        p.push(CO_KEY_BEGIN);
+        p.extend(kp);
+        p.push(CO_KEY_END);
+        p.extend(cp);
+        // (a code list is only usable when every op has its code; else the interpreter runs it)
+        let codes = if kc.is_empty() || cc.is_empty() { Vec::new() } else { [vec![CO_KEY_BEGIN as u32], kc, vec![CO_KEY_END as u32], cc].concat() };
+        if p.len() <= crate::colorops::MAX_PROGRAM {
+            let mut s = step(0, [p.len() as u32, 0, 0, 0], &[]);
+            s.program = Some(p);
+            s.codes = codes;
+            return vec![s];
+        }
+    }
+    if let FxOp::Unsharp { rx, ry, amount, threshold } = op {
+        let used = |v: &[u32]| v.iter().copied().filter(|r| *r > 0).collect::<Vec<u32>>();
+        let (x, y) = (used(rx), used(ry));
+        if x.len() <= 1 && y.len() <= 1 && x.iter().chain(&y).all(|r| *r <= UNSHARP_DIRECT_MAX) {
+            let (rx, ry) = (x.first().copied().unwrap_or(0), y.first().copied().unwrap_or(0));
+            return vec![step(OP_UNSHARP_DIRECT, [rx, ry, 0, 0], &[*amount, *threshold])];
+        }
+    }
+    fuse_boxes(steps(op))
+}
+
+/// Whether `s` is a plain colour-chain pass (one program over the image, nothing kept aside).
+fn plain_chain(s: &Step) -> bool {
+    s.code == 0 && s.program.is_some() && !s.codes.is_empty() && !s.run && !s.combine && !s.unsharp_blur && !s.save && !s.restore && s.temporal.is_none()
+}
+
+/// Adjacent plain colour-chain passes become one (the programs run one after the other per pixel;
+/// every op's operands are relative to its code, so programs concatenate), within the program and
+/// specialisation limits. A chain's result is stored premultiplied and divided again by the next
+/// pass, so the merged pass can differ from the two by an ulp.
+fn merge_chains(steps: Vec<Step>) -> Vec<Step> {
+    let mut out: Vec<Step> = Vec::with_capacity(steps.len());
+    for s in steps {
+        if let Some(prev) = out.last_mut()
+            && plain_chain(prev)
+            && plain_chain(&s)
+            && let (Some(a), Some(b)) = (prev.program.as_mut(), s.program.as_ref())
+            && a.len() + b.len() <= crate::colorops::MAX_PROGRAM
+            && prev.codes.len() + s.codes.len() <= crate::colorops::MAX_SPECIALISED_OPS
+        {
+            a.extend_from_slice(b);
+            prev.i1[0] = a.len() as u32;
+            prev.codes.extend_from_slice(&s.codes);
+            continue;
+        }
+        out.push(s);
+    }
+    out
+}
+
 /// Which compute pipeline a pass runs.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Pipe {
     Px,
     Run,
+    Box3,
     Chain,
     ChainKey,
     ChainMasked,
@@ -422,12 +547,13 @@ pub fn fx_vram_budget_default() -> u64 {
 /// The main passes of `fx` and its temporal ops, with temporal radii capped at `cap` (0: the
 /// temporal ops are left out). `neighbours[j]` is aligned with `tnr::select` at the op's own
 /// radius; capping drops the farther neighbours from that list.
-fn plan_steps(fx: &LayerFx, neighbours: &[Vec<Option<wgpu::BindGroup>>], max: u32, cap: u8) -> (Vec<Step>, Vec<TemporalSpec>) {
+fn plan_steps(fx: &LayerFx, neighbours: &[Vec<Option<wgpu::BindGroup>>], max: u32, cap: u8, fuse: bool) -> (Vec<Step>, Vec<TemporalSpec>) {
+    let lower = |op: &FxOp| if fuse { fused_steps(op) } else { steps(op) };
     let mut all: Vec<Step> = Vec::new();
     let mut specs: Vec<TemporalSpec> = Vec::new();
     for (j, op) in fx.ops.iter().enumerate() {
         let FxOp::TemporalDenoise { luma, chroma, radius, motion, inputs } = op else {
-            all.extend(steps(op));
+            all.extend(lower(op));
             continue;
         };
         let (Some(inp), Some(params)) = (inputs, filmcraft_render::tnr::params(*luma, *chroma, *motion)) else { continue };
@@ -449,7 +575,8 @@ fn plan_steps(fx: &LayerFx, neighbours: &[Vec<Option<wgpu::BindGroup>>], max: u3
         if nbrs.is_empty() {
             continue;
         }
-        let pre: Vec<Step> = fx.ops.get(..j).unwrap_or_default().iter().filter(|o| !matches!(o, FxOp::TemporalDenoise { .. })).flat_map(steps).collect();
+        let pre: Vec<Step> = fx.ops.get(..j).unwrap_or_default().iter().filter(|o| !matches!(o, FxOp::TemporalDenoise { .. })).flat_map(lower).collect();
+        let pre = if fuse { merge_chains(pre) } else { pre };
         specs.push(TemporalSpec { nbrs, pre, params });
         let mut init = step(OP_TEMPORAL_INIT, [0; 4], &[]);
         init.unsharp_blur = true;
@@ -459,7 +586,7 @@ fn plan_steps(fx: &LayerFx, neighbours: &[Vec<Option<wgpu::BindGroup>>], max: u3
         acc.temporal = Some(specs.len() - 1);
         all.push(acc);
     }
-    (all, specs)
+    (if fuse { merge_chains(all) } else { all }, specs)
 }
 
 /// Working textures a list of passes needs (ping-pong, Unsharp's original, a masked save).
@@ -594,9 +721,12 @@ impl FxStage {
             compilation_options: Default::default(),
             cache: None,
         });
+        let l = device.limits();
+        let box3 = (l.max_compute_workgroup_storage_size >= BOX3_SHARED_BYTES && l.max_compute_workgroup_size_x >= BOX3_TILE).then(|| compute("fx_box3"));
         Self {
             px: compute("fx_px"),
             run: compute("fx_run"),
+            box3,
             chain: compute_in(&chain_shader, "chain_px"),
             chain_key: compute_in(&chain_shader, "chain_key"),
             chain_masked: compute_in(&chain_shader, "chain_masked"),
@@ -616,6 +746,7 @@ impl FxStage {
             shader,
             px_special: Mutex::new(HashMap::new()),
             interpret_only: false,
+            fuse: fuse_passes(),
         }
     }
 
@@ -644,6 +775,12 @@ impl FxStage {
     #[cfg(test)]
     pub(crate) fn set_interpret_only(&mut self, on: bool) {
         self.interpret_only = on;
+    }
+
+    /// Fuse passes (true, the default unless `FILMCRAFT_FX_FUSE=0`) or run them one by one.
+    #[cfg(test)]
+    pub(crate) fn set_fuse(&mut self, on: bool) {
+        self.fuse = on;
     }
 
     /// Specialised chain pipelines built so far, and builds that failed.
@@ -717,7 +854,7 @@ impl FxStage {
         let wanted = fx.ops.iter().any(|o| matches!(o, FxOp::TemporalDenoise { inputs: Some(_), .. }));
         let mut chosen = None;
         for cap in [filmcraft_render::tnr::MAX_RADIUS, 1, 0] {
-            let (all, specs) = plan_steps(fx, neighbours, max, cap);
+            let (all, specs) = plan_steps(fx, neighbours, max, cap, self.fuse && self.box3.is_some());
             let n_main = textures_for(&all);
             // per temporal op: a (Y, Cb, Cr, α) texture per neighbour plus scratch for its replay
             let extra = specs.iter().map(|t| t.nbrs.len() + if t.pre.is_empty() { 1 } else { textures_for(&t.pre) }).max().unwrap_or(0);
@@ -832,6 +969,9 @@ impl FxStage {
         let groups = if s.run {
             let lines = if s.i1[2] != 0 { w } else { h };
             (lines.div_ceil(64), 1)
+        } else if s.code == OP_BOX3 {
+            let (n, lines) = if s.i1[2] != 0 { (h, w) } else { (w, h) };
+            (n.div_ceil(BOX3_TILE), lines)
         } else {
             (w.div_ceil(16), h.div_ceil(16))
         };
@@ -844,6 +984,8 @@ impl FxStage {
             }
         } else if s.run {
             Pipe::Run
+        } else if s.code == OP_BOX3 {
+            Pipe::Box3
         } else {
             Pipe::Px
         };
@@ -1061,6 +1203,8 @@ impl FxStage {
                             (None, pipe) => match pipe {
                                 Pipe::Px => &self.px,
                                 Pipe::Run => &self.run,
+                                // (only planned when the pipeline exists)
+                                Pipe::Box3 => self.box3.as_ref().unwrap_or(&self.px),
                                 Pipe::Chain => &self.chain,
                                 Pipe::ChainKey => &self.chain_key,
                                 Pipe::ChainMasked => &self.chain_masked,
@@ -1119,5 +1263,57 @@ mod format_tests {
             assert!(!half.contains("rgba32float") && half.contains("texture_storage_2d<rgba16float, write>"));
             assert_eq!(wgsl_for(src, FX_FORMAT), src);
         }
+    }
+}
+
+#[cfg(test)]
+mod fuse_tests {
+    use super::*;
+
+    fn codes(s: &[Step]) -> Vec<(u32, [u32; 4], bool, bool)> {
+        s.iter().map(|s| (s.code, s.i1, s.unsharp_blur, s.combine)).collect()
+    }
+
+    #[test]
+    fn box_runs_fuse_per_axis_and_edge_mode() {
+        // Gaussian: three boxes along x, three along y → one fused pass each
+        let g = fuse_boxes(steps(&FxOp::Gaussian { rx: vec![3, 4, 5], ry: vec![2, 0, 7], repeat: true }));
+        assert_eq!(codes(&g), vec![(OP_BOX3, [3 | 4 << 8 | 5 << 16, 1, 0, 3], false, false), (OP_BOX3, [2 | 7 << 8, 1, 1, 2], false, false)]);
+        // a lone box stays a plain pass; running-sum radii are never fused
+        let one = fuse_boxes(steps(&FxOp::Gaussian { rx: vec![6], ry: vec![40, 3, 3], repeat: false }));
+        assert_eq!(codes(&one).iter().map(|c| c.0).collect::<Vec<_>>(), vec![OP_BOX, OP_BOX, OP_BOX3]);
+        assert!(one.get(1).is_some_and(|s| s.run));
+        // Unsharp: the fused blur keeps the original for the combine
+        let u = fuse_boxes(steps(&FxOp::Unsharp { rx: vec![1, 1, 2], ry: vec![1, 1, 2], amount: 0.4, threshold: 0.0 }));
+        assert_eq!(
+            u.iter().map(|s| (s.code, s.unsharp_blur, s.combine)).collect::<Vec<_>>(),
+            vec![(OP_BOX3, true, false), (OP_BOX3, true, false), (OP_UNSHARP, false, true)]
+        );
+        // Sharpen-sized Unsharp: one pass; a cascade or a bigger radius keeps the blur passes
+        let one = fused_steps(&FxOp::Unsharp { rx: vec![0, 0, 1], ry: vec![0, 0, 1], amount: 0.4, threshold: 0.0 });
+        assert_eq!(codes(&one), vec![(OP_UNSHARP_DIRECT, [1, 1, 0, 0], false, false)]);
+        let wide = fused_steps(&FxOp::Unsharp { rx: vec![4], ry: vec![], amount: 0.4, threshold: 0.0 });
+        assert_eq!(wide.last().map(|s| s.code), Some(OP_UNSHARP));
+        let cascade = fused_steps(&FxOp::Unsharp { rx: vec![1, 1], ry: vec![1], amount: 0.4, threshold: 0.0 });
+        assert_eq!(cascade.iter().map(|s| s.code).collect::<Vec<_>>(), vec![OP_BOX3, OP_BOX, OP_UNSHARP]);
+        // HSL Secondary without blur / denoise: one plain chain, merged with the chain before it
+        use filmcraft_color::ops::ColorOp;
+        let clamp: std::sync::Arc<[ColorOp]> = vec![ColorOp::Clamp { lo: 0.0, hi: 1.0 }].into();
+        let hsl = |blur: Vec<u32>, median_r: u32| FxOp::HslSecondary { key: clamp.clone(), median_r, denoise: 0.5, blur, correct: clamp.clone() };
+        let one_pass = fused_steps(&hsl(vec![0, 0], 0));
+        assert_eq!(one_pass.len(), 1);
+        assert!(one_pass.first().is_some_and(|s| plain_chain(s) && s.codes.first() == Some(&(crate::colorops::CO_KEY_BEGIN as u32))));
+        assert!(fused_steps(&hsl(vec![2], 0)).len() > 1, "a blurred key keeps its passes");
+        assert!(fused_steps(&hsl(vec![], 1)).len() > 1, "a denoised key keeps its passes");
+        let merged = merge_chains([fused_steps(&FxOp::ColorChain(clamp.clone())), one_pass].into_iter().flatten().collect());
+        assert_eq!(merged.len(), 1);
+        assert!(merged.first().is_some_and(|s| s.codes.len() == 5 && s.program.as_ref().is_some_and(|p| p.len() as u32 == s.i1[0])));
+        // never past the specialisation limit (a longer chain would fall back to the slow interpreter)
+        let long: std::sync::Arc<[ColorOp]> = vec![ColorOp::Clamp { lo: 0.0, hi: 1.0 }; 40].into();
+        assert_eq!(merge_chains([steps(&FxOp::ColorChain(long.clone())), steps(&FxOp::ColorChain(long))].into_iter().flatten().collect()).len(), 2);
+        // hostile radii: a run never packs more than three, nor a radius over the per-pixel limit
+        let many = fuse_boxes(steps(&FxOp::Gaussian { rx: vec![32; 7], ry: vec![], repeat: true }));
+        assert_eq!(codes(&many).iter().map(|c| (c.0, c.1[3])).collect::<Vec<_>>(), vec![(OP_BOX3, 3), (OP_BOX3, 3), (OP_BOX, 0)]);
+        assert!(many.iter().filter(|s| s.code == OP_BOX3).all(|s| (0..3).all(|k| (s.i1[0] >> (8 * k)) & 0xff <= BOX_PER_PIXEL_MAX)));
     }
 }

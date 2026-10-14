@@ -206,6 +206,23 @@ Set 3 doesn't separate them (both 13/13). Ideas for a v3: a smaller `--subtle` (
 subtle only on a secondary correction of a multi-correction grade, or more set-3-like near-threshold
 cases. Weights stay in `models/tuned/smol360-v2/` (unused).
 
+## smol135-v1, the "fast" tune (AI1.4, 2026-10-14)
+
+**Why:** a faster option for slower PCs (owner Q24 (a)). **Base:** SmolLM2-135M-Instruct, revision
+`12fd25f77366fa6b3b4b768ec3050bf629380bac` (Apache-2.0, `llm-base/SmolLM2-135M-Instruct/`, ~270 MB),
+`run.sh` base `smol135`. **Run:** `tools/explainer-train/run.sh smol135 smol135-v1` (data-v1, v1's
+recipe, 2 epochs; train 1411 s). Q8_0 143 MB. **Results** (our runtime, greedy, 80 tokens, repeat
+penalty 1.0; sets 2 and 3 not deduped against data-v1; synthetic prompts):
+
+| model | set 1 (36) | set 2 (40) | set 3 (13) | mean s / answer |
+|---|---|---|---|---|
+| `smol360-v1` Q8_0 | 34 | 37 | 13 | 1.26 / 1.34 / 1.14 |
+| `smol135-v1` Q8_0 | 34 | 36 | 13 | 0.62 / 0.65 / 0.56 |
+
+Within a few cases of the 360M tune at half the time, so it is catalogued as
+`filmcraft-explainer-smol135-v1-q8` ("fast"), not in `TUNED_PREFERENCE` (picked only by the user).
+(zsh note: write `"id=${G}:llama"` for `llm_eval --local`; `$G:l…` is a zsh modifier.)
+
 ## Converter validation
 
 `llm_quantize` was checked on the stock bases before any tuned model:

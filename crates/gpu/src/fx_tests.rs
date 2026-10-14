@@ -1321,3 +1321,88 @@ fn per_op_pipelines_match_the_generic_pass() {
     }
     assert!(failures.is_empty(), "per-op pipelines differ from the generic pass:\n{}", failures.join("\n"));
 }
+
+/// Fused passes (fork X422 2b: box cascades in `fx_box3`, one-pass Sharpen-sized Unsharp) give what
+/// the passes one by one give, for every effect case, at sizes around the 256-pixel tile (three-pixel lines, a partial last tile,
+/// lines shorter than the apron) and both working formats.
+#[test]
+fn fused_passes_match_the_unfused_passes() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    for format in [fx::FX_FORMAT, fx::FX_FORMAT_HALF] {
+        for (w, h) in [(300u32, 37u32), (3, 260), (257, 3), (513, 70), (40, 520)] {
+            let frame = VideoFrame::rgba_f32(w, h, picture(w, h));
+            let run = |fuse: bool| {
+                let mut c = GpuCompositor::with_fx_format(&dev, &q, format);
+                c.fx.as_mut().expect("fx stage").set_fuse(fuse);
+                cases()
+                    .into_iter()
+                    .map(|(id, params, steps)| {
+                        let e = effect(id, &params);
+                        let ops = FxOp::eval_all(&e, &cx(Tick::ZERO, 1.0), w as usize, h as usize).unwrap_or_default();
+                        let fx = LayerFx { size: (w, h), decimation: 1, ops };
+                        (format!("{id} {params:?}"), steps, c.effect_image(&frame, &fx).expect("effect image").2)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let (plain, fused) = (run(false), run(true));
+            let mut failures = Vec::new();
+            for ((name, steps, a), (_, _, b)) in plain.iter().zip(&fused) {
+                let bad = |v: &[f32]| v.iter().position(|x| !x.is_finite());
+                if bad(a).is_some() || bad(b).is_some() {
+                    failures.push(format!("{format:?} {w}×{h} {name}: non-finite at {:?} (unfused) / {:?} (fused)", bad(a), bad(b)));
+                    continue;
+                }
+                let (worst, flips) = compare(a, b);
+                // (f32: the one-pass Unsharp may contract its sums differently, one ulp of blur that
+                // Sharpen 4000 amplifies to ~4e-6; half floats: the cascade keeps f32 between its boxes instead of rounding to f16, so a
+                // threshold may flip; `half_float_effects_match_cpu` holds the fused result to the CPU)
+                let (tol, max_flips) = if format == fx::FX_FORMAT { (1e-5, if *steps { FLIPS } else { 0.0 }) } else { (2e-2, FLIPS) };
+                if worst > tol || flips > max_flips {
+                    failures.push(format!("{format:?} {w}×{h} {name}: {worst:.2e}, flips {flips:.4}"));
+                }
+            }
+            assert!(failures.is_empty(), "fused passes differ from the unfused passes:\n{}", failures.join("\n"));
+        }
+    }
+}
+
+/// The xm5 bench grade (input chain + Lumetri with HSL Secondary + Sharpen) and HSL variants with
+/// Blur / Denoise give the same fused (one chain + HSL pass, one Unsharp pass) as pass by pass
+/// (fork X422 2b.2), in full precision.
+#[test]
+fn fused_grade_matches_the_unfused_passes() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let (w, h) = (300u32, 200u32);
+    let frame = VideoFrame::rgba_f32(w, h, picture(w, h));
+    let hsl = |extra: &[(&str, ParamValue)]| {
+        let mut p = vec![("hsl_on", ParamValue::Bool(true)), ("hsl_hue", fl(30.0)), ("hsl_sat", fl(130.0)), ("exposure", fl(0.3))];
+        p.extend(extra.iter().cloned());
+        ops_of(&effect("lumetri", &p), w, h)
+    };
+    let grades: Vec<(&str, Vec<FxOp>)> = vec![
+        ("bench grade", bench_grade_ops(w, h)),
+        ("hsl", hsl(&[])),
+        ("hsl blur", hsl(&[("hsl_blur", fl(40.0))])),
+        ("hsl denoise", hsl(&[("hsl_denoise", fl(60.0))])),
+        ("hsl show mask", hsl(&[("hsl_show_mask", ParamValue::Choice(3))])),
+    ];
+    let run = |fuse: bool| {
+        let mut c = full_precision(&dev, &q);
+        c.fx.as_mut().expect("fx stage").set_fuse(fuse);
+        grades
+            .iter()
+            .map(|(_, ops)| c.effect_image(&frame, &LayerFx { size: (w, h), decimation: 1, ops: ops.clone() }).expect("effect image").2)
+            .collect::<Vec<_>>()
+    };
+    let (plain, fused) = (run(false), run(true));
+    for (((name, _), a), b) in grades.iter().zip(&plain).zip(&fused) {
+        let (worst, flips) = compare(a, b);
+        assert!(worst <= 1e-5 && flips == 0.0, "{name}: fused differs from the passes by {worst:.2e}, flips {flips}");
+    }
+}

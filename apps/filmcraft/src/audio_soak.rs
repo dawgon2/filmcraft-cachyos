@@ -16,7 +16,9 @@
 //! Environment: `FC_SOAK_SECONDS` (default 60), `FC_SOAK_DEVICE` (the output to play on, as
 //! Settings ▸ Audio Hardware lists it: the null sink's description), `FC_SOAK_NULL_SINK` (sink
 //! name; with it the sink is removed and restored mid-run), `FC_SOAK_CARD` and `FC_SOAK_PROFILE` (switched off and back),
-//! `FC_SOAK_REPORT` (a JSON summary is written there).
+//! `FC_SOAK_REPORT` (a JSON summary is written there), `FC_SOAK_VOICE_MODEL` (a DeepFilterNet3
+//! checkpoint: Voice Isolation runs on `FC_SOAK_VOICE_TRACKS` silence tracks, default 4; needs a
+//! scratch `FILMCRAFT_DATA_DIR`, fork A2.6).
 
 use std::process::Command;
 use std::sync::Arc;
@@ -123,6 +125,18 @@ fn session(seconds: u32, device: &str) -> Session {
             s.execute("timeline.place", json!({"item": silence.0, "audioTrack": format!("A{t}"), "seconds": at})).unwrap();
             at += 30.0;
         }
+    }
+    // Fork A2.6: Voice Isolation on the first `FC_SOAK_VOICE_TRACKS` silence tracks (default 4),
+    // loaded from `FC_SOAK_VOICE_MODEL`. Silence through the model stays exactly zero, so the
+    // position code still decodes; the network runs on every frame like on a voice clip.
+    if let Some(model) = std::env::var_os("FC_SOAK_VOICE_MODEL") {
+        assert!(std::env::var_os("FILMCRAFT_DATA_DIR").is_some(), "FC_SOAK_VOICE_MODEL needs a scratch FILMCRAFT_DATA_DIR (the model is installed there)");
+        let st = s.execute("audio.voiceIsolate.installFile", json!({"path": model.to_string_lossy()})).unwrap();
+        assert_eq!(st["loaded"], true, "{st}");
+        let n: usize = std::env::var("FC_SOAK_VOICE_TRACKS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
+        let clips: Vec<u64> = s.active_sequence().unwrap().audio_tracks.iter().skip(1).take(n).flat_map(|t| t.items.iter().map(|i| i.id.0)).collect();
+        s.execute("effects.apply", json!({"clips": clips, "effect": "voice_isolate"})).unwrap();
+        eprintln!("soak: Voice Isolation on {n} tracks ({} clips)", clips.len());
     }
     s
 }
@@ -297,7 +311,11 @@ fn audio_soak() {
             let heard = app.audio.as_ref().and_then(|a| a.played_frames());
             eprintln!("trace {t:8.3} event-watch heard {heard:?} written {} clock {}", tap.written.load(Ordering::SeqCst), app.playback.audio_clock);
         }
+        let before = totals.underruns;
         totals.add_underruns(app.playback.audio_stats.underruns.load(Ordering::Relaxed));
+        if trace && totals.underruns > before {
+            eprintln!("trace {t:8.3} underruns +{} (total {}) speed {speed}", totals.underruns - before, totals.underruns);
+        }
         if !app.playback.audio_clock {
             totals.clock_lost += 1;
         }
@@ -360,6 +378,7 @@ fn audio_soak() {
         "framesWithoutAudioClock": totals.clock_lost,
         "deviceEvents": recovered,
         "lastPlay": stats,
+        "voiceIsolationTracks": std::env::var_os("FC_SOAK_VOICE_MODEL").map(|_| std::env::var("FC_SOAK_VOICE_TRACKS").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(4)),
     });
     eprintln!("SOAK {report}");
     if let Ok(path) = std::env::var("FC_SOAK_REPORT") {

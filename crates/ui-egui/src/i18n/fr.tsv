@@ -67,6 +67,7 @@
 	Bring Forward	Avancer
 	Bring to Front	Mettre au premier plan
 	Brown	Marron
+	Cancel Voice Isolation Model Download	Annuler le téléchargement du modèle d'isolation de la voix
 	Captions	Sous-titres
 	Captions and Graphics	Sous-titres et graphiques
 	Captions…	Sous-titres…
@@ -112,6 +113,7 @@
 	Distribute Space Horizontally	Répartir l'espacement horizontalement
 	Distribute Space Vertically	Répartir l'espacement verticalement
 	Distribute Vertically	Répartir verticalement
+	Download Voice Isolation Model	Télécharger le modèle d'isolation de la voix
 	Duplicate	Dupliquer
 	Dynamic Audio Waveforms	Formes d'onde audio dynamiques
 	Edit	Édition
@@ -180,6 +182,9 @@
 	Insert	Insérer
 	Insert Frame Hold Segment	Insérer un segment d'image figée
 	Install Motion Graphics Template…	Installer un modèle d'animation graphique…
+	Install Voice Isolation Model from File	Installer le modèle d'isolation de la voix depuis un fichier
+	Installed: it loads the first time the Voice Isolation effect plays.	Installé : il se charge la première fois que l'effet Isolation de la voix est lu.
+	Installed: the Voice Isolation effect uses this model.	Installé : l'effet Isolation de la voix utilise ce modèle.
 	Interpret Footage…	Interpréter le métrage…
 	Join the ArtCraft Discord…	Rejoindre le Discord d'ArtCraft…
 	Keyboard Shortcuts…	Raccourcis clavier…
@@ -194,6 +199,8 @@
 	Light	Clair
 	Link	Lier
 	Link Media…	Lier le média…
+	Not installed: the Voice Isolation effect works as DeNoise until you download the model.	Non installé : l'effet Isolation de la voix fonctionne comme le Réducteur de bruit jusqu'au téléchargement du modèle.
+	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download.	Facultatif et hors ligne : un petit réseau neuronal (environ 8 Mo) sur cet ordinateur sépare la voix du bruit pour l'effet audio Isolation de la voix. Il n'est jamais fourni avec FilmCraft et n'est téléchargé auprès de son éditeur que lorsque vous cliquez sur Télécharger.
 	Refresh Changed Media	Actualiser les médias modifiés
 	Linked Selection	Sélection liée
 	Lock Guides	Verrouiller les repères
@@ -265,6 +272,7 @@
 	Remove Filler Words	Supprimer les mots parasites
 	Remove Pauses	Supprimer les pauses
 	Remove Unused	Supprimer les éléments inutilisés
+	Remove Voice Isolation Model	Supprimer le modèle d'isolation de la voix
 	Rename…	Renommer…
 	Render Audio	Effectuer le rendu audio
 	Render Effects In to Out	Rendu des effets de l'entrée à la sortie
@@ -331,6 +339,7 @@
 	Tan	Beige
 	Teal	Bleu canard
 	Text	Texte
+	The model didn't load ({err}): the Voice Isolation effect works as DeNoise.	Le modèle ne s'est pas chargé ({err}) : l'effet Isolation de la voix fonctionne comme le Réducteur de bruit.
 	Time Interpolation	Interpolation temporelle
 	Timecode	Timecode
 	Timecode…	Timecode…
@@ -358,6 +367,10 @@
 	Video and Audio Waveform Split	Vidéo et forme d'onde audio séparées
 	View	Affichage
 	Violet	Violet
+	Voice Isolation	Isolation de la voix
+	Voice Isolation Model Status	État du modèle d'isolation de la voix
+	Voice isolation	Isolation de la voix
+	Voice isolation isn't available in this build (built without the `voice-isolation` feature): the Voice Isolation effect works as DeNoise.	L'isolation de la voix n'est pas disponible dans cette version (compilée sans la fonction `voice-isolation`) : l'effet Isolation de la voix fonctionne comme le Réducteur de bruit.
 	Window	Fenêtre
 	Workspaces	Espaces de travail
 	Yellow	Jaune

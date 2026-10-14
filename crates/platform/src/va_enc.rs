@@ -420,7 +420,9 @@ impl VaHevcEncoder {
         let (w, h) = (self.params.width as usize, self.params.height as usize);
         let ten = self.params.ten_bit;
         if self.params.chroma_422 {
+            let clock = filmcraft_export::trace::start();
             source.write(|img, offsets, pitches| fill_y210(img, offsets[0], pitches[0], yuv, w, h))?;
+            filmcraft_export::trace::add(filmcraft_export::trace::ENC_422_UPLOAD, clock);
         } else {
             source.write(|img, offsets, pitches| fill_semiplanar(img, offsets, pitches, yuv, w, h, ten))?;
         }

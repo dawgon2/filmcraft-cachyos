@@ -1,0 +1,239 @@
+//! Voice isolation model commands (`audio.voiceIsolate.*`, fork AUDIO-PLAN A2).
+//!
+//! The `voice_isolate` audio effect runs DeepFilterNet3 (`filmcraft-voice`) once its model is
+//! installed under `<data dir>/models/deepfilternet3/`, and DeNoise until then. The model is
+//! never bundled: it is downloaded only on [`download`] (the user's explicit choice), from a pinned
+//! URL, checked against its SHA-256, then the checkpoint is extracted and loaded. Sessions point
+//! the effect at an installed checkpoint when they start ([`init`]); it loads on first use.
+//!
+//! | command | does |
+//! |---|---|
+//! | `audio.voiceIsolate.status` | available in this build, installed, loaded, load error, size, licence, source, running download |
+//! | `audio.voiceIsolate.download` | download, verify, extract and load the model in the background (`wait` for tests / CLI) |
+//! | `audio.voiceIsolate.cancelDownload` | stop a running download |
+//! | `audio.voiceIsolate.installFile` | install from a local file: the release zip (checksum checked) or the checkpoint itself |
+//! | `audio.voiceIsolate.remove` | unload and delete the model; the effect falls back to DeNoise |
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
+
+use serde_json::{Value, json};
+
+use crate::commands::{CommandSpec, always, bad, bool_p, str_p};
+use crate::{Result, Session};
+
+const JOB_LABEL: &str = "Downloading the voice isolation model";
+
+fn model_dir() -> Option<PathBuf> {
+    crate::transcript::models_dir().map(|d| d.join("deepfilternet3"))
+}
+
+/// The installed checkpoint, if any.
+fn checkpoint() -> Option<PathBuf> {
+    model_dir().map(|d| d.join("model_120.ckpt.best")).filter(|p| p.is_file())
+}
+
+/// Point the effect at an installed model (cheap: it loads on first use). Called when a session
+/// starts; does nothing in builds without the model code.
+pub fn init() {
+    #[cfg(feature = "voice-isolation")]
+    if let Some(p) = checkpoint() {
+        filmcraft_voice::effect::set_model_path(&p);
+    }
+}
+
+fn available() -> bool {
+    cfg!(feature = "voice-isolation") && !cfg!(target_arch = "wasm32")
+}
+
+fn running(s: &Session) -> Option<u64> {
+    s.jobs.iter().find(|j| j.label == JOB_LABEL && !j.progress.finished.load(Ordering::Relaxed)).map(|j| j.id)
+}
+
+fn status(s: &mut Session, _: &Value) -> Result<Value> {
+    #[cfg(feature = "voice-isolation")]
+    let (path, loaded, error) = filmcraft_voice::effect::status();
+    #[cfg(not(feature = "voice-isolation"))]
+    let (path, loaded, error): (Option<PathBuf>, bool, Option<String>) = (None, false, None);
+    Ok(json!({
+        "available": available(),
+        "installed": checkpoint().is_some(),
+        "loaded": loaded,
+        "path": path.map(|p| p.display().to_string()),
+        "error": error,
+        "name": "DeepFilterNet3 (voice isolation)",
+        "size": 7_986_207u64,
+        "license": "MIT OR Apache-2.0",
+        "source": "https://github.com/Rikorose/DeepFilterNet",
+        "sampleRates": [48_000],
+        "download": running(s),
+    }))
+}
+
+fn need_build(cmd: &str) -> Result<()> {
+    if available() { Ok(()) } else { Err(bad(cmd, "voice isolation is not available in this build (built without the `voice-isolation` feature)")) }
+}
+
+fn download(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "audio.voiceIsolate.download";
+    need_build(CMD)?;
+    if let Some(job) = running(s) {
+        return Err(bad(CMD, format!("the model is already downloading (job {job})")));
+    }
+    let dir = model_dir().ok_or_else(|| bad(CMD, "no data directory for models"))?;
+    if checkpoint().is_some() {
+        install_checkpoint(CMD, &dir)?;
+        return Ok(json!({"job": null, "installed": true}));
+    }
+    let wait = bool_p(p, "wait").unwrap_or(false);
+    let job = crate::narration::new_job(s, JOB_LABEL.into());
+    job.progress.total.store(7_986_207, Ordering::Relaxed);
+    let (prog, res) = (job.progress.clone(), job.result.clone());
+    let id = crate::narration::spawn(s, job, wait, "filmcraft-voice-download", move || {
+        let t0 = web_time::Instant::now();
+        let r = fetch(&dir, &prog).and_then(|()| {
+            *prog.status.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = "Checking the model…".into();
+            finish_install(&dir)
+        });
+        crate::narration::finish(&prog, &res, r.map(|()| "Voice isolation model installed".to_string()), t0);
+    })?;
+    Ok(json!({"job": id, "installed": false}))
+}
+
+#[cfg(feature = "voice-isolation")]
+fn fetch(dir: &Path, prog: &filmcraft_export::Progress) -> std::result::Result<(), String> {
+    use filmcraft_voice::package as pkg;
+    let files = [filmcraft_speech::models::ModelFile { name: pkg::ZIP_NAME, url: pkg::ZIP_URL, sha256: pkg::ZIP_SHA256, size: pkg::ZIP_SIZE }];
+    let mut progress = |done: u64, total: u64, file: &str| {
+        prog.done.store(done, Ordering::Relaxed);
+        prog.total.store(total, Ordering::Relaxed);
+        *prog.status.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = format!("Downloading {file}");
+        !prog.cancel.load(Ordering::Relaxed)
+    };
+    filmcraft_speech::models::download_files(dir, &files, &mut progress).map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "voice-isolation"))]
+fn fetch(_: &Path, _: &filmcraft_export::Progress) -> std::result::Result<(), String> {
+    Err("voice isolation is not available in this build".into())
+}
+
+/// Extract the checkpoint from the downloaded zip (if not done yet) and load it.
+#[cfg(feature = "voice-isolation")]
+fn finish_install(dir: &Path) -> std::result::Result<(), String> {
+    use filmcraft_voice::package as pkg;
+    let ckpt = dir.join(pkg::CHECKPOINT);
+    if !ckpt.is_file() {
+        pkg::extract_checkpoint(&dir.join(pkg::ZIP_NAME), &ckpt).map_err(|e| e.0)?;
+    }
+    if let Err(e) = filmcraft_voice::effect::install(&ckpt) {
+        // A checkpoint that doesn't load is useless: remove it so a new download can replace it.
+        let _ = std::fs::remove_file(&ckpt);
+        return Err(e.0);
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "voice-isolation"))]
+fn finish_install(_: &Path) -> std::result::Result<(), String> {
+    Err("voice isolation is not available in this build".into())
+}
+
+fn install_checkpoint(cmd: &str, dir: &Path) -> Result<()> {
+    finish_install(dir).map_err(|e| bad(cmd, e))
+}
+
+fn cancel_download(s: &mut Session, _: &Value) -> Result<Value> {
+    let Some(job) = running(s) else { return Ok(json!({"cancelled": false})) };
+    if let Some(j) = s.jobs.iter().find(|j| j.id == job) {
+        j.progress.cancel.store(true, Ordering::Relaxed);
+    }
+    Ok(json!({"cancelled": true, "job": job}))
+}
+
+/// SHA-256 of a file, lowercase hex.
+#[cfg(feature = "voice-isolation")]
+fn sha256(path: &Path) -> std::result::Result<String, String> {
+    use sha2::Digest;
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut h = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        h.update(buf.get(..n).unwrap_or_default());
+    }
+    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn install_file(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "audio.voiceIsolate.installFile";
+    need_build(CMD)?;
+    if running(s).is_some() {
+        return Err(bad(CMD, "the model is downloading; cancel the download first"));
+    }
+    let src = PathBuf::from(str_p(p, "path").ok_or_else(|| bad(CMD, "missing `path`"))?);
+    let dir = model_dir().ok_or_else(|| bad(CMD, "no data directory for models"))?;
+    install_from(CMD, &src, &dir)?;
+    status(s, &Value::Null)
+}
+
+#[cfg(feature = "voice-isolation")]
+fn install_from(cmd: &str, src: &Path, dir: &Path) -> Result<()> {
+    use filmcraft_voice::package as pkg;
+    let ckpt = dir.join(pkg::CHECKPOINT);
+    let is_zip = src.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip"));
+    // Check the file before anything is written.
+    if is_zip {
+        let sha = sha256(src).map_err(|e| bad(cmd, e))?;
+        if sha != pkg::ZIP_SHA256 {
+            return Err(bad(cmd, format!("{} is not the DeepFilterNet3 release (SHA-256 {sha})", src.display())));
+        }
+    } else {
+        filmcraft_voice::weights::Weights::load(src).map_err(|e| bad(cmd, e.0))?;
+    }
+    std::fs::create_dir_all(dir).map_err(|e| bad(cmd, e.to_string()))?;
+    if is_zip {
+        pkg::extract_checkpoint(src, &ckpt).map_err(|e| bad(cmd, e.0))?;
+    } else {
+        std::fs::copy(src, &ckpt).map_err(|e| bad(cmd, e.to_string()))?;
+    }
+    install_checkpoint(cmd, dir)
+}
+
+#[cfg(not(feature = "voice-isolation"))]
+fn install_from(cmd: &str, _: &Path, _: &Path) -> Result<()> {
+    need_build(cmd)
+}
+
+fn remove(s: &mut Session, _: &Value) -> Result<Value> {
+    const CMD: &str = "audio.voiceIsolate.remove";
+    if running(s).is_some() {
+        return Err(bad(CMD, "the model is downloading; cancel the download first"));
+    }
+    #[cfg(feature = "voice-isolation")]
+    filmcraft_voice::effect::uninstall();
+    let mut freed = 0u64;
+    if let Some(dir) = model_dir().filter(|d| d.is_dir()) {
+        freed = std::fs::read_dir(&dir).map(|it| it.flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum()).unwrap_or(0);
+        std::fs::remove_dir_all(&dir).map_err(|e| bad(CMD, e.to_string()))?;
+    }
+    Ok(json!({"removed": freed > 0, "freed": freed}))
+}
+
+fn spec(id: &'static str, label: &'static str, params: &'static str, run: fn(&mut Session, &Value) -> Result<Value>) -> CommandSpec {
+    CommandSpec { id, label, menu: &[], shortcut: None, params, enabled: always, run, journal: false }
+}
+
+pub fn commands() -> Vec<CommandSpec> {
+    vec![
+        spec("audio.voiceIsolate.status", "Voice Isolation Model Status", "{}", status),
+        spec("audio.voiceIsolate.download", "Download Voice Isolation Model", r#"{"wait":bool?}"#, download),
+        spec("audio.voiceIsolate.cancelDownload", "Cancel Voice Isolation Model Download", "{}", cancel_download),
+        spec("audio.voiceIsolate.installFile", "Install Voice Isolation Model from File", r#"{"path":str}"#, install_file),
+        spec("audio.voiceIsolate.remove", "Remove Voice Isolation Model", "{}", remove),
+    ]
+}

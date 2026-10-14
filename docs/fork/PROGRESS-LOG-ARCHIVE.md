@@ -2417,3 +2417,141 @@ Older entries moved out of FORK-PLAN.md §7 to keep it small (§1a.55). Oldest f
   rms_norm and attention scale in candle's order): step 0 bit-identical to candle on all six local models;
   synthetic 20–26 ms / token small models, 69–76 ms 1.5B / 1.7B without the flag. Exact Q4_K kernel slower with
   AVX2 (owed, optional AI1.1g). Next AI1.1f (batched prefill, sampling).
+
+## HANDOFF notes of AI1 (archived 2026-10-14 at the ai-1 tag)
+
+### Exact next step (as of the ai-1 tag): AI1 (AI-PLAN.md, portable fast inference), step AI1.1
+
+U0.2 is closed (tag `upstream-sync-2`; its working notes are archived at the end of
+[`PROGRESS-LOG-ARCHIVE.md`](PROGRESS-LOG-ARCHIVE.md), "HANDOFF notes of U0.2"). Next phase per
+§1a.6 / §1a.69: **AI1** (≈ 8–15 h), then **X422**, then Y3.
+
+1. **AI1-PREP done** (2026-10-13): read [`PREP-AI1.md`](PREP-AI1.md) first. Key finding: candle's
+   quantized matmul never uses `gemm` (batch-1 decode is a per-row quantized `vec_dot`), so the hot
+   path is our own Q8_0 / Q4_K / Q6_K dots with run-time dispatch through `pulp` (already in
+   Cargo.lock via gemm); `gemm` only for prefill f32 attention. Start by measuring one Q8_0 row loop
+   (pulp, no flag) against candle-with-flag before porting the rest.
+2. **AI1.1a done** (`crates/llm/src/quant.rs`, 2026-10-13): Q8_0 parse / quantize / dequantize /
+   dot / matvec in safe Rust, dispatched by `pulp` through `WithSimd` structs with `#[inline(always)]`
+   (a plain closure is *not* vectorized: measured no gain), `SimdLevel::{Auto, Baseline}` +
+   `FILMCRAFT_LLM_SIMD=baseline` override; all levels bit-identical (tested). Synthetic, 960 × 2560
+   matvec, 1 thread: built **without** the flag ours 147 µs (baseline 202), candle 1 342 µs; with the
+   flag candle 110 µs. **AI1.1b done:** rayon row split
+   (64 rows / task, bit-identical to one thread); 12 threads: no-flag ours 41.8 µs, candle no-flag 332,
+   candle with flag 41.7 → parity reached when threaded (a 4-rows-per-pass kernel gave nothing;
+   the 1-thread 1.34× gap is the i8 multiply shape, candle's `vpmaddubsw`; optional later).
+   **AI1.1c done** (`crates/llm/src/kquant.rs`): Q4_K / Q6_K parse (6-bit scales unpacked at load,
+   weights stay packed), dequantize (bit-equal to candle's on random blocks), Q8_K quantize, dots /
+   threaded matvecs via a zero-sized `Kernel` type (a `fn` pointer blocked inlining: measured).
+   Synthetic 1024 × 2560, 12 threads, no flag: Q4_K 44.5 µs / Q6_K 52.4 µs vs candle no-flag 139 / 149,
+   candle with flag 31 / 37 (we are ~1.4× behind it; optional tuning later).
+   **AI1.1d-1 done:** `gguf.rs` now keeps the tensor directory (`tensor_infos`, `tensor()`) and
+   finite float metadata (`floats`, `float()`); `weights.rs` `Weight::read` (F32 / F16 / Q8_0 / Q4_K /
+   Q6_K, dims checked, NaN F32 refused) with `row`, `vector`, `matvec` + `Scratch` (deliberately no
+   activation cache: a pointer-keyed cache goes stale on in-place buffers; quantizing is ~1 %).
+   **AI1.1d-2 done:** `forward.rs` (`Config::from_gguf`, `Forward::load / forward(&[u32], pos) /
+   reset`): both families, matches candle on a synthetic tiny GGUF (both archs) and on the real
+   SmolLM2-360M tune (steps 0–1 bit-identical, later steps same top token, ≤ 8 %: attention-sum
+   order × 8-bit activation rounding). Synthetic timing, 10 tokens: **20 ms / token without the
+   flag** (candle no-flag 74, flagged 36, both incl. load). Prefill is still token-by-token.
+   **AI1.1e done:** Q5_0 widened exactly to Q8_0 at load (`quant::parse_q5_0_as_q8_0`); K-quant
+   kernels now keep the reference's 8-lane float order, `rms_norm` divides and attention divides by
+   √d as candle does → **step 0 bit-identical to candle's scalar path on all six local models**
+   (Q8_0 models and Qwen 0.5B Q4_K_M even through step 1; later steps differ by attention-sum order
+   × 8-bit rounding, worst SmolLM2-1.7B ~15 %; the fact checker is the gate). Synthetic, 10 tokens,
+   no flag: 20–26 ms / token (360M / 0.5B), 69–76 ms (1.5B / 1.7B), all faster than candle no-flag.
+   Real-model check: `FILMCRAFT_LLM_GGUF=<file> RUSTFLAGS="-C target-cpu=x86-64" … test --release
+   -p filmcraft-llm --features infer --lib real_model -- --ignored --nocapture`.
+   **Owed (optional, AI1.1g):** the exact-order Q4_K kernel vectorizes badly with AVX2 (1 thread
+   786 µs vs 228 for the old inexact one; 12 threads 120 vs 44.5 µs, candle flagged 31); only the
+   1.5B / 1.7B options lean on Q4_K.
+   **AI1.1f-1 done:** one generic row kernel (`quant::rows_at<K: Kernel>`, weights × t activation
+   rows; matvec = t 1) + `matmul_q8_0 / _q4k / _q6k`, `Weight::matmul`, batched `Forward::chunk`
+   (64-token prompt chunks, attention parallel over tokens), all bit-identical to token-by-token
+   (tested across a chunk boundary). Synthetic 300-token prefill, SmolLM2-360M tune: **ours 1.86 s
+   without the flag** vs candle 15.9 s no-flag / 2.75 s flagged. Prefill is now compute-bound on
+   the Q8_0 dot (~17 GMAC/s per thread; `vpmaddubsw`-shaped kernel would be the next big win,
+   AI1.1g with the Q4_K item).
+   **AI1.1f-2 done:** `sample.rs`: greedy (first max, = candle's argmax) and repeat penalty equal
+   to candle's (tested against it); temperature sampling with our own seeded splitmix64 (not
+   candle's random sequence; greedy is the default and the evaluated setting).
+   **AI1.1h done:** `infer.rs` now runs on `Forward` + `Sampler` (public API unchanged; candle is a
+   dev-dependency: test oracle + `llm_quantize`). Real models, no flag (`tests/model.rs`, synthetic
+   prompts): tuned smol360-v1 **1.57 s**, qwen05-v1 1.58 s, stock 0.5B 1.90 s per answer (target
+   ≤ 2.5 s); engine `ai_explain` tests green.
+   **AI1.1g-1 done (Q8_0 on AVX2):** `Kernel::dot_v3` override + `dot_q8_0_v3` (sign trick,
+   `vpmaddubsw` / `vpmaddwd`, f32 lanes across blocks) via pulp's safe V3 intrinsics + bytemuck
+   casts, chosen at run time (`V3::try_new`, off under `FILMCRAFT_LLM_SIMD=baseline`). Synthetic
+   960 × 2560: 1 thread **91.5 µs** (portable 205, candle flagged 110), 12 threads **26 µs**
+   (candle flagged 41.7). 958-token prefill on the 360M tune 8.3 → **5.2 s**. Exactness vs candle
+   now only at Baseline (tests adjusted). **AI1.1g-2 done:** attention `dot` in 8 lanes and a
+   4-token register-blocked `dot4_v3` (bit-identical per lane): 958-token prefill 5.2 → **4.2 s**
+   (profile before: MLP + wo 2.9 s, qkv 0.8 s, attention 1.0 s; candle no-flag 54.7 s). Remaining:
+   **AI1.1g-3 done (Q4_K / Q6_K on AVX2):** Q4_K straight `vpmaddubsw` on the unsigned nibbles;
+   Q6_K on the unsigned 0..63 values with the −32 offset through `bsums` (the sign trick would
+   overflow: Q8_K activations reach −128). Synthetic 1024 × 2560, 12 threads: Q4_K **24.3 µs**,
+   Q6_K **31.7 µs** (candle flagged 31 / 37). Qwen2.5-1.5B 958-token prefill **50 → 11.9 s**
+   (candle flagged 17 s), decode 69 → 45 ms / token; SmolLM2-1.7B top token 10 / 10 steps vs
+   candle (real-model bound now 20 %). Tests: portable loop bit-identical to candle's scalar path,
+   AVX2 within 1e-5; the global SIMD override is no longer touched by tests (it raced with
+   `FILMCRAFT_LLM_SIMD=baseline` runs).
+   The AI1.1g regression is closed. Optional later: `dot4_v3` for K-quants, AVX-512 / NEON paths
+   (the portable loop covers them today).
+   **Held-out evaluation on our pass done** (`runs/ai1-own-pass/`, no flag, synthetic): qwen05-v1
+   74/75 (identical), smol360-v1 70/75 (recorded 72; set 2 flips 36 / 37 / 38 with summation
+   order on threshold cases) at **1.62 s mean per answer** (was ~3 s): OWNER-QUESTIONS **Q22**,
+   provisional (a) accept within ±2. This CPU also has AVX-512 (a later V4 path is possible).
+   **AI1.2 done (2026-10-13):** the `x86-64-v3` block is gone (Q8 resolved). No Whisper / Kokoro
+   weights are on this PC, so their candle f32 ops were timed synthetically
+   (`crates/speech/examples/candle_ops_bench.rs`, with vs without the flag): gemm-backed ops equal;
+   candle's `conv_transpose1d` (6.7 → 45 ms) and last-dim mean (0.2 → 2 ms) regress without it, so
+   Kokoro's `ConvT` (groups 1) and `norm_last` now use gemm (`layers::conv_transpose1d_gemm`,
+   `mean_last`: 8.0 / 0.09 ms, tested against candle). Owed: time one real transcription / TTS line
+   when weights are on disk (no download without the owner's yes).
+   **AI1.3a done (crates/llm):** `Model::generate_streaming(system, user, opts, &mut |so_far| bool)`
+   (whole answer so far, half-UTF-8 held back; `false` → `StopReason::Cancelled`; panicking
+   callback → `Panicked`), and **prompt-prefix KV reuse** (`Forward::truncate`, `Model.cached`; any
+   error / panic forgets the cache; answers identical, tested). Synthetic, real models, only the
+   system prompt cached: **first words 0.29–0.31 s** on the 0.5B / 360M models (was ~0.6 s; 1.5B
+   0.9 s, 1.7B 1.15 s).
+   **AI1.3b done (engine + UI):** `ExplainBackend::generate_streaming` (default: no streaming);
+   the job publishes each longer run of **complete sentences that pass the fact check** as
+   `Answer::Pending { partial }` (`grade.explainNode` / `ai.explanation` JSON field `partial`);
+   unchecked text is never shown, the final answer is still checked whole (a later wrong sentence
+   → template). Generation stops when nobody waits (timeout / forgotten). Match tab shows the
+   partial. Guide `docs/guide/color/matching.md` updated.
+   **AI1.3c done:** background pre-generation: `AiExplain::prefetch` / `can_prefetch`,
+   `grade.explainNode {"prefetch": true}`; speculative pending entries, a newer prefetch drops
+   older un-asked ones (queued skip, running stop via `wanted()`), an explicit request adopts a
+   pending one; the grade panel fires it 0.6 s after the last edit / node change, not while
+   playing (`prefetch_explanation`, debounce in egui temp data keyed on revision, clip, node).
+   Tested in engine (`a_newer_prefetch_supersedes_and_a_request_adopts`); UI path not
+   screenshot-checked (MINIMAL).
+   **AI1.4 approved (owner, 2026-10-14, Q24 (a)):** download SmolLM2-135M-Instruct and do AI1.4
+   (keep the "fast" tune only if it passes; doesn't block `ai-1`).
+   **AI1.5 done:** new L1 crate `crates/ml` (`filmcraft-ml`): `simd::level()`, `job::{guarded,
+   Cancel, JobError, panic_message}`, feature `candle` → `ops::{conv_transpose1d, mean_last}`
+   (moved from Kokoro; tts's `kokoro` feature enables it). README says how to time a new
+   model's candle ops. A2 / G3 build on it.
+   **AI1.6 in progress:** `explain_traindata --subtle`, held-out set 3 (`eval_cases_v3`,
+   `--set 3`), data-v2 and the training run are described in TRAINING.md "smol360-v2"
+   (COACH-QUESTIONS has no entries yet; 6.7b TNR is clip-level, not something the node
+   explainer describes). Started 23:02 EDT: `~/Apps/filmcraft-train/runs/smol360-v2/`
+   (`session.log`, `train.log`); weights → `models/tuned/smol360-v2/`. If a run died, rerun
+   with `STAGES="quantize eval score"` (or `train …` if no `model.safetensors`). Then evaluate
+   v1 and v2 on all sets in one `llm_eval` run (`explain_score --set all --dump-cases`,
+   `--dedupe <data-v2>/train.jsonl`), and if v2 ≥ v1 on sets 1 and 2 and passes set 3: add it to
+   the catalogue (`crates/llm/src/models.rs`, `TUNED_PREFERENCE` first) and to the engine tests.
+   Then acceptance (both held-out sets, ≤ 2.5 s mean,
+   first words < 0.5 s ✓ 0.3 s, no crash without / with a corrupt model) → tag `ai-1`.
+   **AI1.1 (rest):** own quantized forward pass in `crates/llm` (from candle's MIT / Apache-2.0 code,
+   attribution kept), heavy maths through `gemm` (run-time AVX-512 / AVX2 / SSE / NEON dispatch), no
+   `unsafe` in our code; results identical to the old path within the fact checker; a forced-SSE
+   override for tests.
+3. AI1.2 delete the `x86-64-v3` block in `.cargo/config.toml` (resolve Q8); AI1.3 streaming +
+   background pre-generation; AI1.4 SmolLM2-135M "fast" option (keep only if it passes); AI1.5
+   shared runtime for A2 / G3; AI1.6 retrain `smol360-v2` on the RX 6700 XT (~1 h per run).
+   Accept (AI-PLAN): same scores on both held-out sets (75 cases), ≤ 2.5 s mean answer, first words
+   < 0.5 s, no crash without / with a corrupt model; tag `ai-1`.
+4. **Model downloads:** AI1 uses the models already on disk / published; any new download needs the
+   owner's yes (memory `fork-owner-questions`).

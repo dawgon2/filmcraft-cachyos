@@ -30,6 +30,11 @@ if pactl list short sinks | awk '{print $2}' | grep -qx "$SINK"; then
 fi
 pactl load-module module-null-sink "sink_name=$SINK" "sink_properties=device.description=$SINK" >/dev/null || exit 1
 echo "soak: ${RUN_SECONDS}s on $SINK; card $CARD profile '$PROFILE' (restored at the end)"
+# Fork A2.6: with FC_SOAK_VOICE_MODEL=<checkpoint> Voice Isolation runs on FC_SOAK_VOICE_TRACKS
+# tracks; the model is installed into a scratch data directory, never the real one.
+if [ -n "${FC_SOAK_VOICE_MODEL:-}" ]; then
+    export FILMCRAFT_DATA_DIR=$(mktemp -d /tmp/fc-soak-data.XXXXXX)
+fi
 FC_SOAK_SECONDS=$RUN_SECONDS FC_SOAK_DEVICE=$SINK FC_SOAK_NULL_SINK=$SINK FC_SOAK_CARD=$CARD FC_SOAK_PROFILE=$PROFILE \
     FC_SOAK_REPORT=$REPORT PULSE_SINK=$SINK \
     cargo test --release -p filmcraft --bin filmcraft -- --ignored --nocapture --test-threads=1 audio_soak &

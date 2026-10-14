@@ -6,7 +6,7 @@
 //!
 //! Its state is [`HomeState`] (`UiState::home`, serde: `ui.inspect` / `ui.set {"home": …}`).
 //! Automation ids:
-//! - title row: `projects.close.x` (with no project open: into a new untitled project), `projects.tab.local`;
+//! - title row: `projects.close.x` (quits FilmCraft, as Quit does), `projects.tab.local`;
 //! - row 2: `projects.sidebar`, `projects.crumb.root`, `projects.crumb.<n>`, `projects.newFolder`,
 //!   `projects.thumbSize`, `projects.sort` (`projects.sort.<name|modified|created>`,
 //!   `projects.sort.descending`), `projects.info`, `projects.view.grid`, `projects.view.list`,
@@ -632,9 +632,9 @@ pub fn draw(app: &mut FilmcraftApp, ui: &mut egui::Ui, full: Rect) {
     }
     let x_left = title.min.x + if app.integrated_titlebar { 84.0 } else { 8.0 };
     let xr = Rect::from_min_size(pos2(x_left, title.min.y + 6.0), vec2(24.0, 24.0));
-    if icon_button(ui, &mut app.auto, xr, "projects.close.x", Icon::Close, false, &t, tl!("Close")) {
-        // like Resolve's: with no project open it closes into a new untitled project
-        acts.push(Act::Cmd("projects.close".into(), json!({"untitled": true})));
+    if icon_button(ui, &mut app.auto, xr, "projects.close.x", Icon::Close, false, &t, tl!("Quit FilmCraft")) {
+        // the Project Manager's × quits FilmCraft (owner, 2026-10-14; unsaved changes ask first)
+        acts.push(Act::Cmd("app.quit".into(), json!({})));
     }
     let local = Rect::from_min_size(pos2(xr.max.x + 14.0, title.min.y + 4.0), vec2(70.0, TITLE_H - 4.0));
     p.text(local.center(), Align2::CENTER_CENTER, tl!("Local"), Tokens::ui(13.0), t.text);

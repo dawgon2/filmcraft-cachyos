@@ -1029,7 +1029,9 @@ impl VideoEncoder for HevcEncoder {
             Engine::Ffmpeg(_) => std::mem::take(&mut self.yuv),
         };
         if self.params.chroma_422 {
+            let clock = filmcraft_export::trace::start();
             filmcraft_export::frame_to_yuv422p10le(f, self.params.signal, &mut yuv);
+            filmcraft_export::trace::add(filmcraft_export::trace::ENC_422_PREP, clock);
         } else {
             filmcraft_export::frame_to_yuv420p(f, self.params.signal, self.params.ten_bit, &mut yuv);
         }

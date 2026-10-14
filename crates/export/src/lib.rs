@@ -804,6 +804,12 @@ pub trait GpuFrames: Send + Sync {
     ) -> Option<std::sync::Arc<dyn GpuPicture>> {
         None
     }
+
+    /// As [`yuv420`](Self::yuv420) but 4:2:2 (`yuv422p10le` / `yuv422p`, full-height chroma;
+    /// fork X422, the 4:2:2 HEVC master). None: render this frame on the CPU.
+    fn yuv422(&self, _plan: &filmcraft_render::plan::FramePlan, _kr: f32, _kb: f32, _ten_bit: bool, _high_quality: bool) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 static GPU_FRAMES: std::sync::OnceLock<Box<dyn GpuFrames>> = std::sync::OnceLock::new();
@@ -839,7 +845,13 @@ pub mod trace {
     /// Of [`DEC_COPY`]: waiting for the display's one video-processing context, and the copy's sync.
     pub const DEC_COPY_LOCK: usize = 8;
     pub const DEC_COPY_SYNC: usize = 9;
-    const NAMES: [&str; 10] = [
+    /// Compositing and reading back a GPU-converted frame (4:2:0 / 4:2:2, not zero-copy).
+    pub const GPU_READ_BACK: usize = 10;
+    /// Preparing the encoder's 4:2:2 input (fork X422): the planar frame.
+    pub const ENC_422_PREP: usize = 11;
+    /// Of the encoder's 4:2:2 input: packing Y210 into the image and `vaPutImage`.
+    pub const ENC_422_UPLOAD: usize = 12;
+    const NAMES: [&str; 13] = [
         "plan+decode",
         "gpu lock wait",
         "gpu record",
@@ -850,8 +862,11 @@ pub mod trace {
         "va hand-off copy",
         "copy lock wait",
         "copy sync",
+        "gpu read-back",
+        "4:2:2 encoder input",
+        "4:2:2 upload",
     ];
-    static NS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
+    static NS: [AtomicU64; 13] = [const { AtomicU64::new(0) }; 13];
 
     pub fn on() -> bool {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -1751,6 +1766,14 @@ fn rgb_to_yuv_p10le(px: impl Fn(usize) -> [f32; 3] + Sync, w: usize, h: usize, k
 /// 4:2:0 (converted or rendered on the GPU) has its chroma rows doubled; no picture at all is black.
 pub fn frame_to_yuv422p10le(f: &EncoderFrame, signal: ColorSignal, out: &mut Vec<u8>) {
     let (w, h) = (f.width as usize, f.height as usize);
+    // converted to 4:2:2 on the GPU already (fork X422): its length tells it from 4:2:0
+    let len422 = w.saturating_mul(h).saturating_add(w.div_ceil(2).saturating_mul(h).saturating_mul(2)).saturating_mul(2);
+    if let Some(y) = f.yuv.filter(|y| y.len() == len422 && len422 > 0) {
+        // (in parallel: one thread copied a 6.2K frame in ~28 ms, on the encoder's serial path)
+        out.resize(len422, 0);
+        out.par_chunks_mut(1 << 20).zip(y.par_chunks(1 << 20)).for_each(|(d, s)| d.copy_from_slice(s));
+        return;
+    }
     match f.hdr {
         Some(rgb) if rgb.len() >= w.saturating_mul(h).saturating_mul(3) => {
             let (kr, kb) = signal.kr_kb();
@@ -2359,5 +2382,26 @@ mod yuv422_tests {
         assert!(out.is_empty());
         frame_to_yuv422p10le(&frame(0, 5, &[], None), ColorSignal::default(), &mut out);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn a_422_frame_from_the_gpu_passes_through() {
+        // fork X422: 2x2 yuv422p10le (Y 0..4, U 100,101 per row, V 200,201) comes out as it is
+        let mut src = Vec::new();
+        for v in (0..4u16).chain([100, 101, 200, 201]) {
+            src.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut out = Vec::new();
+        frame_to_yuv422p10le(&frame(2, 2, &[], Some(&src)), ColorSignal::default(), &mut out);
+        assert_eq!(out, src);
+        // odd width: chroma ceil(w/2) per row, both rows; one byte short is not taken for 4:2:2
+        let mut odd = Vec::new();
+        for v in (0..6u16).chain(1..=8) {
+            odd.extend_from_slice(&v.to_le_bytes());
+        }
+        frame_to_yuv422p10le(&frame(3, 2, &[], Some(&odd)), ColorSignal::default(), &mut out);
+        assert_eq!(out, odd);
+        frame_to_yuv422p10le(&frame(3, 2, &[], Some(&odd[..odd.len() - 1])), ColorSignal::default(), &mut out);
+        assert_eq!(out.len(), odd.len(), "the right size, from the 4:2:0 fallback");
     }
 }

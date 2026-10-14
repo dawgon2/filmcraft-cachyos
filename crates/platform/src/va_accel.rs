@@ -1014,6 +1014,44 @@ mod tests {
         assert!(copier.copy_scaled(&src, (0, 0, 640, 360), (0, 180)).is_err(), "empty output");
     }
 
+    /// Fork X422: a pool keeps the image `Surface::write` uploads through; surfaces written one
+    /// after another (so through the same image) each hold their own values.
+    #[test]
+    fn writes_through_the_pools_kept_image_stay_per_surface() {
+        for node in crate::va::render_nodes() {
+            writes_through_the_pools_kept_image_on(&node);
+        }
+    }
+
+    fn writes_through_the_pools_kept_image_on(node: &str) {
+        let Ok(display) = Display::for_node(node) else { return };
+        let fmt = (sys::VA_RT_FORMAT_YUV420_10, sys::VA_FOURCC_P010);
+        let pool = SurfacePool::new(&display, fmt.0, fmt.1, 64, 32);
+        let surfaces: Vec<_> = (0..3).filter_map(|_| pool.get().ok()).collect();
+        if surfaces.len() < 3 {
+            eprintln!("{node}: no VA-API surfaces; skipped");
+            return;
+        }
+        eprintln!("{node}: checked");
+        for (k, s) in surfaces.iter().enumerate() {
+            let code = 100 + 200 * k as u16;
+            s.write(|bytes, _, _| {
+                for p in bytes.as_chunks_mut::<2>().0 {
+                    *p = (code << 6).to_le_bytes();
+                }
+                Ok(())
+            })
+            .expect("written");
+        }
+        for (k, s) in surfaces.iter().enumerate() {
+            let PixelData::Yuv16Bi { y, .. } = read_back(s, (0, 0, 64, 32)).expect("read") else { panic!("P010 reads back as Yuv16Bi") };
+            assert!(y.iter().all(|&v| v >> 6 == 100 + 200 * k as u16), "surface {k}");
+        }
+        // a failed fill leaves nothing behind; the next write still works
+        assert!(surfaces[0].write(|_, _, _| Err("no".into())).is_err());
+        surfaces[0].write(|_, _, _| Ok(())).expect("written after a failure");
+    }
+
     /// Time of one 4K P010 hand-off copy on a render node (`FILMCRAFT_TIME_NODE`, default
     /// renderD128), and which memory it lands in (U0.2.3b d diagnosis):
     /// `cargo test -p filmcraft-platform --release --lib -- --ignored --nocapture handoff_copy_time`.

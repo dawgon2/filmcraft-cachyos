@@ -402,6 +402,10 @@ the correct scale is 62 %, not 52 %, and the diagnostic under-delivered pixels. 
 is 33.8 dB graded, still a fine-texture difference only. Off-switches: Primary GPU only, Maximum
 Render Quality, or `FILMCRAFT_HANDOFF_SCALE=1`.
 
+**Owner (2026-10-14, live): (b) scheduled** as X422 step 2b, fused graded passes (§1a.71).
+
+**Answered 2026-10-14 ~01:20 (owner, live): keep (a)** ("ok sounds good then"). Resolved.
+
 ## Q21 (2026-10-13, U0.2.3b e): 6.2K graded export stays at ~19.6 fps, short of the ≥ 24 aim (FYI, choice made)
 
 Step e's full-length bench (synthetic, median of 2) passed three of four targets: 4K 32.5 / 35.1 fps,
@@ -418,6 +422,8 @@ to switch on. Options:
     on repeated exports.
 **Choice for now: (a).** Reversible: (b) and (c) can be scheduled any time.
 
+**Owner (2026-10-14, live): route to 24 fps wanted;** fused graded passes scheduled in X422 step 2b
+(§1a.71). Render-cache reuse for exports (c) not scheduled.
 
 ## Q22 (2026-10-13, AI1.1): the tuned SmolLM2 explainer scores 70/75 on the new runtime instead of 72/75 (FYI, choice made, reversible)
 
@@ -466,3 +472,87 @@ does AI1.4 (before or after the `ai-1` tag, it doesn't block it). Reversible.
 
 **Answered 2026-10-14 ~01:10 (owner, live): (a) yes.** The run may download SmolLM2-135M-Instruct
 (Apache-2.0, ~270 MB) and do AI1.4; keep the "fast" tune only if it passes. Doesn't block `ai-1`.
+
+## Q25 (2026-10-14, AI1 end): the ARM (NEON) explainer kernels are not in `ai-1` (FYI, choice made)
+
+§1a.69 says AI1 also adds the aarch64 (NEON) kernel path. `ai-1` shipped without it: on ARM the
+explainer runs on the portable loop (correct, roughly the forced-portable speed: 1.9 s per answer
+on this PC, slower on a small ARM board). Writing NEON kernels needs at least the
+`aarch64-unknown-linux-gnu` Rust target and an emulator (`qemu-user`) to test them here, both
+downloads, and real ARM hardware to measure. Options: (a) do it in **Phase 8 item 7** (Asahi /
+ARM64), where ARM builds and tests happen anyway; (b) do it now as AI1.7 after you allow
+`rustup target add aarch64-unknown-linux-gnu` + installing `qemu-user` (sudo: you); (c) skip.
+**Choice for now: (a)**, X422 continues. Reversible: answer (b) and a run does AI1.7 next.
+
+## Q26 (2026-10-14, A2 audit, Dell lane): parity oracle and test speech for voice isolation (FYI, choice made)
+
+A2 ports DeepFilterNet3 to candle (weights downloaded with your 2026-10-12 consent, pinned and
+checksummed, see `PREP-A2.md` §3). Two things the rules make me decide:
+1. **Oracle.** To prove the port matches the original, something must run the original model.
+   There's no PyTorch / onnxruntime here and installing them is a new download. **Choice:** build
+   DeepFilterNet's own Rust tool (`libDF` / `deep-filter`, MIT / Apache, same repo as the weights)
+   **from source on the Dell** as a test oracle only, like ffmpeg: never linked, never shipped.
+2. **Test speech.** Kokoro voices aren't on disk, so the SI-SDR test set uses the built-in formant
+   voice and generated speech-like signals. That's weaker evidence than real recordings.
+   Options: (a) keep it so; (b) allow a small CC-BY speech set (e.g. ~50 utterances of LibriSpeech
+   `test-clean`, CC-BY 4.0, ~30 MB) on the Dell only; (c) allow downloading the Kokoro voices the
+   app already offers. **Choice for now: (a)**; answer (b) or (c) and a later run re-measures.
+
+## Q27 (2026-10-14, X422 (b)): the 6.2K 4:2:2 HEVC master exports at ~7 fps, not 24 (FYI, choice made)
+
+Exporting the graded 6.2K 4:2:2 clip to the "HEVC 4:2:2 10-bit master" preset now runs at **7.3 fps**
+(was 0.5 fps: the colour conversion moved from the CPU to the GPU). The limit is the Intel UHD 750: it is the
+only chip here that can both decode and encode HEVC 4:2:2, so it decodes, copies each frame across for the AMD
+card to grade, and encodes, all at once. Measured levers (synthetic, `docs/fork-benchmarks.md` "X422"):
+the encoder's speed setting changes nothing ("speed" 6.9, default 6.8, "quality" 5.0 fps); our ProRes 422 HQ
+encoder at 6.2K runs at 0.5 fps (the ProRes path still renders the grade on the CPU); faster uploads into the
+encoder (`vaDeriveImage`, tried) save CPU time but no frames, because the Intel chip, not the CPU, is full.
+Options: (a) keep it: 7 fps (a 1-minute 6.2K 4:2:2 master takes ~4 minutes); for speed, export the 4:2:0
+"6.2K Master HEVC" (case (a), 17 fps now, X422 works on it next); (b) later: render ProRes 422 HQ on the GPU
+too (a separate step, its own measurement); (c) a future machine with a 4:2:2 HEVC encoder on the big GPU
+(e.g. NVIDIA 50-series / Intel Arc) would lift this.
+**Choice for now: (a)**, X422 continues with case (a) and the fused passes (§1a.71). Nothing to undo.
+
+**Update 2026-10-14 ~06:30 (A2.7), now a real question: A2's acceptance needs your answer.**
+Measured with (a): DeepFilterNet doesn't recognise the built-in formant voice as speech (clean
+speech comes out at 2.1 dB SI-SDR instead of ≥ 20; it loses to DeNoise on most noise types; table
+in FORK-PLAN §7). The port is verified (identical to the original, 68.2 dB), so only real speech
+can show whether Voice Isolation meets the gate. Options:
+(b) the lane downloads ~50 utterances of LibriSpeech `test-clean` (CC-BY 4.0, read English speech,
+~30 MB, Dell only, never committed), converts them to 48 kHz WAV with ffmpeg (oracle use);
+(c) download the Kokoro natural voices the app already offers (neural TTS: closer to speech, still
+synthetic, ~330 MB);
+(d) you record 2–5 minutes of your own voice in a quiet room (any app, 48 kHz WAV) and put the files
+in `~/.local/share/filmcraft-fork/voice-test/` on the PC (the lane copies them to the Dell; they stay
+out of git).
+**Recommendation: (b)** (no work for you, permissive licence, many speakers), or (d) if you'd rather
+test on your own voice. Until then the lane continues with A2.6 / A2.8 / A2.9 and re-measures when
+you answer; the harness takes any folder of 48 kHz WAVs (`FILMCRAFT_EVAL_SPEECH`).
+
+**Owner answer (live, 2026-10-14 ~06:20): (b) approved.** "If there's footage from elsewhere other than me
+that you can use for this, that's totally fine." The Dell lane downloads the ~50 LibriSpeech `test-clean`
+utterances (CC-BY 4.0, ~30 MB, Dell only, never committed), converts them to 48 kHz WAV with ffmpeg (oracle
+use) and re-measures A2's gate on them. (c) Kokoro voices only if (b) proves unsuitable. The owner may still
+add recordings of their own voice later in `~/.local/share/filmcraft-fork/voice-test/`; re-measure then too.
+
+## Q-AI3-models (2026-10-14, AI3): which models may AI3 download? (answered)
+
+**Answered live: SmolLM3-3B yes** (base + instruct, quantized and full-precision for the tune; on
+this PC and the Dell). Phi-4-mini: not approved. OLMo 2 7B: only if AI3's eval shows SmolLM3 is
+not enough; ask again with numbers then.
+
+## Q28 (2026-10-14, X422 2b): fused graded passes kept; the graded aims are still short (FYI, choice made)
+
+**What happened.** The fused passes (§1a.71) cut the bench grade's GPU work per 6.2K frame from 286 to 178 ms on the
+Intel UHD 750 (~3.5 → ~4.9 fps for an Intel lane) and from 19.1 to 8.2 ms on the RX 6700 XT. Exports: 6.2K graded
+19.6 → 19.7 fps (AMD is held by decode / encode there, not by rendering), X422 (a) 4:2:2 graded 17.1 → 19.9 fps.
+The aims (Intel ~8–10 fps, 6.2K graded ≥ 24 fps) are not met.
+**Choice made (per §1a.71):** keep the gain, record it, go on with X422's final benches. Output equals the old passes
+within 1e-5 on both GPUs; `FILMCRAFT_FX_FUSE=0` brings the old passes back.
+**Options for later, if you want them:** (a) nothing more (recommended for now); (b) bake the colour chain (input
+transform + Basic + curves) into a GPU 3-D LUT per grade, which would cut Intel's chain cost (~60 ms of maths) at a
+small accuracy cost (LUT interpolation, needs your bar); (c) let the Auto rule give Intel a share of graded 6.2K
+exports now that its lane is ~4.9 fps (a few percent at best, since AMD is decode / encode-bound).
+**(a)'s measured limit (X422 acceptance):** median of 2 = 20.0 fps; the Intel UHD 750 spends ~50 ms per frame on 4:2:2
+decode + the ~104 MB hand-off copy to the AMD card, and AMD waits on it (`docs/fork-benchmarks.md` "X422 final").
+(b) 4:2:2 HEVC master: 7.2 fps (Q27).

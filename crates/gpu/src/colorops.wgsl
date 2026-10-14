@@ -69,6 +69,12 @@ const CO_HSL_CORRECT: u32 = 23u;
 const CO_GRAIN: u32 = 24u;
 const CO_STASH: u32 = 25u;
 const CO_MIX_STASH: u32 = 26u;
+// GPU-only codes (`fx.rs` `fused_steps`, fork X422 2b.2): an HSL Secondary without blur or denoise
+// as one chain, key then correct: KEY_BEGIN keeps the colour and starts the mask as `chain_key`
+// does, KEY_END brings the colour back for the correct ops (the mask stays, as `chain_masked`
+// reads it).
+const CO_KEY_BEGIN: u32 = 27u;
+const CO_KEY_END: u32 = 28u;
 
 fn rgb_to_hsl(c: vec3<f32>) -> vec3<f32> {
     let r = c.x; let g = c.y; let b = c.z;
@@ -730,6 +736,15 @@ fn chain_op(code: u32, c_in: vec3<f32>, xy: vec2<f32>, pcp: ptr<function, u32>, 
         }
         case CO_STASH: {
             stash_reg = c;
+            pc = pc + 1u;
+        }
+        case CO_KEY_BEGIN: {
+            stash_reg = c;
+            mask_reg = 1.0;
+            pc = pc + 1u;
+        }
+        case CO_KEY_END: {
+            c = stash_reg;
             pc = pc + 1u;
         }
         case CO_MIX_STASH: {

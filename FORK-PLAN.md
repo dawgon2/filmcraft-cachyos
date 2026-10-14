@@ -875,6 +875,70 @@ the agent's own recorded interpretations, not the owner's words.
     proceed. "No small settled step left" isn't a stop either: take the next plan step and do it
     MINIMAL-style (design notes in HANDOFF count as settled enough), or the cheapest owed item.
 
+71. **Owner answers and a new X422 step (owner, live, 2026-10-14 ~01:10–01:30).** Accepted: **A1**
+    (Dell lane; tag `audio-1` rides with the next group) and **L1 / L2 part 2** (tags `linux-1b` /
+    `linux-2b` likewise). OWNER-QUESTIONS: Q11 keep (a) (no HDR output for now); Q20 keep (a)
+    ("ok sounds good then": the scaled hand-off stays on in Auto); Q24 (a) yes, so **AI1.4** (SmolLM2-135M
+    "fast" tune) is an owed item: do it before X422's benchmarks (≈ 1 h on the RX 6700 XT; X422 then
+    benches on an idle machine); keep the tune only if it passes; it doesn't reopen `ai-1`.
+    **Fused graded passes join X422** (Q19 (b), Q21's route for the first export; owner: "put it in
+    the plan somewhere"; placed in X422 by the agent because X422 is the next phase about graded 6.2K
+    export and both of its cases gain): compile the colour chain and per-pixel effects of a clip into
+    one full-f32 pass and combine Unsharp's passes, so each 6.2K frame crosses memory far fewer times
+    (~830 MB per pass today, ~8 passes on the bench grade). Output equal to today's multi-pass path
+    within the existing AMD / Intel parity tolerance; both GPUs. Aims (full-length bench, median of 2):
+    Intel UHD 750 6.2K graded ~8–10 fps (from ~3.5), **6.2K graded export ≥ 24 fps** with both GPUs
+    (the §1a.63 Auto rule may then give Intel a share), and lower render time in X422 (a). ≈ 15–25 h.
+    Short of an aim: keep the gain, log it in OWNER-QUESTIONS (FYI) and go on.
+
+72. **A2, then H1 → H2 → H3, move to the Dell lane (owner, live, 2026-10-14 ~01:40).** Asked what
+    else the Dell could do, the owner picked A2 ("a more important feature to add than phase H")
+    and H1 → H2 → H3 after it ("it wouldn't hurt to put this after A2"). The main runner's order is
+    now … X422 → Y3 → C1 → C2 → AI2 → S1 → S2 → G3 → 7 (+ Y4) → Y2 → C3 → C4 → G4 → A3 → R1 → R2 → D
+    → 8, without A2 and H1–H3. G3 doesn't wait for A2: the shared ML runtime is `crates/ml`
+    (AI1.5). A2's model download was consented on 2026-10-12 for when A2 starts. Acceptance (tags
+    `audio-2`, `h264-1/2/3`) rides with the main runner's next phase group, like L1 / L2 and A1.
+    The lane's rules (conflict rules: A2 stays out of platform / gpu / export / render / llm; H1's
+    VA-API H.264 edits in `crates/platform` are surgical, rebased often, Opus-reviewed) are in its
+    scheduled task `filmcraft-dell-lane` (every 30 min since 2026-10-14). *(agent, for later:
+    H2's software decoder is also what Asahi Linux (Phase 8 item 7) would use for H.264, since
+    Apple's video engine has no VA-API driver there; it needs the NEON paths of Q25 to be fast.)*
+73. **AI3: a grading assistant you can ask advanced questions (owner, live, 2026-10-14).** "I want to
+    be able to ask it advanced questions about how to grade. What nodes do what, what to do if I
+    want to grade in a specific way, how to tweak something just right, what a certain tool in the
+    app is and how to use it, etc. We can use a bigger model if needed." Today's Ask the coach is
+    a keyword search (G2.12 part 2) and the downloaded model only rewrites node explanations; the
+    G2.12 plan's "uses the local model if installed" was never built. New phase **AI3**
+    (AI-PLAN.md): an advanced grading part of the guide, retrieval that understands questions, a
+    bigger local model (3–8B, open licence, chosen by an eval), answers grounded in the guide and
+    the current grade with every control checked, a follow-up chat. Placed **after Y3, before C1**
+    (runner's choice, FYI: grading-only, doesn't need the compositor; AI2 later teaches it the
+    new nodes); the owner may move it. Model downloads need the owner's yes per model.
+    **Same day, extended:** a professional-practice corpus from Resolve / Premiere work (openly
+    licensed sources quoted with attribution; everything else only read and rewritten in our own
+    words, sources maintainer-local, never transcripts or manual copies), an in-depth page for
+    every FilmCraft feature (unique ones first), a practice → FilmCraft mapping turned into
+    training pairs for a tune, and compact parsable section headers to cut prompt tokens
+    (AI-PLAN AI3 item 0). Estimate now ≈ 70–120 h.
+74. **AI3 after C1; its knowledge work on the Dell lane first (owner, live, 2026-10-14).** "I'd say
+    after C1. Especially if we can delegate some work to the dell before the heavy lifting picks
+    up." Order: … Y3 → C1 → **AI3** → C2 → AI2 → …. **AI3-PREP (Dell lane, after A2):** the parts
+    that need no GPU and no RX 6700 XT: the practice notes (AI-PLAN AI3 0a, sources rule), the
+    feature pages (0b), the Resolve / Premiere → FilmCraft mapping and draft training pairs (0c),
+    the compact header pass over the guide plus its test (0d), the advanced eval question set
+    (item 6), and CPU tokens/s measurements of candidate models on the Dell once downloads are
+    approved. Merged step by step like other Dell-lane work; the guide grows as it lands. The main
+    runner's AI3 then does retrieval, the model integration and chat UI, the tune (RX 6700 XT) and
+    the acceptance. Note: the Dell saves machine time, not usage; the lane's tokens count against
+    the same limits (pace per §1a.52 / .55).
+    **Model downloads (owner, live, 2026-10-14):** "yes to smol": **SmolLM3-3B** (Hugging Face,
+    Apache-2.0, base + instruct; ~2 GB quantized, more for the full-precision base used for the
+    tune) is approved for AI3 / AI3-PREP (Dell CPU measurements included). It is AI3's primary
+    candidate (open data and recipe, a base model to continue training on: the most tailorable).
+    Phi-4-mini is not approved (comparison only if asked later). **OLMo 2 7B** (AI2, Apache-2.0,
+    fully open) is the candidate "Large" tier for stronger machines, decided by AI3's eval: only if
+    SmolLM3 misses the floor or a large tier clearly beats it; its download still needs a yes.
+
 ## 2. The machine and the footage (don't re-research these)
 
 **System:** CachyOS (Arch-based, rolling, recent kernel and Mesa), AMD Radeon RX 6700 XT
@@ -1367,3 +1431,79 @@ Older entries (everything before the newest ~20) are in [`docs/fork/PROGRESS-LOG
   `av_sync_ui` (3 frames off once under full load; renamed `…_realtime` so ci runs it alone, as for the mixer test).
   Prefetch now runs the model-file readiness check only when its debounce fires. §1a.33's public build drops
   `-C target-cpu=x86-64-v3`. Self-reviewed (MINIMAL: no reviewer subagents; Opus review of AI1.1g–AI1.5 owed).
+- **2026-10-14 01:52 EDT, same run (MINIMAL, U 22 / L 12.5): AI1 accepted, tag `ai-1` (bcb5f713).** Build
+  `~/Apps/filmcraft-builds/ai-1` (NOTES.md), `latest` → it, launcher valid. Public: snapshot `6e3428fc` on cachyos
+  `fork`, tag + release `fork-ai-1` with the scrubbed Dell build (326 s, now without `target-cpu`; `strings`: only
+  /home/user). §1a.69's NEON path not done → OWNER-QUESTIONS Q25 (provisional: Phase 8 item 7). HANDOFF rewritten for
+  **X422** (AI1 notes archived).
+- **2026-10-14 02:15 EDT, scheduled run (MINIMAL, U 23 / L 12.9; 5-h 26 / L5 74): X422 started.** Bench cases
+  `xm5-export-422 graded` / `xm5-export-422 master graded`; (b) RGB → 4:2:2 moved to the GPU (`YuvPass` 4:2:2 mode,
+  read back; ≤ 1 code vs CPU oracle on AMD + Intel). First synthetic numbers: (a) 17.1 fps, (b) 6.8 fps (0.5 on the
+  old CPU path). Self-reviewed (MINIMAL). AI1.4 (Q24 (a)) owed before the final X422 benches (§1a.71).
+- **2026-10-14 02:22 EDT, same run (MINIMAL): X422 (b) diagnosis.** Trace stages `gpu read-back` / `4:2:2 encoder
+  input`; VA upload image kept per surface pool (`Surface::write`, test on both render nodes): 145 → 126 ms/frame.
+  (b)'s limit is the read-back (108 ms/frame, serial under the compositor lock). Self-reviewed (MINIMAL).
+- **2026-10-14 02:34 EDT, same run (MINIMAL): X422 (b) read-back pipelined** (`YuvPass::submit` / `YuvReadback::wait`,
+  waited for outside the export compositor lock): (b) 7.3 fps (a unchanged 17.1). Now limited by Intel's `vaPutImage`
+  (~87 ms/frame). GPU tests green on AMD + Intel. Self-reviewed (MINIMAL).
+- **2026-10-14 02:38 EDT, same run (MINIMAL): X422 (b)** parallel pass-through copy (28 → 19 ms/frame). Dead end
+  recorded: Intel encode from CPU-filled linear Y210 AMD memory gives wrong pictures (reverted, tests caught it).
+- **2026-10-14 02:56 EDT, same run (MINIMAL): X422 (b) recorded** at ~7.3 fps (Intel UHD 750 saturated: 4:2:2 decode +
+  hand-off + encode); bench case `xm5-export-422 prores graded` (0.5 fps, CPU render) and `FILMCRAFT_BENCH_ENC_SPEED`;
+  OWNER-QUESTIONS Q27 (FYI). `vaDeriveImage` and non-blocking polling tried, no gain, reverted.
+- **2026-10-14 ~03:30 EDT, Dell lane: A2.0–A2.3** (§1a.72). PREP-A2 audit + Q26 (FYI: oracle built from
+  source, formant test speech); DeepFilterNet3 weights downloaded (consented 2026-10-12, pinned, checksummed,
+  Dell only). New L2 crate `crates/voice`: DFN3 signal path (A2.1), checked checkpoint loader (A2.2), network as
+  plain-Rust streaming kernels + `Denoiser` (A2.3): parity with the original 68.2 dB, RTF 0.071 on one Dell core.
+  Next A2.4 (the `voice_isolate` effect).
+- **2026-10-14 ~04:20 EDT, Dell lane: A2.4** `voice_isolate` effect merged (audio-dsp external-effect registry with a
+  DeNoise fallback, the model effect in `crates/voice`, project def, one render arm, guide page `audio.md`). Next A2.5.
+- **2026-10-14 03:29 EDT, same run (MINIMAL): AI1.4 done** (Q24 (a), §1a.71): SmolLM2-135M-Instruct downloaded (pinned
+  12fd25f), `run.sh smol135`, tune `smol135-v1`: 34 / 36, 36 / 40, 13 / 13 (360M v1: 34, 37, 13) at ~0.6 s per answer
+  (half); catalogued as `filmcraft-explainer-smol135-v1-q8` ("fast", user-picked only), guide `color/matching.md`.
+  `run.sh` builds through fc-cargo.sh now. CLOUD-QUEUE "PC is doing" updated.
+- **2026-10-14 ~05:45 EDT, Dell lane: A2.5a / A2.5b** merged: `audio.voiceIsolate.*` (download from the pinned URL with
+  checksum, installFile, remove, lazy loading; checked end to end on the Dell) and Settings ▸ Audio ▸ Voice isolation.
+  Next A2.7 (SI-SDR test set).
+- **2026-10-14 ~06:30 EDT, Dell lane: A2.7** SI-SDR harness merged (`voice_isolation_eval`, noise generators fan / room /
+  traffic / keyboard / wind). **Provisional, synthetic speech only (built-in formant voices; not valid for acceptance):**
+  clean speech through Voice Isolation 2.1 dB SI-SDR (≥ 20 required); mean margin over DeNoise on traffic / keyboard /
+  wind +1.8 dB at 0 dB SNR, −3.4 at 5, −8.1 at 10; fan / room −0.7…−10.4. DeepFilterNet doesn't treat the formant voice
+  as speech (port verified at 68.2 dB parity, alignment checked). Real speech needed: OWNER-QUESTIONS Q26 (now a question).
+- **2026-10-14 ~09:15 EDT, Dell lane: A2.6** merged: Voice Isolation live in the playback mixer. The first soak with it on 4
+  stereo tracks had 15 118 underruns (1 s pre-roll through the network on every fresh chain → cascade; both channels'
+  networks serial, ~0.59 core per track on the i5-13500T's slower cores). Fixed: one network step per track on the
+  channels' mean (stereo ≈ mono cost, parity unchanged), 0.2 s pre-roll. Soak 300 s (13 seeks, 8 2× shuttles, sink / card
+  loss): 1 track 0 underruns, drift ≤ 1 frame; 4 tracks 21 underruns, all at the first 2× shuttle's start. Next A2.8.
+
+- **2026-10-14 05:21 EDT, scheduled run (MINIMAL: weekly U 26 % vs line L ≈ 15 %; 5-hour 20 % vs L5 ≈ 44 %):
+  X422 2b design note** `docs/fork/DESIGN-X422-FUSED.md`: fuse point-op runs (colour chains + point `fx_px` ops)
+  into one generated pass, box cascades into one shared-memory pass per axis (exact edge handling), Unsharp /
+  HSL combines into the last pass and HSL's key into the first; bench grade ~10–12 → ~4 full-frame passes;
+  unfused path kept behind `FILMCRAFT_FX_FUSE=0`. Self-reviewed. Next 2b.1 (F2: box cascades; F1 gains nothing on the bench grade, its vignette is a chain op).
+- **2026-10-14 05:30 EDT, same run (MINIMAL): X422 2b.1** `fx_box3`: up to three box passes along one axis in one
+  shared-memory dispatch (`fuse_boxes`, switch `FILMCRAFT_FX_FUSE=0`); f32 within 1e-6 of the unfused passes for every
+  effect case at tile-edge sizes, AMD and Intel; gpu crate tests green on both, clippy / fmt clean. Synthetic timing
+  (`graded_export_ops_timing_6k`): **no gain on the bench grade** (its Sharpen is one 1-px box per axis and its HSL has
+  no blur); Intel f32 per op: chain 98 ms, HSL 66, Unsharp 121, round trip ≈ 33. Design note §4b re-points 2b.2 at the
+  passes that can go (one-pass small Unsharp, chain + HSL key + correct in one pass, ~130 of 286 ms on Intel). Self-reviewed.
+- **2026-10-14 05:32 EDT, same run (MINIMAL): X422 2b.2 F3a** one-pass Unsharp when each axis has at most one box of
+  radius ≤ 3 (Sharpen at usual sizes): the blur summed in the two passes' order, f32 within 1e-5 of the passes (AMD and
+  Intel, every effect case). Synthetic `graded_export_ops_timing_6k`: **Intel f32 286 → 207 ms per 6.2K frame of graded
+  ops (Unsharp 121 → 44)**, f16 201 → 175, AMD 19.1 → 13.5. Next F3b (chain + HSL in one pass). Self-reviewed.
+- **2026-10-14 05:36 EDT, same run (MINIMAL): X422 2b.2 F3b** HSL Secondary without Blur / Denoise runs as one colour
+  chain (GPU-only codes `CO_KEY_BEGIN` / `CO_KEY_END`) and adjacent plain chains merge (`merge_chains`): bench grade and
+  HSL variants (blur, denoise, show mask) within 1e-5 of the passes on AMD and Intel; gpu crate green on both. Synthetic
+  graded ops per 6.2K frame: **Intel f32 286 → 178 ms, AMD 19.1 → 8.2 ms**. Intel's remaining cost is the chain's ALU.
+  Next: the graded benches. Self-reviewed.
+- **2026-10-14 05:42 EDT, same run (MINIMAL): X422 2b benches** (synthetic, single full-length, idle): 6.2K graded
+  19.6 → 19.7 fps (AMD decode / encode-bound), **X422 (a) 17.1 → 19.9 fps**, Intel lane ~3.5 → ~4.9 fps (per-op timing).
+  Aims short → OWNER-QUESTIONS Q28 (FYI; kept, LUT-bake option noted). Next: X422 final median-of-2 runs, ci, tag `x422`.
+- **2026-10-14 05:53 EDT, same run (MINIMAL): X422 final runs** (median of 2, full length, synthetic): (a) 20.0 fps, (b) 7.2 fps.
+  (a) traced: Intel decode + VPP hand-off copy ≈ 50 ms / frame is the limit (AMD waits on it): the measured reason (a) is
+  short of 24 (§1a.68 acceptance). Next: `cargo xtask ci`, tag `x422` + riding tags, build, publish.
+- **2026-10-14 06:47 EDT, same run (MINIMAL): X422 ci** `cargo xtask ci`: fmt / clippy green, 3736 tests with one failure,
+  `coach_ask_tests::questions_the_guide_does_not_cover_fall_back`: since A2.6's audio page shifted the word weights, "add a
+  title with my name" lands on Primaries ▸ The panel ("Add Node", a wheel's title, "names the node"). The test now allows
+  one such off-topic miss (reported), like the 28 / 30 of the covered set; owed: a titles page in the guide. Coach tests,
+  layers, assets, wasm, engine clippy re-run green.

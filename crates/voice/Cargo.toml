@@ -1,0 +1,22 @@
+[package]
+name = "filmcraft-voice"
+description = "FilmCraft voice isolation: a pure-Rust DeepFilterNet3 port; its signal path (960/480 STFT, ERB features, deep filtering) and (feature dfn) the checked checkpoint loader on candle (fork AUDIO-PLAN A2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The DeepFilterNet3 network on the CPU via candle (pure Rust). Off by default and in wasm builds.
+dfn = ["dep:filmcraft-ml", "filmcraft-ml/candle", "dep:candle-core", "dep:zip", "dep:filmcraft-audio-dsp"]
+
+[dependencies]
+filmcraft-ml = { workspace = true, optional = true }
+filmcraft-audio-dsp = { workspace = true, optional = true }
+candle-core = { version = "0.9", default-features = false, optional = true }
+# The release zip is Deflate-compressed; zlib-rs is pure Rust (already used through flate2).
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }

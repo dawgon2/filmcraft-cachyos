@@ -3,7 +3,8 @@
 #   generate -> train -> quantize -> eval -> score
 #
 #   tools/explainer-train/run.sh <base> <name>
-#     <base>  smol360 (SmolLM2-360M-Instruct, Q8_0) | qwen05 (Qwen2.5-0.5B-Instruct, Q8_0 + Q4_K_M)
+#     <base>  smol360 (SmolLM2-360M-Instruct, Q8_0) | smol135 (SmolLM2-135M-Instruct, Q8_0; AI1.4 "fast")
+#             | qwen05 (Qwen2.5-0.5B-Instruct, Q8_0 + Q4_K_M)
 #     <name>  run name, e.g. smol360-v2
 #
 # Environment (all optional):
@@ -41,8 +42,9 @@ SEED="${SEED:-1}"
 
 case "$base" in
   smol360) base_dir="$MODELS/llm-base/SmolLM2-360M-Instruct"; family=llama; quants="q8_0" ;;
+  smol135) base_dir="$MODELS/llm-base/SmolLM2-135M-Instruct"; family=llama; quants="q8_0" ;;
   qwen05)  base_dir="$MODELS/llm-base/Qwen2.5-0.5B-Instruct"; family=qwen2; quants="q8_0 q4k" ;;
-  *) echo "unknown base $base (smol360 or qwen05)" >&2; exit 2 ;;
+  *) echo "unknown base $base (smol360, smol135 or qwen05)" >&2; exit 2 ;;
 esac
 
 run="$RUNS/$name"
@@ -50,7 +52,8 @@ tuned="$MODELS/tuned/$name"
 mkdir -p "$run"
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$run/session.log"; }
 has() { [[ " $STAGES " == *" $1 "* ]]; }
-cargo_bg() { nice -n 19 ionice -c 3 cargo "$@"; }
+# (the desktop-safe wrapper when present: low priority, memory-capped slice, FORK-PLAN §2d)
+cargo_bg() { if [ -x "$HOME/Apps/filmcraft-builds/fc-cargo.sh" ]; then "$HOME/Apps/filmcraft-builds/fc-cargo.sh" "$@"; else nice -n 19 ionice -c 3 cargo "$@"; fi; }
 timed() {
   local stage="$1"; shift
   local t0=$SECONDS

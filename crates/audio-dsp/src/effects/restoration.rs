@@ -261,6 +261,41 @@ impl AudioEffect for DeNoise {
     }
 }
 
+/// `voice_isolate` without its model: [`DeNoise`] with Amount 0–100 % → 0–40 dB of reduction
+/// (like the project `denoise` effect). The real effect (DeepFilterNet3, `filmcraft-voice`)
+/// replaces it through [`crate::effects::register_external`] once the model is installed.
+pub struct VoiceIsolateFallback {
+    pv: ParamValues,
+    inner: DeNoise,
+}
+
+impl VoiceIsolateFallback {
+    pub const PARAMS: &'static [ParamSpec] = &[ParamSpec::new("amount", "Amount", 0.0, 100.0, 100.0, Unit::Percent)];
+
+    pub fn new(sample_rate: f32, channels: usize) -> Self {
+        let mut s = VoiceIsolateFallback { pv: ParamValues::new(Self::PARAMS), inner: DeNoise::new(sample_rate, channels) };
+        s.apply_params(true);
+        s
+    }
+
+    fn apply_params(&mut self, _snap: bool) {
+        self.inner.set_param("reduction", self.pv.v("amount") * 0.4);
+    }
+}
+
+impl AudioEffect for VoiceIsolateFallback {
+    param_plumbing!("voice_isolate");
+    fn latency(&self) -> usize {
+        self.inner.latency()
+    }
+    fn reset(&mut self) {
+        self.inner.reset();
+    }
+    fn process(&mut self, channels: &mut [&mut [f32]]) {
+        self.inner.process(channels);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,5 +365,21 @@ mod tests {
         assert!(red < -10.0, "noise reduction only {red} dB");
         let kept = db(tone_amplitude(&y[onn.clone()], 1000.0, SR as f64) / 0.3);
         assert!(kept.abs() < 1.0, "tone changed by {kept} dB");
+    }
+
+    #[test]
+    fn voice_isolate_falls_back_to_denoise() {
+        let mut v = VoiceIsolateFallback::new(SR, 1);
+        let mut d = DeNoise::new(SR, 1);
+        assert_eq!(v.latency(), d.latency());
+        assert!(v.set_param("amount", 50.0));
+        d.set_param("reduction", 20.0);
+        let mut a: Vec<f32> = (0..8192).map(|i| ((i * 7919) % 211) as f32 / 400.0 - 0.25).collect();
+        let mut b = a.clone();
+        v.process(&mut [&mut a]);
+        d.process(&mut [&mut b]);
+        assert_eq!(a, b);
+        assert_eq!(v.param("amount"), Some(50.0));
+        assert!(!v.set_param("reduction", 1.0));
     }
 }

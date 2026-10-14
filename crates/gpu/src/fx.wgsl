@@ -53,6 +53,7 @@ const OP_VIDEO_LIMITER: u32 = 31u;
 const OP_DENOISE: u32 = 32u;
 const OP_DENOISE_YCC: u32 = 33u;
 const OP_TEMPORAL_INIT: u32 = 34u;
+const OP_UNSHARP_DIRECT: u32 = 36u;
 
 fn size() -> vec2<i32> {
     return vec2<i32>(i32(u.i0.y), i32(u.i0.z));
@@ -566,6 +567,20 @@ fn denoise_px(p: vec2<i32>) -> vec4<f32> {
 }
 
 // One output pixel of every op but the running-sum box blur.
+// Unsharp Mask's mix of the original `o` with its blur `bq` (amount p0.x, threshold p0.y).
+fn unsharp_mix(o_in: vec4<f32>, bq: vec4<f32>) -> vec4<f32> {
+    var o = o_in;
+    let amount = u.p0.x;
+    let th = u.p0.y;
+    for (var k = 0; k < 3; k++) {
+        let d = o[k] - bq[k];
+        if abs(d) >= th * o.a {
+            o[k] = max(o[k] + d * amount, 0.0);
+        }
+    }
+    return o;
+}
+
 fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
     let s = size();
     let pc = vec2<f32>(p) + 0.5;
@@ -659,16 +674,26 @@ fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
         }
         case OP_UNSHARP: {
             // src: the blurred image, aux: the original
-            var o = textureLoad(aux, p, 0);
-            let bq = ld(p);
-            let amount = u.p0.x; let th = u.p0.y;
-            for (var k = 0; k < 3; k++) {
-                let d = o[k] - bq[k];
-                if abs(d) >= th * o.a {
-                    o[k] = max(o[k] + d * amount, 0.0);
+            return unsharp_mix(textureLoad(aux, p, 0), ld(p));
+        }
+        case OP_UNSHARP_DIRECT: {
+            // Unsharp with at most one box per axis in one pass (fork X422 2b.2, `fx.rs`
+            // `fused_steps`; src: the original): the blur summed in the order of the two box passes
+            // (each row's mean, then the mean of those down the column), clamped to the edge
+            let rx = min(i32(u.i1.x), 3);
+            let ry = min(i32(u.i1.y), 3);
+            let inv_x = 1.0 / f32(2 * rx + 1);
+            let inv_y = 1.0 / f32(2 * ry + 1);
+            var acc = vec4(0.0);
+            for (var j = p.y - ry; j <= p.y + ry; j++) {
+                let y = clamp(j, 0, s.y - 1);
+                var row = vec4(0.0);
+                for (var i = p.x - rx; i <= p.x + rx; i++) {
+                    row += ld(vec2(clamp(i, 0, s.x - 1), y));
                 }
+                acc += row * inv_x;
             }
-            return o;
+            return unsharp_mix(ld(p), acc * inv_y);
         }
         case OP_CROP: {
             let x0 = u.p0.x; let x1 = u.p0.y; let y0 = u.p0.z; let y1 = u.p0.w; let fe = u.p1.x;
@@ -798,6 +823,83 @@ fn fx_px(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     let p = vec2<i32>(id.xy);
     textureStore(dst, p, pixel(select(u.i0.x, PX_OP, PX_OP != 0u), p));
+}
+
+// Up to three box passes along one axis in one dispatch (fork X422 2b.1, `fx.rs` `fuse_boxes`):
+// i1.x = the radii, 8 bits each (each ≤ BOX_PER_PIXEL_MAX), i1.y = repeat, i1.z = vertical,
+// i1.w = how many. A workgroup does one tile of BOX3_TILE pixels of one row (column): it loads the
+// tile plus an apron of the radii's sum into shared memory, runs the boxes there and stores the
+// tile. Each box reads its predecessor at image coordinates, clamped (repeat) or skipped like
+// OP_BOX, summed in the same order, so the result is the cascade of OP_BOX passes.
+const BOX3_TILE: i32 = 256;
+// BOX3_TILE + 2 × 3 × BOX_PER_PIXEL_MAX
+const BOX3_SPAN: i32 = 448;
+var<workgroup> box3_a: array<vec4<f32>, 448>;
+var<workgroup> box3_b: array<vec4<f32>, 448>;
+
+fn box3_radius(k: u32) -> i32 {
+    return min(i32((u.i1.x >> (8u * k)) & 0xffu), 32);
+}
+
+fn box3_ld(from_b: bool, i: i32) -> vec4<f32> {
+    let j = clamp(i, 0, BOX3_SPAN - 1);
+    if from_b {
+        return box3_b[j];
+    }
+    return box3_a[j];
+}
+
+@compute @workgroup_size(256)
+fn fx_box3(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) li: u32) {
+    let s = size();
+    let vertical = u.i1.z != 0u;
+    let repeat = u.i1.y != 0u;
+    let count = min(u.i1.w, 3u);
+    let n = select(s.x, s.y, vertical);
+    let lines = select(s.y, s.x, vertical);
+    let line = i32(wg.y);
+    let t0 = i32(wg.x) * BOX3_TILE;
+    // (uniform per workgroup, so before any barrier)
+    if line >= lines || t0 >= n || count == 0u {
+        return;
+    }
+    var apron = 0;
+    for (var k = 0u; k < count; k++) {
+        apron += box3_radius(k);
+    }
+    // image coordinate of shared index 0
+    let base = t0 - apron;
+    let hi0 = min(t0 + BOX3_TILE + apron, n);
+    for (var x = max(base, 0) + i32(li); x < hi0; x += BOX3_TILE) {
+        box3_a[clamp(x - base, 0, BOX3_SPAN - 1)] = ld(select(vec2(x, line), vec2(line, x), vertical));
+    }
+    workgroupBarrier();
+    var rem = apron;
+    for (var k = 0u; k < count; k++) {
+        let r = box3_radius(k);
+        rem -= r;
+        let from_b = (k & 1u) == 1u;
+        let last = k + 1u == count;
+        let hi = min(t0 + BOX3_TILE + rem, n);
+        let inv = 1.0 / f32(2 * r + 1);
+        for (var x = max(t0 - rem, 0) + i32(li); x < hi; x += BOX3_TILE) {
+            var acc = vec4(0.0);
+            for (var i = x - r; i <= x + r; i++) {
+                if repeat || (i >= 0 && i < n) {
+                    acc += box3_ld(from_b, clamp(i, 0, n - 1) - base);
+                }
+            }
+            let v = acc * inv;
+            if last {
+                textureStore(dst, select(vec2(x, line), vec2(line, x), vertical), v);
+            } else if from_b {
+                box3_a[clamp(x - base, 0, BOX3_SPAN - 1)] = v;
+            } else {
+                box3_b[clamp(x - base, 0, BOX3_SPAN - 1)] = v;
+            }
+        }
+        workgroupBarrier();
+    }
 }
 
 // A box pass as a running sum along one row (i1.z = 0) or column (1) per invocation: O(1) per

@@ -580,7 +580,7 @@ fn walked() -> (Driver, BTreeSet<String>) {
         d.click("colorDialog.cancel");
     }
     // Settings pages the guide names
-    for page in ["playback", "memory", "media", "color", "general", "mediaCache"] {
+    for page in ["playback", "memory", "media", "color", "general", "mediaCache", "audio"] {
         try_exec(&mut d, &format!("app.settings.{page}"), json!({}));
         snap(&mut d, &mut seen);
     }

@@ -54,6 +54,7 @@ mod yuv;
 pub use export_renderer::ExportRenderer;
 pub use lut::GpuLut;
 pub use mask::GpuMask;
+pub use yuv::YuvReadback;
 
 /// Output texture format: gamma-encoded RGBA8 (what egui expects of native textures); the resolve
 /// shader applies the sRGB encoding.
@@ -1335,7 +1336,23 @@ impl GpuCompositor {
     /// without a picture, on devices without compute shaders, or for buffers the device can't hold.
     pub fn read_yuv420(&self, kr: f32, kb: f32, ten_bit: bool) -> Option<Vec<u8>> {
         let (_, view, size) = self.accum.as_ref()?;
-        self.yuv.as_ref()?.run(&self.device, &self.queue, view, *size, kr, kb, ten_bit)
+        self.yuv.as_ref()?.run(&self.device, &self.queue, view, *size, kr, kb, ten_bit, false)
+    }
+
+    /// As [`read_yuv420`](Self::read_yuv420) but 4:2:2 (chroma averaged over horizontal pairs,
+    /// full height): planar `yuv422p10le` / `yuv422p` (fork X422: the 4:2:2 HEVC master without
+    /// a CPU conversion).
+    pub fn read_yuv422(&self, kr: f32, kb: f32, ten_bit: bool) -> Option<Vec<u8>> {
+        let (_, view, size) = self.accum.as_ref()?;
+        self.yuv.as_ref()?.run(&self.device, &self.queue, view, *size, kr, kb, ten_bit, true)
+    }
+
+    /// As [`read_yuv420`](Self::read_yuv420) / [`read_yuv422`](Self::read_yuv422) (`chroma_422`)
+    /// without waiting: [`YuvReadback::wait`] for the bytes, outside whatever lock guards this
+    /// compositor (fork X422: the next frame composites meanwhile).
+    pub fn submit_yuv(&self, kr: f32, kb: f32, ten_bit: bool, chroma_422: bool) -> Option<YuvReadback> {
+        let (_, view, size) = self.accum.as_ref()?;
+        self.yuv.as_ref()?.submit(&self.device, &self.queue, view, *size, kr, kb, ten_bit, chroma_422)
     }
 
     /// The last composited picture converted as for [`read_yuv420`](Self::read_yuv420) and

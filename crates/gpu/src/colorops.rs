@@ -30,6 +30,10 @@ const CO_HSL_CORRECT: f32 = 23.0;
 const CO_GRAIN: f32 = 24.0;
 const CO_STASH: f32 = 25.0;
 const CO_MIX_STASH: f32 = 26.0;
+/// GPU-only codes (no [`ColorOp`]): an HSL Secondary's key and correct in one chain (`fx.rs`
+/// `fused_steps`; `colorops.wgsl` says what they do).
+pub(crate) const CO_KEY_BEGIN: f32 = 27.0;
+pub(crate) const CO_KEY_END: f32 = 28.0;
 
 /// Values a program may hold (tables of a few thousand samples each; a chain is a handful of ops).
 pub const MAX_PROGRAM: usize = filmcraft_color::ops::MAX_GPU_PROGRAM;

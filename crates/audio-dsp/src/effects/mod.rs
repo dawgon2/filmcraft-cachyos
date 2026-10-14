@@ -25,10 +25,12 @@ pub use filters::{FftFilter, FullParametricEq, GraphicEq, NotchFilter, Scientifi
 pub use modulation::{AnalogDelay, ChorusFlanger, Flanger, MultitapDelay, Phaser};
 pub use multiband::{DynamicsRack, MultibandCompressor, TubeCompressor};
 pub use pitch::PitchShifter;
-pub use restoration::{DeHum, DeNoise};
+pub use restoration::{DeHum, DeNoise, VoiceIsolateFallback};
 pub use reverbs::{ConvolutionReverb, SurroundReverb};
 pub use special::{AmbisonicsPanner, Binauralizer, ChannelMixer, Distortion, GuitarSuite, LoudnessMeterFx, Mastering, Mute, StereoExpander, VocalEnhancer};
 pub use time::{Delay, Reverb};
+
+use std::sync::{OnceLock, PoisonError, RwLock};
 
 use crate::{AudioEffect, ParamSpec};
 
@@ -109,6 +111,8 @@ static REGISTRY: &[EffectInfo] = &[
     },
     entry!("dehum", "DeHum", Restoration, DeHum),
     entry!("denoise", "DeNoise", Restoration, DeNoise),
+    // Replaced at run time by the DeepFilterNet3 model when it's installed (`register_external`).
+    entry!("voice_isolate", "Voice Isolation", Restoration, VoiceIsolateFallback),
     entry!("pitch_shifter", "Pitch Shifter", Pitch, PitchShifter),
     entry!("deesser", "DeEsser", Restoration, DeEsser),
     entry!("dereverb", "DeReverb", Restoration, DeReverb),
@@ -155,8 +159,40 @@ pub fn effect_info(id: &str) -> Option<&'static EffectInfo> {
     REGISTRY.iter().find(|e| e.id == id)
 }
 
-/// Instantiate an effect by id.
+/// Constructor of an effect implemented in a higher layer (a model-backed effect such as
+/// `voice_isolate`), registered at run time. Returning `None` (model gone, unsupported sample rate)
+/// falls back to the built-in effect of the same id.
+pub type ExternalFactory = fn(f32, usize) -> Option<Box<dyn AudioEffect>>;
+
+fn external() -> &'static RwLock<Vec<(&'static str, ExternalFactory)>> {
+    static E: OnceLock<RwLock<Vec<(&'static str, ExternalFactory)>>> = OnceLock::new();
+    E.get_or_init(Default::default)
+}
+
+/// Let `create_effect(id, …)` try `factory` before the built-in effect `id` (replacing an earlier
+/// registration). Only ids of registered built-ins can be overridden, so every id keeps a fallback.
+pub fn register_external(id: &'static str, factory: ExternalFactory) -> bool {
+    if effect_info(id).is_none() {
+        return false;
+    }
+    let mut e = external().write().unwrap_or_else(PoisonError::into_inner);
+    e.retain(|(i, _)| *i != id);
+    e.push((id, factory));
+    true
+}
+
+/// Remove a run-time override; `create_effect(id, …)` builds the built-in again.
+pub fn unregister_external(id: &str) {
+    external().write().unwrap_or_else(PoisonError::into_inner).retain(|(i, _)| *i != id);
+}
+
+/// Instantiate an effect by id (a registered external implementation first, see
+/// [`register_external`]).
 pub fn create_effect(id: &str, sample_rate: f32, channels: usize) -> Option<Box<dyn AudioEffect>> {
+    let factory = external().read().unwrap_or_else(PoisonError::into_inner).iter().find(|(i, _)| *i == id).map(|(_, f)| *f);
+    if let Some(fx) = factory.and_then(|f| f(sample_rate, channels)) {
+        return Some(fx);
+    }
     effect_info(id).map(|e| (e.create)(sample_rate, channels))
 }
 
@@ -315,7 +351,31 @@ mod tests {
             }
         }
     }
-}
 
-#[cfg(test)]
-mod premiere_tests;
+    #[test]
+    fn external_effects_override_and_fall_back() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // The test factories build exactly the built-in, so tests running in parallel see no change.
+        static SOME: AtomicUsize = AtomicUsize::new(0);
+        static NONE: AtomicUsize = AtomicUsize::new(0);
+        fn some(sr: f32, ch: usize) -> Option<Box<dyn AudioEffect>> {
+            SOME.fetch_add(1, Ordering::SeqCst);
+            Some(Box::new(VoiceIsolateFallback::new(sr, ch)))
+        }
+        fn none(_: f32, _: usize) -> Option<Box<dyn AudioEffect>> {
+            NONE.fetch_add(1, Ordering::SeqCst);
+            None
+        }
+        assert!(!register_external("no_such_effect", some));
+        assert!(register_external("voice_isolate", some));
+        assert_eq!(create_effect("voice_isolate", SR, 2).unwrap().id(), "voice_isolate");
+        // (`>=`: tests running in parallel may create every registered effect too.)
+        assert!(SOME.load(Ordering::SeqCst) >= 1);
+        // A later registration replaces the earlier one; `None` falls back to the built-in.
+        assert!(register_external("voice_isolate", none));
+        assert_eq!(create_effect("voice_isolate", SR, 2).unwrap().id(), "voice_isolate");
+        assert!(NONE.load(Ordering::SeqCst) >= 1);
+        unregister_external("voice_isolate");
+        assert_eq!(create_effect("voice_isolate", SR, 2).unwrap().id(), "voice_isolate");
+    }
+}

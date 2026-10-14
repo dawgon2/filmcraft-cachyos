@@ -22,6 +22,8 @@ neural-voices = ["filmcraft-tts/kokoro", "speech-download"]
 llm = ["filmcraft-llm/infer"]
 # AI model downloads over HTTPS (only when the user starts one in Settings ▸ Color).
 llm-download = ["filmcraft-llm/download"]
+# Voice isolation (fork AUDIO-PLAN A2): DeepFilterNet3 on the CPU (crates/voice) and its download.
+voice-isolation = ["filmcraft-voice/dfn", "speech-download", "dep:sha2"]
 
 # Fork RS1 (FORK-ONLY): Resolve is the default workflow, with a one-time preferences migration.
 # Enabled by apps/filmcraft; upstream builds leave it off and keep Premiere.
@@ -48,6 +50,8 @@ filmcraft-captions = { workspace = true }
 filmcraft-speech = { workspace = true }
 filmcraft-tts = { workspace = true }
 filmcraft-llm = { workspace = true }
+filmcraft-voice = { workspace = true }
+sha2 = { version = "0.10", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

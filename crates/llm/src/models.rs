@@ -251,6 +251,21 @@ static CATALOGUE: &[ModelInfo] = &[
         tokenizer: "tokenizer.json",
         files: &[local!("smol360-v1-q8_0.gguf", "aa7b76d762774d7ce0d34f825e788dd87cb3bb2fa35174a14e3513c63a5f19f0", 384636128), SMOL_TOKENIZER],
     },
+    // fork AI1.4: the "fast" option for slower PCs (about half the 360M tune's time per answer);
+    // chosen in Settings, never automatically (not in TUNED_PREFERENCE)
+    ModelInfo {
+        id: "filmcraft-explainer-smol135-v1-q8",
+        name: "FilmCraft explainer, SmolLM2 135M tuned (8-bit, fast)",
+        family: Family::SmolLm2,
+        description: "SmolLM2-135M-Instruct (revision 12fd25f) fine-tuned by the fork like the 360M tune, for slower computers: about twice as fast, 34 / 36, 36 / 40 and 13 / 13 held-out cases pass the fact checker (the 360M tune: 34, 37, 13). Local file until published.",
+        license: APACHE,
+        license_url: APACHE_URL,
+        author: "Hugging Face (base); FilmCraft fork (fine-tune)",
+        source: "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct",
+        weights: "smol135-v1-q8_0.gguf",
+        tokenizer: "tokenizer.json",
+        files: &[local!("smol135-v1-q8_0.gguf", "4362af26f7523f39154127996520ecb8ccbff9d50c2683456ab8f30d56e6baf2", 143042208), SMOL_TOKENIZER],
+    },
 ];
 
 /// The default model: **provisional until the 30-case evaluation** (GRADE-PLAN.md item 11).
@@ -335,7 +350,7 @@ mod tests {
 
     #[test]
     fn catalogue_is_pinned_checksummed_and_licensed() {
-        assert_eq!(catalogue().len(), 6);
+        assert_eq!(catalogue().len(), 7);
         assert!(!find(DEFAULT_MODEL).is_some_and(ModelInfo::is_local), "the default must be downloadable");
         assert!(find(DEFAULT_MODEL).is_some());
         let mut ids = std::collections::HashSet::new();
@@ -344,7 +359,8 @@ mod tests {
             assert_eq!(m.license, "Apache-2.0", "{}", m.id);
             assert!(m.license_url.starts_with("https://"));
             assert!(m.source.starts_with("https://huggingface.co/"));
-            assert!(m.size() > 300_000_000 && m.size() < 1_300_000_000, "{}", m.id);
+            // (the AI1.4 "fast" 135M tune is ~145 MB)
+            assert!(m.size() > 100_000_000 && m.size() < 1_300_000_000, "{}", m.id);
             let w = m.file(m.weights).expect("weights listed");
             assert!(w.name.ends_with(".gguf"));
             let t = m.file(m.tokenizer).expect("tokenizer listed");
@@ -379,7 +395,7 @@ mod tests {
     #[test]
     fn tuned_models_are_local_and_run_without_repeat_penalty() {
         let tuned: Vec<_> = catalogue().iter().filter(|m| m.is_tuned()).collect();
-        assert_eq!(tuned.len(), 2);
+        assert_eq!(tuned.len(), 3);
         for m in tuned {
             assert!(m.is_local(), "{}", m.id);
             assert_eq!(m.recommended_options().repeat_penalty, 1.0);

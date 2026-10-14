@@ -2085,10 +2085,12 @@ dependencies = [
  "filmcraft-text",
  "filmcraft-time",
  "filmcraft-tts",
+ "filmcraft-voice",
  "image",
  "log",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "toml 1.1.6+spec-1.1.0",
  "web-time",
@@ -2533,6 +2535,16 @@ dependencies = [
  "serde_json",
  "toml 1.1.6+spec-1.1.0",
  "web-time",
+]
+
+[[package]]
+name = "filmcraft-voice"
+version = "0.6.0"
+dependencies = [
+ "candle-core",
+ "filmcraft-audio-dsp",
+ "filmcraft-ml",
+ "zip",
 ]
 
 [[package]]
@@ -7985,6 +7997,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c42e33efc22a0650c311c2ef19115ce232583abbe80850bc8b66509ebef02de0"
 dependencies = [
  "crc32fast",
+ "flate2",
  "indexmap",
  "memchr",
  "typed-path",

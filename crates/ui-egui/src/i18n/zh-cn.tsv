@@ -60,6 +60,7 @@
 	Bring Forward	上移一层
 	Bring to Front	置于顶层
 	Brown	棕
+	Cancel Voice Isolation Model Download	取消下载人声分离模型
 	Captions	字幕
 	Captions and Graphics	字幕与图形
 	Captions…	字幕…
@@ -105,6 +106,7 @@
 	Distribute Space Horizontally	水平均匀分布间距
 	Distribute Space Vertically	垂直均匀分布间距
 	Distribute Vertically	垂直分布
+	Download Voice Isolation Model	下载人声分离模型
 	Duplicate	复制
 	Dynamic Audio Waveforms	动态音频波形
 	Edit	编辑
@@ -173,6 +175,9 @@
 	Insert	插入
 	Insert Frame Hold Segment	插入帧定格片段
 	Install Motion Graphics Template…	安装动态图形模板…
+	Install Voice Isolation Model from File	从文件安装人声分离模型
+	Installed: it loads the first time the Voice Isolation effect plays.	已安装：首次播放人声分离效果时加载。
+	Installed: the Voice Isolation effect uses this model.	已安装：人声分离效果使用此模型。
 	Interpret Footage…	解释素材…
 	Join the ArtCraft Discord…	加入 ArtCraft Discord…
 	Keyboard Shortcuts…	键盘快捷键…
@@ -185,6 +190,9 @@
 	Libraries	库
 	Lift	提升
 	Light	浅
+	Not installed: the Voice Isolation effect works as DeNoise until you download the model.	未安装：下载模型之前，人声分离效果将作为降噪工作。
+	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download.	可选且离线：本机上的一个小型神经网络（约 8 MB）为人声分离音频效果将语音与噪声分开。它从不随 FilmCraft 捆绑，仅在您点击“下载”时从其发布者处下载。
+	Remove Voice Isolation Model	删除人声分离模型
 	Resolve	Resolve
 	Link	链接
 	Link Media…	链接媒体…
@@ -325,6 +333,7 @@
 	Tan	棕褐
 	Teal	蓝绿
 	Text	文本
+	The model didn't load ({err}): the Voice Isolation effect works as DeNoise.	模型未能加载（{err}）：人声分离效果将作为降噪工作。
 	Time Interpolation	时间插值
 	Timecode	时间码
 	Timecode…	时间码…
@@ -352,6 +361,10 @@
 	Video and Audio Waveform Split	视频与音频波形拆分
 	View	视图
 	Violet	紫罗兰
+	Voice Isolation	人声分离
+	Voice Isolation Model Status	人声分离模型状态
+	Voice isolation	人声分离
+	Voice isolation isn't available in this build (built without the `voice-isolation` feature): the Voice Isolation effect works as DeNoise.	此版本不支持人声分离（构建时未启用 `voice-isolation` 功能）：人声分离效果将作为降噪工作。
 	Window	窗口
 	Workspaces	工作区
 	Yellow	黄

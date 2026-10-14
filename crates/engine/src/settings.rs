@@ -990,6 +990,8 @@ static CATEGORIES: &[Category] = &[
                 ],
             ),
             Row::Group("Render Edit in Audition files to:", &[f("audio.editInAuditionLocation", "Location", Kind::Choice(AUDITION), false)]),
+            // Fork (AUDIO-PLAN A2): the DeepFilterNet3 model behind the Voice Isolation effect.
+            Row::Group("Voice isolation", &[Row::Custom("voiceIsolation")]),
         ],
     },
     Category {

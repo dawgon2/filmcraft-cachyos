@@ -69,6 +69,7 @@ pub mod sync;
 pub mod tnr;
 pub mod transcript;
 pub mod trim;
+pub mod voice_isolation;
 pub mod voiceover;
 pub mod window_state;
 
@@ -524,6 +525,8 @@ impl Default for Session {
 
 impl Session {
     pub fn new(services: Arc<dyn Services>) -> Self {
+        // Fork (AUDIO-PLAN A2): point `voice_isolate` at an installed model (loads on first use).
+        voice_isolation::init();
         Self {
             project: Arc::new(Project::new("Untitled")),
             history: History { limit: 200, ..Default::default() },
@@ -1308,6 +1311,8 @@ mod transcript_tests;
 mod trim_tests;
 #[cfg(test)]
 mod vfx_tests;
+#[cfg(test)]
+mod voice_isolation_tests;
 #[cfg(test)]
 mod voiceover_tests;
 #[cfg(test)]

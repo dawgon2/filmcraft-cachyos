@@ -35,8 +35,10 @@ fn q(x: f32, lo: f32, hi: f32) -> u32 {
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    // u.pad != 0: 4:2:2 (fork X422), chroma averaged over 2×1 instead of 2×2
+    let rows = select(2u, 1u, u.pad != 0u);
     let cw = (u.w + 1u) / 2u;
-    let ch = (u.h + 1u) / 2u;
+    let ch = select((u.h + 1u) / 2u, u.h, u.pad != 0u);
     if (id.x >= cw || id.y >= ch) {
         return;
     }
@@ -46,10 +48,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var us = 0.0;
     var vs = 0.0;
     var n = 0.0;
-    for (var dy = 0u; dy < 2u; dy++) {
+    for (var dy = 0u; dy < rows; dy++) {
         for (var dx = 0u; dx < 2u; dx++) {
             let x = id.x * 2u + dx;
-            let y = id.y * 2u + dy;
+            let y = id.y * rows + dy;
             if (x >= u.w || y >= u.h) {
                 continue;
             }
@@ -165,12 +167,12 @@ const PACK_GX: u32 = 32768;
 
 /// Buffers of the last frame size (reused while it stays the same).
 struct Buffers {
-    key: (u32, u32, bool),
+    /// (w, h, ten-bit, 4:2:2)
+    key: (u32, u32, bool, bool),
     ubuf: wgpu::Buffer,
     pbuf: wgpu::Buffer,
     planes: wgpu::Buffer,
     packed: wgpu::Buffer,
-    back: wgpu::Buffer,
     pack_bg: wgpu::BindGroup,
     tbuf: wgpu::Buffer,
     target_bg: wgpu::BindGroup,
@@ -192,6 +194,47 @@ pub(crate) struct YuvPass {
     target_shader: wgpu::ShaderModule,
     /// [8-bit, 10-bit] target pipelines, made on first use.
     targets: std::sync::Mutex<[Option<std::sync::Arc<TargetPipelines>>; 2]>,
+    /// Read-back buffers not in use (fork X422: a frame's read-back is waited for outside the
+    /// compositor, so several can be in flight).
+    spare_backs: Spares,
+}
+
+type Spares = std::sync::Arc<std::sync::Mutex<Vec<wgpu::Buffer>>>;
+
+/// Read-back buffers kept for reuse (more in flight are made and dropped).
+const SPARE_BACKS: usize = 3;
+
+/// A converted frame on its way back from the GPU ([`YuvPass::submit`]); [`wait`](Self::wait)
+/// for its bytes. Dropped unwaited, its buffer is simply freed.
+pub struct YuvReadback {
+    device: wgpu::Device,
+    back: wgpu::Buffer,
+    index: wgpu::SubmissionIndex,
+    bytes: usize,
+    spares: Spares,
+}
+
+impl YuvReadback {
+    /// Wait for the GPU and copy the planes out (`run`'s bytes). None: the mapping failed.
+    pub fn wait(self) -> Option<Vec<u8>> {
+        let slice = self.back.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        let _ = self.device.poll(wgpu::PollType::Wait { submission_index: Some(self.index), timeout: None });
+        rx.recv().ok()?.ok()?;
+        let out = {
+            let data = slice.get_mapped_range().ok()?;
+            data.get(..self.bytes).map(|d| d.to_vec())
+        };
+        self.back.unmap();
+        let mut spares = self.spares.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if spares.len() < SPARE_BACKS {
+            spares.push(self.back);
+        }
+        out
+    }
 }
 
 impl YuvPass {
@@ -261,7 +304,17 @@ impl YuvPass {
                 fentry(1, storage(true)),
             ],
         });
-        Self { pipeline, bgl, pack, pack_bgl, buffers: std::sync::Mutex::new(None), target_bgl, target_shader, targets: Default::default() }
+        Self {
+            pipeline,
+            bgl,
+            pack,
+            pack_bgl,
+            buffers: std::sync::Mutex::new(None),
+            target_bgl,
+            target_shader,
+            targets: Default::default(),
+            spare_backs: Default::default(),
+        }
     }
 
     fn target_pipelines(&self, device: &wgpu::Device, ten_bit: bool) -> std::sync::Arc<TargetPipelines> {
@@ -303,7 +356,7 @@ impl YuvPass {
     }
 
     /// The buffers for a `w`×`h` frame of `samples` samples packed into `words` words.
-    fn buffers(&self, device: &wgpu::Device, key: (u32, u32, bool), samples: u64, words: u64) -> Buffers {
+    fn buffers(&self, device: &wgpu::Device, key: (u32, u32, bool, bool), samples: u64, words: u64) -> Buffers {
         let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("yuv-u"),
             size: 32,
@@ -326,12 +379,6 @@ impl YuvPass {
             label: Some("yuv-packed"),
             size: words * 4,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        let back = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("yuv-readback"),
-            size: words * 4,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         let pack_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -357,7 +404,7 @@ impl YuvPass {
                 wgpu::BindGroupEntry { binding: 1, resource: planes.as_entire_binding() },
             ],
         });
-        Buffers { key, ubuf, pbuf, planes, packed, back, pack_bg, tbuf, target_bg }
+        Buffers { key, ubuf, pbuf, planes, packed, pack_bg, tbuf, target_bg }
     }
 
     /// Record the conversion of `src` (`w`×`h`, the accumulator) into the planes buffer: the
@@ -373,11 +420,12 @@ impl YuvPass {
         kr: f32,
         kb: f32,
         ten_bit: bool,
+        chroma_422: bool,
     ) -> Option<(std::sync::MutexGuard<'_, Option<Buffers>>, wgpu::CommandEncoder, (u64, u64, u64))> {
         if w == 0 || h == 0 {
             return None;
         }
-        let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+        let (cw, ch) = (w.div_ceil(2), if chroma_422 { h } else { h.div_ceil(2) });
         let samples = u64::from(w).checked_mul(u64::from(h))?.checked_add(2 * u64::from(cw) * u64::from(ch))?;
         let size = samples.checked_mul(4)?;
         if size > device.limits().max_storage_buffer_binding_size || size > device.limits().max_buffer_size {
@@ -387,14 +435,14 @@ impl YuvPass {
         let bytes = if ten_bit { samples.checked_mul(2)? } else { samples };
         let words = bytes.div_ceil(4);
         let mut u = Vec::with_capacity(32);
-        for v in [w, h, u32::from(ten_bit), 0] {
+        for v in [w, h, u32::from(ten_bit), u32::from(chroma_422)] {
             u.extend_from_slice(&v.to_le_bytes());
         }
         for v in [kr, kb, 0.0, 0.0] {
             u.extend_from_slice(&v.to_le_bytes());
         }
         let mut slot = self.buffers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let key = (w, h, ten_bit);
+        let key = (w, h, ten_bit, chroma_422);
         if slot.as_ref().is_none_or(|b| b.key != key) {
             *slot = None;
             *slot = Some(self.buffers(device, key, samples, words));
@@ -421,7 +469,8 @@ impl YuvPass {
     }
 
     /// Convert `src` (`w`×`h`, the accumulator) and read the planes back as `yuv420p10le`
-    /// (`ten_bit`) or `yuv420p` bytes. Blocks until the GPU is done.
+    /// (`ten_bit`) or `yuv420p` bytes, or with `chroma_422` full-height chroma planes
+    /// (`yuv422p10le` / `yuv422p`, fork X422). Blocks until the GPU is done.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn run(
         &self,
@@ -432,8 +481,26 @@ impl YuvPass {
         kr: f32,
         kb: f32,
         ten_bit: bool,
+        chroma_422: bool,
     ) -> Option<Vec<u8>> {
-        let (slot, mut enc, (samples, words, bytes)) = self.convert(device, queue, src, size, kr, kb, ten_bit)?;
+        self.submit(device, queue, src, size, kr, kb, ten_bit, chroma_422)?.wait()
+    }
+
+    /// As [`run`](Self::run) without waiting: the conversion is submitted and copied into a
+    /// read-back buffer of its own, so `src` and this pass are free for the next frame at once.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn submit(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        src: &wgpu::TextureView,
+        size: (u32, u32),
+        kr: f32,
+        kb: f32,
+        ten_bit: bool,
+        chroma_422: bool,
+    ) -> Option<YuvReadback> {
+        let (slot, mut enc, (samples, words, bytes)) = self.convert(device, queue, src, size, kr, kb, ten_bit, chroma_422)?;
         let b = slot.as_ref()?;
         let groups = u32::try_from(words.div_ceil(256)).ok()?;
         let (gx, gy) = (groups.clamp(1, PACK_GX), groups.div_ceil(PACK_GX).max(1));
@@ -448,21 +515,23 @@ impl YuvPass {
             pass.set_bind_group(0, &b.pack_bg, &[]);
             pass.dispatch_workgroups(gx, gy, 1);
         }
-        enc.copy_buffer_to_buffer(&b.packed, 0, &b.back, 0, words * 4);
-        queue.submit([enc.finish()]);
-        let slice = b.back.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        let _ = device.poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().ok()?.ok()?;
-        let out = {
-            let data = slice.get_mapped_range().ok()?;
-            data.get(..usize::try_from(bytes).ok()?).map(|d| d.to_vec())
+        let size = words * 4;
+        let spare = {
+            let mut spares = self.spare_backs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            spares.retain(|b| b.size() == size);
+            spares.pop()
         };
-        b.back.unmap();
-        out
+        let back = spare.unwrap_or_else(|| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("yuv-readback"),
+                size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        });
+        enc.copy_buffer_to_buffer(&b.packed, 0, &back, 0, size);
+        let index = queue.submit([enc.finish()]);
+        Some(YuvReadback { device: device.clone(), back, index, bytes: usize::try_from(bytes).ok()?, spares: self.spare_backs.clone() })
     }
 
     /// Convert `src` (`w`×`h`) and render the samples into `targets` (an encoder surface at
@@ -484,7 +553,7 @@ impl YuvPass {
             return None;
         }
         let pipes = self.target_pipelines(device, ten_bit);
-        let (slot, mut enc, _) = self.convert(device, queue, src, (w, h), kr, kb, ten_bit)?;
+        let (slot, mut enc, _) = self.convert(device, queue, src, (w, h), kr, kb, ten_bit, false)?;
         let b = slot.as_ref()?;
         let mut tu = Vec::with_capacity(16);
         for v in [w, h, u32::from(ten_bit), 0] {

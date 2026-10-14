@@ -13,12 +13,15 @@ name = "filmcraft-cli"
 path = "src/main.rs"
 
 [features]
-default = ["llm"]
+default = ["llm", "voice-isolation"]
 # Local AI explanations of grade nodes (fork G2.11): inference on the CPU and the opt-in model
 # download (Settings ▸ Color ▸ AI explanations). Weights are never bundled.
 llm = ["filmcraft-engine/llm", "filmcraft-engine/llm-download"]
 # Speech-to-text (Text panel ▸ Transcribe) with Whisper on the CPU, and model downloads.
 whisper = ["filmcraft-engine/whisper", "filmcraft-engine/speech-download"]
+
+# Voice isolation (fork AUDIO-PLAN A2): DeepFilterNet3 on the CPU, downloaded on request.
+voice-isolation = ["filmcraft-engine/voice-isolation"]
 
 [dependencies]
 filmcraft-engine = { workspace = true, features = ["fork-resolve-default"] } # FORK-ONLY (RS1)

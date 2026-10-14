@@ -100,15 +100,24 @@ pub(crate) struct RenderMode {
     yuv: bool,
     kr_kb: (f32, f32),
     ten_bit: bool,
+    /// The GPU converts to 4:2:2 (read back; the encoder's 4:2:2 surfaces aren't render targets)
+    chroma_422: bool,
     target: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl RenderMode {
     /// `pipe`'s GPU renderer: the registered one, or a two-GPU lane's own (fork 6E.3).
     pub(crate) fn of(settings: &ExportSettings, pipe: &Pipeline, venc: &dyn VideoEncoder) -> Self {
-        // (4:2:2 HEVC: converted on the CPU from RGB; the GPU converts to 4:2:0 only, fork 6E.4)
-        let yuv = settings.video_format() == Format::Hevc && !settings.hevc_chroma_422 && pipe.gpu().is_some();
-        RenderMode { yuv, kr_kb: settings.signal.kr_kb(), ten_bit: settings.hevc_bit_depth == 10, target: if yuv { venc.gpu_target() } else { None } }
+        // (4:2:2 HEVC, always 10-bit: converted on the GPU and read back, fork X422)
+        let yuv = settings.video_format() == Format::Hevc && pipe.gpu().is_some();
+        let chroma_422 = settings.hevc_chroma_422;
+        RenderMode {
+            yuv,
+            kr_kb: settings.signal.kr_kb(),
+            ten_bit: settings.hevc_bit_depth == 10 || chroma_422,
+            chroma_422,
+            target: if yuv && !chroma_422 { venc.gpu_target() } else { None },
+        }
     }
 }
 
@@ -150,7 +159,7 @@ pub(crate) fn render_batch(pipe: &Pipeline, f: i64, end: i64, sources: &dyn Sour
                 pending.store(true, Ordering::Relaxed);
                 return (Vec::new(), Vec::new(), None, None);
             }
-            let render = || match mode.yuv.then(|| pipe.frame_yuv(fi, sources, kr, kb, mode.ten_bit, target)).flatten() {
+            let render = || match mode.yuv.then(|| pipe.frame_yuv(fi, sources, kr, kb, mode.ten_bit, mode.chroma_422, target)).flatten() {
                 Some(GpuOut::Bytes(y)) => (Vec::new(), Vec::new(), Some(y), None),
                 Some(GpuOut::Picture(p)) => (Vec::new(), Vec::new(), None, Some(p)),
                 None => {

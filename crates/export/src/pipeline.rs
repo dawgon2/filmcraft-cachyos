@@ -309,6 +309,7 @@ impl Pipeline {
         kr: f32,
         kb: f32,
         ten_bit: bool,
+        chroma_422: bool,
         target: Option<&(dyn std::any::Any + Send + Sync)>,
     ) -> Option<GpuOut> {
         let gpu = self.gpu()?;
@@ -325,6 +326,9 @@ impl Pipeline {
         let filmcraft_render::plan::FramePlan::Layers { width, height, .. } = &plan else { return None };
         if (*width, *height) != (self.w as usize, self.h as usize) {
             return None;
+        }
+        if chroma_422 {
+            return gpu.yuv422(&plan, kr, kb, ten_bit, self.opts.high_quality).map(GpuOut::Bytes);
         }
         if let Some(p) = target.and_then(|t| gpu.render_into(&plan, kr, kb, ten_bit, self.opts.high_quality, t)) {
             return Some(GpuOut::Picture(p));

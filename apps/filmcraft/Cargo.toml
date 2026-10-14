@@ -11,7 +11,7 @@ build = "build.rs"
 workspace = true
 
 [features]
-default = ["llm"]
+default = ["llm", "voice-isolation"]
 # Local AI explanations of grade nodes (fork G2.11): inference on the CPU and the opt-in model
 # download (Settings ▸ Color ▸ AI explanations). Weights are never bundled.
 llm = ["filmcraft-engine/llm", "filmcraft-engine/llm-download"]
@@ -19,6 +19,8 @@ llm = ["filmcraft-engine/llm", "filmcraft-engine/llm-download"]
 whisper = ["filmcraft-engine/whisper", "filmcraft-engine/speech-download"]
 # Natural Text to Speech voices (Kokoro-82M on the CPU, downloaded on first use).
 neural-voices = ["filmcraft-engine/neural-voices"]
+# Voice isolation (fork AUDIO-PLAN A2): DeepFilterNet3 on the CPU, downloaded on request.
+voice-isolation = ["filmcraft-engine/voice-isolation"]
 
 [dependencies]
 filmcraft-engine = { workspace = true, features = ["fork-resolve-default"] } # FORK-ONLY (RS1)

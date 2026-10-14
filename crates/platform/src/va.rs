@@ -1057,6 +1057,7 @@ impl LinearCopy {
                 linear: Some(how.clone()),
                 free: Mutex::new(Vec::new()),
                 count: Default::default(),
+                upload: Mutex::new(None),
             });
             match probe.get().and_then(|s| s.export().map(|e| e.dmabuf.modifier)) {
                 Ok(0) => {
@@ -1150,6 +1151,9 @@ pub struct SurfacePool {
     pub linear: Option<LinearAlloc>,
     free: Mutex<Vec<(sys::VASurfaceID, Arc<SurfaceMem>)>>,
     count: std::sync::atomic::AtomicUsize,
+    /// The image [`Surface::write`] fills and copies from, kept for the next frame (fork X422: a
+    /// fresh 104 MB image per 6.2K 4:2:2 frame cost more than filling it). Destroyed with the pool.
+    upload: Mutex<Option<sys::VAImage>>,
 }
 
 /// One surface's memory: a process-unique id (libva reuses surface ids after a surface is
@@ -1321,6 +1325,12 @@ impl SurfacePool {
 
 impl Drop for SurfacePool {
     fn drop(&mut self) {
+        if let Some(image) = self.upload.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            let d = &self.display;
+            // SAFETY: the pool's cached upload image (made by vaCreateImage on this display, not
+            // in use: it is only taken out of the slot while a write runs), destroyed once.
+            unsafe { d.lib.vaDestroyImage(d.dpy, image.image_id) };
+        }
         let free = std::mem::take(&mut *self.free.lock().unwrap_or_else(PoisonError::into_inner));
         for (id, _) in free {
             self.destroy(id);
@@ -1360,9 +1370,16 @@ impl SurfacePool {
         });
         let pool = match found {
             Some(i) => g.remove(i),
-            None => {
-                Arc::new(SurfacePool { display: display.clone(), rt_format, fourcc, size, linear, free: Mutex::new(Vec::new()), count: Default::default() })
-            }
+            None => Arc::new(SurfacePool {
+                display: display.clone(),
+                rt_format,
+                fourcc,
+                size,
+                linear,
+                free: Mutex::new(Vec::new()),
+                count: Default::default(),
+                upload: Mutex::new(None),
+            }),
         };
         g.push(pool.clone());
         if g.len() > SHARED_POOLS {
@@ -1380,6 +1397,7 @@ impl SurfacePool {
             linear: None,
             free: Mutex::new(Vec::new()),
             count: Default::default(),
+            upload: Mutex::new(None),
         })
     }
 
@@ -1607,13 +1625,22 @@ impl Surface {
         let d = &self.pool.display;
         let l = d.lib;
         let (w, h) = self.pool.size;
-        let mut format = self.image_format()?;
-        let int = |v: u32| i32::try_from(v).map_err(|_| format!("{v} does not fit libva's int"));
-        let (wi, hi) = (int(w)?, int(h)?);
-        let mut image: sys::VAImage = Default::default();
-        // SAFETY: a valid format struct and out-pointer.
-        d.check(unsafe { l.vaCreateImage(d.dpy, &mut format, wi, hi, &mut image) }, "vaCreateImage")?;
+        // (before the image exists: an early return must not leak it)
         let planes = plane_rows(self.pool.fourcc, w, h)?.len();
+        // the pool's image from the last write, else a new one (another write holds it)
+        let cached = self.pool.upload.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let image = match cached {
+            Some(image) => image,
+            None => {
+                let mut format = self.image_format()?;
+                let int = |v: u32| i32::try_from(v).map_err(|_| format!("{v} does not fit libva's int"));
+                let (wi, hi) = (int(w)?, int(h)?);
+                let mut image: sys::VAImage = Default::default();
+                // SAFETY: a valid format struct and out-pointer.
+                d.check(unsafe { l.vaCreateImage(d.dpy, &mut format, wi, hi, &mut image) }, "vaCreateImage")?;
+                image
+            }
+        };
         let result = (|| {
             if (image.num_planes as usize) < planes || (image.width as u32) < w || (image.height as u32) < h {
                 return Err("the driver made an image smaller than the surface".to_string());
@@ -1635,8 +1662,15 @@ impl Surface {
             // surface, which is of this display.
             d.check(unsafe { l.vaPutImage(d.dpy, self.id, image.image_id, 0, 0, w, h, 0, 0, w, h) }, "vaPutImage")
         })();
-        // SAFETY: destroys the image created above, once.
-        unsafe { l.vaDestroyImage(d.dpy, image.image_id) };
+        // kept for the next write when it worked and the slot is free; else destroyed
+        let mut slot = self.pool.upload.lock().unwrap_or_else(PoisonError::into_inner);
+        if result.is_ok() && slot.is_none() {
+            *slot = Some(image);
+        } else {
+            drop(slot);
+            // SAFETY: destroys the image created or taken above, once (it is in no slot).
+            unsafe { l.vaDestroyImage(d.dpy, image.image_id) };
+        }
         result
     }
 

@@ -67,6 +67,7 @@
 	Bring Forward	前面へ
 	Bring to Front	最前面へ
 	Brown	ブラウン
+	Cancel Voice Isolation Model Download	ボイス分離モデルのダウンロードをキャンセル
 	Captions	キャプション
 	Captions and Graphics	キャプションとグラフィックス
 	Captions…	キャプション…
@@ -112,6 +113,7 @@
 	Distribute Space Horizontally	水平方向の間隔を均等化
 	Distribute Space Vertically	垂直方向の間隔を均等化
 	Distribute Vertically	垂直方向に均等配置
+	Download Voice Isolation Model	ボイス分離モデルをダウンロード
 	Duplicate	複製
 	Dynamic Audio Waveforms	動的なオーディオ波形
 	Edit	編集
@@ -180,6 +182,9 @@
 	Insert	挿入
 	Insert Frame Hold Segment	フレームホールドセグメントを挿入
 	Install Motion Graphics Template…	モーショングラフィックステンプレートをインストール…
+	Install Voice Isolation Model from File	ファイルからボイス分離モデルをインストール
+	Installed: it loads the first time the Voice Isolation effect plays.	インストール済み：ボイス分離エフェクトを最初に再生したときに読み込まれます。
+	Installed: the Voice Isolation effect uses this model.	インストール済み：ボイス分離エフェクトはこのモデルを使用します。
 	Interpret Footage…	素材を解釈…
 	Join the ArtCraft Discord…	ArtCraft の Discord に参加…
 	Keyboard Shortcuts…	キーボードショートカット…
@@ -229,9 +234,11 @@
 	Next in Sequence	シーケンス内の次
 	Next in Track	トラック内の次
 	Normalize Mix Track…	ミックストラックをノーマライズ…
+	Not installed: the Voice Isolation effect works as DeNoise until you download the model.	未インストール：モデルをダウンロードするまで、ボイス分離エフェクトはノイズ除去として動作します。
 	Offline File…	オフラインファイル…
 	Open Project…	プロジェクトを開く…
 	Optical Flow	オプティカルフロー
+	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download.	オプション・オフライン：このコンピューター上の小さなニューラルネットワーク（約 8 MB）が、ボイス分離オーディオエフェクトのために音声とノイズを分離します。FilmCraft には同梱されず、「ダウンロード」をクリックしたときにのみ公開元からダウンロードされます。
 	Overwrite	上書き
 	Paste	貼り付け
 	Paste Attributes…	属性を貼り付け…
@@ -264,6 +271,7 @@
 	Remove Filler Words	フィラーワードを削除
 	Remove Pauses	無音部分を削除
 	Remove Unused	未使用の項目を削除
+	Remove Voice Isolation Model	ボイス分離モデルを削除
 	Rename…	名前を変更…
 	Render Audio	オーディオをレンダリング
 	Render Effects In to Out	イン点からアウト点までのエフェクトをレンダリング
@@ -330,6 +338,7 @@
 	Tan	タン
 	Teal	ティール
 	Text	テキスト
+	The model didn't load ({err}): the Voice Isolation effect works as DeNoise.	モデルを読み込めませんでした（{err}）。ボイス分離エフェクトはノイズ除去として動作します。
 	Time Interpolation	時間補間
 	Timecode	タイムコード
 	Timecode…	タイムコード…
@@ -357,6 +366,10 @@
 	Video and Audio Waveform Split	ビデオとオーディオ波形の分割表示
 	View	表示
 	Violet	バイオレット
+	Voice Isolation	ボイス分離
+	Voice Isolation Model Status	ボイス分離モデルの状態
+	Voice isolation	ボイス分離
+	Voice isolation isn't available in this build (built without the `voice-isolation` feature): the Voice Isolation effect works as DeNoise.	このビルドではボイス分離を使用できません（`voice-isolation` 機能なしでビルド）。ボイス分離エフェクトはノイズ除去として動作します。
 	Window	ウィンドウ
 	Workspaces	ワークスペース
 	Yellow	イエロー

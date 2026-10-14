@@ -762,6 +762,7 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
         }
         "appearanceModes" => appearance_modes(app, ui, d),
         "aiExplanations" => ai_explanations(app, ui, d),
+        "voiceIsolation" => voice_isolation(app, ui, d),
         "autoSaveStatus" => {
             let status = app.session.execute("file.autoSaveStatus", json!({})).unwrap_or_default();
             if let Some(dir) = status["autoSaveDir"].as_str() {
@@ -905,6 +906,83 @@ fn ai_explanations(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
         &t,
         tl!(
             "Most stock models fail the strict check. The FilmCraft-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used."
+        ),
+    );
+}
+
+/// Settings ▸ Audio ▸ Voice isolation (fork AUDIO-PLAN A2): the DeepFilterNet3 model behind the
+/// Voice Isolation effect, whether it is installed and loaded, and Download / Remove with progress.
+/// These act at once (`audio.voiceIsolate.download`, `.remove`, `.cancelDownload`). Ids:
+/// `settings.audio.voiceIsolation.download|remove|cancel|progress`.
+fn voice_isolation(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
+    let t = app.tokens;
+    let info = app.session.execute("audio.voiceIsolate.status", json!({})).unwrap_or_default();
+    let (name, size, licence, source) = (
+        info["name"].as_str().unwrap_or_default(),
+        mb(info["size"].as_u64().unwrap_or(0)),
+        info["license"].as_str().unwrap_or_default(),
+        info["source"].as_str().unwrap_or_default(),
+    );
+    let available = info["available"] == true;
+    let installed = info["installed"] == true;
+    let state = if !available {
+        tl!("Voice isolation isn't available in this build (built without the `voice-isolation` feature): the Voice Isolation effect works as DeNoise.")
+            .to_string()
+    } else if let Some(err) = info["error"].as_str() {
+        tlf!("The model didn't load ({err}): the Voice Isolation effect works as DeNoise.", err)
+    } else if info["loaded"] == true {
+        tl!("Installed: the Voice Isolation effect uses this model.").to_string()
+    } else if installed {
+        tl!("Installed: it loads the first time the Voice Isolation effect plays.").to_string()
+    } else {
+        tl!("Not installed: the Voice Isolation effect works as DeNoise until you download the model.").to_string()
+    };
+    note(ui, &t, &state);
+    note(ui, &t, &tlf!("{name}: {size}, licence {licence}, downloaded from {source}", name, size, licence, source));
+    let job = info["download"].as_u64().and_then(|id| app.session.jobs.iter().find(|j| j.id == id)).map(|j| j.to_json());
+    let last = app.session.jobs.iter().rev().find(|j| j.label == "Downloading the voice isolation model").map(|j| j.to_json());
+    ui.horizontal(|ui| {
+        field_label(ui, "");
+        if let Some(job) = &job {
+            let frac = job["progress"].as_f64().unwrap_or(0.0) as f32;
+            let status = job["status"].as_str().unwrap_or_default().to_string();
+            let r = ui.add(egui::ProgressBar::new(frac.clamp(0.0, 1.0)).desired_width(260.0).show_percentage().text(status));
+            app.auto.add("settings.audio.voiceIsolation.progress", r.rect, tl!("Download progress"));
+            let c = ui.button(tl!("Cancel download"));
+            app.auto.add("settings.audio.voiceIsolation.cancel", c.rect, tl!("Cancel download"));
+            if c.clicked() {
+                let _ = app.session.execute("audio.voiceIsolate.cancelDownload", json!({}));
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        } else {
+            let b = ui.add_enabled(available && !installed, egui::Button::new(tl!("Download")));
+            app.auto.add("settings.audio.voiceIsolation.download", b.rect, tl!("Download"));
+            if b.clicked() {
+                d.message = match app.session.execute("audio.voiceIsolate.download", json!({})) {
+                    Ok(_) => String::new(),
+                    Err(e) => e.to_string(),
+                };
+            }
+            let r = ui.add_enabled(installed, egui::Button::new(tl!("Remove")));
+            app.auto.add("settings.audio.voiceIsolation.remove", r.rect, tl!("Remove"));
+            if r.clicked() {
+                d.message = match app.session.execute("audio.voiceIsolate.remove", json!({})) {
+                    Ok(v) => tlf!("Removed the model ({size} freed).", size = mb(v["freed"].as_u64().unwrap_or(0))),
+                    Err(e) => e.to_string(),
+                };
+            }
+        }
+    });
+    if job.is_none()
+        && let Some(err) = last.as_ref().and_then(|j| j["result"]["error"].as_str())
+    {
+        note(ui, &t, &tlf!("The last download failed: {err}", err));
+    }
+    note(
+        ui,
+        &t,
+        tl!(
+            "Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download."
         ),
     );
 }

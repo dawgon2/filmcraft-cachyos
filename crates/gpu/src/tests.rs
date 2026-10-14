@@ -761,11 +761,19 @@ fn yuv420_from_the_accumulator_matches_cpu() {
         };
         let cpu = execute_cpu(&plan);
         c.composite(&plan);
-        for (ten, (kr, kb)) in [(true, (0.2126f32, 0.0722f32)), (false, (0.2126, 0.0722)), (true, (0.2627, 0.0593))] {
-            let gpu = c.read_yuv420(kr, kb, ten).expect("yuv read-back");
+        // (the last: 4:2:2, fork X422)
+        for (ten, (kr, kb), c422) in [
+            (true, (0.2126f32, 0.0722f32), false),
+            (false, (0.2126, 0.0722), false),
+            (true, (0.2627, 0.0593), false),
+            (true, (0.2126, 0.0722), true),
+            (false, (0.2126, 0.0722), true),
+        ] {
+            let gpu = if c422 { c.read_yuv422(kr, kb, ten) } else { c.read_yuv420(kr, kb, ten) }.expect("yuv read-back");
             // CPU reference: over black, clamped sRGB encode, then the export's 4:2:0 maths
             let enc = |v: f32| filmcraft_color::linear_to_srgb(v.clamp(0.0, 1.0));
-            let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+            let (cw, ch) = (w.div_ceil(2), if c422 { h } else { h.div_ceil(2) });
+            let rows = if c422 { 1 } else { 2 };
             let (kg, sb, sr) = (1.0 - kr - kb, 2.0 * (1.0 - kb), 2.0 * (1.0 - kr));
             let (ys, yo, cs, co, lo, hi) = if ten { (876.0, 64.0, 896.0, 512.0, 4.0, 1019.0) } else { (219.0, 16.0, 224.0, 128.0, 1.0, 254.0) };
             let mut want = vec![0u32; w * h + 2 * cw * ch];
@@ -776,7 +784,7 @@ fn yuv420_from_the_accumulator_matches_cpu() {
                     let (r, g, b) = (enc(p[0]), enc(p[1]), enc(p[2]));
                     let yy = kr * r + kg * g + kb * b;
                     want[y * w + x] = (yo + ys * yy).round().clamp(lo, hi) as u32;
-                    let a = &mut acc[(y / 2) * cw + x / 2];
+                    let a = &mut acc[(y / rows) * cw + x / 2];
                     a[0] += (b - yy) / sb;
                     a[1] += (r - yy) / sr;
                     a[2] += 1.0;
@@ -793,8 +801,8 @@ fn yuv420_from_the_accumulator_matches_cpu() {
             };
             assert_eq!(got.len(), want.len(), "{w}×{h}");
             let worst = got.iter().zip(&want).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
-            eprintln!("{w}×{h} ten {ten} kr {kr}: max {worst} codes");
-            assert!(worst <= if ten { 3 } else { 1 }, "{w}×{h} ten {ten}: {worst}");
+            eprintln!("{w}×{h} ten {ten} kr {kr} 4:2:2 {c422}: max {worst} codes");
+            assert!(worst <= if ten { 3 } else { 1 }, "{w}×{h} ten {ten} 4:2:2 {c422}: {worst}");
         }
     }
 }

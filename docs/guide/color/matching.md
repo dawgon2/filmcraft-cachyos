@@ -211,6 +211,11 @@ words the check accepts. In tests the best one passed 35 of 36 sample nodes and 
 published, they download like any other model. If you haven't picked a model yourself, FilmCraft
 uses the best tuned explainer that is installed, and the standard default model otherwise.
 
+On a slower computer, pick **FilmCraft explainer, SmolLM2 135M tuned (8-bit, fast)** in the
+**Model** list: it answers in about half the time (0.6 s instead of 1.3 s here) and passed nearly
+as many sample nodes (one fewer of 76). FilmCraft never picks it on its own: it is for when the
+standard tune feels slow.
+
 ### Privacy
 
 Nothing leaves your computer. The only network use is the download you start; the model is

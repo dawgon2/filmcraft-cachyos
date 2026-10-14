@@ -65,6 +65,7 @@
 	Bring Forward	Traer adelante
 	Bring to Front	Traer al frente
 	Brown	Marrón
+	Cancel Voice Isolation Model Download	Cancelar la descarga del modelo de aislamiento de voz
 	Captions	Subtítulos
 	Captions and Graphics	Subtítulos y gráficos
 	Captions…	Subtítulos…
@@ -110,6 +111,7 @@
 	Distribute Space Horizontally	Distribuir espacio horizontalmente
 	Distribute Space Vertically	Distribuir espacio verticalmente
 	Distribute Vertically	Distribuir verticalmente
+	Download Voice Isolation Model	Descargar el modelo de aislamiento de voz
 	Duplicate	Duplicar
 	Dynamic Audio Waveforms	Formas de onda de audio dinámicas
 	Edit	Edición
@@ -178,6 +180,9 @@
 	Insert	Insertar
 	Insert Frame Hold Segment	Insertar segmento de fotograma congelado
 	Install Motion Graphics Template…	Instalar plantilla de animación…
+	Install Voice Isolation Model from File	Instalar el modelo de aislamiento de voz desde un archivo
+	Installed: it loads the first time the Voice Isolation effect plays.	Instalado: se carga la primera vez que se reproduce el efecto Aislamiento de voz.
+	Installed: the Voice Isolation effect uses this model.	Instalado: el efecto Aislamiento de voz usa este modelo.
 	Interpret Footage…	Interpretar material…
 	Join the ArtCraft Discord…	Únete al Discord de ArtCraft…
 	Keyboard Shortcuts…	Atajos de teclado…
@@ -190,6 +195,9 @@
 	Libraries	Bibliotecas
 	Lift	Levantar
 	Light	Claro
+	Not installed: the Voice Isolation effect works as DeNoise until you download the model.	No instalado: el efecto Aislamiento de voz funciona como Reductor de ruido hasta que descargue el modelo.
+	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download.	Opcional y sin conexión: una pequeña red neuronal (unos 8 MB) en este equipo separa la voz del ruido para el efecto de audio Aislamiento de voz. Nunca se incluye con FilmCraft y solo se descarga de su editor cuando hace clic en Descargar.
+	Remove Voice Isolation Model	Quitar el modelo de aislamiento de voz
 	Resolve	Resolve
 	Link	Vincular
 	Link Media…	Vincular medios…
@@ -330,6 +338,7 @@
 	Tan	Canela
 	Teal	Verde azulado
 	Text	Texto
+	The model didn't load ({err}): the Voice Isolation effect works as DeNoise.	El modelo no se cargó ({err}): el efecto Aislamiento de voz funciona como Reductor de ruido.
 	Time Interpolation	Interpolación de tiempo
 	Timecode	Código de tiempo
 	Timecode…	Código de tiempo…
@@ -357,6 +366,10 @@
 	Video and Audio Waveform Split	Video y forma de onda de audio divididos
 	View	Ver
 	Violet	Violeta
+	Voice Isolation	Aislamiento de voz
+	Voice Isolation Model Status	Estado del modelo de aislamiento de voz
+	Voice isolation	Aislamiento de voz
+	Voice isolation isn't available in this build (built without the `voice-isolation` feature): the Voice Isolation effect works as DeNoise.	El aislamiento de voz no está disponible en esta versión (compilada sin la función `voice-isolation`): el efecto Aislamiento de voz funciona como Reductor de ruido.
 	Window	Ventana
 	Workspaces	Espacios de trabajo
 	Yellow	Amarillo

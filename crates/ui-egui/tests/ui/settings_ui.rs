@@ -22,9 +22,12 @@ struct Driver {
 
 impl Driver {
     fn demo() -> Self {
-        let mut session = Session::default();
         // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
-        session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
+        Self::demo_in(filmcraft_engine::settings::Workflow::Premiere)
+    }
+    fn demo_in(workflow: filmcraft_engine::settings::Workflow) -> Self {
+        let mut session = Session::default();
+        session.prefs.workflow = workflow;
         session.execute("file.openDemoProject", json!({})).expect("demo project");
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(session).with_control(rx);
@@ -473,4 +476,28 @@ fn reset_on_the_color_page_keeps_the_coach_records() {
     assert_eq!(d.pref("color.coach.hints"), true, "the switch is a setting: reset");
     assert_eq!(d.pref("color.coach.completed"), json!(["first-grade"]));
     assert_eq!(d.pref("color.coach.hintsSeen"), json!(["first-node"]));
+}
+
+/// Settings ▸ Audio ▸ Voice isolation (fork AUDIO-PLAN A2.5) in both workflows: the model row is
+/// there with its buttons, Download only when the build can and the model isn't installed. (No
+/// clicks: Download and Remove act on the real data directory.)
+#[test]
+fn voice_isolation_row_in_both_workflows() {
+    for workflow in [filmcraft_engine::settings::Workflow::Premiere, filmcraft_engine::settings::Workflow::Resolve] {
+        let mut d = Driver::demo_in(workflow);
+        d.menu("app.settings.audio");
+        let status = d.exec("audio.voiceIsolate.status", json!({}));
+        if status["download"].is_null() {
+            for id in ["settings.audio.voiceIsolation.download", "settings.audio.voiceIsolation.remove"] {
+                assert!(d.has(id), "{workflow:?}: {id} missing");
+            }
+        } else {
+            assert!(d.has("settings.audio.voiceIsolation.cancel"), "{workflow:?}");
+        }
+        // (the row is at the end of the page: scroll it into view for the screenshot)
+        d.ok("ui.scroll", json!({"x": 900, "y": 600, "dy": -1200}));
+        d.frames(3);
+        d.shot(&format!("voice-isolation-{workflow:?}"));
+        d.click("settings.cancel");
+    }
 }

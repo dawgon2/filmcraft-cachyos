@@ -4,7 +4,7 @@ Jobs for the cloud routine (branch `cloud-work`, only while the PC is down; FORK
 CPU-verifiable, chosen not to overlap with what the PC run is doing. Take them top to bottom; note
 each in `docs/fork/CLOUD-LOG.md` with what is UNVERIFIED ON GPU.
 
-**PC is doing now (2026-10-13 21:00, scheduled run): AI1 (AI-PLAN, `crates/llm` own quantized forward pass); don't touch `crates/llm`, `crates/engine/src/ai_explain*`, `.cargo/config.toml`**. Also don't touch `crates/gpu/src/{fx,colorops}*`. after the 6E group was accepted and published. **Don't touch** `crates/platform`,
+**PC is doing now (2026-10-14 03:00, scheduled run): X422 (6.2K 4:2:2 graded export; next the fused graded passes, §1a.71) and AI1.4 (SmolLM2-135M tune); don't touch `crates/gpu`, `crates/export`, `crates/platform`, `crates/render/src/plan*`, `tools/explainer-train`; the Dell lane is on A2 (`crates/voice`), don't touch that either**. Also **don't touch**
 `crates/hevc`, `crates/codecs` (hybrid / hw factory), `crates/export/src/lanes/`, or the Dell lane's
 Linux desktop files (`apps/filmcraft/src/{desktop,mpris,cards,kdeconnect,portal*}.rs`). Earlier rules:
 **Don't touch** `crates/ui-egui/src/{app.rs,menus.rs,theme.rs,workspaces*,i18n/mod.rs}`,

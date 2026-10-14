@@ -137,10 +137,9 @@ fn project_manager_buttons_and_x(workflow: Workflow) {
     assert!(d.harness.state().ui.home.open);
     assert!(d.shows("window.fullScreen") && d.shows("window.minimize"), "{workflow:?}");
     assert!(!d.shows("window.maximize") && !d.shows("window.close"), "{workflow:?}: no maximise / close on the Project Manager");
-    // its × closes into an untitled project when nothing is open
-    d.ok("ui.click", json!({"id": "projects.close.x"}));
-    d.frames(2);
-    assert!(!d.harness.state().ui.home.open, "{workflow:?}: × leaves the Project Manager");
+    // its × quits FilmCraft (runs `app.quit`, which asks about unsaved changes first)
+    let x = d.harness.state().auto.previous.iter().find(|e| e.id == "projects.close.x").map(|e| e.label.clone());
+    assert_eq!(x.as_deref(), Some("Quit FilmCraft"), "{workflow:?}");
 }
 
 #[test]

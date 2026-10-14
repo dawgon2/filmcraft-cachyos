@@ -72,6 +72,11 @@ pub(crate) fn mapping(id: &str) -> Option<Mapping> {
         "bandpass" => Mapping { dsp: "parametric_eq", preroll: |_, _| 0.05, apply: |d, e, t| band(d, 6.0, f(e, "center", t), f(e, "q", t)) },
         // Amount 0…100 % → 0…40 dB of reduction.
         "denoise" => Mapping { dsp: "denoise", preroll: |_, _| 1.0, apply: |d, e, t| ignore(d.set_param("reduction", f(e, "amount", t) * 0.4)) },
+        // Fork (AUDIO-PLAN A2): the model (filmcraft-voice) when installed, else a DeNoise fallback.
+        // A short pre-roll: the model settles within a few 10 ms frames, and every fresh chain
+        // (a seek, a shuttle) runs its pre-roll through the network: 1 s cost ~0.6 s of CPU per stereo
+        // clip on the Dell's slower cores and caused underruns (A2.6); 0.2 s is 20 frames.
+        "voice_isolate" => Mapping { dsp: "voice_isolate", preroll: |_, _| 0.2, apply: |d, e, t| ignore(d.set_param("amount", f(e, "amount", t))) },
         // Gain is the notch depth: the wet/dry amount that leaves 10^(gain/20) of the hum.
         "dehummer" => Mapping {
             dsp: "dehum",

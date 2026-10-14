@@ -634,7 +634,19 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
             play_cuts(&s, seq, o, &name, secs, &starts, &mut rows);
         }
     }
-    if ["xm5-export-4k", "xm5-export-4k graded", "xm5-export-6k", "xm5-export-6k graded"].iter().any(|n| o.wants(n)) || asks_tnr(o, "xm5-export-tnr") {
+    if [
+        "xm5-export-4k",
+        "xm5-export-4k graded",
+        "xm5-export-6k",
+        "xm5-export-6k graded",
+        "xm5-export-422 graded",
+        "xm5-export-422 master graded",
+        "xm5-export-422 prores graded",
+    ]
+    .iter()
+    .any(|n| o.wants(n))
+        || asks_tnr(o, "xm5-export-tnr")
+    {
         rows.extend(export(o));
     }
     // only when asked for by name: hours long
@@ -965,28 +977,36 @@ fn scrub(o: &Opts) -> Vec<Value> {
 /// 60 s of the 6.2K clip exported to HEVC Main10: 3840×2160 and 6240×4160, ungraded and graded.
 fn export(o: &Opts) -> Vec<Value> {
     let mut rows = Vec::new();
-    let secs = if o.quick { 5.0 } else { 60.0 };
+    let secs: f64 = if o.quick { 5.0 } else { 60.0 };
     let dir = std::env::temp_dir().join(format!("filmcraft-bench-xm5-{}", std::process::id()));
     if std::fs::create_dir_all(&dir).is_err() {
         return rows;
     }
     // (the last: 4K with temporal noise reduction on the clip, fork 6.7; only when named)
-    let cases: [(&str, u32, u32, bool); 5] = [
-        ("xm5-export-4k", 3840, 2160, false),
-        ("xm5-export-4k graded", 3840, 2160, true),
-        ("xm5-export-6k", 6240, 4160, false),
+    // (source, chroma of the output file)
+    let cases: [(&str, u32, u32, bool, &str, &str); 8] = [
+        ("xm5-export-4k", 3840, 2160, false, PLAY, "420"),
+        ("xm5-export-4k graded", 3840, 2160, true, PLAY, "420"),
+        ("xm5-export-6k", 6240, 4160, false, PLAY, "420"),
         // fork U0.2.3b (FORK-PLAN §1a.58): the graded 6.2K export, reported (aim ≥ 24 fps)
-        ("xm5-export-6k graded", 6240, 4160, true),
-        ("xm5-export-tnr", 3840, 2160, false),
+        ("xm5-export-6k graded", 6240, 4160, true, PLAY, "420"),
+        ("xm5-export-tnr", 3840, 2160, false, PLAY, "420"),
+        // fork X422 (FORK-PLAN §1a.68): the 6.2K 4:2:2 original graded, (a) to a 4:2:0 file
+        // (aim ≥ 24 fps) and (b) to the 4:2:2 HEVC master; the clip is 20 s long
+        ("xm5-export-422 graded", 6240, 4160, true, C422, "420"),
+        ("xm5-export-422 master graded", 6240, 4160, true, C422, "422"),
+        // (b)'s comparison: our CPU ProRes 422 HQ encoder ("prores" here: the format, not a chroma)
+        ("xm5-export-422 prores graded", 6240, 4160, true, C422, "prores"),
     ];
-    for (name, w, h, graded) in cases {
+    for (name, w, h, graded, src, chroma) in cases {
         let tnr = name.contains("tnr");
         let wanted = if tnr { asks_tnr(o, name) } else { o.wants(name) };
         if !wanted {
             continue;
         }
         let mut s = Session::default();
-        let Some(a) = import(&mut s, PLAY) else { break };
+        let Some(a) = import(&mut s, src) else { continue };
+        let secs = if src == C422 { secs.min(19.0) } else { secs };
         let seq = cuts_sequence(&mut s, w, h, &[(a, 0.0, secs)], true);
         if graded {
             grade(&mut s, seq);
@@ -1004,10 +1024,15 @@ fn export(o: &Opts) -> Vec<Value> {
             let st0 = filmcraft_export::stage_times();
             let _ = filmcraft_export::trace::take();
             let (t0, c0) = (Instant::now(), filmcraft_ui_egui::frames::process_cpu_time().unwrap_or_default());
-            let r = s.execute(
-                "file.exportMedia",
-                json!({"path": out.to_string_lossy(), "format": "hevc", "bitDepth": "10", "bitrateKbps": 100_000, "bitrateMode": "vbr1Pass", "exportEngines": engines, "wait": true}),
-            );
+            let mut params = json!({"path": out.to_string_lossy(), "format": "hevc", "bitDepth": "10", "bitrateKbps": 100_000, "bitrateMode": "vbr1Pass", "exportEngines": engines, "chroma": chroma, "wait": true});
+            // FILMCRAFT_BENCH_ENC_SPEED=speed|balanced|quality: the hardware encoder's level (fork X422)
+            if let Some(v) = std::env::var("FILMCRAFT_BENCH_ENC_SPEED").ok().filter(|v| !v.is_empty()) {
+                params["hwEncodeSpeed"] = json!(v);
+            }
+            if chroma == "prores" {
+                params = json!({"path": dir.join("out.mov").to_string_lossy(), "format": "prores", "proresProfile": "hq", "wait": true});
+            }
+            let r = s.execute("file.exportMedia", params);
             let dt = t0.elapsed().as_secs_f64();
             let cpu = ms(filmcraft_ui_egui::frames::process_cpu_time().unwrap_or_default().saturating_sub(c0));
             let smp = smp.finish();
@@ -1028,9 +1053,9 @@ fn export(o: &Opts) -> Vec<Value> {
             }
             rows.push(json!({
                 "case": name, "frames": frames, "seconds": dt, "fps": fps, "realtime": fps / FPS_29_97.as_f64(),
-                "cpu_ms_per_frame": cpu / frames.max(1) as f64, "mbytes": std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0) as f64 / 1e6,
+                "cpu_ms_per_frame": cpu / frames.max(1) as f64, "mbytes": std::fs::metadata(if chroma == "prores" { dir.join("out.mov") } else { out.clone() }).map(|m| m.len()).unwrap_or(0) as f64 / 1e6,
                 "sampled": smp.json(), "load": load_avg(), "gop_seeks": g.seeks, "gop_decoded": g.decoded, "gop_evicted": g.evicted,
-                "engines": engines, "lanes": filmcraft_export::lanes::last_lanes(), "backends": filmcraft_codecs::hw::backend_stats(),
+                "engines": engines, "chroma": chroma, "lanes": filmcraft_export::lanes::last_lanes(), "backends": filmcraft_codecs::hw::backend_stats(),
                 // wall seconds per export stage, summed over lanes and threads (fork 6E.3 S11)
                 "stages_s": filmcraft_export::stage_times().iter().zip(&st0).map(|((k, b), (_, a))| (k.name().to_string(), json!(b.saturating_sub(*a) as f64 / 1e9))).collect::<serde_json::Map<_, _>>(),
                 // FILMCRAFT_EXPORT_TRACE=1: render / encode breakdown in ms (lock waits, GPU record, VA encode)

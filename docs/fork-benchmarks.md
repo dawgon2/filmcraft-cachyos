@@ -697,3 +697,83 @@ interleaved, load 0.9–5.1 (another session idle). fps:
 copy 61.6 s over 1798 pictures (34 ms each) and encoder GPU wait 44.8 s. Not switched on.
 Output: bit-exact except the Auto decode-only plan's scaled hand-off (Q20, fine texture, 33.8 dB).
 
+
+### X422 first measurements (2026-10-14 ~02:05, idle machine, release bench, single runs, synthetic)
+
+`FILMCRAFT_EXPORT_TRACE=1 bench --sections xm5 --only xm5-export-422` (new cases: the 6.2K 4:2:2 original
+`xm5_422_2997_20s.mov`, 569 frames (19 s), the bench grade, Export engines Auto = AMD alone because of the grade).
+
+| Case | Before | Now | Notes |
+|---|---|---|---|
+| (a) `xm5-export-422 graded` → HEVC Main 10 4:2:0 | – | **17.1 fps** | Intel decodes, hand-off to AMD, zero-copy encode; CPU 8.4 ms/frame |
+| (b) `xm5-export-422 master graded` → HEVC Main 4:2:2 10 | 0.5 fps (`FILMCRAFT_EXPORT_CPU=1`, = the old path: RGB on the CPU) | **6.8 fps** | RGB → 4:2:2 now on the GPU (read back); CPU 318 ms/frame |
+
+(a) trace, ms summed over threads: plan+decode 58 660, VA hand-off copy 23 863, copy sync 9 744, VA decode
+sync 7 209, encoder GPU wait 17 010, VA encode 1 479; stages: render 33.0 s of 33.4 s wall. The Intel →
+AMD hand-off copy (~42 ms per frame of thread time, ~104 MB per frame) and decode dominate, as HANDOFF
+expected; next: overlap the copy with decode, and §1a.71's fused passes for the render side.
+(b): render 82.9 s, encode 20.5 s, VA hand-off copy 34 379 + copy sync 31 215 ms; the CPU time left is the
+104 MB read-back plus `fill_y210` (planar → Y210 packing into the VA image) per frame. Next levers: pack
+Y210 on the GPU (or render straight into the Y210 surface), then the bounded Intel encode levers.
+
+**(b) per-frame breakdown (02:20, `--quick`, 149 frames, new trace stages `gpu read-back` / `4:2:2 encoder input`):**
+6.6 → 6.8 fps after keeping the VA upload image per pool (was a fresh 104 MB `vaCreateImage` per frame):
+4:2:2 encoder input 145 → 126 ms per frame (copy + `fill_y210` + `vaPutImage`, on the encoder thread).
+**The limit is the GPU read-back: 108 ms per frame, serial under the export compositor's lock** (composite,
+convert, pack, copy to the mapped buffer, wait, copy out), i.e. ≤ ~9 fps however fast the rest is.
+Zero-copy (rendering into the encoder's surface) isn't available here: AMD renders, the Intel surface
+encodes 4:2:2 (cross-GPU, tiled). Next lever: submit under the lock, wait and copy out after releasing it,
+with two read-back buffers in flight.
+
+**(b) pipelined read-back (02:30, full 569 frames):** the frame is composited and submitted under the
+compositor lock and waited for / copied out after it (own read-back buffer per frame in flight):
+**(b) 6.8 → 7.3 fps**; (a) unchanged at 17.1 (it is zero-copy). The limit moves to the encoder thread's 4:2:2
+input, ~123 ms per frame, split (`--quick`): planar copy 28 ms, Y210 packing into the VA image 24 ms,
+**`vaPutImage` ~87 ms** (Intel driver upload into its tiled surface). Next lever: write a linear Y210 surface
+through its DMA-BUF mapping (no `vaPutImage`), or AMD rendering into a linear Intel surface (cross-GPU zero-copy).
+
+**(b) dead end, 02:37: Intel encoding from linear Y210 memory the AMD GPU allocated** (`LinearAlloc::Imported`,
+filled by the CPU through the DMA-BUF mapping, to skip `vaPutImage`): iHD accepts such source surfaces and
+encodes without error, but the pictures come out wrong (`encodes_422_our_decoder_reads`: chroma off by 798;
+`hevc_422_master_*` fail), also with `clflush` after the fill, so not a CPU-cache effect. Not pursued in
+MINIMAL mode; GPU-written (rather than CPU-written) linear memory is untested. The planar pass-through copy
+is now parallel: 28 → 19 ms per frame. Encoder input left per frame: copy 19, Y210 fill 24, `vaPutImage` ~84 ms.
+
+**(b) levers, 02:45–02:55 (`--quick`, 149 frames):** the limit is not the encoder thread (its "wait" for
+frames is 16–18 s of 22 s) but rendering, i.e. the Intel UHD 750 doing 4:2:2 decode + hand-off copy + 4:2:2
+encode at once: with the 4:2:0 output read back instead of zero-copy (`FILMCRAFT_NO_ZERO_COPY=1`) the same
+clip renders at 10.3 fps with half the decode / hand-off time (no Intel encode). Tried, no gain, reverted:
+`vaDeriveImage` instead of `vaCreateImage` + `vaPutImage` (upload 108 → 78 ms/frame, fps unchanged: 6.8);
+non-blocking read-back polling (6.7 / 6.8). Encoder level (`FILMCRAFT_BENCH_ENC_SPEED`): speed 6.9,
+default 6.8, quality 5.0 fps. **ProRes 422 HQ** (`xm5-export-422 prores graded`, our CPU encoder): 0.5 fps,
+the ProRes path renders the grade on the CPU. → OWNER-QUESTIONS Q27 (FYI).
+
+
+### X422 2b: fused graded passes (2026-10-14, idle machine, release bench, single full-length runs, synthetic)
+
+Per-op GPU time at 6240 × 4160 (`graded_export_ops_timing_6k`, the bench grade), before → after 2b.1–2b.2
+(fused box cascades; one-pass Sharpen-sized Unsharp; HSL Secondary without blur as one chain; adjacent
+chains merged; `FILMCRAFT_FX_FUSE=0` gives the old passes):
+
+| | AMD f32 | Intel f32 | Intel f16 |
+|---|---|---|---|
+| all graded ops | 19.1 → **8.2 ms** | 286 → **178 ms** | 201 → **165 ms** |
+| Intel lane (ops + 27 ms source draw) | – | ~3.5 → **~4.9 fps** | – |
+
+Exports (`bench --section xm5 --only …`, binary `target/bench/bench-x422-2b`):
+
+| case | before | after | |
+|---|---|---|---|
+| `xm5-export-6k graded` (Auto = AMD alone) | 19.6 | **19.7 fps** | AMD isn't render-bound here (decode / encode); aim ≥ 24 ✗ |
+| `xm5-export-422 graded` (X422 (a)) | 17.1 | **19.9 fps** | +16 %; aim ≥ 24 ✗ |
+
+Intel's remaining graded cost is the merged chain + HSL pass (~134 ms, ALU-bound), not passes. → Q28 (FYI).
+
+**X422 final (2026-10-14, median of 2, full length, idle):** (a) `xm5-export-422 graded` **19.9 / 20.0 fps**;
+(b) `xm5-export-422 master graded` **7.2 / 7.2 fps**. Traced (a) (`FILMCRAFT_EXPORT_TRACE=1`, 569 frames, 19.8 fps):
+render loop waiting for frames 26.3 of 28.5 s; summed per frame: va decode sync 12.9 ms, **va hand-off copy (Intel VPP)
+34.2 ms**, copy sync 18.6 ms, plan+decode 86 ms (threads overlapped), encoder waiting on the GPU 21 ms, VA encode 3.7 ms.
+**Why (a) stops at ~20 fps:** the Intel UHD 750 does both the 4:2:2 decode and the ~104 MB linear hand-off copy for the
+AMD card (AMD can't decode 4:2:2 or import Intel's tiled surfaces), ~50 ms of Intel time per frame; the AMD render +
+encode (~8 + ~4 ms) waits on it. Raising it needs a cheaper hand-off (smaller format, DMA-BUF import of a linear decode
+target) or a 4:2:2 decoder on another engine, not rendering work.

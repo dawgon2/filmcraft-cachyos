@@ -32,7 +32,7 @@ pub mod resample;
 mod smooth;
 pub mod sync;
 
-pub use effects::{Category, EffectInfo, create_effect, effect_info, effects};
+pub use effects::{Category, EffectInfo, ExternalFactory, create_effect, effect_info, effects, register_external, unregister_external};
 pub use loudness::{LoudnessMeter, normalize_gain_db};
 pub use smooth::Smoothed;
 

@@ -42,6 +42,7 @@ own solver and explanations).
 | [render-cache.md](render-cache.md) | The render cache (Phase 6.3): when it renders, the render bar colours, invalidation, the 2 s H.265 pieces, Settings ▸ Media Cache ▸ Render Cache, `cache.*` commands | written (6.3) |
 | [editing.md](editing.md) | Cutting, three-point editing, JKL, trimming, multicam (links to proxies / render cache) | written (GUIDE-7) |
 | [cards.md](cards.md) | Copying camera cards (LINUX-PLAN L2.4): the verified copy, the checksum list, cards pulled mid-copy, the card bar and Eject, `card.*` commands, copy-first vs import-from-card | written (L2.4) |
+| [audio.md](audio.md) | Audio clean-up (AUDIO-PLAN A2): Voice Isolation (DeepFilterNet3), installing its model (Settings ▸ Audio ▸ Voice isolation), Voice Isolation vs DeNoise vs Essential Sound; later one-click voice clean-up | partial (A2.5) |
 | [proxies.md](proxies.md) | Automatic proxies (which clips get them, the background worker, badges, Auto / On / Off, cancelling, relinked media) | written (6.2) |
 | [export.md](export.md) | Export presets, hardware HEVC and its fallbacks, bitrate vs constant quality (CRF), HDR → Main 10 | written (cloud; YouTube / Shorts specifics to add with Y phases) |
 | [hardware.md](hardware.md) | What runs on the AMD VCN / Intel / CPU, fallbacks, what the badges mean | written (cloud; badges arrive with Phase 6) |

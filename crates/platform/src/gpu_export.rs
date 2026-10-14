@@ -137,25 +137,50 @@ impl GpuExport {
     }
 }
 
+impl GpuExport {
+    /// Composite `plan` and read it back as 4:2:0 or (`chroma_422`, fork X422) 4:2:2 Y'CbCr.
+    fn read_back(&self, plan: &FramePlan, kr: f32, kb: f32, ten_bit: bool, high_quality: bool, chroma_422: bool) -> Option<Vec<u8>> {
+        let clock = filmcraft_export::trace::start();
+        let out = self.read_back_untimed(plan, kr, kb, ten_bit, high_quality, chroma_422);
+        filmcraft_export::trace::add(filmcraft_export::trace::GPU_READ_BACK, clock);
+        out
+    }
+
+    fn read_back_untimed(&self, plan: &FramePlan, kr: f32, kb: f32, ten_bit: bool, high_quality: bool, chroma_422: bool) -> Option<Vec<u8>> {
+        // composited and submitted under the lock; waited for and copied out after it (fork
+        // X422: the read-back of a 6.2K frame was most of its time, and serial)
+        let pending = {
+            let mut slot = self.compositor()?;
+            let c = slot.as_mut()?.as_mut()?;
+            let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                c.set_high_quality(high_quality);
+                c.composite(plan);
+                c.submit_yuv(kr, kb, ten_bit, chroma_422)
+            }));
+            match out {
+                Ok(v) if !self.broken.load(Ordering::Relaxed) => v,
+                Ok(_) => None,
+                Err(_) => {
+                    log::error!("export compositor panicked; rendering export frames on the CPU from now on");
+                    self.broken.store(true, Ordering::Relaxed);
+                    *slot = Some(None);
+                    None
+                }
+            }
+        }?;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pending.wait())).ok().flatten();
+        // a GPU error raised meanwhile (uncaptured error handler) makes the frame unusable
+        out.filter(|_| !self.broken.load(Ordering::Relaxed))
+    }
+}
+
 impl filmcraft_export::GpuFrames for GpuExport {
     fn yuv420(&self, plan: &FramePlan, kr: f32, kb: f32, ten_bit: bool, high_quality: bool) -> Option<Vec<u8>> {
-        let mut slot = self.compositor()?;
-        let c = slot.as_mut()?.as_mut()?;
-        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            c.set_high_quality(high_quality);
-            c.composite(plan);
-            c.read_yuv420(kr, kb, ten_bit)
-        }));
-        match out {
-            Ok(v) if !self.broken.load(Ordering::Relaxed) => v,
-            Ok(_) => None,
-            Err(_) => {
-                log::error!("export compositor panicked; rendering export frames on the CPU from now on");
-                self.broken.store(true, Ordering::Relaxed);
-                *slot = Some(None);
-                None
-            }
-        }
+        self.read_back(plan, kr, kb, ten_bit, high_quality, false)
+    }
+
+    fn yuv422(&self, plan: &FramePlan, kr: f32, kb: f32, ten_bit: bool, high_quality: bool) -> Option<Vec<u8>> {
+        self.read_back(plan, kr, kb, ten_bit, high_quality, true)
     }
 
     fn render_into(
@@ -319,7 +344,14 @@ mod tests {
         for node in crate::va::render_nodes() {
             let Some(g) = frames_on(&node) else { continue };
             match g.yuv420(&p, 0.2126, 0.0722, true, false) {
-                Some(f) => frames.push((node, f)),
+                Some(f) => {
+                    // fork X422: the 4:2:2 read-back, same luma, full-height chroma
+                    let c422 = g.yuv422(&p, 0.2126, 0.0722, true, false).expect("4:2:2 where 4:2:0 renders");
+                    let luma = 320 * 176 * 2;
+                    assert_eq!(c422.len(), luma + 2 * 160 * 176 * 2, "{node}");
+                    assert_eq!(c422.get(..luma), f.get(..luma), "{node}: luma differs between 4:2:0 and 4:2:2");
+                    frames.push((node, f));
+                }
                 None => eprintln!("{node}: no usable GPU"),
             }
         }
