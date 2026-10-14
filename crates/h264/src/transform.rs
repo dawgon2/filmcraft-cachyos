@@ -1,6 +1,7 @@
 //! Scaling (dequantisation) and inverse transforms (8.5.10 - 8.5.13).
 
 use crate::params::ScalingMatrices;
+use crate::sample::{Sample, clip1};
 use crate::tables::{norm_adjust4, norm_adjust8};
 
 /// LevelScale4x4 / LevelScale8x8 for all six scaling lists and qP % 6, raster order.
@@ -83,16 +84,30 @@ pub fn chroma_dc_dequant_420(c: &mut [i32; 4], qp: i32, ls00: i32) {
     }
 }
 
-#[inline(always)]
-fn clip_u8(v: i32) -> u8 {
-    v.clamp(0, 255) as u8
+/// 4:2:2 chroma DC (8.5.11): the eight levels in chroma DC scan order form the 4x2 matrix
+/// c = [[c0, c2], [c1, c5], [c3, c6], [c4, c7]], transformed as A4 * c * A2 and scaled at
+/// `qp` = QP'c + 3 (`ls00` = LevelScale4x4(qp % 6, 0, 0)). Output: the DC of chroma 4x4 block
+/// `row * 2 + col`.
+pub fn chroma_dc_dequant_422(levels: &mut [i32; 8], qp: i32, ls00: i32) {
+    let l = *levels;
+    let c = [[l[0], l[2]], [l[1], l[5]], [l[3], l[6]], [l[4], l[7]]];
+    // A2 on each row (columns), then A4 down each column
+    let g = c.map(|[a, b]| [a.wrapping_add(b), a.wrapping_sub(b)]);
+    let a4 = [[1, 1, 1, 1], [1, 1, -1, -1], [1, -1, -1, 1], [1, -1, 1, -1]];
+    for (i, row) in a4.iter().enumerate() {
+        for j in 0..2 {
+            let f = (0..4).fold(0i32, |acc, k| acc.wrapping_add(g[k][j].wrapping_mul(row[k])));
+            levels[i * 2 + j] =
+                if qp >= 36 { f.wrapping_mul(ls00) << (qp / 6 - 6) } else { f.wrapping_mul(ls00).wrapping_add(1 << (5 - qp / 6)) >> (6 - qp / 6) };
+        }
+    }
 }
 
 /// Inverse 4x4 transform of raster-order `d` and add to `dst` (8.5.12.2, 8.5.14).
 ///
 /// Rows first, then columns (the spec's order: the `>> 1` steps make it matter). The column
 /// pass and the reconstruction run across all columns at once so they vectorise.
-pub fn idct4_add(d: &[i32; 16], dst: &mut [u8], stride: usize) {
+pub fn idct4_add<S: Sample>(d: &[i32; 16], dst: &mut [S], stride: usize, max: i32) {
     let mut t = [[0i32; 4]; 4];
     for (i, row) in t.iter_mut().enumerate() {
         let r = &d[i * 4..i * 4 + 4];
@@ -118,18 +133,18 @@ pub fn idct4_add(d: &[i32; 16], dst: &mut [u8], stride: usize) {
             return;
         };
         for (p, &v) in line.iter_mut().zip(row) {
-            *p = clip_u8(*p as i32 + ((v + 32) >> 6));
+            *p = clip1(p.get() + ((v + 32) >> 6), max);
         }
     }
 }
 
 /// DC-only shortcut: all AC coefficients zero.
 #[allow(dead_code)]
-pub fn idct4_dc_add(dc: i32, dst: &mut [u8], stride: usize) {
+pub fn idct4_dc_add<S: Sample>(dc: i32, dst: &mut [S], stride: usize, max: i32) {
     let v = (dc + 32) >> 6;
     for i in 0..4 {
         for p in &mut dst[i * stride..i * stride + 4] {
-            *p = clip_u8(*p as i32 + v);
+            *p = clip1(p.get() + v, max);
         }
     }
 }
@@ -157,7 +172,7 @@ fn idct8_1d(d: [i32; 8]) -> [i32; 8] {
 
 /// Inverse 8x8 transform of raster-order `d` and add to `dst` (8.5.13.2): rows, then columns,
 /// the column pass and reconstruction across all columns at once (they vectorise).
-pub fn idct8_add(d: &[i32; 64], dst: &mut [u8], stride: usize) {
+pub fn idct8_add<S: Sample>(d: &[i32; 64], dst: &mut [S], stride: usize, max: i32) {
     let mut t = [[0i32; 8]; 8];
     for (row, src) in t.iter_mut().zip(d.as_chunks::<8>().0) {
         *row = idct8_1d(*src);
@@ -174,7 +189,7 @@ pub fn idct8_add(d: &[i32; 64], dst: &mut [u8], stride: usize) {
             return;
         };
         for (p, &v) in line.iter_mut().zip(row) {
-            *p = clip_u8(*p as i32 + ((v + 32) >> 6));
+            *p = clip1(p.get() + ((v + 32) >> 6), max);
         }
     }
 }
@@ -182,6 +197,32 @@ pub fn idct8_add(d: &[i32; 64], dst: &mut [u8], stride: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 4:2:2 chroma DC: the c = [[c0, c2], [c1, c5], [c3, c6], [c4, c7]] layout, A4 * c * A2
+    /// and both scaling branches (output index = block row * 2 + column).
+    #[test]
+    fn chroma_dc_422_layout_and_scaling() {
+        let one = |k: usize| {
+            let mut l = [0i32; 8];
+            l[k] = 1;
+            chroma_dc_dequant_422(&mut l, 40, 16);
+            l
+        };
+        assert_eq!(one(0), [16; 8]); // DC: flat
+        assert_eq!(one(2), [16, -16, 16, -16, 16, -16, 16, -16]); // row 0, column 1: horizontal
+        assert_eq!(one(1), [16, 16, 16, 16, -16, -16, -16, -16]); // row 1, column 0: A4 row 1
+        assert_eq!(one(3), [16, 16, -16, -16, -16, -16, 16, 16]); // row 2, column 0
+        assert_eq!(one(4), [16, 16, -16, -16, 16, 16, -16, -16]); // row 3, column 0
+        assert_eq!(one(7), [16, -16, -16, 16, 16, -16, -16, 16]); // row 3, column 1
+        // qp < 36: (f * ls + 2^(5 - qp / 6)) >> (6 - qp / 6)
+        let mut l = [1, 0, 0, 0, 0, 0, 0, 0];
+        chroma_dc_dequant_422(&mut l, 30, 16);
+        assert_eq!(l, [8; 8]);
+        // qp >= 36 shifts left: qp 51 + 12 + 3 (10-bit maximum) stays defined
+        let mut l = [1, 0, 0, 0, 0, 0, 0, 0];
+        chroma_dc_dequant_422(&mut l, 66, 16);
+        assert_eq!(l, [16 << 5; 8]);
+    }
 
     /// The straightforward per-column formulation (8.5.12.2 / 8.5.13.2) the vectorised
     /// transforms must equal.
@@ -219,11 +260,11 @@ mod tests {
             let d8: [i32; 64] = std::array::from_fn(|_| (next() % (2 * range + 1)) as i32 - range as i32);
             let base: Vec<u8> = (0..24 * 8).map(|_| next() as u8).collect();
             let (mut a, mut b) = (base.clone(), base.clone());
-            idct4_add(&d4, &mut a[3..], 24);
+            idct4_add(&d4, &mut a[3..], 24, 255);
             reference_add(&d4, 4, &mut b[3..], 24);
             assert_eq!(a, b, "4x4 iteration {iter}");
             let (mut a, mut b) = (base.clone(), base);
-            idct8_add(&d8, &mut a[5..], 24);
+            idct8_add(&d8, &mut a[5..], 24, 255);
             reference_add(&d8, 8, &mut b[5..], 24);
             assert_eq!(a, b, "8x8 iteration {iter}");
         }
@@ -235,8 +276,8 @@ mod tests {
         d[0] = 640; // -> +10 everywhere
         let mut a = [100u8; 16];
         let mut b = [100u8; 16];
-        idct4_add(&d, &mut a, 4);
-        idct4_dc_add(640, &mut b, 4);
+        idct4_add(&d, &mut a, 4, 255);
+        idct4_dc_add(640, &mut b, 4, 255);
         assert_eq!(a, b);
         assert!(a.iter().all(|&v| v == 110));
     }
@@ -249,7 +290,7 @@ mod tests {
         d[0] = 64;
         d[1] = 64;
         let mut out = [0u8; 16];
-        idct4_add(&d, &mut out, 4);
+        idct4_add(&d, &mut out, 4, 255);
         for i in 0..4 {
             assert_eq!(&out[i * 4..i * 4 + 4], &[2, 2, 1, 0]);
         }
@@ -260,7 +301,7 @@ mod tests {
         let mut d = [0i32; 64];
         d[0] = 64 * 5;
         let mut out = [10u8; 64];
-        idct8_add(&d, &mut out, 8);
+        idct8_add(&d, &mut out, 8, 255);
         assert!(out.iter().all(|&v| v == 15));
     }
 
@@ -300,5 +341,36 @@ mod tests {
         let _ = scale4(i32::MAX, 16 * 25, 0);
         let _ = scale8(i32::MIN, 16 * 25, 51);
         let _ = scale8(i32::MIN, 16 * 25, 0);
+    }
+
+    /// The residual add on `u16` samples (High 10, fork H2): the 8-bit results for 8-bit input,
+    /// and clipping at the 10-bit ceiling instead of 255.
+    #[test]
+    fn u16_add_matches_u8_and_clips_to_the_bit_depth() {
+        let mut seed = 0x1234_5678u32;
+        let mut next = || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            seed >> 16
+        };
+        for _ in 0..50 {
+            let d4: [i32; 16] = std::array::from_fn(|_| (next() % 2001) as i32 - 1000);
+            let d8: [i32; 64] = std::array::from_fn(|_| (next() % 2001) as i32 - 1000);
+            let a8: Vec<u8> = (0..64).map(|_| next() as u8).collect();
+            let a16: Vec<u16> = a8.iter().map(|&v| u16::from(v)).collect();
+            let (mut x8, mut x16) = (a8.clone(), a16.clone());
+            idct4_add(&d4, &mut x8, 8, 255);
+            idct4_add(&d4, &mut x16, 8, 255);
+            assert!(x8.iter().zip(&x16).all(|(a, b)| u16::from(*a) == *b));
+            let (mut x8, mut x16) = (a8.clone(), a16.clone());
+            idct8_add(&d8, &mut x8, 8, 255);
+            idct8_add(&d8, &mut x16, 8, 255);
+            assert!(x8.iter().zip(&x16).all(|(a, b)| u16::from(*a) == *b));
+        }
+        let mut p = [1000u16; 16];
+        idct4_dc_add(64 * 100, &mut p, 4, 1023);
+        assert!(p.iter().all(|&v| v == 1023));
+        let mut p = [1000u16; 16];
+        idct4_dc_add(64 * 20, &mut p, 4, 1023);
+        assert!(p.iter().all(|&v| v == 1020));
     }
 }

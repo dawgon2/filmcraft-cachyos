@@ -15,6 +15,8 @@ pub struct PanelsState {
     pub events: EventsState,
     pub progress: ProgressState,
     pub clips: ClipsState,
+    /// The Compositor panel (fork C1).
+    pub comp: super::comp::CompPanelState,
 }
 
 /// The Color page's Clips panel and the Program monitor's split screen.

@@ -323,7 +323,7 @@ fn resolve_workflow_shows_pages_and_color_opens_the_node_grader() {
     d.exec("settings.setWorkflow", json!({"workflow": "resolve"}));
     d.frames(3);
     let pages = d.ids("page.");
-    assert_eq!(pages.len(), 5, "{pages:?}");
+    assert_eq!(pages.len(), 6, "{pages:?}");
     d.click("page.color");
     d.frames(2);
     assert_eq!(d.ok("ui.inspect", json!({}))["ui"]["workspace"], json!("Color Grading"), "Color page");

@@ -848,6 +848,26 @@ pub fn scenario_session(name: &str) -> Option<(Session, ItemId)> {
             .ok()?;
             seq
         }
+        // fork C1 acceptance: comps A (key over a solid, graded) and B (moving title) over footage
+        "comp-1080" | "comp-2160" => {
+            let (file, w, h) = if name == "comp-1080" { ("a1080.mp4", 1920, 1080) } else { ("a2160.mp4", 3840, 2160) };
+            let a = import(&mut s, &fixture(file)?);
+            let seq = build_sequence(&mut s, w, h, &[(a, 100.0, None, 0.0, 100.0)], &[], 10.0);
+            // comps A and B go on V2 and V3
+            if let Err(e) = s.execute("sequence.addTracks", json!({"video": 2})) {
+                eprintln!("{name}: tracks: {e}");
+                return None;
+            }
+            let batch: Value = serde_json::from_str(include_str!("../../../../tools/comp-accept.json")).ok()?;
+            for step in batch["steps"].as_array()? {
+                let id = step["id"].as_str()?;
+                if let Err(e) = s.execute(id, step.get("params").cloned().unwrap_or(json!({}))) {
+                    eprintln!("{name}: {id} failed: {e}");
+                    return None;
+                }
+            }
+            seq
+        }
         "demo" => {
             s.execute("file.openDemoProject", json!({})).ok()?;
             s.state.active_sequence?

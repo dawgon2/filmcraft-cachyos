@@ -79,6 +79,8 @@ pub fn toggles(page: Option<&str>) -> (&'static [Toggle], &'static [Toggle]) {
         Some("color") => (&[P(Gallery), P(Project), P(ColorClips)], &[P(ColorNodes), P(LumetriScopes), P(Effects)]),
         Some("fairlight") => (&[P(Project), P(Effects), P(Markers)], &[P(AudioTrackMixer), P(AudioMeters), P(Metadata), P(EffectControls)]),
         Some("deliver") => (&[P(RenderSettings)], &[P(RenderQueue)]),
+        // fork C1: the Fusion page (Resolve's: Media Pool, Effects, Nodes / Metadata, Inspector)
+        Some("fusion") => (&[P(Project), P(Effects), P(Compositor)], &[P(Metadata), P(EffectControls)]),
         // the Edit page, and any other workspace
         _ => (&[P(Project), P(Effects), P(Markers)], &[QuickExport, P(AudioTrackMixer), P(Metadata), P(EffectControls)]),
     }

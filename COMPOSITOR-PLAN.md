@@ -14,7 +14,7 @@ and defers parallel / layer nodes, §6).
 
 1. **Model:** a **Comp clip** (a new timeline item kind, `#[serde(default)]` so old projects load)
    holding a node graph: a DAG with node ids, typed input / output ports and connections; cycles
-   rejected; node count, graph depth and texture memory capped (hostile project files). An ADR with the next free number (U0 took 0005).
+   rejected; node count, graph depth and texture memory capped (hostile project files). ADR 0007 ([`docs/adr/0007-node-graph.md`](docs/adr/0007-node-graph.md); U0 took 0005, Y3.4 0006).
 2. **Nodes (only these):** Media In (a project clip or a timeline layer), Media Out, **Merge**
    (A over B with the existing blend modes and opacity), **Transform** (position / scale / rotation /
    anchor, existing motion maths), **Key** (Y3's GPU keys), **Mask** (existing mask shapes and the

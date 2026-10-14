@@ -778,7 +778,18 @@ fn draw_clip(
         );
     }
     // fx badge right-aligned in the header (italic-ish "fx")
-    if (it.has_standard_effects() || it.has_modified_intrinsics()) && w > 40.0 {
+    let fx_badge = (it.has_standard_effects() || it.has_modified_intrinsics()) && w > 40.0;
+    // comp clips (fork C1): a node-count badge, left of the fx badge
+    if let Some(text) = comp_badge(&app.session.project, it).filter(|_| w > 90.0) {
+        let right = body.max.x - if fx_badge { 24.0 } else { 6.0 };
+        let col = Color32::from_rgb(0xb8, 0xa8, 0xf0);
+        let galley = clip_p.layout_no_wrap(text, egui::FontId::new(10.0, egui::FontFamily::Name("semibold".into())), col);
+        let size = galley.size();
+        let r = Rect::from_min_size(pos2(right - size.x - 8.0, body.min.y + 2.0), vec2(size.x + 8.0, 13.0));
+        clip_p.rect_filled(r, 3.0, Color32::from_black_alpha(110));
+        clip_p.galley(pos2(r.min.x + 4.0, r.center().y - size.y / 2.0), galley, col);
+    }
+    if fx_badge {
         let col = if it.has_standard_effects() { Color32::from_rgb(0xe8, 0xc5, 0x4a) } else { Color32::from_rgb(0x91, 0xa2, 0xac) };
         clip_p.text(
             pos2(body.max.x - 6.0, body.min.y + 8.5),
@@ -809,6 +820,14 @@ fn draw_clip(
     if selected {
         p.rect_stroke(body.shrink(1.0), 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
         p.rect_stroke(body, 0.0, Stroke::new(2.0, t.clip_selected_border), StrokeKind::Inside);
+    }
+}
+
+/// The badge of a comp clip in the timeline: "Comp" and its node count (DESIGN-C1 §4.2).
+fn comp_badge(project: &filmcraft_project::Project, it: &TrackItem) -> Option<String> {
+    match &project.item(it.item)?.kind {
+        filmcraft_project::ItemKind::Comp(c) => Some(format!("{} {}", crate::i18n::t("Comp"), c.nodes.len())),
+        _ => None,
     }
 }
 
@@ -2969,5 +2988,26 @@ mod new_track_tests {
         for y in [160.0, 202.0, 230.0, 480.0] {
             assert_eq!(at(y), None, "y = {y}");
         }
+    }
+}
+
+#[cfg(test)]
+mod comp_badge_tests {
+    use super::*;
+    use filmcraft_engine::Session;
+    use serde_json::json;
+
+    #[test]
+    fn comp_clips_show_their_node_count() {
+        let mut s = Session::default();
+        s.execute("file.openDemoProject", json!({})).unwrap();
+        let r = s.execute("comp.newClip", json!({"track": "V3", "seconds": 300.0})).unwrap();
+        let comp = r["comp"].as_u64().unwrap();
+        s.execute("comp.addNode", json!({"comp": comp, "kind": "solid"})).unwrap();
+        let q = s.active_sequence().unwrap();
+        let comp_clip = q.video_tracks.iter().flat_map(|t| &t.items).find(|i| i.item.0 == comp).unwrap();
+        assert_eq!(comp_badge(&s.project, comp_clip).as_deref(), Some(format!("{} 2", crate::i18n::t("Comp")).as_str()));
+        let other = q.video_tracks.iter().flat_map(|t| &t.items).find(|i| i.item.0 != comp).unwrap();
+        assert_eq!(comp_badge(&s.project, other), None);
     }
 }

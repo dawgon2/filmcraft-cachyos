@@ -54,6 +54,23 @@ fixture_tests!(
     vt_main,
     vt_baseline,
     vt_high_1080p,
+    high10_intra,
+    high10_cavlc_b,
+    high10_weightp_fade,
+    high10_qp1,
+    high10_slices_deblock,
+    high10_crop,
+    i422_cabac,
+    i422_cavlc,
+    i422_10_cabac,
+    i422_10_cavlc_no8x8,
+    i422_10_qp1,
+    i422_slices_deblock_crop,
+    p422_cabac_bpyramid,
+    p422_10_cavlc,
+    p422_10_weightp_fade,
+    p422_direct_temporal_crop,
+    p422_10_qp1,
 );
 
 /// Draft mode (reduced-resolution playback) skips deblocking of non-reference pictures only:
@@ -102,7 +119,7 @@ fn draft_mode_changes_only_flagged_non_reference_pictures() {
 #[test]
 #[ignore]
 fn coverage_report() {
-    for f in common::FIXTURES {
+    for f in common::FIXTURES.iter().filter(|f| !common::stream_only(f)) {
         let Some((h264, _)) = common::ensure(f) else { return };
         let data = std::fs::read(h264).unwrap();
         let mut dec = filmcraft_h264::Decoder::new();
@@ -144,7 +161,46 @@ fn coverage_report() {
 fn generate_fixtures() {
     let dir = common::fixtures_dir();
     for f in common::FIXTURES {
+        if common::stream_only(f) {
+            let outs = [dir.join(format!("{}.h264", f.name))];
+            filmcraft_testkit::fixtures::generate_and_report(&format!("h264/{}", f.name), &outs, || common::ensure_stream(f));
+            continue;
+        }
         let outs = [dir.join(format!("{}.h264", f.name)), dir.join(format!("{}.yuv", f.name))];
         filmcraft_testkit::fixtures::generate_and_report(&format!("h264/{}", f.name), &outs, || common::ensure(f));
+    }
+}
+
+/// Switching between the 8-bit and the 16-bit sample path at an IDR (what a stream changing its
+/// bit depth does, fork H2) outputs every picture of the old path first, in order, and keeps
+/// decoding bit-exact on both sides.
+#[test]
+fn sample_path_switch_at_idr() {
+    let f = common::fixture("keyint10");
+    let Some((h264, yuv)) = common::ensure(f) else {
+        eprintln!("skipped sample_path_switch_at_idr");
+        return;
+    };
+    let data = std::fs::read(&h264).unwrap();
+    let reference = std::fs::read(&yuv).unwrap();
+    let aus = common::split_access_units(&data);
+    for threads in [1, 3] {
+        let mut dec = filmcraft_h264::Decoder::with_threads(threads);
+        let mut out = Vec::new();
+        for round in 0..3 {
+            // the next slice (the IDR starting the copy) switches the path
+            dec.set_wide_samples(round == 1);
+            for au in &aus {
+                out.extend(dec.decode(au, 0).unwrap());
+            }
+        }
+        out.extend(dec.flush());
+        assert!(dec.take_error().is_none());
+        assert_eq!(out.len() % 3, 0, "threads {threads}");
+        let n = out.len() / 3;
+        for r in 0..3 {
+            common::compare(&out[r * n..(r + 1) * n], &reference, f.width as usize, f.height as usize)
+                .unwrap_or_else(|e| panic!("threads {threads} round {r}: {e}"));
+        }
     }
 }

@@ -21,9 +21,11 @@ use crate::theme::Tokens;
 pub const HEIGHT: f32 = 46.0;
 
 /// (id, label, workspace, icon).
-pub const PAGES: [(&str, &str, &str, Icon); 5] = [
+pub const PAGES: [(&str, &str, &str, Icon); 6] = [
     ("media", "Media", "Media Page", Icon::Image),
     ("edit", "Edit", "Edit Page", Icon::Sequence),
+    // fork C1: node comps, between Edit and Color as in Resolve
+    ("fusion", "Fusion", "Compositing", Icon::Fx),
     ("color", "Color", "Color Grading", Icon::Adjust),
     ("fairlight", "Fairlight", "Fairlight Page", Icon::Audio),
     ("deliver", "Deliver", "Deliver Page", Icon::Export),

@@ -26,7 +26,9 @@ hardware. Knowing what runs where helps when something is slower than you expect
 |---|---|---|
 | Decoding H.265 (HEVC) 4:2:0, 8- or 10-bit (X-M5 main setting) | AMD video engine, through VA-API, inside FilmCraft | a second VA-API path (upstream's), then the system ffmpeg using the same video engine, then FilmCraft's own software decoder |
 | Decoding H.264 (Constrained Baseline / Main / High, 8-bit 4:2:0, progressive) | AMD video engine, through VA-API, inside FilmCraft, zero-copy ("VA-API H.264 (in process)" in the performance stats; fork Y1) | the same VA-API decode with the picture copied through memory, then the system ffmpeg, then FilmCraft's own software decoder |
-| Decoding other H.264 (High 10, 4:2:2, interlaced) | the system ffmpeg, while it is still in the chain (FilmCraft's own decoders cover these in the H264-PLAN phases) | — |
+| Decoding H.264 High 10 (9–10-bit 4:2:0, progressive) | the system ffmpeg, while it is still in the chain | FilmCraft's own software decoder (fork H2.2: 10-bit samples kept end to end, no 8-bit rounding); graphics video engines don't decode 10-bit H.264 |
+| Decoding H.264 High 4:2:2 (8- or 10-bit, Intra or Long-GOP; an X-M5 occasional setting) | the system ffmpeg, while it is still in the chain | FilmCraft's own software decoder (fork H2.3 / H2.4; slow at 6.2K, so these clips get proxies) |
+| Decoding interlaced H.264 | the system ffmpeg, while it is still in the chain (FilmCraft's own decoders cover it in the H264-PLAN phases) | — |
 | Decoding H.265 4:2:2 10-bit (X-M5 occasional setting) | Intel video engine (VA-API), picture handed to the AMD card (see below) | the same Intel decode with the picture copied through memory, then FilmCraft's own software decoder |
 | Showing the picture, compositing layers, the colour grade | AMD graphics card (Vulkan) | the CPU compositor (much slower) |
 | Exporting H.265 | AMD video engine (VA-API), frames rendered straight into the encoder | the system ffmpeg's VA-API encoder, then software x265 |

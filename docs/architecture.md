@@ -322,6 +322,16 @@ file ──► codecs (MP4/MOV, MKV, audio)        demux + decode, GOP-aware see
   and handed to the GPU as an image (a layer image keeps its clip's blend mode), so both paths
   give the same picture. Setting `FILMCRAFT_CPU_COMPOSITE=1`
   forces the CPU path in the desktop app.
+- **Comp clips** (fork C1, ADR 0007). A comp clip without effects, a grade or opacity masks of
+  its own is one plan layer whose `PlanLayer::comp` holds its compiled `render::comp::Program`
+  (passes on comp-sized texture slots, compiled at the size the clip is drawn and placed by
+  Motion). The CPU runs it with `comp::execute_cpu` (the oracle); `gpu::comp` runs the same
+  passes on `Rgba16Float` slots through the ordinary layer draw and effect stage, each slot
+  registered in the upload cache under a pixel-less placeholder frame. A Media In reading a
+  track below the comp clip compiles to that track's own plan layers (`Pass::Layers`), so its
+  frames come from the decoder as on the timeline. The GPU falls back to the CPU program for a
+  comp wider than a texture, over `COMP_VRAM_BUDGET`, with an effect op the GPU stage can't run,
+  or with a comp clip inside a Media In track.
 - **CPU compositor shortcuts.** The CPU compositor, which is what export runs, works on
   premultiplied linear `f32` images, 33 MB at 1080p, so what it does not allocate, convert or mix
   is time saved. Three shortcuts, each of which gives the general path's bits (compared bit for

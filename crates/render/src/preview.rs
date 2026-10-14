@@ -363,6 +363,13 @@ fn hash_source(h: &mut Fnv128, project: &Project, id: ItemId, depth: u32) {
         }
         ItemKind::AdjustmentLayer { .. } => h.json(&("adjustment", &pi.kind)),
         ItemKind::Graphic { .. } => h.json(&("graphic", &pi.kind)),
+        ItemKind::Comp(c) => {
+            // the graph itself, then the identity of every item its Media In nodes read
+            h.json(&("comp", c));
+            for src in c.sources() {
+                hash_source(h, project, src, depth + 1);
+            }
+        }
         ItemKind::Sequence(s) => {
             h.json(&("sequence", &s.settings));
             // a nested sequence's captions are drawn into its picture
@@ -464,6 +471,13 @@ fn decode_cost_ms(project: &Project, id: ItemId, depth: u32) -> f64 {
         ItemKind::AdjustmentLayer { .. } => 0.0,
         // vector layers are drawn on the CPU (cached while static)
         ItemKind::Graphic { .. } => 1.5,
+        // a comp decodes every item its Media In nodes read, plus its passes
+        ItemKind::Comp(c) => {
+            if depth > 8 {
+                return 0.0;
+            }
+            5.0 + c.sources().map(|src| decode_cost_ms(project, src, depth + 1)).sum::<f64>()
+        }
         ItemKind::Sequence(s) => {
             if depth > 8 {
                 return 0.0;

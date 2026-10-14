@@ -2797,3 +2797,95 @@ item 7); AI1.4 SmolLM2-135M: **done 2026-10-14 03:29** (`smol135-v1`, catalogued
   Luma Key on the GPU: `FxOp::LumaKey` (CPU reference moved out of `effects.rs`), `OP_LUMA_KEY` point op in `fx.wgsl`, both
   `GPU_EFFECTS` lists (badge now "GPU accelerated"); parity cases (3) in `fx_tests.rs` green on AMD and Intel; render / project
   tests, clippy, fmt green. Self-reviewed (MINIMAL). Next: Y3.1b Ultra Key.
+
+### HANDOFF notes for Y3 (archived 2026-10-14 at the yt-3 acceptance)
+
+Y3 so far (2026-10-14, one scheduled run, MINIMAL mode, all self-reviewed; all results synthetic; details
+in FORK-PLAN §7):
+
+- **Y3.1 keys on the GPU ✓** `FxOp::LumaKey` / `UltraKey(Box<UltraKey>)` / `ColorKey`; GPU ops 37–41 in
+  `crates/gpu/src/fx.rs` + `fx.wgsl` (Ultra Key: matte → choke boxes → `OP_UKEY_CHOKE` → soften boxes as
+  passes before a combine, `OP_UKEY` combine; `route` binds the original as `aux` for those passes). CPU
+  references: `vfx::color::ultra_key_eval` / `ultra_key_apply`, `FxOp::apply`. Parity ≤ 6e-7 AMD + Intel.
+  4K cost (`fx_tests.rs` `gpu_key_timing_4k`, ignored): AMD Ultra Key 1.9 ms (11.2 with choke + soften);
+  Intel 10.9 / 95 ms. Guide `docs/guide/keying.md`. Color Key's Edge Thin was never implemented (gap).
+- **Y3.2 attach to a track ✓** `tracking.attach` (layer Motion follows a region in the clip below;
+  Position or P-R / P-S-R), Motion's Attach to Track row; `tracking.blurRegion` (one-click tracked blur /
+  mosaic). 0.57 px / 0.49 px + 0.08° synthetic.
+- **Y3.3 screen replacement ✓** `render/track.rs` homography fit + `track_step_perspective`;
+  `tracking.cornerPin` (+ Corner Pin's Track Surface row; source defaults to the clip below). 0.67 px.
+  Code: `crates/engine/src/tracking.rs`, tests `tracking_tests.rs`, UI test `tests/ui/tracking_ui.rs`
+  (both workflows), guide `docs/guide/tracking.md`.
+- **Y3.5 packs ✓** `packs.export` / `packs.import` (`.fcpack` zip, `crates/engine/src/packs.rs`, hostile
+  caps), `lut.importFolder`; guide `docs/guide/packs.md`.
+- Coach eval sits **exactly at its floor (82 / 116)** after keying.md: new guide pages can push it
+  under; reword (see the progress log) rather than lower the floor.
+
+**Y3.4 step 1 done: ADR [0006](../adr/0006-user-shader-effects.md)** (provisional, OWNER-QUESTIONS Q29 FYI):
+files in `<data dir>/Effects/*.wgsl` + `assets/effects/`, `// @param` annotations, user writes `fn effect(px)
+-> vec4` on straight sRGB colour, leaf crate `filmcraft-usershader` (naga 30) composes + validates, interned
+`&'static EffectDef` registry in `filmcraft_project::effect` (cap 4096), missing effects load and render as
+pass-through, `FxOp::User` GPU-only, slow-pass rule (3 frames > 50 ms at 1080p) + quarantine on device loss.
+**Y3.4 step 2 done:** new L2 crate `crates/usershader` (`filmcraft-usershader`, naga 30 `wgsl-in`):
+`parse(source, name_hint) -> Result<UserEffect, Vec<ShaderError>>` (annotations, forbidden constructs, `fn
+effect(` required, 256 KB / 16-param caps), `compose(fx, storage_format)` (prelude: `fx_u` uniform with
+`size.xyzw` (z = time) + `pv: array<vec4<f32>, 16>` one slot per param, `fx_src`, `fx_dst`, `size`, `time`, `P`,
+`load`, `sample`; entry `fx_user_main` 16×16; straight sRGB in/out ↔ linear premultiplied), `validate` (naga,
+errors mapped to user lines). 6 tests. **Y3.4 step 3 done:** registry in `filmcraft_project::effect` (`register_user_effects`, `user_effects`,
+`is_user_effect`, interned `&'static EffectDef`s, cap `MAX_INTERNED_USER_EFFECTS` 4096; `find_effect` falls back
+to it); engine `user_effects.rs` (`reload` at `start_autosave` and `effects.reloadUser`, `effects.listUser`,
+`Session.user_effects` statuses with the parsed `UserEffect` for the GPU stage; `EXAMPLES` empty until step 5);
+ids `user.<slug>` / `example.<slug>`. Tests: project registry (intern / refuse / drop), engine (load, line-3 error,
+size cap, apply + save, reopen without the file keeps the instance and its values, renders). **Y3.4 step 4 done (2026-10-14 08:30–09:00 EDT, MINIMAL, self-reviewed):** the registry keeps each effect's
+composed module (`UserEffectSpec.module`, `user_effect_module(id) -> (hash, Arc<str>)`; engine composes at load);
+`FxOp::User(Box<UserOp>)` (`render/gpufx.rs`: pv slots in declaration order, colour straight sRGB, point in working
+px with Auto → centre, `time` = clip seconds; CPU = pass-through; unregistered → no GPU op); GPU `fx.rs`: own
+bind group layout `ubgl` / `upl`, pipelines cached per (id, hash) built in a validation error scope (broken →
+skipped, pass-through), `user_dispatch`. **Slow-pass rule:** `wanted_features()` now includes
+`TIMESTAMP_QUERY`; each user pass runs in its own timed compute pass, timestamps resolved and read back
+non-blocking (`FxStage::after_submit`, called after the composite and `effect_image` submits); 3 frames in a row
+over 50 ms at 1080p (pixel-scaled) → turned off for the session + message
+(`GpuCompositor::take_user_effect_messages`, `set_user_effect_slow_limit`). Without timestamp queries there is no
+timing (deviation from the ADR's wall-time fallback: wall time would include unrelated passes and poll lag;
+AMD and Intel both have timestamps). Tests `crates/gpu/src/user_fx_tests.rs` (4) on AMD + Intel: full ≤ 4.2e-7,
+half ≤ 4.9e-4. **Y3.4 step 4c done (quarantine):** user passes count as in flight (`filmcraft_gpu::user_effects_in_flight`)
+from submit until `on_submitted_work_done`; a lost device (UI device in `ui-egui` `set_wgpu`, export device in
+`export_renderer.rs`) calls `filmcraft_gpu::notify_device_lost()` → the hook set by the UI →
+`filmcraft_engine::user_effects::quarantine(<Effects dir>, keys)` writes `quarantine.json` (`[{id, hash}]`, hash as
+a decimal string, ≤ 256 entries, ≤ 256 KB read, hostile files ignored); `reload` marks a quarantined (id, hash) as
+broken ("the GPU stopped while this effect was running"); a changed file (new hash) loads again;
+`effects.unquarantine {id?}` turns one / all back on. Not tested with a real GPU hang (would freeze the desktop).
+**Y3.4 step 5 done (Y3.4 complete):** four original examples in `assets/effects/` (chromatic-aberration, glitch,
+vhs, light-leak; sidecars + ATTRIBUTION.md; `EXAMPLES` in `user_effects.rs`, ids `example.<name>`, Video Effects ▸
+User ▸ Stylize); GPU test renders each (defaults, two times, full + half, AMD + Intel). UI: the Effects panel lists
+user effects under Video Effects ▸ User, broken files with ⚠ + hover error (`effects.user.broken.<id>`), a "needs
+the GPU" note without a GPU (`effects.user.needsGpu`), **Reload** / **Open Effects Folder**
+(`effects.user.reload` / `effects.user.openFolder`); Effect Controls shows "⚠ Missing effect: <id>"
+(`effectControls.missing.<id>`); slow-pass messages go to the status line. UI test `tests/ui/user_effects_ui.rs`.
+Guide `docs/guide/shader-effects.md` (headed; in GUIDE_PAGES / HEADED_PAGES; coach eval kept at its floor by
+avoiding the word "settings"). Not yet looked at on screen (no screenshot taken: MINIMAL). **Next: the yt-3
+acceptance** (below).
+Original sketch for reference: (1) ADR 0006, the user-effect
+registry (effect def shape shared with C1's nodes; how a project refers to a user effect and loads as
+"missing effect" without it; where files live: `<data dir>/Effects/*.wgsl`); (2) a leaf parser /
+validator: annotation comments → params (name, kind, default, range), naga-validated module with a fixed
+entry point and bindings, size caps, errors with line numbers; (3) runtime: the GPU effect pass runs the
+user module (one pipeline per file, cached), CPU fallback = pass-through with a warning badge; time limit
+= measured per-frame cost, disabled after N slow frames with a message; (4) four original examples
+(glitch, chromatic aberration, VHS, light leak) with `.attribution` sidecars; (5) UI + guide page. Design
+the ADR in a fresh, short step (MINIMAL: no Fable; write it yourself from PREP-Y3). Then the **yt-3
+acceptance**: quick passes per YOUTUBE-PLAN Y3 "Accept" (keys real-time at Full ✓ synthetic, text follows
+✓, face blur ✓, screen replacement ✓, a WGSL example on AMD and Intel, a broken one rejected), `cargo xtask
+ci`, tag `yt-3`, build + publish per §1a.9 / §1a.33, rewrite this file for C1.
+
+Owed from this run: a fresh-context review of the Y3 diffs (`git log 14705d16^..HEAD`) when the mode
+allows (STEADY or better); the X422 2b fusion review is also still owed.
+
+**X422 as shipped (summary):** (a) 6.2K 4:2:2 graded → 4:2:0 20.0 fps, limited by the Intel UHD 750's
+4:2:2 decode + ~104 MB hand-off copy (~50 ms / frame; AMD waits); (b) → 4:2:2 HEVC master 7.2 fps
+(Intel 4:2:2 encode, Q27); fused graded passes (2b): graded GPU work per 6.2K frame AMD 19.1 → 8.2 ms,
+Intel 286 → 178 ms, `FILMCRAFT_FX_FUSE=0` = old passes; aims short → Q28 (FYI). Owed: a titles page in
+the guide (the coach off-topic test tolerates one word-match miss since A2.6, see progress log);
+the optional 2b.3 (F1 point-run fusion) and the LUT-bake idea (Q28 (b)) only if the owner asks. A fresh-context review
+of the 2b fusion diff (`crates/gpu/src/fx.rs`, `fx.wgsl`, `colorops.wgsl`; self-reviewed in MINIMAL) is owed
+when the mode allows.

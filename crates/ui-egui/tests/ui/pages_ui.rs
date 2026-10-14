@@ -111,14 +111,15 @@ impl Driver {
 #[test]
 fn resolve_pages_open_their_layouts_with_toolbar_and_page_bar() {
     let mut d = Driver::demo(Workflow::Resolve);
-    // the Resolve header replaces the Premiere one; the page bar has the app name, the five pages,
+    // the Resolve header replaces the Premiere one; the page bar has the app name, the six pages,
     // Home and Settings
     assert!(d.ids("header.").is_empty(), "no Premiere header: {:?}", d.ids("header."));
-    assert_eq!(d.ids("page.").len(), 5, "{:?}", d.ids("page."));
+    assert_eq!(d.ids("page.").len(), 6, "{:?}", d.ids("page."));
     for id in ["pageBar.app", "pageBar.home", "pageBar.settings", "pageToolbar.title"] {
         assert!(d.has(id), "{id}");
     }
-    assert!(!d.has("page.cut") && !d.has("page.fusion"), "Cut and Fusion stay hidden");
+    // Cut stays hidden; Fusion is the Compositor's page (fork C1, `comp_ui.rs`)
+    assert!(!d.has("page.cut"), "Cut stays hidden");
     // the window opens on the Edit page (the Premiere Editing workspace is the Edit page here)
     assert_eq!(d.workspace(), "Edit Page");
     let pages: [(&str, &str, &[&str], &[&str]); 5] = [

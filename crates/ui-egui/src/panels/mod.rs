@@ -6,6 +6,7 @@ pub mod clip_dialogs;
 pub mod coach;
 pub mod color_clips;
 pub mod color_dialogs;
+pub mod comp;
 pub mod dialogs;
 pub mod effect_controls;
 pub mod effects;
@@ -116,6 +117,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, p: PanelKind, rect: Rect)
         PanelKind::EssentialSound => essential_sound::show(app, ui, rect),
         PanelKind::TextToSpeech => tts::show(app, ui, rect),
         PanelKind::ProjectNotes => notes::show(app, ui, rect),
+        PanelKind::Compositor => comp::show(app, ui, rect),
         PanelKind::RenderSettings => export_mode::render_settings_panel(app, ui, rect),
         PanelKind::RenderQueue => export_mode::render_queue_panel(app, ui, rect),
         other => crate::dock::placeholder(ui, rect, &app.tokens, &tlf!("{panel} — coming in a later milestone", panel = crate::i18n::t(other.title()))),

@@ -14,6 +14,7 @@ mod clip_dialogs_ui;
 mod clipboard_paste_ui;
 mod coach_ui;
 mod color_ui;
+mod comp_ui;
 mod delete_caption_tracks_ui;
 mod deselect_ui;
 mod desktop_ui;

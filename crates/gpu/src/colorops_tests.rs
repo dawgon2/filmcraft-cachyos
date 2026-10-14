@@ -382,10 +382,10 @@ fn output_stage_converts_the_composite_like_the_cpu() {
             width: w,
             height: h,
             layers: vec![
-                PlanLayer { frame: yuv_frame(640, 360), matrix: Affine::scale(0.5, 0.5), opacity: 1.0, blend: Blend::Normal, fx: None },
-                PlanLayer { frame: bright.clone(), matrix: Affine::translate(100.0, 40.0), opacity: 0.9, blend: Blend::Screen, fx: None },
+                PlanLayer { frame: yuv_frame(640, 360), matrix: Affine::scale(0.5, 0.5), opacity: 1.0, blend: Blend::Normal, fx: None, comp: None },
+                PlanLayer { frame: bright.clone(), matrix: Affine::translate(100.0, 40.0), opacity: 0.9, blend: Blend::Screen, fx: None, comp: None },
                 // a caption: drawn after the conversion when `at` = 2
-                PlanLayer { frame: ramp_layer(80, 30, 4), matrix: Affine::translate(20.0, 140.0), opacity: 1.0, blend: Blend::Normal, fx: None },
+                PlanLayer { frame: ramp_layer(80, 30, 4), matrix: Affine::translate(20.0, 140.0), opacity: 1.0, blend: Blend::Normal, fx: None, comp: None },
             ],
             output: Some(OutputStage { ops: ops.clone().into(), at }),
         };

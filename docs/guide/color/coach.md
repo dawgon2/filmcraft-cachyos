@@ -97,6 +97,8 @@ Hints you have seen are remembered the same way (`color.coach.hintsSeen`, see be
 | `fix-skin` | Fix skin with a qualifier | Pick skin by colour, check the selection, soften it, then adjust only the skin. |
 | `tracked-window` | Brighten a face with a tracked window | A soft circle on the face, tracked through the shot, with a small lift inside. |
 | `log-noise` | Clean up noise in log shadows | Noise reduction first, then lift the shadows, and compare. |
+| `first-comp` | A moving title in a comp | Text, Transform, Merge and Media Out in the Compositor (see [the Compositor](../compositor.md)). |
+| `key-comp` | Key a clip over a new background in a comp | Media In, Key, Solid, Merge and Color: a keyed clip over a new background, graded as one picture. |
 
 ## Context hints
 
@@ -147,8 +149,10 @@ them follow the interface language.
 When you know what you want ("make the sky bluer", "my log footage looks flat") but not which
 control does it, ask. The coach looks the question up in this guide, and only this guide, and
 answers with the numbered steps of the section that fits best, naming the real buttons. It
-doesn't invent anything: if most of your words aren't in the guide (editing, audio, export are
-not written yet) it says "The guide doesn't cover this yet."; if the guide covers it but has no
+doesn't invent anything: if most of your words aren't in the guide it says "The guide doesn't
+cover this yet."; if you ask "is there …" or "where is …" about a word the guide never uses, it
+names that word ("The guide doesn't mention "hologram"."); a "why …" or "what is X for" question
+gets the section's explanation above its steps; if the guide covers it but has no
 steps, it says so and offers the closest lesson instead. Every control and command an answer
 names is checked against the app you are running; a step that names one this app doesn't have
 is left out (the box says how many, and whether controls or commands).

@@ -4,7 +4,7 @@ Jobs for the cloud routine (branch `cloud-work`, only while the PC is down; FORK
 CPU-verifiable, chosen not to overlap with what the PC run is doing. Take them top to bottom; note
 each in `docs/fork/CLOUD-LOG.md` with what is UNVERIFIED ON GPU.
 
-**PC is doing now (2026-10-14 09:10, scheduled run): the yt-3 acceptance (full ci, tag, build, publish), then C1 (COMPOSITOR-PLAN; `crates/project` comp types, `crates/engine` comp.* commands, `crates/gpu` comp evaluation, a node canvas in `crates/ui-egui`); don't touch those C1 areas, `crates/usershader`, `crates/gpu/src/fx.rs`, or `crates/engine/src/user_effects*`; the Dell lane is on AI3-PREP (guide headers, `crates/engine/src/coach_ask*`), don't touch that either**. Also **don't touch**
+**PC is doing now (2026-10-14 13:50, scheduled run): C1 (COMPOSITOR-PLAN): steps 7a–7c (GPU comps in `crates/gpu/src/comp.rs`, `crates/render` plan), item 6 (coach routes in `crates/engine/src/coach_ask.rs`) and item 7 (`comp.explain`, comp lessons) are done; next the remaining 10b UI (`crates/ui-egui/src/panels/comp.rs`, `grade.rs`) and the C1 acceptance (bench, soak, ci, tag comp-1).**. Also **don't touch**
 `crates/hevc`, `crates/codecs` (hybrid / hw factory), `crates/export/src/lanes/`, or the Dell lane's
 Linux desktop files (`apps/filmcraft/src/{desktop,mpris,cards,kdeconnect,portal*}.rs`). Earlier rules:
 **Don't touch** `crates/ui-egui/src/{app.rs,menus.rs,theme.rs,workspaces*,i18n/mod.rs}`,
@@ -93,3 +93,13 @@ FORK-PLAN §1a.40 (c)). Also don't touch the TNR / grade compiler code (step 6.7
    header per `docs/guide/README.md`; keep the coach eval at its floor (`coach_ask_tests`; reword
    rather than lower it). GPU owed: render each recipe once on AMD and Intel.
 
+15. **~~C1-GUIDE~~ DONE 2026-10-14 (PC run, `91879dca`: partial page, 10b sections come with 10b); don't redo.** Was: **C1-GUIDE, docs only (CPU; added 2026-10-14):** draft `docs/guide/compositor.md` (C1 step 11): what a comp
+    is (a project item, a node graph; comp clips on the timeline), every node kind and what it does (DESIGN-C1 §2,
+    `crates/project/src/comp.rs`), the `comp.*` commands as they exist now (`crates/engine/src/comp.rs`; leave the
+    Compositor panel / Fusion page parts as "coming in C1 step 10" with no UI labels invented), the two acceptance
+    comps as recipes (comp A: Media In → Key → Merge over a background → Color → Out; comp B: Text → keyframed
+    Transform → Merge), limits ([Fork]: transparent on a cycle, Layer sources only below the comp clip, 256 nodes).
+    Provenance tags per docs/guide/README.md ([Resolve-style] for the Fusion-like flow, from the public manual only;
+    [Fork] for limits), compact section headers (`coach_ask::parse_header` spec), add it to `GUIDE_PAGES` in
+    `crates/engine/src/coach_ask.rs` and run `cargo test -p filmcraft-engine coach` (the header / ui-id checks).
+    **Done** = page + GUIDE_PAGES entry, engine coach tests green. PC owes nothing (no GPU).

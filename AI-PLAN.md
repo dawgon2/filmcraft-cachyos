@@ -76,6 +76,11 @@ Today's Ask the coach (G2.12 part 2) is a keyword search that returns one guide 
 the local model only rewrites node explanations. AI3 makes the coach a real assistant, grounded so
 it can't invent buttons or steps.
 
+**Scope (owner, 2026-10-14 ~12:55, FORK-PLAN §1a.75): all of editing, not only grading.** The
+corpus, feature pages, mapping, training pairs and eval set cover every feature built when the
+tune runs, the Compositor (C1) included. Features not built yet aren't written ahead; each later
+phase adds its pages, pairs and eval questions, and the tune is refreshed as they land.
+
 0. **Owner additions (2026-10-14): real professional practice, every feature, mapped, token-lean.**
    "We should feed it in-depth detail from real data of people doing professional work in resolve
    and premier. We should also add an in-depth explanation of every feature in our app and how it

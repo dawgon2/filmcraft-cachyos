@@ -938,6 +938,20 @@ the agent's own recorded interpretations, not the owner's words.
     Phi-4-mini is not approved (comparison only if asked later). **OLMo 2 7B** (AI2, Apache-2.0,
     fully open) is the candidate "Large" tier for stronger machines, decided by AI3's eval: only if
     SmolLM3 misses the floor or a large tier clearly beats it; its download still needs a yes.
+75. **AI3 learns all of editing, not only grading (owner, live, 2026-10-14 ~12:55).** "Make sure
+    the AI is trained on everything we could possibly need it to know about editing. That includes
+    our new fusion program. Don't worry specifically about anything that won't be built already
+    when we train the AI but we will also train it on new stuff as we go." So AI3's corpus, feature
+    pages, practice → FilmCraft mapping, training pairs and eval set cover **every feature built
+    when the tune runs**: editing, trimming, audio, titles, keying / tracking, export, media,
+    workflows, grading, and the **Compositor (C1, the Fusion-style page)**, not only grading.
+    Before the tune, check every shipped feature has a guide page and pairs (C1's compositor.md
+    is partial: finish it). Unbuilt features (C2 onward) are not written ahead; each later phase
+    that ships user-visible features adds its guide pages, pairs and eval questions, and the
+    tune is refreshed at phase acceptance groups (AI2 already teaches new nodes). AI3-PREP's
+    grading-heavy practice notes stay; widen the eval set to editing / compositing questions.
+    Also answered: **Q29** ok; **Q30 (a)** accepted ("we can train it better later"); **Q31 (a)**
+    yes: the ITU-T H.264.1 conformance streams may be downloaded (Dell only, never committed).
 
 ## 2. The machine and the footage (don't re-research these)
 
@@ -1468,4 +1482,360 @@ Older entries (everything before the newest ~20) are in [`docs/fork/PROGRESS-LOG
   shared nodes, grade groups and versions, node hue curves, gamut compression, glow, beauty, ACES, auto reframe, chart
   matching, word-by-word caption highlight). Written from general practice in our own words; no source text used.
   Next: part (4), training pairs and the ≥ 60-question advanced eval. Self-reviewed.
+- **2026-10-14 ~13:45 EDT, Dell lane: AI3-PREP done** (AI3-PREP.4a / 4b merged: the 63-question advanced eval with
+  source header ids and must / must-not facts, and 885 draft training pairs generated from the guide with a grounding
+  test). All four parts are merged (headers on every section, feature pages, 150 practice notes, eval + pairs);
+  `.dell-ai3prep-complete` created. The lane moves to H1 → H3. Self-reviewed.
+- **2026-10-14 ~14:00 EDT, Dell lane: H1.0** merged: PREP-H1.md (both H.264 decoders refuse interlaced today, the VA front
+  shares the software DPB, so H1 = support-check split + a field-aware DPB in crates/h264, then the VA front's PAFF /
+  MBAFF buffers); Q31 asks for PAFF test streams. Next H1.1 / H1.2 (crates/h264).
+- **2026-10-14 10:09 EDT, same run (MINIMAL; weekly U 31 % vs L ≈ 18 %): yt-3 accepted, phase end.** `cargo xtask ci`
+  (2872 s): all green except `coach_ids` (fixed: `effects.user.broken.*` pattern, re-run green) and the known
+  `teardown_ui` parallel-load flake (passes alone; CLOUD-QUEUE item 10). Tag `yt-3` on `db7c1d0d`; build
+  `~/Apps/filmcraft-builds/yt-3/` (NOTES.md, `latest` → yt-3, launcher valid). Public: snapshot `9abdf285` on cachyos
+  `fork` (parent `62992ebb`), tag + release `fork-yt-3` with the scrubbed Dell build (241 s; `strings`: only /home/user).
+  Disk: removed `target/agent-globalmenu` (branch merged; worktree removed), a stale `sync-upstream` worktree build and
+  `target/debug/incremental` (25 → 120 GB free). HANDOFF rewritten for **C1** (node-graph ADR is 0007; Y3 notes
+  archived). Reviews this run: self-reviews only (MINIMAL); a fresh-context Y3 review is owed.
 
+- **2026-10-14 10:21 EDT, scheduled run (MINIMAL; weekly U 33 % vs L ≈ 18 %, 5-hour 29 % vs L5 ≈ 44 %): C1 started.**
+  C1.1 ADR `docs/adr/0007-node-graph.md` (provisional; DESIGN-C1 / COMPOSITOR-PLAN now point at 0007). C1.2
+  `crates/project/src/dag.rs`: `NodeId` / `Port` / `Edge` (serde), `DagNode`, `validate` (Kahn, deterministic by id,
+  cycles reported anywhere, caps 256 nodes / 1024 edges / depth 64, duplicate ids / inputs, bad ports), `Order::last_use`
+  for liveness; 12 unit tests incl. a random hostile-graph loop. Cloud idle (heartbeat 08:24), nothing on cloud-work;
+  fast-forwarded the Dell lane's H1.1. Self-reviewed (MINIMAL).
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.3a** `crates/project/src/comp.rs`: `Comp` / `CompNode` / `CompKind`
+  (11 kinds, serde tag `type`, `MediaInSource` item / layer + offset), `KINDS` / `from_key` / `key`, `params(kind)` schemas
+  taken from the effects they reuse (Opacity, Motion minus anti-flicker, Gaussian Blur, the key effects) + Solid / Gradient /
+  Mask, `impl DagNode`, `Comp::{new, next_id, validate, sanitize, sources}` (sizes ≤ 16384 / 256 Mpx, counts, labels,
+  texts, NaN positions, rates, offsets); 9 tests. Deviation from DESIGN-C1: the Text node holds the graphic text layer's
+  `EffectInstance` (`graphic_text`), since `LayerSpec` is an evaluated, non-serde type. Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.3b** `ItemKind::Comp(Arc<Comp>)`: project arms (has_video, duration,
+  frame_rate, type label "Comp", source size, square PAR), `nest_cycle` follows sequence → comp and comp Media In →
+  sequence / comp (message now "a sequence or comp cannot be nested inside itself"), engine `media_duration` /
+  mask source size, render (`hash_source` hashes the comp + its sources, decode cost, `item_layer` draws a comp
+  transparent until step 5), interchange paste remaps Media In item ids, Project panel icon (Sequence's until step 10),
+  format `validate_loaded` sanitizes comps. Tests: engine `comps_cannot_read_themselves_through_media_in`, format
+  `comp_items_round_trip_and_are_sanitized_on_load`; project / format / interchange / render lib / engine nesting
+  green, workspace clippy green. **No schema bump yet** (step 4). Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.4** schema **v18** (no-op `v17_to_v18`; docs: older builds now say
+  "too new" for a project with a comp; upstream is still at v15, no collision) + format fuzz test
+  `hostile_random_comps_never_panic_and_hold_the_caps` (400 random comps in a project: hostile sizes / rates / labels /
+  texts / positions / edges; ~33 reach the comp checks, floor 20). No separate fixture file: a comp exists only at v18,
+  so the round-trip test from 3b covers it. Format tests + clippy green. Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.5a** `crates/render/src/comp/`: `compile` (validated order → `Program` of
+  `Image` / `Fill` / `Copy` / `Fx` / `Draw` / `Over` passes, liveness slots with in-place reuse when the input's last
+  consumer is this node, copies for shared inputs, cap 8 live textures), `execute_cpu`, `render_cpu` (errors →
+  transparent), `CompSources` trait for Media In / Text, Gradient generator (≤ 2048 px long side, upscaled). Node maths
+  = Opacity's blend (`blend::composite`), `Affine::motion`, `FxOp::eval_all` of the key / Gaussian Blur effects,
+  `FxOp::OpacityMask`, `grade::compile_fx` of one node in the comp's working space. 12 tests: goldens per node vs the
+  primitive (bit-exact), offset time, bypass / missing inputs, shared-input safety, liveness (comp A shape ≤ 3, 62-node
+  chain = 2), too many live pictures, cycles. Mask node's extra `invert` param dropped (masks carry their own).
+  Not yet wired into `plan.rs` / `item_layer` (5b). Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.5b** comp clips render: `base_layer`'s `ItemKind::Comp` arm runs
+  `comp::render_cpu` at comp time (`source_time_at`) and `want` of the comp size; `comp/project.rs` `ProjectSources`
+  (Media In: media / subclip decoded and colour managed, nested sequence, another comp, depth-guarded; `Layer { track }`
+  only below the comp clip's own track, else nothing; pictures fitted into the comp canvas). The frame plan already takes
+  comps as CPU-rendered layers (`push_item` → `item_layer`), so GPU monitors and exports show them now; the GPU program
+  (`PlanStep::Comp`) is step 7. Tests `comp_clip_tests.rs` (CPU renderer and frame plan): Media In over a Solid with a
+  Transform, Layer below vs own track, comp in comp, cycle → transparent. Render lib 348 green, clippy green. Deferred:
+  static-subgraph cache (perf; with step 7 / 13), comp A / B goldens (with step 6's Text). Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.6** Text node: `CompSources::text`'s default draws the node's
+  `graphic_text` layer through `graphic_clip::render_graphic_layers` on a comp-size canvas (rasters cached there), so
+  every source provider gets it. Tests: bit-exact vs the graphic renderer, half size; comp B's shape (Text → keyframed
+  Transform → Merge over a Solid: the title follows the keyframes at 0 / ½ / 1). Gradient was done in 5a. Done in the
+  main session (MINIMAL: no lanes). Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.8a** `crates/engine/src/comp.rs`: 15 commands (`comp.new`, `get`,
+  `params`, `addNode` (Media In `item` / `track`, Key `effect`, `after` splices into the node's output), `removeNode`
+  (bridges in 0 → consumers), `connect` (replaces the input's edge; cycles / too deep refused before commit),
+  `disconnect`, `setParam` (Color nodes = grade keys and clamps, Text = the text layer's params, others = `comp::params`
+  typed and clamped; `keyframes` lists sorted; `reset`; one undo step per drag via merge key), `toggleAnimation`,
+  `setSource`, `bypass`, `labelNode`, `moveNode` (merged), `setOutput`, `setSize`); comp addressed by `comp` or the
+  selected comp clip; self-nesting refused by `Session::edit`. 7 tests (`comp_tests.rs`: comp A by commands, splice /
+  bridge, refusals change nothing, comp reading itself, typed / clamped params, keyframes / text / animation, undo /
+  redo); engine lib 829 green, clippy green. Owed in 8b: `comp.newClip`, `comp.convertToCompClip`, `comp.open` /
+  `comp.view` (UI state), a `comp.setMasks` for Mask nodes, `tools/comp-accept.json` + MCP smoke. Self-reviewed.
+- **2026-10-14 ~10:50 EDT, Dell lane: H1.1 + H1.2** merged (weekly U 33 % vs L ≈ 18 %: no subagents, self-reviews).
+  H1.1 `ec7ce8ed`: `Sps::check_coding_tools` (4:2:0 / 8-bit / no bypass) split from `check_supported` (software, still
+  refuses interlaced); the VA front switches to it in H1.3. H1.2a `7158790c`: field-aware DPB (per-field marks / POCs,
+  `FieldPocs`, `Dpb::store`, `is_second_field` pairing, first fields held back from output, field sliding window and
+  MMCO 1–6 with field PicNums; `store_picture` / frame behaviour unchanged). H1.2b `c61fcb00`: `build_field_ref_lists`
+  (P / B field init, parity alternation 8.2.4.2.5, field modification). H1.2c `e9294236`: `Poc::picture` + field POC
+  tests (types 0 / 1 / 2). 18 new unit tests incl. hostile field sequences; gates on the Dell green. Next H1.3
+  (`crates/platform/src/vaapi/h264.rs`, needs a fresh-context Opus review: waits for a run where weekly usage allows).
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.8b (part)** `comp.newClip` (Clip ▸ Compositor ▸ New Comp Clip: a new
+  comp in the sequence's settings, or `comp`, placed through `timeline.place` (default V1 at the playhead) as one undo
+  step; a failed place leaves nothing behind) and `comp.setMasks` (Mask node masks, ≤ 16, typed). es / zh-cn rows for
+  New Comp, Comp Settings, New Comp Clip, Compositor, Comp (`spanish_translates_dynamic_names`). Engine comp tests 9,
+  ui-egui lib 179 green. Still owed in 8b: `comp.convertToCompClip`, `comp.open` / `comp.view` (with step 10),
+  `tools/comp-accept.json` + MCP smoke. Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.9** `crates/ui-egui/src/widgets/node_canvas.rs`: the generic node
+  canvas (no project types; `CanvasGraph` / `NodeView` / `EdgeView` in, `CanvasEvent`s out; serde `CanvasState` with
+  pan / zoom / selection / viewed, hostile values tamed): grid, cubic edges, nodes with titled headers, ports, error /
+  bypass / output styling; drag nodes (`Move` per frame, one `MoveEnd`), drag output → input to `Connect`, click a
+  connected input to `Disconnect`, box select, middle / Space-drag pan, wheel zoom around the pointer, node menu
+  (Bypass / Set as Output / View / Delete), background menu `AddRequested`, Delete and Ctrl+B on the selection,
+  double-click → `View`; automation ids `<ns>.canvas / node.<id> / port.<id>.in|out.<n> / edge.<a>-<b>.<n> / add.<kind>
+  / nodeMenu.<item>`. 5 headless-egui tests (ids, connect by drag, move, disconnect + keys, state hostility). ui-egui
+  lib 184 green, clippy green. Self-reviewed.
+- **2026-10-14 10:21–11:09 EDT, same run (MINIMAL; time of this step not recorded): C1.10a** Compositor panel: `PanelKind::Compositor` (Window ▸ Compositor,
+  both workflows), `panels/comp.rs` (the selected comp clip's comp, else the last shown; empty state with New Comp Clip
+  that remembers the comp it made; `graph(&Comp)` → canvas view with Background / Foreground inputs on Merge and the
+  validation error on the output node; canvas events → `comp.moveNode` (merged) / `connect` / `disconnect` / `addNode`
+  at the menu position / `bypass` / `removeNode` / `setOutput`), serde `ui.panels.comp` (`comp`, `canvas`); es / zh-cn
+  rows for node kinds and panel strings. UI test `comp_ui.rs` in Premiere and Resolve (open from Window ▸, New Comp
+  Clip, nodes / ports / edge ids, `ui.set` of the canvas zoom); panels / menus / workspaces / pages / coach / docking
+  UI tests 47 green, ui-egui lib 184, clippy green. Owed in 10b: node inspector (Effect Controls-style rows; Color node
+  = the grade panel's tabs for one node), viewer target `Target::CompNode`, Compositing workspace, Fusion page,
+  timeline badge, Clip ▸ Compositor ▸ Open in Compositor. Self-reviewed.
+- **2026-10-14 ~11:20 EDT, Dell lane: H1.3 + H1.4 built, not merged** (platform diffs need a fresh-context Opus review;
+  weekly U 34 % vs L ≈ 19 %: no subagents). Local branch `dell-lane-h1-3`: the VA-API H.264 front takes PAFF field
+  pictures and MBAFF (factory gate lifted for H.264, second field into its first field's surface, VA field flags,
+  field reference lists from H1.2); synthetic PAFF / MBAFF / hostile recorder tests; three libx264 MBAFF fixtures
+  decode bit-exact vs ffmpeg on the Dell's UHD 770; guide hardware.md row. All Dell gates green. Merge after review.
+- **2026-10-14 11:10–11:25 EDT, C1.8b part: `comp.convertToCompClip`** (scheduled run; MINIMAL: weekly U 34 % vs
+  L ≈ 18 %, 5-hour 41 % vs L5 ≈ 60 %; no subagents, self-reviewed). Clip ▸ Compositor ▸ Convert to Comp Clip: stacked
+  video clips (one per track, same start / end) → one comp (Media In per clip bottom-up, static Motion folded into a
+  Transform with the fit-into-comp correction, Opacity into the Merge, Media Out), the comp clip replaces them on the
+  lowest track, one undo step. Strict per DESIGN-C1 §9 (refuses effects, grades, TNR, speed / hold / time remap,
+  transitions, linked sound, sound clips, animated or masked Motion / Opacity, other PAR, a non-100 % lowest clip,
+  different times, two on one track). Tests: same frame as the stack (mean |Δ| < 0.02; a broken scale fold gives
+  0.044), refusals change nothing; es / zh-cn rows. Engine tests 833 green, clippy clean.
+- **2026-10-14 ~12:15 EDT, Dell lane: H2.0 + H2.1a–c merged** (H1.3 / H1.4 wait for their Opus review, so H2 starts in
+  parallel). PREP-H2.md audit (`e29d8814`). `Sample` trait (u8 / u16) and generic inter prediction (`1e7c0d65`), intra
+  prediction (`a0ae378c`) and residual add (`9ceb574c`) with the bit depth's max; u16 equivalence + 10-bit range tests;
+  8-bit speed unchanged (perf_1080p, 1 thread ~99.7 fps before and after, Dell). Self-reviewed (crates/h264). Next H2.1d
+  (generic sample storage, deblocking, decoder dispatch by bit depth).
+- **2026-10-14 11:22 EDT, C1.8b: `tools/comp-accept.json`** (same run, MINIMAL, weekly U 35 % vs L ≈ 19 %): the
+  `command_batch` arguments that build acceptance comps A (Media In V1 → Luma Key → Merge over a Solid → Color →
+  Out, on V2) and B (Text → Transform → Merge over Media In V1 → Out, on V3); engine test runs it step by step like
+  the MCP server's batch, checks node kinds, valid trees and a rendered frame. Engine comp tests 12 green, clippy clean.
+- **2026-10-14 11:26 EDT, C1.5 owed: static-subgraph cache** (same run, MINIMAL). `comp::compile_cached`: subgraphs
+  with no Media In / Color node and no keyframe that hold a Text, Blur, Key or Mask node render once per state and
+  size into a 256 MB LRU and come back as one `Pass::Image`; nodes still read elsewhere stay compiled. Tests: same
+  pixels as `compile` (title over footage, keyframed Transform, shared Solid), cache hit reuses the picture, LRU
+  bound. Render tests 354 green, clippy clean.
+- **2026-10-14 11:32 EDT, C1.8b / 10b: `comp.open`** (same run, MINIMAL; earlier entries' times corrected from `date`).
+  UI command Clip ▸ Compositor ▸ Open in Compositor (`panels/comp.rs::route`): shows the comp of `clip`, `comp` or
+  the selected comp clip in the Compositor panel; refusals for non-comp clips / items. `comp_ui` test extended in
+  both workflows (open by item and by clip, closed panel reopens, refusals); es / zh-cn rows. ui-egui lib 184,
+  comp / menu / coach UI tests green, clippy clean.
+- **2026-10-14 11:34 EDT, C1.10b part: timeline comp badge** (same run, MINIMAL). Comp clips show "Comp N" (node
+  count) in their header, left of the fx badge (`comp_badge` + lib test); not screenshotted yet. Clippy clean.
+- **2026-10-14 11:40 EDT, C1.11 part: guide `docs/guide/compositor.md`** (same run, MINIMAL). [Fork] [Resolve-style]
+  page with compact headers: comps and node kinds, making a comp / Open in Compositor, Convert to Comp Clip and its
+  refusals, comps A / B as recipes (`tools/comp-accept.json`), what the static cache keeps. In `GUIDE_PAGES`, not
+  indexed (colour eval floor, like the other general pages); README row "partial"; the coach UI walk now opens the
+  Compositor so `{ui:comp.newClip}` is checked. Engine coach 39 + coach UI 17 green.
+- **2026-10-14 11:46 EDT, C1.10b part: node inspector rows** (same run, MINIMAL). One selected node with schema
+  parameters (Merge, Transform, Key, Blur, Solid, Gradient) shows Effect Controls-style rows under the canvas
+  (`comp.param.<key>`, `comp.setParam`, at the playhead's comp time when keyframed); `param_widget` shared with the
+  transition panel. `comp_ui` test extended (both workflows: rows per kind, a commanded value shows); guide section;
+  not screenshotted yet. ui-egui lib 185, transition / comp UI tests green, clippy clean.
+- **2026-10-14 11:45 EDT, Dell lane: H2.1d–f merged, H2.1 done** (`833feb88`, `3f744cc9`, `cf22ac31`; self-reviewed,
+  weekly usage above pace). Picture storage, deblocking (thresholds scaled by bit depth) and slice decoding generic
+  over the sample type; `Decoder` now dispatches to a `u8` or `u16` core by the SPS bit depth (switch at the IDR,
+  old pictures flushed first). Every conformance fixture also runs through the `u16` path via a hidden test hook:
+  32 fixtures + synth streams bit-exact vs ffmpeg on the Dell; 8-bit speed unchanged (~100 fps 1 thread, 1080p).
+  Next: H2.2 High 10.
+- **2026-10-14 11:58 EDT, C1.10b part: Compositing workspace + Fusion page** (same run, MINIMAL). Window ▸
+  Workspaces ▸ Compositing (`window.workspace.compositing`: Compositor beside Program over Project / Effect Controls
+  and the timeline; the other built-in layouts' hashes unchanged); Resolve workflow page bar gains **Fusion**
+  (`page.fusion`) between Edit and Color, on that workspace, with a Fusion toolbar. RS3 tests updated (six pages;
+  Cut stays hidden), new `comp_ui` test, guide pages.md / compositor.md; es / zh-cn rows. UI lib 185 + page /
+  workspace / menu / keyboard / shortcut / coach / resolve UI suites green, clippy clean. Not screenshotted.
+- **2026-10-14 11:55 EDT, Dell lane: H2.2 merged (High 10)** (`b011e9a4`, `0195ae20`, `6d9e6f1d`; self-reviewed).
+  QpBdOffset, PCM at the stream's bit depth, explicit weighted-prediction offsets scaled, refusal narrowed to the
+  software decoder only (VA-API fronts stay 8-bit), 16-bit `Picture` planes → `Yuv16` in codecs. Six x264 High 10
+  fixtures bit-exact vs ffmpeg on the Dell plus an MP4 seek test; 8-bit speed unchanged. Guide `hardware.md` row.
+  Next: H2.3 (4:2:2 intra).
+- **2026-10-14 12:00 EDT, C1.10b part: inspector stopwatch** (same run, MINIMAL). Each animatable row has a
+  stopwatch (`comp.param.<key>.stopwatch` → `comp.toggleAnimation` at the playhead's comp time); `comp_ui` checks
+  it sets keyframes; guide step. UI lib 185, comp UI 3 green, clippy clean.
+- **2026-10-14 12:03 EDT, C1.8b fix: `comp.open` holds until the selection changes** (same run, MINIMAL). Panel
+  state `opened_with`; `comp_ui` checks both directions. UI lib 185, comp UI 3 green, clippy clean.
+- **2026-10-14 12:05 EDT, C1.10b part: Text node rows in the inspector** (same run, MINIMAL). A Text node shows
+  its layer's parameters (`inspector_rows`); `param_widget` gained a text field (every keystroke →
+  `comp.setParam`, merged into one undo step). `comp_ui`: rows shown, typing changes the title. UI lib 185,
+  comp / transition UI tests green, clippy clean.
+- **2026-10-14 12:12 EDT, C1.10b part: Mask node list in the inspector** (scheduled run, MINIMAL: weekly U 36 /
+  L 19, 5-hour 54 / L5 78). Selecting a Mask node shows **Masks** with Add ellipse / Add rectangle (centred,
+  a fifth of the comp's short side), per shape Inverted and Delete; each click is one `comp.setMasks` undo step.
+  `comp_ui` adds / inverts / deletes; guide `compositor.md` section "A Mask node's masks"; es / zh-cn rows;
+  dynamic ids listed. UI lib 185, comp UI 3, coach UI 17, engine coach 39 green, clippy clean. Not screenshotted.
+- **2026-10-14 12:15 EDT, C1.10b part: mask Feather / Opacity / Expansion rows** (same run, MINIMAL). Each shape
+  in a Mask node's list gets the three rows (`comp.mask<k>.<param>`, clamped, set at comp time so a keyframed
+  one gets a keyframe) under its Inverted / Delete row; es / zh-cn rows; guide step. comp UI 3 green, clippy
+  clean.
+- **2026-10-14 12:17 EDT, C1.10b part: node viewer render** (same run, MINIMAL). `filmcraft_render::render_comp_node`
+  renders one node's output of a comp clip (the comp with that node as output, comp time, Layer sources below the
+  clip, hostile scale clamped; `None` for unknown / non-comp clips and nodes). Test
+  `the_node_viewer_shows_one_node_s_output`. Render comp tests 33 green, clippy clean. Next: `Target::CompNode`.
+- **2026-10-14 12:22 EDT, C1.10b part + 8b: node viewer in the Program monitor, `comp.view`** (same run, MINIMAL).
+  `Target::CompNode(seq, clip, node)` renders through `render_comp_node`; `panels/comp.rs::viewer_target` swaps
+  the Program monitor's target while the Compositor is open and a non-output node is viewed (double-click / node
+  menu View / UI command `comp.view {node?}`, refused for unknown nodes). `comp_ui` covers the command; guide
+  section "Looking at one node's output"; es / zh-cn rows. UI lib 185, comp UI 3, engine coach 39 green, clippy
+  clean; masks_ui / panels_ui scopes failed once under load and pass alone (flakes). Not screenshotted.
+- **2026-10-14 12:26 EDT, C1.10b part: Show picker** (same run, MINIMAL). A "Show: <node>" combo (`comp.viewer`)
+  at the top right of the Compositor canvas picks the viewed node (Media Out = the comp's own picture). comp UI 3
+  green, clippy clean; guide steps. Not screenshotted.
+- **2026-10-14 12:35 EDT, C1 item 6 (Coach fixes, steps 3–5 part)** (scheduled run, MINIMAL: weekly U 36 / L 19,
+  5-hour 57 / L5 84; no subagents). `coach_ask::query_terms`: the **what-for route** (DIAGNOSIS §4: "what is X
+  good / useful for", "when do I use X", "the point of X" drop the purpose words and add `why` as a synonym) and
+  **typo stand-in** (a word the guide never uses whose synonym it does, e.g. `qualifer`, `cli`, is replaced by
+  that synonym at full weight). Eval 82 → **85/116**, no regressions (both owner qualifier questions and
+  `cutoff-qualifier-face` pass now); floor raised to 85; test `what_for_questions_and_typos_keep_only_the_topic`.
+  **Dead end, measured:** heading weight by idf (DIAGNOSIS §4) changes nothing at idf ≥ 1.0 / 1.5 on today's
+  guide (no heading word is in > 40 % of sections) and loses 1–2 at ≥ 2.0. Engine 835 green, clippy clean.
+- **2026-10-14 12:30 EDT, Dell lane: H2.3 merged (High 4:2:2 intra)** (`ad61e1ed`, `f28cafa7`, `8af81317`, `4e9d88df`;
+  self-reviewed). 4:2:2 picture geometry, 8×16 chroma intra prediction, 2×4 chroma DC + 8 AC blocks (CAVLC / CABAC),
+  4:2:2 PCM and deblocking; 4:2:2 intra streams now decode in software (P / B slices refused until H2.4). Six x264
+  High 4:2:2 Intra fixtures (8 / 10-bit) bit-exact vs ffmpeg on the Dell. 8-bit 4:2:0 speed reads ~1 % lower on this
+  build (within the build-to-build band; profile owed at H2.7). Guide `hardware.md` row. Next: H2.4 (4:2:2 inter).
+- **2026-10-14 12:39 EDT, C1 item 6: x-vs-y route** (same run, MINIMAL). "difference between X and Y" / "X vs Y" drop the
+  comparison words, and a section that names every topic word scores ×1.5 (counted in the confidence ceiling too,
+  so an off-topic comparison still declines; test with "cat and a dog" / "pizza vs pasta"). Eval 85 → **88/116**
+  (`slang-gain-gamma`, `what-disable-vs-bypass`, `what-tnr-vs-nr` pass), no regressions; floor 88. Engine 836 green.
+- **2026-10-14 12:49 EDT, C1 item 6: order route** (same run, MINIMAL). In an order question ("order", "tackle", "when should",
+  "at what point", "go … chain", "before / after") the order words still rank but the coverage gate counts them only
+  where the section has them or a synonym (`coach_ask::order_words`, `coverage_in(…, optional)`). Eval 88 →
+  **90/116** (`order-lut`, `order-wb`), no regressions; floor 90. Measured on the way: down-weighting the order
+  words (½ or 0.99) instead breaks near-ties (`order-lumetri`, `order-nr`, `cutoff-order`). Engine 837 green.
+- **2026-10-14 12:55 EDT, Dell lane: H2.4 merged (High 4:2:2 inter)** (`8a9e9321`; self-reviewed). Chroma motion
+  compensation at full vertical resolution; slice decoding / deblocking monomorphised over the chroma format. Five
+  x264 4:2:2 Long-GOP fixtures (8 / 10-bit) bit-exact vs ffmpeg plus an MP4 4:2:2 10-bit seek test, so the X-M5's
+  4:2:2 H.264 now decodes in FilmCraft's own decoder (software; proxies still recommended). 8-bit 4:2:0 speed 2.3 %
+  below pre-H2.3 in alignment-pinned A/B builds (99.6 → 97.3 fps); sources narrowed, profile owed at H2.7.
+- **2026-10-14 12:58 EDT, C1 item 6: not-yet route** (same run, MINIMAL). "is there / do you have / where is / can I" with a word
+  no guide section uses (itself or via a synonym) declines and names it (`Answer::missing`, JSON `missing`, Coach
+  panel "The guide doesn't mention “X”." with es / zh-cn rows; guide `color/coach.md`). Eval entry
+  `uncovered-import` was stale (AI3-PREP.2g wrote the section): now covered → **91/116**, floor 91. Engine 838,
+  ui-egui i18n 27 + coach UI 17 green, clippy clean. All four DIAGNOSIS §4 routes are in; still open: the "Why"
+  paragraph as the summary for what-for / why questions (presentation).
+- **2026-10-14 13:02 EDT, C1 item 6: why first** (same run, MINIMAL). `Answer::explain` (JSON `explain`) for "why …" and
+  what-for questions; the Coach panel then shows the section's summary (its why paragraph) above the steps, not only
+  when there are none. Guide `color/coach.md`. Engine coach 43 + coach UI 17 green, clippy clean. **C1 item 6 is done**
+  (DIAGNOSIS §4 all in; eval 91/116).
+- **2026-10-14 13:01 EDT, Dell lane: H2.4 robustness + H2.7a** (`cdd9a216`, H2.7a). Corruption rounds over the High 10
+  / 4:2:2 fixtures (no panics). 4K 10-bit 4:2:2 decode on the Dell: Long-GOP 43 fps, 632 Mbit/s Intra 27 fps (16
+  threads; fork-benchmarks.md). Slice threads deferred (Q32, FYI). Q31 answered yes: conformance streams next.
+- **2026-10-14 13:11 EDT, C1.7a: comp clips as one plan layer** (same run, MINIMAL). `PlanLayer.comp:
+  Option<Arc<comp::Program>>` (+ `PlanLayer::comp`, `PlanLayer::cpu_image`); `render::comp_plan_layer` compiles a
+  comp clip without effects / grade / opacity masks at the size it is drawn (comp size × Motion scale) and places it
+  by Motion, so the plan stays `FramePlan::Layers` (GPU export keeps working) instead of a canvas-size CPU image. The
+  CPU executes the program (`execute_layers`); the GPU runs it on the CPU for now (`render_plan`'s CPU fallback,
+  `prepare_layers` skips comp layers) until 7b. `Program::byte_size` counts in the plan's memory. Test
+  `a_plain_comp_clip_is_one_comp_layer_in_the_plan`. render 356, gpu 70, ui comp 12 green; clippy clean.
+- **2026-10-14 13:19 EDT, C1.7b + 7c: comp programs on the GPU** (same run, MINIMAL, self-reviewed: no subagents
+  allowed in this mode). `crates/gpu/src/comp.rs`: `GpuCompositor::run_comp` runs a program's passes on comp-sized
+  `Rgba16Float` slots (+ one scratch) with the existing layer draw and effect stage: each slot is registered in the
+  upload cache under a pixel-less placeholder frame right before use, and `render_plan` swaps the accumulator with
+  the slot (as transitions do). In-place Draw / Over / Fx go through the scratch slot and swap. Falls back to the
+  CPU program (7a path) when the comp is wider than a texture, its slots exceed `COMP_VRAM_BUDGET` (2 GB,
+  provisional), or an Fx op isn't `gpu_ok` / there is no effect stage; an oversized CPU result is now placed on the
+  CPU first; an unregistered placeholder uploads as transparent instead of an invalid upload. **Parity (synthetic),
+  AMD RX 6700 XT and Intel RKL GT1 identical:** every pass kind p99 ≤ 7e-4, mean ≤ 2e-4 vs `execute_cpu`; comp A's
+  shape (key → move → merge over a solid → grade) passes; a 15° turned draw differs only on antialiased edges (p90
+  3e-4, mean 3e-3). `crates/gpu/src/comp_tests.rs` (3 tests incl. hostile sizes / CPU-only ops). gpu 73 + 3,
+  render 356, ui comp 12 green; clippy clean; `xtask wasm` ok. Owed: an Opus review of `comp.rs` when the mode
+  allows (LEAN or better); the bench cases (step 13).
+- **2026-10-14 13:15 EDT, Dell lane: conformance vectors (Q31 a) + H2.5 design.** ITU-T H.264.1 streams downloading
+  to the Dell (outside git); harness `tests/conformance_vectors.rs` merged: first 76 archives 43 pass bit-exact, 32
+  interlaced (not yet supported), 0 failed. PAFF design (PREP-H2 §6) merged; H2.5a on branch `dell-lane-h2-5`
+  awaiting H2.5b and an Opus review.
+- **2026-10-14 14:45 EDT, Dell lane: H2.5 PAFF built on branch `dell-lane-h2-5` (not merged, Opus review owed).**
+  H2.5a–e: field pictures, reference fields, field scans / CABAC contexts / deblocking, direct prediction across
+  frame / field, frames over field pairs; PAFF sequences decode in software (MBAFF still refused, H2.6). Full ITU
+  set downloaded + extracted (219 archives): hevc-vaapi 125 pass / 0 failed (harness `f65643cb` handles uncropped
+  and pic_struct-repeating references, merged); branch 168 pass / 49 unsupported / 0 failed (+43 PAFF). 8-bit
+  progressive speed −0.9 % (noise level).
+- **2026-10-14 13:27 EDT, C1 item 7 part: comp explainer** (same run, MINIMAL). `crates/engine/src/comp_explain.rs`
+  + query `comp.explain {comp?, time?}`: a summary and one plain sentence per node in flow order (node names as the
+  canvas shows them, changed parameters by their real labels), unconnected nodes under `unused`, a broken graph
+  explained instead of failing. Template-only (a local model may reword later under G2.11's check). Guide
+  `compositor.md` › "Explaining a comp in plain words" (no UI button yet). Test
+  `comp_explain_describes_the_acceptance_comps` (comps A / B from `tools/comp-accept.json`, unused node, cycle,
+  unknown id). Engine 839 green (coach eval 91), clippy clean. Item 7 still owes: Coach lessons per comp node type,
+  compositing questions in the eval set, the process-assistant plan's compositing part.
+- **2026-10-14 13:34 EDT, C1 item 7 part: compositing in the coach** (same run, MINIMAL). 8 compositing questions in
+  `docs/fork/coach-eval/questions.toml` (what a comp is, make, view a node, convert, a node doing nothing, slow
+  playback, green screen, "Fusion page"); `compositor.md` is now indexed by the coach (was `NOT_INDEXED` while the
+  colour set sat at its floor): colour still 91, compositing 2 / 8 → eval **93/124**, floor 93. The compositor's
+  explainer section reworded ("What a comp does, node by node") so it doesn't pull the grade-explainer question.
+  The 6 compositing misses are the next coach work (or AI3's retrieval). Engine 839 + coach UI 17 green.
+- **2026-10-14 13:40 EDT, C1 item 7 part: first comp lesson** (same run, MINIMAL). `assets/lessons/first-comp.toml`
+  ("A moving title in a comp": Compositing workspace, New Comp Clip, Text → Transform → Merge (foreground) → Media
+  Out, Transform Scale; 11 steps, real ids `comp.newClip`, `comp.canvas`, `comp.param.scale`, commands
+  `comp.addNode` / `comp.connect` / `comp.setParam`). Walker gains `Do::WorkspaceNamed` and a `{comp}` placeholder;
+  `coach_first_comp_end_to_end` passes. Guide `color/coach.md` lesson table. Engine 839, coach UI 18 green, clippy
+  clean, eval 93. Still owed for item 7: a second comp lesson (Media In → Key → Merge over a Solid → Color; Mask,
+  Blur, Gradient), the process-assistant plan's compositing part.
+- **2026-10-14 13:42 EDT, C1 item 7 part: keying comp lesson** (same run, MINIMAL). `assets/lessons/key-comp.toml` ("Key a clip over
+  a new background in a comp": Media In (track under the comp clip) → Key → Merge over a Solid → Color → Media Out,
+  Key Threshold; 15 steps) + `coach_key_comp_end_to_end`; guide lesson table. With `first-comp` every C1 node kind
+  is taught (Mask, Blur and Gradient named in the closing steps). Engine coach 43 + walk green.
+- **2026-10-14 13:43 EDT, C1 item 7 done** (same run, MINIMAL). `docs/fork/coach-eval/ASSISTANT-PLAN-DRAFT.md` §4a: what the
+  process assistant reads and checks for compositing questions (the `comp.explain` fact block, GPU / CPU state,
+  node names as controls, comp lessons as "walk me through it"). Item 7 is complete: explainer, two lessons, eval
+  questions, guide sections, assistant plan.
+- **2026-10-14 13:50 EDT, C1.13 part: comp bench cases** (same run, MINIMAL). `bench --section playback --only comp`: scenarios
+  `comp-1080` / `comp-2160` (h264 fixture on V1, comps A and B from `tools/comp-accept.json` on V2 / V3). **First
+  measurement (synthetic, quick, load ~5 from the desktop):** comp-1080 full 47 shown / 145 dropped of 192 (75 %),
+  comp-2160 half 17 / 175 (91 %); ~400 ms CPU per frame, 2.6 GB uploaded in 8 s: the GPU passes are cheap, but each
+  Media In renders its source on the CPU into an f32 image that is then uploaded. **Not real time yet.** Next (C1.7d):
+  Media In as plan layers (decoded / hardware frames drawn by the GPU into a slot) instead of CPU images.
+- **2026-10-14 14:03 EDT, C1.7d: Media In as plan layers → comps play in real time** (same run, MINIMAL, self-reviewed).
+  `comp::Pass::Layers` + `CompSources::media_in_layers`: a Media In reading a track below the comp clip compiles
+  to that track's frame-plan layers (`plan::track_layers` → `push_item`, fitted to the comp canvas), so the GPU
+  draws decoded / hardware frames into the slot (`run_comp`); the CPU runs `execute_layers`. Item sources keep the
+  CPU image path for now; a comp clip inside a Media In track runs the whole comp on the CPU (slots in use). Static
+  comp pictures keep their frame (`comp_images`, by `Arc` identity) so their textures stay cached.
+  **Bench (synthetic, quick, desktop load ~4):** comp-1080 full **192 shown / 0 dropped** (was 47 / 145), comp-2160
+  half **192 / 0** (was 17 / 175); CPU per frame 400 → 3–6 ms, uploads 3.2 GB → 116 / 17 MB per 8 s. Tests
+  `a_layer_source_compiles_to_plan_layers`, GPU "plan layers" case (AMD + Intel p99 5.7e-4). render 357, gpu 73 + 3,
+  ui comp 14 green; clippy clean; wasm ok.
+- **2026-10-14 14:42 EDT, C1.13 part: comp soak passed; docs** (same run, MINIMAL). `bench --section xm5 --only comp-soak`,
+  30 min (synthetic, idle desktop): 849 rounds of comp edits (`comp.setParam` ×3, `comp.addNode`, undo / redo) +
+  2 s playback of comps A and B, **40 752 frames shown, 0 dropped, 0 command errors**; RSS plateaus at 1.7–1.8 GB from
+  minute 3 with no trend (the reported +231 MB is warm-up to the plateau), VRAM flat (+8 MB). Docs: guide
+  `compositor.md` › speed (GPU, what falls back to the CPU), `docs/architecture.md` §5 "Comp clips", ADR 0007 "As
+  built". Coach eval 94/124 (floor 94).
+- **2026-10-14 14:52 EDT, C1.13 part: comps looked at on screen; node placement fix** (same run, MINIMAL). Release app with
+  `--control 9876`, demo project, comp A built through MCP `command_batch`: the Fusion page (Resolve workflow) and
+  the Compositing workspace (Premiere workflow) both show the node graph, the comp clip on V2 and the keyed picture
+  in the Program monitor (Luma Key 35 % over a red Solid: the dark sea is replaced, the sun and sky stay), drawn on the
+  GPU. Defect seen and fixed: a new comp's Media Out sat at canvas (0, 0) under the first node; now at
+  (`MEDIA_OUT_X` 640, 0), and `comp.addNode` without a position steps down to a free spot (test
+  `new_nodes_do_not_stack_on_each_other`). Screenshots not committed (session scratch). Engine 840, render comp 35,
+  ui comp 14 green.
+- **2026-10-14 14:56 EDT, C1.10b part: Color node rows in the Compositor inspector** (same run, MINIMAL). A selected Color node
+  shows its numeric grade settings (`grade::NODE_PARAMS` Float entries: Contrast, Pivot, Saturation, Temperature,
+  Tint, grain) as ordinary `comp.param.<key>` rows (stopwatch included) through `comp.setParam`; wheels and curves
+  still by command (the grade palette refactor stays owed, STEADY+). UI test in `compositor_round_trip` (both
+  workflows); guide `compositor.md` › settings (worded so the coach's "corrector node" question still lands on
+  the glossary; eval 94). ui comp 14, i18n 27 green; clippy clean.
+- **2026-10-14 15:01 EDT, C1.10b part: Color node wheels in the Compositor** (same run, MINIMAL). Lift / Gamma / Gain / Offset
+  wheels above the Color node's rows (`widgets::color::grade_wheel` with the grade panel's `puck_of` / `rgb_of`
+  mapping; ids `comp.wheel.<key>`, in `DYNAMIC_ID_PATTERNS`), each change a `comp.setParam` keeping the
+  master. UI test clicks the Gamma wheel and checks the node's gamma (both workflows). Curves stay by command.
+  ui lib 185, comp UI 14, coach UI 19 green; coach eval 94; clippy clean.
+- **2026-10-14 15:07 EDT, C1.10b part: Color node curves in the Compositor** (same run, MINIMAL). Y / R / G / B picker (`comp.curve.<ch>`)
+  and the shared `curve_editor` (`comp.curve`) under the wheels, edits sent as `comp.setParam` with the point list.
+  UI test drags on the master curve (scrolling the inspector into view at a fixed point, then back). The Color node is
+  now fully editable in the Compositor. comp UI 14, coach UI 19, eval 94 green; clippy clean.
+- **2026-10-14 15:17 EDT, C1.10b: Mask node shapes on the Program monitor** (same run, MINIMAL). `panels/comp.rs::mask_overlay`
+  (hooked after the clip-mask overlay in `monitor.rs`): with the Compositor open and one Mask node selected, its
+  shapes are drawn over the picture (comp pixels through the comp clip's Motion, or straight while a node is viewed);
+  drag a vertex handle or inside a shape → `comp.setMasks` at comp time with a new optional `gesture` (one undo
+  step per drag, `Session::edit_merged`). No Bézier handles / add-point yet. Tests: engine
+  `set_masks_merges_one_gesture_into_one_undo_step`, UI drag in `compositor_round_trip` (both workflows). Engine
+  841, comp UI 14, coach UI 19 green; clippy clean. Not screenshotted. Seen once: `settings_tests::
+  hardware_decoding_setting_drives_the_decoder_switch` failed under the parallel engine run and passed alone and on
+  rerun (global decoder switch; flake to make deterministic).
+- **2026-10-14 15:18 EDT, C1.7 fix from self-review: two comps in one frame** (same run, MINIMAL; end-of-phase review done by
+  the integrator, as MINIMAL allows no reviewer subagents). Two comp clips in one frame shared one slot set, so the
+  second comp's passes overwrote the first comp's result before the frame was drawn (comps A and B together in the
+  bench; the parity tests had one comp each). Now one slot set per comp layer of the frame (`comp_sets`, at most
+  `MAX_COMP_SETS` 8 on the GPU, the rest on the CPU). Test `two_comps_in_one_frame_keep_their_own_pictures` fails
+  without the fix (mutation-checked) and passes on AMD and Intel. gpu 74 + 4 green; clippy clean.

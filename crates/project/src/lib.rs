@@ -10,6 +10,8 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
 pub mod caption;
+pub mod comp;
+pub mod dag;
 pub mod effect;
 pub mod essential;
 pub mod find;
@@ -318,6 +320,9 @@ pub enum ItemKind {
         height: u32,
         rate: FrameRate,
     },
+    /// A composition (fork C1): a node graph rendered as one picture ([`comp`], ADR 0007).
+    /// Shared like `Sequence`; mutators detach with `Arc::make_mut`.
+    Comp(std::sync::Arc<comp::Comp>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -366,7 +371,7 @@ impl ProjectItem {
     pub fn has_video(&self) -> bool {
         match &self.kind {
             ItemKind::Media(m) => m.info.has_video(),
-            ItemKind::Sequence(_) | ItemKind::AdjustmentLayer { .. } | ItemKind::Graphic { .. } => true,
+            ItemKind::Sequence(_) | ItemKind::AdjustmentLayer { .. } | ItemKind::Graphic { .. } | ItemKind::Comp(_) => true,
             ItemKind::Subclip { .. } => true,
         }
     }
@@ -384,6 +389,7 @@ impl ProjectItem {
             ItemKind::Subclip { range, .. } => range.duration,
             ItemKind::AdjustmentLayer { duration, .. } => *duration,
             ItemKind::Graphic { .. } => Tick(3600 * TICKS_PER_SECOND),
+            ItemKind::Comp(c) => c.duration,
         }
     }
     pub fn frame_rate(&self) -> FrameRate {
@@ -391,6 +397,7 @@ impl ProjectItem {
             ItemKind::Media(m) => m.frame_rate(),
             ItemKind::Sequence(s) => s.settings.frame_rate,
             ItemKind::AdjustmentLayer { rate, .. } | ItemKind::Graphic { rate, .. } => *rate,
+            ItemKind::Comp(c) => c.rate,
             ItemKind::Subclip { .. } => FrameRate::default(),
         }
     }
@@ -410,6 +417,7 @@ impl ProjectItem {
             ItemKind::Subclip { .. } => "Subclip",
             ItemKind::AdjustmentLayer { .. } => "Adjustment Layer",
             ItemKind::Graphic { .. } => "Graphic",
+            ItemKind::Comp(_) => "Comp",
         }
     }
 }
@@ -1503,11 +1511,15 @@ impl Project {
     /// id of those on a cycle), or `None` when nesting is sound. Such a sequence has no frame to
     /// show, so edits that would make one are refused; only a damaged project file holds one.
     pub fn nest_cycle(&self) -> Option<ItemId> {
-        // each sequence's nested sequences
+        // each sequence's nested sequences and comps, and each comp's Media In sequences and comps
+        let nests_inside = |i: &ItemId| matches!(self.item(*i).map(|p| &p.kind), Some(ItemKind::Sequence(_) | ItemKind::Comp(_)));
         let mut nests: BTreeMap<ItemId, Vec<ItemId>> = BTreeMap::new();
         for it in self.items.values() {
-            let ItemKind::Sequence(q) = &it.kind else { continue };
-            let mut inner: Vec<ItemId> = q.all_tracks().flat_map(|t| t.items.iter().map(|i| i.item)).filter(|i| self.sequence(*i).is_some()).collect();
+            let mut inner: Vec<ItemId> = match &it.kind {
+                ItemKind::Sequence(q) => q.all_tracks().flat_map(|t| t.items.iter().map(|i| i.item)).filter(nests_inside).collect(),
+                ItemKind::Comp(c) => c.sources().filter(nests_inside).collect(),
+                _ => continue,
+            };
             inner.sort_unstable();
             inner.dedup();
             if !inner.is_empty() {
@@ -1741,6 +1753,7 @@ impl Project {
                 ItemKind::Media(m) => m.info.video.as_ref().map(|v| (v.width, v.height)),
                 ItemKind::Sequence(q) => Some((q.settings.width, q.settings.height)),
                 ItemKind::AdjustmentLayer { width, height, .. } | ItemKind::Graphic { width, height, .. } => Some((*width, *height)),
+                ItemKind::Comp(c) => Some((c.width, c.height)),
                 ItemKind::Subclip { parent, .. } => {
                     id = *parent;
                     continue;
@@ -1762,6 +1775,8 @@ impl Project {
                 ItemKind::Media(m) => Some(m.pixel_aspect()),
                 ItemKind::Sequence(q) => Some(sane_par(q.settings.par)),
                 ItemKind::AdjustmentLayer { .. } | ItemKind::Graphic { .. } => None,
+                // Comps are rendered in square pixels.
+                ItemKind::Comp(_) => Some((1, 1)),
                 ItemKind::Subclip { parent, .. } => {
                     id = *parent;
                     continue;

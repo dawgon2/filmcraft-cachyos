@@ -26,7 +26,8 @@ pub fn item_icon(k: &ItemKind) -> Icon {
             filmcraft_media::MediaKind::Still | filmcraft_media::MediaKind::ImageSequence => Icon::Image,
             _ => Icon::Film,
         },
-        ItemKind::Sequence(_) => Icon::Sequence,
+        // comps get their own icon with the Compositor panel (C1 step 10)
+        ItemKind::Sequence(_) | ItemKind::Comp(_) => Icon::Sequence,
         ItemKind::Subclip { .. } => Icon::Film,
         ItemKind::AdjustmentLayer { .. } | ItemKind::Graphic { .. } => Icon::Adjust,
     }

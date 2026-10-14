@@ -190,7 +190,7 @@ fn get(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "clip": c.0, "grade": it.grade }))
 }
 
-fn params(_: &mut Session, _: &Value) -> Result<Value> {
+pub(crate) fn params(_: &mut Session, _: &Value) -> Result<Value> {
     let list: Vec<Value> = filmcraft_project::grade::NODE_PARAMS
         .iter()
         .map(|p| match p.kind {
@@ -302,7 +302,7 @@ fn label(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// A JSON value as the node parameter `kind` holds it, with every number finite and in range.
-fn value_for(kind: NodeParamKind, v: &Value) -> Option<ParamValue> {
+pub(crate) fn value_for(kind: NodeParamKind, v: &Value) -> Option<ParamValue> {
     let finite = |x: &Value| x.as_f64().filter(|f| f.is_finite());
     Some(match kind {
         NodeParamKind::Float { min, max, .. } => ParamValue::Float(finite(v)?.clamp(f64::from(min), f64::from(max))),
@@ -331,7 +331,7 @@ fn value_for(kind: NodeParamKind, v: &Value) -> Option<ParamValue> {
 }
 
 /// The identity value of a node parameter.
-fn identity(kind: NodeParamKind) -> ParamValue {
+pub(crate) fn identity(kind: NodeParamKind) -> ParamValue {
     match kind {
         NodeParamKind::Float { identity, .. } => ParamValue::Float(f64::from(identity)),
         NodeParamKind::Wheel { .. } => ParamValue::Color([0.0; 4]),
@@ -759,7 +759,7 @@ fn sample(img: &filmcraft_render::Image, x: f32, y: f32) -> Option<[f32; 3]> {
     Some([acc[0] / acc[3], acc[1] / acc[3], acc[2] / acc[3]])
 }
 
-fn kind_hint(kind: NodeParamKind) -> &'static str {
+pub(crate) fn kind_hint(kind: NodeParamKind) -> &'static str {
     match kind {
         NodeParamKind::Float { .. } => "a finite number",
         NodeParamKind::Wheel { .. } => "[r, g, b] or [r, g, b, master] (finite numbers)",

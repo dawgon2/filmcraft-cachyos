@@ -706,3 +706,81 @@ fn mp4_colour_comes_from_the_sps_without_colr() {
         assert_eq!(color(&s).primaries, Primaries::Bt601_525);
     }
 }
+
+/// H.264 High 10 in MP4 (fork H2): decoded in software to 10-bit planes, sample-exact against
+/// ffmpeg for frames requested out of order (seeks across key frames, then playback).
+#[test]
+fn mp4_h264_high10_seeks_bit_exact() {
+    let name = "noise_h264_high10.mp4";
+    let frames = 40;
+    let args = [
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=s=352x288:r=25,noise=alls=8:allf=t",
+        "-frames:v",
+        "40",
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "high10",
+        "-pix_fmt",
+        "yuv420p10le",
+        "-g",
+        "12",
+        "-bf",
+        "2",
+    ];
+    let Some(path) = fixture_path(name, &args) else { return };
+    let Some(reference) = reference_yuv(&path, "yuv420p10le") else { return };
+    let bytes: Arc<[u8]> = std::fs::read(&path).unwrap().into();
+    let src = crate::open_bytes(name, bytes).unwrap();
+    let info = src.info().clone();
+    let v = info.video.as_ref().unwrap();
+    assert!(v.codec.contains("264"), "{}", v.codec);
+    let frame_len = reference.len() / frames;
+    let rate = info.frame_rate();
+    for k in [37, 3, 25, 13, 12, 39, 0, 30, 31, 32, 33] {
+        let f = src.video_frame(FrameRequest::full(rate.tick_of(k as i64))).unwrap();
+        assert!(matches!(f.data, filmcraft_frame::PixelData::Yuv16 { bits: 10, .. }), "frame {k}: {}", f.format_label());
+        assert!(yuv_bytes(&f) == reference[k * frame_len..(k + 1) * frame_len], "{name}: frame {k} differs from ffmpeg");
+    }
+}
+
+/// H.264 High 4:2:2 10-bit Long-GOP in MP4 (the X-M5's occasional H.264 setting; fork H2.4):
+/// decoded in software to 10-bit 4:2:2 planes, sample-exact against ffmpeg across seeks.
+#[test]
+fn mp4_h264_422_10bit_seeks_bit_exact() {
+    let name = "noise_h264_422_10.mp4";
+    let frames = 30;
+    let args = [
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=s=352x288:r=25,noise=alls=8:allf=t",
+        "-frames:v",
+        "30",
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "high422",
+        "-pix_fmt",
+        "yuv422p10le",
+        "-g",
+        "12",
+        "-bf",
+        "2",
+    ];
+    let Some(path) = fixture_path(name, &args) else { return };
+    let Some(reference) = reference_yuv(&path, "yuv422p10le") else { return };
+    let bytes: Arc<[u8]> = std::fs::read(&path).unwrap().into();
+    let src = crate::open_bytes(name, bytes).unwrap();
+    let info = src.info().clone();
+    let frame_len = reference.len() / frames;
+    let rate = info.frame_rate();
+    for k in [27, 3, 14, 13, 12, 29, 0, 20, 21, 22] {
+        let f = src.video_frame(FrameRequest::full(rate.tick_of(k as i64))).unwrap();
+        assert!(matches!(f.data, filmcraft_frame::PixelData::Yuv16 { bits: 10, chroma: filmcraft_frame::Chroma::C422, .. }), "frame {k}: {}", f.format_label());
+        assert!(yuv_bytes(&f) == reference[k * frame_len..(k + 1) * frame_len], "{name}: frame {k} differs from ffmpeg");
+    }
+}

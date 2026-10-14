@@ -29,7 +29,7 @@ pub const MAX_SEEN: usize = 50_000;
 pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "about.*", "about.credits.header.*", "about.credits.names.*", "about.tab.*", "addTracks.*.amount", "addTracks.*.placement",
     "addTracks.*.placement.option.*", "addTracks.*.type", "addTracks.*.type.option.*", "align.*", "audioGain.*", "audioGain.*.value",
-    "audioMeters.channel.*", "clipMixer.*", "clips.card.*", "clips.split.*", "coach.ask.step.*", "coach.lessons.item.*", "colorDialog.par.*", "colorDialog.space.*", "colorDialog.working.*",
+    "audioMeters.channel.*", "clipMixer.*", "clips.card.*", "clips.split.*", "coach.ask.step.*", "coach.lessons.item.*", "comp.param.*", "comp.wheel.*", "comp.curve.*", "comp.param.*.stopwatch", "comp.mask.*", "comp.mask*.*", "colorDialog.par.*", "colorDialog.space.*", "colorDialog.working.*",
     "deleteTracks.*", "deleteTracks.*.option.*", "deleteTracks.*.option.empty", "deleteTracks.*.target", "display.*", "dock.gutter.*",
     "editCameras.enabled.*", "editCameras.name.*", "editCameras.thumb.*", "effectControls.*.*", "effectControls.*.*.eyedropper",
     "effectControls.*.*.graphs", "effectControls.*.*.keyframe.*", "effectControls.*.*.reset", "effectControls.*.*.stopwatch",

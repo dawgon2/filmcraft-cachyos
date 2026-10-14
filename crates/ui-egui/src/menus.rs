@@ -26,6 +26,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("window.dockPanel", "Dock Panel", [], None),
     uic!("window.floatPanel", "Undock Panel", [], None),
     uic!("window.closePanel", "Close Panel", [], None),
+    uic!("comp.open", "Open in Compositor", ["Clip", "Compositor"], None),
+    uic!("comp.view", "View Node", [], None),
     uic!("app.language.english", "English", ["Edit", "Language"], None),
     uic!("app.language.japanese", "日本語", ["Edit", "Language"], None),
     uic!("app.language.spanish", "Español", ["Edit", "Language"], None),
@@ -116,6 +118,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     // Resolve workflow pages (GRADE-PLAN G1.8; the page bar shows them)
     uic!("page.media", "Media Page", [], None),
     uic!("page.edit", "Edit Page", [], None),
+    uic!("page.fusion", "Fusion Page", [], None),
     uic!("page.color", "Color Page", [], None),
     uic!("page.fairlight", "Fairlight Page", [], None),
     uic!("page.deliver", "Deliver Page", [], None),
@@ -124,6 +127,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("window.workspace.effects", "Effects", ["Window", "Workspaces"], Some("Alt+Shift+4")),
     uic!("window.workspace.audio", "Audio", ["Window", "Workspaces"], Some("Alt+Shift+5")),
     uic!("window.workspace.captionsandgraphics", "Captions and Graphics", ["Window", "Workspaces"], Some("Alt+Shift+6")),
+    uic!("window.workspace.compositing", "Compositing", ["Window", "Workspaces"], None),
     uic!("window.workspace.allpanels", "All Panels", ["Window", "Workspaces"], None),
     uic!("window.workspace.reset", "Reset to Saved Layout", ["Window", "Workspaces"], Some("Alt+Shift+0")),
     uic!("window.workspace.saveChanges", "Save Changes to this Workspace", ["Window", "Workspaces"], None),
@@ -285,6 +289,9 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
         let p = PanelKind::from_name(rest).ok_or_else(|| format!("unknown panel `{rest}`"))?;
         app.show_panel(p);
         return Ok(Value::Null);
+    }
+    if let Some(r) = crate::panels::comp::route(app, id, &params) {
+        return r;
     }
     if let Some(r) = crate::panels::workspaces::route(app, id, &params) {
         return r;

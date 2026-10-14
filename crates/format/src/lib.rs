@@ -46,6 +46,9 @@
 //!   `tnr.*` keys of a clip's first enabled grade node (the only ones that rendered) move to the
 //!   clip; `tnr.*` keys on every other node (ignored before) are dropped. The first step that
 //!   changes data ([`v16_to_v17`]).
+//! - **v18** (fork C1): compositions (`ItemKind::Comp`, a node graph as a project item; fork ADR
+//!   0007). No-op step; older builds refuse a project that contains a comp (unknown item kind), so
+//!   the bump makes them say "too new" instead.
 //!
 //! **Fork lineage.** Before the first upstream sync (U0) the fork numbered the grades v13 and the
 //! stills v14, both no-op steps on an upstream v12 document, while upstream used v13 for
@@ -79,7 +82,7 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 /// edit a shipped one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10, v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15,
-    v15_to_v16, v16_to_v17,
+    v15_to_v16, v16_to_v17, v17_to_v18,
 ];
 
 /// The schema version this build writes (and the newest it reads).
@@ -321,6 +324,9 @@ fn validate_loaded(mut loaded: Loaded) -> Result<Loaded, FormatError> {
                     }
                 }
             }
+            // a comp from a file is brought within its caps (sizes, counts, texts); a cycle stays
+            // for the renderer / Compositor panel to report
+            filmcraft_project::ItemKind::Comp(comp) => std::sync::Arc::make_mut(comp).sanitize(),
             _ => {}
         }
     }
@@ -451,6 +457,10 @@ fn v15_to_v16(doc: Value) -> Result<Value, String> {
     Ok(doc)
 }
 
+fn v17_to_v18(doc: Value) -> Result<Value, String> {
+    Ok(doc)
+}
+
 /// The v16 grade-node keys that move to the clip in v17, with their clip key.
 const TNR_NODE_KEYS: [(&str, &str); 4] = [("tnr.luma", "luma"), ("tnr.chroma", "chroma"), ("tnr.frames", "frames"), ("tnr.motion", "motion")];
 
@@ -578,7 +588,7 @@ mod tests {
 
     #[test]
     fn schema_version_matches_table() {
-        assert_eq!(SCHEMA_VERSION, 17);
+        assert_eq!(SCHEMA_VERSION, 18);
     }
 
     /// A project with a media item (one audio stream), a graded clip and a still, as the fork
@@ -956,5 +966,92 @@ mod tests {
         forged["schema_version"] = 16.into();
         forged["migration_notes"] = serde_json::json!(["forged"]);
         assert!(decode(&serde_json::to_vec(&forged).unwrap()).unwrap().migration_notes.is_empty());
+    }
+
+    /// A comp item (fork C1) saves and loads; one from a hostile file is brought within its caps.
+    #[test]
+    fn comp_items_round_trip_and_are_sanitized_on_load() {
+        use filmcraft_project::comp::{Comp, CompKind, CompNode, MAX_LABEL, MAX_SIDE};
+        use filmcraft_project::{ItemKind, Label};
+        use filmcraft_time::{FrameRate, Tick};
+        let mut p = Project::new("Comps");
+        let mut c = Comp::new(1920, 1080, FrameRate::FPS_24, Tick(1000));
+        c.nodes.push(CompNode::new(2, CompKind::Solid));
+        let id = p.add_item("Comp 1", Label::Iris, ItemKind::Comp(std::sync::Arc::new(c.clone())), None);
+        let back = decode(&encode(&p, false)).unwrap();
+        assert!(matches!(&back.project.item(id).unwrap().kind, ItemKind::Comp(b) if **b == c));
+
+        let mut doc: Value = serde_json::from_slice(&encode(&p, false)).unwrap();
+        let comp = &mut doc["project"]["items"][id.0.to_string()]["kind"]["Comp"];
+        comp["width"] = 4_000_000_000u32.into();
+        comp["nodes"][1]["label"] = "x".repeat(500).into();
+        let back = decode(&serde_json::to_vec(&doc).unwrap()).unwrap();
+        let ItemKind::Comp(b) = &back.project.item(id).unwrap().kind else { panic!("not a comp") };
+        assert_eq!(b.width, MAX_SIDE);
+        assert_eq!(b.node(2).unwrap().label.chars().count(), MAX_LABEL);
+    }
+
+    /// Fork C1: random, hostile comps inside a project never panic on load, and whatever loads is
+    /// within the caps and validates (or reports why not) without panicking.
+    #[test]
+    fn hostile_random_comps_never_panic_and_hold_the_caps() {
+        use filmcraft_project::ItemKind;
+        use filmcraft_project::comp::{KINDS, MAX_LABEL, MAX_PIXELS, MAX_SIDE};
+        use serde_json::json;
+        let base: Value = serde_json::from_slice(&encode(&Project::new("Fuzz"), false)).unwrap();
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let numbers = [json!(0), json!(-1), json!(1), json!(64), json!(u32::MAX), json!(1e300), json!(null), json!("x")];
+        let mut loaded = 0;
+        for round in 0..400 {
+            let mut pick = |n: u64| next() % n.max(1);
+            let nodes: Vec<Value> = (0..pick(12))
+                .map(|_| {
+                    let kind = KINDS[pick(KINDS.len() as u64) as usize];
+                    let mut k = json!({"type": kind});
+                    match kind {
+                        "mediaIn" => k["source"] = json!({"kind": "item", "item": pick(5)}),
+                        "key" => k["effect"] = json!(["ultra_key", "luma_key", "nope"][pick(3) as usize]),
+                        "color" => k["node"] = json!({"id": pick(3), "params": {"saturation": {"value": {"Float": 2.0}}}}),
+                        _ => {}
+                    }
+                    json!({
+                        "id": pick(10),
+                        "kind": k,
+                        "label": "L".repeat(pick(200) as usize),
+                        "pos": [numbers[pick(8) as usize].clone(), 0.0],
+                        "params": {"opacity": {"value": {"Float": 50.0}}, "color": {"value": {"Text": "t".repeat(pick(9000) as usize)}}},
+                    })
+                })
+                .collect();
+            let edges: Vec<Value> =
+                (0..pick(20)).map(|_| json!({"from": {"node": pick(10), "index": pick(3)}, "to": {"node": pick(10), "index": pick(4)}})).collect();
+            let comp = json!({
+                "width": numbers[pick(8) as usize].clone(),
+                "height": numbers[pick(8) as usize].clone(),
+                "rate": {"num": pick(60) as i64 - 5, "den": pick(3) as i64 - 1},
+                "duration": pick(1000) as i64 - 500,
+                "nodes": nodes,
+                "edges": edges,
+                "output": pick(10),
+            });
+            let mut doc = base.clone();
+            doc["project"]["items"]["99"] = json!({"id": 99, "name": format!("c{round}"), "label": "Iris", "created": 99, "kind": {"Comp": comp}});
+            let Ok(l) = decode(&serde_json::to_vec(&doc).unwrap()) else { continue };
+            let Some(ItemKind::Comp(c)) = l.project.item(filmcraft_project::ItemId(99)).map(|i| &i.kind) else { continue };
+            assert!((1..=MAX_SIDE).contains(&c.width) && (1..=MAX_SIDE).contains(&c.height));
+            assert!(u64::from(c.width) * u64::from(c.height) <= MAX_PIXELS);
+            assert!(c.nodes.iter().all(|n| n.label.chars().count() <= MAX_LABEL && n.pos.iter().all(|v| v.is_finite())));
+            assert!(c.rate.num > 0 && c.rate.den > 0 && c.duration.0 >= 0);
+            let _ = c.validate();
+            loaded += 1;
+        }
+        // the fuzzer must reach the comp checks, not only serde errors
+        assert!(loaded > 20, "only {loaded} of 400 random comps loaded");
     }
 }

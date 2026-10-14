@@ -22,6 +22,8 @@ pub mod coach_ask;
 pub mod coach_hints;
 pub mod color;
 pub mod commands;
+pub mod comp;
+pub mod comp_explain;
 pub mod demo;
 pub mod dirs;
 pub mod essential_sound;
@@ -907,7 +909,7 @@ impl Session {
         match edited.nest_cycle() {
             Some(id) if self.project.nest_cycle().is_none() => {
                 let name = edited.item(id).map(|i| i.name.as_str()).unwrap_or_default();
-                Err(EngineError::Other(format!("a sequence cannot be nested inside itself (\u{201c}{name}\u{201d})")))
+                Err(EngineError::Other(format!("a sequence or comp cannot be nested inside itself (\u{201c}{name}\u{201d})")))
             }
             _ => Ok(()),
         }
@@ -1196,6 +1198,7 @@ pub fn media_duration(p: &Project, _pool: &MediaPool, id: ItemId) -> Option<Tick
                 id = *parent;
                 continue;
             }
+            filmcraft_project::ItemKind::Comp(c) => Some(c.duration),
             filmcraft_project::ItemKind::AdjustmentLayer { .. } | filmcraft_project::ItemKind::Graphic { .. } => None,
         };
     }
@@ -1229,6 +1232,8 @@ mod coach_hints_tests;
 mod coach_tests;
 #[cfg(test)]
 mod color_tests;
+#[cfg(test)]
+mod comp_tests;
 #[cfg(test)]
 mod dirs_tests;
 #[cfg(test)]

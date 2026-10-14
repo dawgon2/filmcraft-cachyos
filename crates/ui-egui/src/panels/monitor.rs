@@ -47,9 +47,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
                 crate::dock::placeholder(ui, rect, &t, tl!("(no sequences)"));
                 return;
             };
+            // the Compositor's node viewer replaces the sequence picture while a node is viewed
+            let (target, size) = crate::panels::comp::viewer_target(app).unwrap_or((Target::Sequence(seq_id), (q.settings.width, q.settings.height)));
             (
-                Target::Sequence(seq_id),
-                (q.settings.width, q.settings.height),
+                target,
+                size,
                 q.settings.frame_rate,
                 app.session.playhead(),
                 q.duration(),
@@ -339,6 +341,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
         if app.ui.wb_picker.is_none() && app.ui.grade_picker.is_none() && app.ui.eyedropper.is_none() {
             crate::panels::graphics::monitor_overlay(app, ui, pic, frame_size);
             crate::panels::masks::monitor_overlay(app, ui, pic, frame_size);
+            crate::panels::comp::mask_overlay(app, ui, pic, frame_size);
         }
     }
     if show_picture {

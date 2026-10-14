@@ -118,3 +118,40 @@ fn garbage_input_is_rejected_gracefully() {
     }
     assert!(Decoder::from_avcc(&[1, 2, 3]).is_err());
 }
+
+/// Fork H2: damaged High 10 / High 4:2:2 streams, and streams that switch bit depth and chroma
+/// format between pictures (the decoder changes its sample core), never panic or hang. Some
+/// rounds also damage the parameter sets (hostile bit depth / chroma_format_idc values).
+#[test]
+fn corrupted_high_bit_depth_and_422_streams_do_not_panic() {
+    let names = ["high10_cavlc_b", "high10_weightp_fade", "i422_cabac", "i422_10_cavlc_no8x8", "p422_10_weightp_fade", "p422_cabac_bpyramid"];
+    let mut streams = Vec::new();
+    for name in names {
+        let Some((h264, _)) = common::ensure(common::fixture(name)) else { return };
+        streams.push(std::fs::read(h264).unwrap());
+    }
+    // 10-bit 4:2:0 -> 8-bit 4:2:2 -> 10-bit 4:2:2 Long-GOP in one stream
+    streams.push([streams[0].clone(), streams[2].clone(), streams[4].clone()].concat());
+    for (n, data) in streams.iter().enumerate() {
+        let mut seed = 0x0f1e_2d3c_4b5a_6978u64 ^ n as u64;
+        for round in 0..10 {
+            let mut d = data.clone();
+            let from = if round % 3 == 0 { 4 } else { 64 };
+            for _ in 0..(1 + round * 3) {
+                let pos = from + (xorshift(&mut seed) as usize) % (d.len() - from);
+                d[pos] ^= 1 << (xorshift(&mut seed) % 8);
+            }
+            if round % 4 == 3 {
+                d.truncate(d.len() * 2 / 3);
+            }
+            for threads in [1, 4] {
+                let mut dec = Decoder::with_threads(threads);
+                for au in common::split_access_units(&d) {
+                    let _ = dec.decode(au, 0);
+                }
+                let _ = dec.flush();
+                let _ = dec.take_error();
+            }
+        }
+    }
+}

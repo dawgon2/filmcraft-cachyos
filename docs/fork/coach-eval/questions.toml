@@ -1526,11 +1526,12 @@ q = "how do I import my X-M5 clips"
 kind = "how"
 origin = "agent"
 context = "Media page"
-status = "uncovered"
-should = "getting-started.md 'Import X-M5 clips' (the section exists but its body is '*To write.*')"
+page = "getting-started.md"
+heading = "Import X-M5 clips"
+status = "covered"
 needs_clip = false
-facts = ["must not answer with the stub"]
-note = "The stub section IS indexed today (it has a tag line and a non-empty body), so 'import x-m5 clips' can match its heading at weight 5 and answer with summary 'To write.' The retrieval fix should skip sections whose body is only a 'To write' marker."
+facts = ["card to graded sequence", "camera and sequence choices"]
+note = "Covered since AI3-PREP.2g (2026-10-14) wrote the section. Before that: the stub section WAS indexed (it has a tag line and a non-empty body), so 'import x-m5 clips' can match its heading at weight 5 and answer with summary 'To write.' The retrieval fix should skip sections whose body is only a 'To write' marker."
 
 [[question]]
 id = "uncovered-music"
@@ -1565,3 +1566,104 @@ status = "uncovered"
 should = "editing.md (to write): sequence size and frame rate for 6.2K sources, proxies, render cache, playback resolution"
 needs_clip = false
 facts = ["doesn't cover (hardware.md and proxies.md mention 6.2K only in passing)"]
+
+# ---------- compositing (COMPOSITOR-PLAN C1 item 7, added 2026-10-14) ----------
+
+[[question]]
+id = "comp-what-is"
+q = "what is a comp"
+kind = "what-for"
+origin = "agent"
+context = "Compositing workspace"
+page = "compositor.md"
+heading = "Comps, nodes and connections"
+status = "covered"
+needs_clip = false
+facts = ["a project item with a node graph", "a comp clip on the timeline"]
+
+[[question]]
+id = "comp-make"
+q = "how do I make a new comp clip"
+kind = "how"
+origin = "agent"
+context = "Edit page"
+page = "compositor.md"
+heading = "Making a comp"
+status = "covered"
+needs_clip = false
+facts = ["comp.newClip", "Window ▸ Compositor"]
+
+[[question]]
+id = "comp-view-node"
+q = "how do I see what one node outputs"
+kind = "how"
+origin = "agent"
+context = "Fusion page"
+page = "compositor.md"
+heading = "Looking at one node's output [Resolve-style]"
+alt = [{ page = "compositor.md", heading = "Looking at one node's output" }]
+status = "covered"
+needs_clip = false
+facts = ["double-click a node", "Show menu", "Program monitor"]
+
+[[question]]
+id = "comp-convert"
+q = "can I turn my stacked clips into a comp"
+kind = "how"
+origin = "agent"
+context = "Edit page, two clips selected"
+page = "compositor.md"
+heading = "Turning stacked clips into a comp"
+status = "covered"
+needs_clip = false
+facts = ["comp.convertToCompClip", "same start and end"]
+
+[[question]]
+id = "comp-node-nothing"
+q = "why does my blur node do nothing"
+kind = "why"
+origin = "agent"
+context = "Fusion page"
+page = "compositor.md"
+heading = "What a comp does, node by node [Fork]"
+alt = [{ page = "compositor.md", heading = "What a comp does, node by node" }, { page = "compositor.md", heading = "Comps, nodes and connections" }]
+status = "covered"
+needs_clip = false
+facts = ["not connected to Media Out changes nothing"]
+
+[[question]]
+id = "comp-slow"
+q = "why is my comp slow to play"
+kind = "why"
+origin = "agent"
+context = "Fusion page, playing"
+page = "compositor.md"
+heading = "What makes a comp fast or slow"
+status = "covered"
+needs_clip = false
+facts = ["what the comp costs per frame", "static parts are cached"]
+
+[[question]]
+id = "comp-green-screen"
+q = "how do I key a green screen over a background in a comp"
+kind = "how"
+origin = "agent"
+context = "Fusion page"
+page = "compositor.md"
+heading = "Two comps to start from"
+status = "covered"
+needs_clip = false
+facts = ["Media In → Key → Merge over a background → Color → Media Out"]
+
+[[question]]
+id = "comp-fusion-word"
+q = "where is the fusion page"
+kind = "resolve-word"
+origin = "agent"
+context = "Edit page, Resolve workflow"
+page = "compositor.md"
+heading = "Making a comp"
+alt = [{ page = "compositor.md", heading = "Comps, nodes and connections" }]
+status = "covered"
+needs_clip = false
+facts = ["Fusion in the page bar, between Edit and Color"]

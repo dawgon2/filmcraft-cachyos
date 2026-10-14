@@ -1,0 +1,520 @@
+# Advanced question set for the grading assistant (fork AI-PLAN AI3 item 6; AI3-PREP part 4).
+#
+# For scoring candidate models + retrieval in AI3: each question names the guide sections a
+# correct, grounded answer should come from (`sources`: compact-header ids, docs/guide/README.md
+# "Section headers"; any of them counts), facts it must state (`must`) and things it must not do
+# (`must_not`, e.g. invent a control or recommend a tool FilmCraft doesn't have as if it did).
+#
+#   id        stable name
+#   kind      node-role | approach | tweak | tool | multi-step | pro-practice | gap
+#   q         the question as a user would type it
+#   sources   header ids; the answer should cite at least one
+#   must      key facts (a reviewer or a keyword check looks for them)
+#   must_not  failure modes for this question
+#
+# The test `advanced_eval_set_is_well_formed` (coach_ask_tests.rs) checks: at least 60 questions,
+# unique ids, known kinds, every source id exists, `must` non-empty.
+
+[[question]]
+id = "adv-node-order-log"
+kind = "node-role"
+q = "what order should my nodes go in for F-Log2 footage?"
+sources = ["color.nodes.starter-tree", "practice.node-trees.fixed-tree", "practice.grading.balance-first"]
+must = ["balance before the look", "the input transform comes first (colour management)", "options, not one right order"]
+must_not = ["claims a single correct order", "tells the user to add a CST node by hand"]
+
+[[question]]
+id = "adv-why-one-job"
+kind = "node-role"
+q = "why split a grade into several nodes instead of doing it all on one?"
+sources = ["color.nodes.why", "practice.node-trees.fixed-tree"]
+must = ["one job per node", "easier to adjust and match later"]
+must_not = []
+
+[[question]]
+id = "adv-parallel-nodes"
+kind = "gap"
+q = "how do I add a parallel node like in Resolve?"
+sources = ["practice.node-trees.parallel", "color.nodes.later"]
+must = ["not available yet", "a workaround: order the qualifier earlier"]
+must_not = ["invents a parallel-node button or command"]
+
+[[question]]
+id = "adv-outside-node"
+kind = "gap"
+q = "I want to grade the background but not the face. Is there an outside node?"
+sources = ["practice.node-trees.outside", "color.secondaries.windows"]
+must = ["no outside node yet", "invert the window or qualifier on a second node"]
+must_not = ["invents an outside-node command"]
+
+[[question]]
+id = "adv-shared-look"
+kind = "gap"
+q = "can I share one look node across all my clips so changing it changes everything?"
+sources = ["practice.node-trees.shared", "practice.node-trees.groups", "practice.grading.look-node"]
+must = ["shared nodes not yet", "append the look node again, or an adjustment layer"]
+must_not = []
+
+[[question]]
+id = "adv-skin-grey"
+kind = "approach"
+q = "my subject's skin looks grey after normalising the log, how do I fix it?"
+sources = ["color.recipes.skin", "practice.grading.qualify-skin", "practice.grading.skin-line"]
+must = ["skin qualifier on its own node", "small hue / saturation moves", "check the skin line on the vectorscope"]
+must_not = []
+
+[[question]]
+id = "adv-skin-orange"
+kind = "tweak"
+q = "faces went orange after I added saturation"
+sources = ["practice.grading.saturation-order", "practice.grading.skin-line"]
+must = ["skin saturates quickly", "pull saturation back or qualify skin"]
+must_not = []
+
+[[question]]
+id = "adv-sky-blue"
+kind = "multi-step"
+q = "make the sky bluer without turning the actors blue"
+sources = ["color.recipes.sky", "practice.grading.sky"]
+must = ["qualifier on blue", "limit it with a linear window", "a blown sky has no colour to qualify"]
+must_not = []
+
+[[question]]
+id = "adv-teal-orange"
+kind = "approach"
+q = "how do I get a teal and orange look?"
+sources = ["practice.grading.split-tone"]
+must = ["shadows towards teal, highlights towards orange", "gently", "protect skin when strong"]
+must_not = []
+
+[[question]]
+id = "adv-film-look"
+kind = "approach"
+q = "make it look like film"
+sources = ["practice.looks.film-curve", "practice.grading.grain-finish", "practice.grading.curve-shoulder"]
+must = ["soft toe and shoulder", "grain", "highlight roll-off"]
+must_not = ["claims a film-emulation tool exists that FilmCraft doesn't ship"]
+
+[[question]]
+id = "adv-bleach-bypass"
+kind = "approach"
+q = "how would I do a bleach bypass look here?"
+sources = ["practice.looks.bleach-bypass"]
+must = ["low saturation and high contrast", "Overlay blend of a desaturated copy as the workaround", "no layer mixer yet"]
+must_not = []
+
+[[question]]
+id = "adv-bw"
+kind = "approach"
+q = "best way to make a black and white grade"
+sources = ["practice.looks.black-white", "practice.looks.high-contrast-bw"]
+must = ["shape colours before desaturating", "plain desaturation makes reds and greens the same grey"]
+must_not = []
+
+[[question]]
+id = "adv-highlights-clip"
+kind = "tweak"
+q = "the window behind my subject is blown out, what can I do?"
+sources = ["practice.mixed-cameras.overexposed", "color.finishing.soft-clip", "practice.mixed-cameras.backlit"]
+must = ["soft clip / shoulder", "clipped areas can't be recovered", "lift the face with a window"]
+must_not = []
+
+[[question]]
+id = "adv-underexposed"
+kind = "approach"
+q = "my log clip is a stop underexposed and noisy, how do I save it?"
+sources = ["practice.mixed-cameras.underexposed", "color.noise.steps"]
+must = ["noise reduction first", "exposure with Offset or Gain", "grain to hide what remains"]
+must_not = []
+
+[[question]]
+id = "adv-match-cams"
+kind = "multi-step"
+q = "how do I match my phone footage to my X-M5?"
+sources = ["practice.mixed-cameras.phone", "practice.mixed-cameras.per-camera-input", "color.matching.shot-match"]
+must = ["set each camera's input colour space", "Shot Match to the main camera", "less contrast and sharpening on the phone"]
+must_not = []
+
+[[question]]
+id = "adv-match-order"
+kind = "pro-practice"
+q = "what's the right order when matching two shots?"
+sources = ["practice.grading.match-order"]
+must = ["black level, white level, mids, then colour"]
+must_not = []
+
+[[question]]
+id = "adv-wb-picker"
+kind = "tool"
+q = "how does the white balance picker work?"
+sources = ["color.primaries.white-balance"]
+must = ["pick something that should be neutral", "Auto balance as an alternative"]
+must_not = []
+
+[[question]]
+id = "adv-contrast-pivot"
+kind = "tweak"
+q = "how do I add contrast without making the face darker?"
+sources = ["practice.grading.contrast-pivot", "color.primaries.panel"]
+must = ["set the pivot to the face's brightness"]
+must_not = []
+
+[[question]]
+id = "adv-lut-strength"
+kind = "tweak"
+q = "a LUT I downloaded is too strong"
+sources = ["practice.looks.creative-lut", "color.finishing.lut"]
+must = ["lower the LUT node's mix", "balance before the LUT"]
+must_not = []
+
+[[question]]
+id = "adv-lut-wrong-camera"
+kind = "pro-practice"
+q = "can I use an S-Log3 LUT on my F-Log2 footage?"
+sources = ["practice.looks.creative-lut", "practice.grading.normalise-log"]
+must = ["a LUT made for another log curve shifts colours", "use colour management for the conversion"]
+must_not = []
+
+[[question]]
+id = "adv-dwg"
+kind = "tool"
+q = "what is DaVinci Wide Gamut and why grade in it?"
+sources = ["practice.delivery.working-space", "color.color-management.working"]
+must = ["a wide working space", "converted to Rec. 709 at the end", "wheels behave the same on every camera"]
+must_not = []
+
+[[question]]
+id = "adv-aces"
+kind = "gap"
+q = "can I use ACES?"
+sources = ["practice.delivery.working-space"]
+must = ["ACES isn't offered yet", "DaVinci Wide Gamut / Intermediate is the working space"]
+must_not = ["tells the user how to turn ACES on"]
+
+[[question]]
+id = "adv-tone-map"
+kind = "tool"
+q = "how do HDR clips end up in my Rec.709 export without clipping?"
+sources = ["practice.delivery.tone-map", "color.color-management.output"]
+must = ["auto tone mapping", "highlight roll-off"]
+must_not = []
+
+[[question]]
+id = "adv-banding"
+kind = "pro-practice"
+q = "my sky has banding on YouTube"
+sources = ["practice.delivery.ten-bit", "practice.grading.grain-finish"]
+must = ["export 10-bit", "a little grain hides banding"]
+must_not = []
+
+[[question]]
+id = "adv-grain-where"
+kind = "node-role"
+q = "where should grain go in the node tree?"
+sources = ["practice.grading.grain-finish", "color.finishing.grain"]
+must = ["last node"]
+must_not = []
+
+[[question]]
+id = "adv-vignette"
+kind = "tweak"
+q = "how strong should a vignette be?"
+sources = ["practice.grading.vignette"]
+must = ["subtle and soft", "the viewer shouldn't notice it"]
+must_not = []
+
+[[question]]
+id = "adv-track-window"
+kind = "tool"
+q = "my face window slides off when the person moves"
+sources = ["color.secondaries.tracking", "practice.node-trees.track-window"]
+must = ["track the window", "fix the frames where it slips"]
+must_not = []
+
+[[question]]
+id = "adv-qualifier-chatter"
+kind = "tweak"
+q = "my qualifier matte flickers on the edges"
+sources = ["practice.grading.qualify-skin", "color.secondaries.qualifier"]
+must = ["soften / blur the matte", "limit with a window"]
+must_not = []
+
+[[question]]
+id = "adv-hue-curves"
+kind = "gap"
+q = "where are the hue vs sat curves in the node grader?"
+sources = ["practice.node-trees.hue-curves", "color.curves.limits"]
+must = ["not in the node grader yet", "Lumetri has Hue Saturation Curves"]
+must_not = ["invents a hue-curve control on the node"]
+
+[[question]]
+id = "adv-day-for-night"
+kind = "multi-step"
+q = "turn this daytime shot into night"
+sources = ["practice.grading.day-for-night"]
+must = ["darker", "cooler", "less saturated", "keep lights and faces brighter with windows"]
+must_not = []
+
+[[question]]
+id = "adv-golden-hour"
+kind = "approach"
+q = "make the sunset feel warmer and more golden"
+sources = ["practice.looks.golden-hour"]
+must = ["warm the highlights / gain", "keep shadows neutral or cool", "check skin"]
+must_not = []
+
+[[question]]
+id = "adv-mixed-light"
+kind = "approach"
+q = "half the room is window light and half is tungsten lamps"
+sources = ["practice.mixed-cameras.mixed-light"]
+must = ["balance for the key light", "treat the other source locally", "don't neutralise everything"]
+must_not = []
+
+[[question]]
+id = "adv-green-cast"
+kind = "tweak"
+q = "everyone looks green under the office lights"
+sources = ["practice.mixed-cameras.green-cast"]
+must = ["Tint towards magenta", "check skin on the vectorscope"]
+must_not = []
+
+[[question]]
+id = "adv-interview-match"
+kind = "pro-practice"
+q = "how do pros match a wide and close interview camera?"
+sources = ["practice.mixed-cameras.interview", "practice.mixed-cameras.hero"]
+must = ["match skin first", "grade one camera, match the other"]
+must_not = []
+
+[[question]]
+id = "adv-explainer"
+kind = "tool"
+q = "what does the node explainer measure?"
+sources = ["color.matching.explainer"]
+must = ["what each node actually does to the picture"]
+must_not = []
+
+[[question]]
+id = "adv-check-scene"
+kind = "tool"
+q = "which clip in this scene doesn't match?"
+sources = ["color.matching.check-scene"]
+must = ["Check scene finds the odd one out"]
+must_not = []
+
+[[question]]
+id = "adv-stills-versions"
+kind = "gap"
+q = "can I keep two versions of a grade to show the client?"
+sources = ["practice.node-trees.versions"]
+must = ["no grade versions yet", "save each as a still and apply the chosen one"]
+must_not = []
+
+[[question]]
+id = "adv-noise-temporal"
+kind = "tool"
+q = "spatial or temporal noise reduction?"
+sources = ["color.noise.temporal", "color.noise.steps", "color.noise.how"]
+must = ["temporal uses neighbouring frames", "temporal is set per clip", "spatial on a node"]
+must_not = []
+
+[[question]]
+id = "adv-skin-soften"
+kind = "approach"
+q = "how do I soften skin a bit for a close-up?"
+sources = ["practice.node-trees.skin-soften"]
+must = ["inside a skin qualifier", "low-strength spatial noise reduction", "keep eyes sharp"]
+must_not = ["claims a beauty tool exists"]
+
+[[question]]
+id = "adv-glow"
+kind = "gap"
+q = "is there a glow or halation effect?"
+sources = ["practice.node-trees.glow"]
+must = ["not yet", "a blurred, keyed duplicate with Screen / Lighten as a workaround"]
+must_not = []
+
+[[question]]
+id = "adv-gamut"
+kind = "approach"
+q = "the blue stage lights look clipped and purple"
+sources = ["practice.node-trees.gamut-compress"]
+must = ["out-of-gamut colours", "lower saturation on that colour with a qualifier", "no gamut compressor yet"]
+must_not = []
+
+[[question]]
+id = "adv-printer-lights"
+kind = "pro-practice"
+q = "how do colourists use printer lights and can I do that here?"
+sources = ["practice.node-trees.printer-lights"]
+must = ["Offset in steps per channel", "Offset wheel", "no printer-light keys yet"]
+must_not = []
+
+[[question]]
+id = "adv-exposure-log"
+kind = "pro-practice"
+q = "how should I expose F-Log2 on set?"
+sources = ["practice.delivery.expose-log"]
+must = ["a little brighter (about +1 stop)", "don't clip highlights"]
+must_not = []
+
+[[question]]
+id = "adv-viewing-lut"
+kind = "pro-practice"
+q = "should I bake the camera LUT into my recording?"
+sources = ["practice.delivery.viewing-lut"]
+must = ["record log, use the LUT only for monitoring"]
+must_not = []
+
+[[question]]
+id = "adv-gamma-web"
+kind = "pro-practice"
+q = "my grade looks darker on YouTube than in FilmCraft"
+sources = ["practice.delivery.display-gamma", "practice.delivery.check-export"]
+must = ["viewing environment / monitor gamma differences", "check the export on typical screens"]
+must_not = []
+
+[[question]]
+id = "adv-lumetri-vs-nodes"
+kind = "tool"
+q = "should I use Lumetri or the node grader?"
+sources = ["color.lumetri.which", "color.lumetri.what"]
+must = ["both exist", "options with trade-offs"]
+must_not = ["claims they convert into each other"]
+
+[[question]]
+id = "adv-adjustment-layer"
+kind = "approach"
+q = "how do I put one look over a whole scene?"
+sources = ["practice.node-trees.groups", "media.generated"]
+must = ["an adjustment layer with Lumetri", "or append the look node"]
+must_not = []
+
+[[question]]
+id = "adv-copy-grade"
+kind = "tool"
+q = "copy my grade to 20 other clips"
+sources = ["color.matching.copy-paste", "color.recipes.scene"]
+must = ["copy and paste or append the grade"]
+must_not = []
+
+[[question]]
+id = "adv-shot-match-limits"
+kind = "tweak"
+q = "Shot Match made it close but not quite right"
+sources = ["color.matching.shot-match", "practice.grading.match-order"]
+must = ["a first pass", "fine-tune levels then colour"]
+must_not = []
+
+[[question]]
+id = "adv-neon"
+kind = "approach"
+q = "how do I get a cyberpunk neon look?"
+sources = ["practice.looks.neon"]
+must = ["deep blacks", "magenta and cyan", "watch clipping on Rec. 709"]
+must_not = []
+
+[[question]]
+id = "adv-documentary"
+kind = "pro-practice"
+q = "what's a good grade for a documentary interview?"
+sources = ["practice.looks.documentary", "practice.mixed-cameras.interview"]
+must = ["natural, consistent", "skin on the line"]
+must_not = []
+
+[[question]]
+id = "adv-reference-look"
+kind = "multi-step"
+q = "my client sent a still from a movie and wants that look"
+sources = ["practice.looks.reference"]
+must = ["import the reference and wipe against it", "levels first", "the footage may not support it"]
+must_not = []
+
+[[question]]
+id = "adv-fixed-tree"
+kind = "pro-practice"
+q = "do pros use the same node tree on every shot?"
+sources = ["practice.node-trees.fixed-tree"]
+must = ["many do", "labelled nodes", "apply via stills or copy"]
+must_not = []
+
+[[question]]
+id = "adv-skin-depths"
+kind = "approach"
+q = "two people in the shot have very different skin tones, how do I expose for both?"
+sources = ["practice.mixed-cameras.skin-range"]
+must = ["keep detail in the darkest skin without clipping the lightest", "a window per face"]
+must_not = []
+
+[[question]]
+id = "adv-backlit"
+kind = "approach"
+q = "my interviewee is backlit by a window"
+sources = ["practice.mixed-cameras.backlit"]
+must = ["window on the face", "Gamma up", "shoulder for the background"]
+must_not = []
+
+[[question]]
+id = "adv-drone"
+kind = "approach"
+q = "how do I match drone footage to my main camera?"
+sources = ["practice.mixed-cameras.drone"]
+must = ["Shot Match", "lower saturation", "match texture with grain"]
+must_not = []
+
+[[question]]
+id = "adv-archival"
+kind = "pro-practice"
+q = "how much should I correct old archive footage?"
+sources = ["practice.mixed-cameras.archival"]
+must = ["gently", "keep its character", "deinterlace if needed"]
+must_not = []
+
+[[question]]
+id = "adv-saturation-luma"
+kind = "tweak"
+q = "my shadows have colourful noise and the highlights look neon"
+sources = ["practice.node-trees.sat-by-luma"]
+must = ["lower saturation in shadows and highlights", "Lumetri's Luma vs Sat curve"]
+must_not = []
+
+[[question]]
+id = "adv-black-point"
+kind = "tweak"
+q = "how far down should my blacks go?"
+sources = ["practice.grading.black-white-points"]
+must = ["use the waveform", "not every shot needs to touch black", "crushing hides detail"]
+must_not = []
+
+[[question]]
+id = "adv-curve-shoulder"
+kind = "tweak"
+q = "the highlights look harsh and digital"
+sources = ["practice.grading.curve-shoulder", "color.finishing.soft-clip"]
+must = ["shoulder on the master curve or soft clip"]
+must_not = []
+
+[[question]]
+id = "adv-grey-card"
+kind = "pro-practice"
+q = "is a grey card worth it and how do I use it in FilmCraft?"
+sources = ["practice.mixed-cameras.grey-card"]
+must = ["record it per set-up", "white-balance picker on the card", "copy the node to the set-up's clips"]
+must_not = ["claims automatic chart matching exists"]
+
+[[question]]
+id = "adv-look-before-balance"
+kind = "pro-practice"
+q = "can I just put a LUT on first and balance after?"
+sources = ["practice.grading.look-node", "practice.grading.balance-first"]
+must = ["balance before the look", "a look before balancing exaggerates differences"]
+must_not = []
+
+[[question]]
+id = "adv-low-key"
+kind = "approach"
+q = "how do I keep a dark, moody night interior without losing faces?"
+sources = ["practice.looks.low-key"]
+must = ["Gamma and Lift down", "windows keep faces readable", "don't lift everything back up"]
+must_not = []

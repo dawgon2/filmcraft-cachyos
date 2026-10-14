@@ -14,6 +14,7 @@ pub mod audio_fx;
 pub mod blend;
 pub mod color_match;
 pub mod colorman;
+pub mod comp;
 pub mod denoise;
 pub mod effects;
 pub mod flow;
@@ -665,6 +666,14 @@ pub(crate) fn base_layer(
             }
         }
         ItemKind::AdjustmentLayer { .. } => return None,
+        // a comp clip: its graph at comp time, at `want` of the comp size (CPU program; the GPU
+        // runs the same passes, C1 step 7)
+        ItemKind::Comp(c) => {
+            let size = (((src_size.0 as f32 * want).ceil() as usize).max(1), ((src_size.1 as f32 * want).ceil() as usize).max(1));
+            let track = seq.video_tracks.iter().position(|tr| tr.items.iter().any(|i| i.id == item.id));
+            let srcs = comp::project::ProjectSources { project, seq, track, opts: RenderOptions { scale: want, ..opts }, sources };
+            comp::render_cpu(c, comp::CompCtx { t: ft, size, project: Some(project), high_quality: opts.high_quality }, &srcs)
+        }
         ItemKind::Graphic { .. } => {
             // standard effects work on the graphic at source resolution, then Motion places it
             let (gw, gh) = (((src_size.0 as f32 * want).ceil() as usize).max(1), ((src_size.1 as f32 * want).ceil() as usize).max(1));
@@ -745,6 +754,66 @@ pub(crate) fn clip_frame(
 }
 
 /// Render a single project item (e.g. for the Source monitor) at media time `t`.
+/// A comp clip as one plan layer (fork C1 step 7): its program compiled at the size it is drawn
+/// (the comp size × the Motion scale, as media is decoded) and placed by Motion. None when the
+/// clip isn't a comp, has effects, a grade or opacity masks of its own (the CPU layer path), or
+/// can't be compiled (it renders transparent there).
+pub(crate) fn comp_plan_layer(
+    project: &Project,
+    seq: &Sequence,
+    item: &TrackItem,
+    t: Tick,
+    opts: RenderOptions,
+    sources: &dyn SourceProvider,
+) -> Option<plan::PlanLayer> {
+    let ItemKind::Comp(c) = &project.item(item.item)?.kind else { return None };
+    let mt = item.effect_time_at(t);
+    if item.has_opacity_masks() || opts.effects && (item.has_standard_effects() || grade::changes_picture(project, item, mt, opts.temporal)) {
+        return None;
+    }
+    let src_size = source_size(project, item.item)?;
+    let motion = motion_matrix(seq, item, src_size, source_par(project, item.item), mt);
+    let lin = ((motion.a * motion.a + motion.b * motion.b).sqrt()).max((motion.c * motion.c + motion.d * motion.d).sqrt());
+    let want = if opts.high_quality { 1.0 } else { (lin * opts.scale as f64).clamp(1.0 / 64.0, 1.0) as f32 };
+    let size = (((src_size.0 as f32 * want).ceil() as usize).max(1), ((src_size.1 as f32 * want).ceil() as usize).max(1));
+    let track = seq.video_tracks.iter().position(|tr| tr.items.iter().any(|i| i.id == item.id));
+    let srcs = comp::project::ProjectSources { project, seq, track, opts: RenderOptions { scale: want, ..opts }, sources };
+    let ctx = comp::CompCtx { t: item.source_time_at(t), size, project: Some(project), high_quality: opts.high_quality };
+    let program = comp::compile_cached(c, ctx, &srcs).ok()?;
+    let px_scale = size.0 as f64 / f64::from(src_size.0.max(1));
+    let m = Affine::scale(opts.scale as f64, opts.scale as f64).then_apply(&motion).then_apply(&Affine::scale(1.0 / px_scale, 1.0 / px_scale));
+    let (op, bl) = opacity_blend(item, mt);
+    Some(plan::PlanLayer::comp(Arc::new(program), m, op, bl))
+}
+
+/// One node's output of a comp clip at timeline `t` (the Compositor's node viewer, fork C1 step
+/// 10b): the clip's comp with `node` as its output, at comp time, `opts.scale` of the comp size,
+/// with the tracks below the clip as Layer sources (as the clip itself renders). `None` for an
+/// unknown sequence, clip or node, or a clip that isn't a comp clip; a node whose graph can't be
+/// evaluated gives a transparent picture.
+pub fn render_comp_node(
+    project: &Project,
+    seq_id: ItemId,
+    clip: filmcraft_project::ClipId,
+    node: filmcraft_project::dag::NodeId,
+    t: Tick,
+    opts: RenderOptions,
+    sources: &dyn SourceProvider,
+) -> Option<Image> {
+    let seq = project.sequence(seq_id)?;
+    let (_, item) = seq.find_item(clip)?;
+    let ItemKind::Comp(c) = &project.item(item.item)?.kind else { return None };
+    c.node(node)?;
+    let mut view = (**c).clone();
+    view.output = Some(node);
+    let want = if opts.scale.is_finite() && opts.scale > 0.0 { opts.scale.min(1.0) } else { 1.0 };
+    let size = (((c.width as f32 * want).ceil() as usize).max(1), ((c.height as f32 * want).ceil() as usize).max(1));
+    let track = seq.video_tracks.iter().position(|tr| tr.items.iter().any(|i| i.id == clip));
+    let srcs = comp::project::ProjectSources { project, seq, track, opts: RenderOptions { scale: want, ..opts }, sources };
+    let ctx = comp::CompCtx { t: item.source_time_at(t), size, project: Some(project), high_quality: opts.high_quality };
+    Some(comp::render_cpu(&view, ctx, &srcs))
+}
+
 pub fn render_item(project: &Project, item: ItemId, t: Tick, scale: f32, sources: &dyn SourceProvider) -> Option<Image> {
     let pi = project.item(item)?;
     match &pi.kind {
@@ -791,6 +860,8 @@ mod adjustment_tests;
 #[path = "mixer_tests.rs"]
 mod mixer_tests;
 
+#[cfg(test)]
+mod comp_clip_tests;
 #[cfg(test)]
 mod nest_tests;
 

@@ -3717,6 +3717,7 @@
 	{n} steps left out: they name controls that aren't available here.	Se omitieron {n} pasos: nombran controles que aquí no están disponibles.
 	This step runs the command {cmd}.	Este paso ejecuta el comando {cmd}.
 	The guide doesn't cover this yet.	La guía aún no trata este tema.
+	The guide doesn't mention “{word}”.	La guía no menciona «{word}».
 	{n} steps left out: they name commands that aren't available here.	Se omitieron {n} pasos: nombran comandos que aquí no están disponibles.
 	{n} steps left out: they name controls or commands that aren't available here.	Se omitieron {n} pasos: nombran controles o comandos que aquí no están disponibles.
 # Local AI explanations (fork G2.11)
@@ -4001,3 +4002,29 @@
 	No data folder for user effects in this session	No hay carpeta de datos para efectos de usuario en esta sesión
 	Open Effects Folder	Abrir carpeta de efectos
 	Reload	Recargar
+	New Comp Clip	Nuevo clip de composición
+	Compositor	Compositor
+	Convert to Comp Clip	Convertir en clip de composición
+	Open in Compositor	Abrir en el compositor
+	Fusion	Fusion
+	Fusion Page	Página Fusion
+	Compositing	Composición de nodos
+	Comp	Composición
+	New Comp	Nueva composición
+	Comp Settings	Ajustes de composición
+	Select a comp clip to edit its nodes.	Selecciona un clip de composición para editar sus nodos.
+	Media In	Entrada de medios
+	Media Out	Salida de medios
+	Merge	Fusionar
+	Mask	Máscara
+	Foreground	Primer plano
+	Input	Entrada
+	Set as Output	Usar como salida
+	Node canvas	Lienzo de nodos
+	Connection	Conexión
+	Add ellipse	Añadir elipse
+	Add rectangle	Añadir rectángulo
+	Mask Feather	Calado de máscara
+	Mask Opacity	Opacidad de máscara
+	Mask Expansion	Expansión de máscara
+	View Node	Ver nodo

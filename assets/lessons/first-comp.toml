@@ -1,0 +1,72 @@
+# Grading Coach lesson (fork COMPOSITOR-PLAN C1 item 7: a lesson per comp node type; this one
+# covers Text, Transform, Merge and Media Out). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "first-comp"
+title = "A moving title in a comp"
+summary = "Build a small node graph: a Text node, moved by a Transform, merged into the comp's result."
+provenance = ["resolve-style", "fork"]
+order = 8
+
+[[step]]
+text = "A comp builds one picture from nodes. Each node does one job (a source, a move, a key, a grade) and passes its picture along a connection to the next, ending at Media Out."
+why = "Splitting a picture into small steps lets you change one part later without redoing the rest, the same idea as the nodes on the Color page."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Compositing workspace (Workspaces button, then Compositing). In the Resolve workflow this is the Fusion page."
+why = "It puts the Compositor's node canvas beside the Program monitor, so you see the result while you build it."
+target = "header.workspaces"
+expect = { element = "panel.Compositor" }
+
+[[step]]
+text = "Put the playhead where the title should appear and click New Comp Clip."
+why = "A comp clip holds its own node graph; on a track above your footage, everything it leaves transparent shows the clips below."
+target = "comp.newClip"
+expect = { command = "comp.newClip" }
+
+[[step]]
+text = "Right-click the canvas and choose Add, then Text."
+why = "A Text node is a source: it makes a picture of its own (white text on transparency) without reading any clip."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "text" } }
+
+[[step]]
+text = "Add a Transform node the same way."
+why = "A Transform moves, scales or turns whatever is connected into it, with the same settings as a clip's Motion."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "transform" } }
+
+[[step]]
+text = "Drag from the Text node's output (its right edge) onto the Transform node's input."
+why = "A connection says where a picture goes next. Nothing reaches the result until it is connected."
+target = "comp.canvas"
+expect = { command = "comp.connect" }
+
+[[step]]
+text = "Add a Merge node."
+why = "Merge puts one picture over another: its first input is the background, its second the foreground."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "merge" } }
+
+[[step]]
+text = "Connect the Transform node into the Merge node's second input (the foreground)."
+why = "The title goes on top. With no background connected, the Merge keeps the rest transparent, so the footage below shows through."
+target = "comp.canvas"
+expect = { command = "comp.connect", params = { toPort = 1 } }
+
+[[step]]
+text = "Connect the Merge node into Media Out."
+why = "Media Out is the comp's result: whatever reaches it is what the comp clip shows on the timeline."
+target = "comp.canvas"
+expect = { command = "comp.connect", params = { to = 1 } }
+
+[[step]]
+text = "Click the Transform node and lower its Scale in the settings under the canvas."
+why = "Changing the Transform moves only the title; the Text node stays as it is, so you can still edit the words later."
+target = ["comp.param.scale", "comp.canvas"]
+expect = { command = "comp.setParam", params = { param = "scale" } }
+
+[[step]]
+text = "Play the clip. Key, Mask, Blur, Color, Solid and Gradient nodes connect the same way; double-click any node to see its own picture in the Program monitor. Press Next to finish."
+why = "Looking at one node at a time is the quickest way to find which step changes the picture."
+expect = { manual = true }

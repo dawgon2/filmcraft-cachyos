@@ -420,17 +420,21 @@ fn build_and_check(cabac: bool, threads: usize) {
     if threads == 1 {
         cross_check_ffmpeg(&stream, &expected, if cabac { "synth_cabac" } else { "synth_cavlc" });
     }
-    let mut dec = Decoder::with_threads(threads);
-    let mut out = dec.decode(&stream, 0).unwrap();
-    out.extend(dec.flush());
-    assert!(dec.take_error().is_none());
-    assert_eq!(out.len(), expected.len(), "cabac={cabac}");
-    for (i, (p, e)) in out.iter().zip(expected.iter()).enumerate() {
-        assert_eq!((p.width as usize, p.height as usize), (MB_W * 16, MB_H * 16));
-        assert!(p.y == e.0 && p.u == e.1 && p.v == e.2, "picture {i} differs (cabac={cabac}, threads={threads})");
+    // the 8-bit sample path and the 16-bit one (fork H2) give the same pictures
+    for wide in [false, true] {
+        let mut dec = Decoder::with_threads(threads);
+        dec.set_wide_samples(wide);
+        let mut out = dec.decode(&stream, 0).unwrap();
+        out.extend(dec.flush());
+        assert!(dec.take_error().is_none());
+        assert_eq!(out.len(), expected.len(), "cabac={cabac} wide={wide}");
+        for (i, (p, e)) in out.iter().zip(expected.iter()).enumerate() {
+            assert_eq!((p.width as usize, p.height as usize), (MB_W * 16, MB_H * 16));
+            assert!(p.y == e.0 && p.u == e.1 && p.v == e.2, "picture {i} differs (cabac={cabac}, threads={threads}, wide={wide})");
+        }
+        let s = dec.stats();
+        assert!(s.mb_pcm > 0 && s.frame_num_gaps == 1 && s.long_term_marks >= 3, "{s:?}");
     }
-    let s = dec.stats();
-    assert!(s.mb_pcm > 0 && s.frame_num_gaps == 1 && s.long_term_marks >= 3, "{s:?}");
 }
 
 type Planes3 = (Vec<u8>, Vec<u8>, Vec<u8>);
@@ -509,13 +513,16 @@ fn weighted_check(cabac: bool, threads: usize) {
     if threads == 1 {
         cross_check_ffmpeg(&stream, &expected, if cabac { "synth_wp_cabac" } else { "synth_wp_cavlc" });
     }
-    let mut dec = Decoder::with_threads(threads);
-    let mut out = dec.decode(&stream, 0).unwrap();
-    out.extend(dec.flush());
-    assert!(dec.take_error().is_none());
-    assert_eq!(out.len(), 4);
-    for (i, (p, e)) in out.iter().zip(expected.iter()).enumerate() {
-        assert!(p.y == e.0 && p.u == e.1 && p.v == e.2, "picture {i} differs (cabac={cabac}, threads={threads})");
+    for wide in [false, true] {
+        let mut dec = Decoder::with_threads(threads);
+        dec.set_wide_samples(wide);
+        let mut out = dec.decode(&stream, 0).unwrap();
+        out.extend(dec.flush());
+        assert!(dec.take_error().is_none());
+        assert_eq!(out.len(), 4);
+        for (i, (p, e)) in out.iter().zip(expected.iter()).enumerate() {
+            assert!(p.y == e.0 && p.u == e.1 && p.v == e.2, "picture {i} differs (cabac={cabac}, threads={threads}, wide={wide})");
+        }
     }
 }
 

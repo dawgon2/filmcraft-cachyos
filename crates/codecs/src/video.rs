@@ -252,19 +252,21 @@ impl H264Decoder {
         let draft = p.draft;
         let (w, h) = (p.width as usize, p.height as usize);
         let (cw, ch) = (p.chroma_width as usize, p.chroma_height as usize);
-        let y = tight_plane(p.y, p.y_stride, w, h);
-        let u = tight_plane(p.u, p.uv_stride, cw, ch);
-        let v = tight_plane(p.v, p.uv_stride, cw, ch);
         let color = vui_color(p.width, p.height, p.color.matrix, p.color.transfer, p.color.full_range);
         let par = sar_par(p.sar);
-        let frame = VideoFrame {
-            width: p.width,
-            height: p.height,
-            data: filmcraft_frame::PixelData::Yuv8 { planes: [Arc::new(y), Arc::new(u), Arc::new(v)], chroma: filmcraft_frame::Chroma::C420, alpha: None },
-            color,
-            par,
-            pts: filmcraft_time::Tick::ZERO,
+        let chroma = if p.chroma_format_idc == 2 { filmcraft_frame::Chroma::C422 } else { filmcraft_frame::Chroma::C420 };
+        let data = match p.high {
+            // High 10: LSB-aligned 16-bit planes
+            Some([y, u, v]) => {
+                let planes = [tight_plane(y, p.y_stride, w, h), tight_plane(u, p.uv_stride, cw, ch), tight_plane(v, p.uv_stride, cw, ch)];
+                filmcraft_frame::PixelData::Yuv16 { planes: planes.map(Arc::new), chroma, bits: p.bit_depth, alpha: None }
+            }
+            None => {
+                let planes = [tight_plane(p.y, p.y_stride, w, h), tight_plane(p.u, p.uv_stride, cw, ch), tight_plane(p.v, p.uv_stride, cw, ch)];
+                filmcraft_frame::PixelData::Yuv8 { planes: planes.map(Arc::new), chroma, alpha: None }
+            }
         };
+        let frame = VideoFrame { width: p.width, height: p.height, data, color, par, pts: filmcraft_time::Tick::ZERO };
         DecodedFrame { pts: p.pts, frame, draft }
     }
 }

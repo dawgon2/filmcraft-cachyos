@@ -116,8 +116,36 @@ the fallback is always the deterministic keyword answer.
 | PA4 | Eval + training loop: fixtures, the grown `questions.toml`, a pass-rate report in `cargo xtask` (or an engine test gated on a model being present); optional fine-tune after measuring stock models | report checked in; pass rate and latency per model listed in the guide's AI section | ~1–2 days + training time |
 | PA5 | Guide: `color/coach.md › Ask the coach` describes the assistant, what it reads from the project, what "checked" means here, privacy (nothing leaves the machine) | guide check passes | ½ day |
 
-Dependencies: C1 item 6 (a) first (the retrieval it builds on, and the eval set), guide gap 1
-(the order list) before PA2's order answers can be checked. Independent of the compositor work.
+Dependencies: C1 item 6 (a) first (the retrieval it builds on, and the eval set; done 2026-10-14,
+eval 93/124), guide gap 1 (the order list) before PA2's order answers can be checked.
+
+### 4a. Compositing (COMPOSITOR-PLAN C1 item 7, added 2026-10-14)
+
+The same five stages cover questions asked on the Fusion page / Compositing workspace; nothing in
+the shape changes, only what each stage reads:
+
+- **retrieve:** `compositor.md` is in the keyword index (since 2026-10-14) and the two comp lessons
+  (`first-comp`, `key-comp`) are in the lesson index; the 8 compositing questions in
+  `questions.toml` (`comp-*`) are the regression set (2 of 8 pass on keywords alone today: the
+  rest are what PA2 has to win).
+- **ground:** the fact sheet gains a `comp` block when the context is a comp clip or the
+  Compositor panel: `comp.explain`'s summary and one sentence per node (already template-checked:
+  node names and parameter labels come from the graph), `unused` nodes, the viewed node
+  (`comp.viewer`), the comp's size against the sequence's, and whether it runs on the GPU or the
+  CPU fallback (PlanLayer.comp: too wide, over `COMP_VRAM_BUDGET`, or an effect op the GPU can't
+  run). Answers to "why does my node do nothing" or "why is it slow" come from these facts.
+- **check:** (a) also accepts the `comp.*` command ids and the dynamic `comp.param.<key>` /
+  `comp.mask<k>.*` ids (their patterns are already in `coach_ids::DYNAMIC_ID_PATTERNS`); node
+  names an answer quotes must be names in the fact sheet (a node the user doesn't have is an
+  invented control); (c)'s noun-phrase whitelist adds the node kinds and the parameter labels of
+  `comp.params` for the kinds present.
+- **act (open point 1):** a comp answer's steps map to `comp.addNode` / `comp.connect` /
+  `comp.setParam`, the same commands the lessons expect, so "walk me through it" can reuse the
+  lesson engine with a generated lesson, and "do it" can run the batch (as `tools/comp-accept.json`
+  does) behind one undo step.
+
+Size: about half a day on top of PA0 (the `comp` block) and PA1 (the id / node-name rules); no new
+step.
 
 ## 5. Open points for the owner (OWNER-QUESTIONS candidates, not blocking)
 

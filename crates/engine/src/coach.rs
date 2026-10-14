@@ -322,6 +322,8 @@ pub const BUNDLED_FILES: &[(&str, &str)] = &[
     ("fix-skin.toml", include_str!("../../../assets/lessons/fix-skin.toml")),
     ("tracked-window.toml", include_str!("../../../assets/lessons/tracked-window.toml")),
     ("log-noise.toml", include_str!("../../../assets/lessons/log-noise.toml")),
+    ("first-comp.toml", include_str!("../../../assets/lessons/first-comp.toml")),
+    ("key-comp.toml", include_str!("../../../assets/lessons/key-comp.toml")),
 ];
 
 /// The bundled lessons that parse, in lesson order (a broken file is left out and logged; a test

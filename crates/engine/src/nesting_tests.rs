@@ -523,3 +523,45 @@ fn make_subsequence_loads_the_new_sequence_in_the_source_monitor() {
     assert!(s.state.selection.contains(&ClipId(v)));
     assert!(s.drain_events().iter().any(|e| matches!(e, Event::OpenSource(i) if *i == sub)));
 }
+
+/// Comps (fork C1) take part in the nesting check: a comp reading another comp that reads it back
+/// (or a sequence the comp sits in) is refused like a self-nested sequence.
+#[test]
+fn comps_cannot_read_themselves_through_media_in() {
+    use filmcraft_project::comp::{Comp, CompKind, CompNode, MediaInSource};
+    use filmcraft_project::{ItemKind, Label};
+    let mut s = demo();
+    let outer = s.state.active_sequence.unwrap();
+    let rate = filmcraft_time::FrameRate::FPS_24;
+    let reading = |item: ItemId| {
+        let mut c = Comp::new(64, 64, rate, Tick(1000));
+        c.nodes.push(CompNode::new(2, CompKind::MediaIn { source: MediaInSource::Item { item }, offset: Tick::ZERO }));
+        ItemKind::Comp(Arc::new(c))
+    };
+    // A comp reading the active sequence is fine on its own.
+    let a = s.edit("add comp", |p, _| Ok(p.add_item("A", Label::Iris, reading(outer), None))).unwrap();
+    // B reads A; then A is pointed at B: refused, nothing changes.
+    let b = s.edit("add comp", |p, _| Ok(p.add_item("B", Label::Iris, reading(a), None))).unwrap();
+    let (before, undo) = (s.project.clone(), s.history.undo.len());
+    let e = s
+        .edit("loop", |p, _| {
+            if let Some(it) = p.item_mut(a) {
+                it.kind = reading(b);
+            }
+            Ok(())
+        })
+        .expect_err("a comp loop")
+        .to_string();
+    assert!(e.contains("cannot be nested inside itself"), "{e}");
+    assert!(Arc::ptr_eq(&before, &s.project));
+    assert_eq!(s.history.undo.len(), undo);
+    // A comp reading itself directly.
+    let e = s.edit("self", |p, _| {
+        if let Some(it) = p.item_mut(b) {
+            it.kind = reading(b);
+        }
+        Ok(())
+    });
+    assert!(e.is_err());
+    assert_eq!(s.project.nest_cycle(), None);
+}

@@ -163,6 +163,12 @@ job for the assistant (§5), not for word matching.
   its own checks (ASSISTANT-PLAN-DRAFT.md), and the keyword coach remains the fallback that
   every install has.
 
+**Status 2026-10-14 (C1):** the `what-for` route and a typo stand-in (an unknown word whose synonym
+the guide uses is replaced by it) the `x-vs-y` route the `order` route (order words optional in the coverage gate) and the `not-yet` route (names the unknown word) (topic words only, ×1.5 for a section naming both) shipped in
+`coach_ask`: 82 → 91 of 116 (one of them a stale `uncovered` entry). Heading weight
+by idf was measured and dropped: no effect at idf ≥ 1.0–1.5 on today's guide, worse above 2.0. The "Why" paragraph is shown first for why / what-for questions (`Answer::explain`). Nothing left
+open in this section.
+
 ## 5. What this set can't measure
 
 - Whether the *steps* are the right ones: the set names the section and the key facts; a reviewer

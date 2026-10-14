@@ -1,6 +1,7 @@
 //! Clean-room pure-Rust H.264 / AVC decoder, implemented from ITU-T Rec. H.264 (ISO/IEC 14496-10).
 //!
-//! Supported: progressive (frame) coding, 8-bit 4:2:0, Baseline / Main / High profiles — CAVLC and CABAC,
+//! Supported: progressive (frame) coding, 4:2:0 at 8 bits (Baseline / Main / High) and 9–10 bits
+//! (High 10, fork H2) — CAVLC and CABAC,
 //! I/P/B slices, 8x8 transform, custom scaling matrices, weighted prediction, spatial/temporal direct,
 //! multiple slices, long-term references and all MMCOs, deblocking.
 //!
@@ -36,6 +37,7 @@ mod mbtypes;
 pub mod params;
 mod picture;
 pub use picture::set_plane_allocator;
+mod sample;
 pub mod slice;
 mod slicedec;
 #[cfg(test)]
@@ -56,7 +58,8 @@ pub struct ColorInfo {
     pub matrix: u8,
 }
 
-/// A decoded, cropped picture in 8-bit planar 4:2:0.
+/// A decoded, cropped picture in planar 4:2:0: 8-bit samples in `y` / `u` / `v`, or above
+/// 8 bits in [`Picture::high`] (and `y` / `u` / `v` empty).
 #[derive(Clone, Debug)]
 pub struct Picture {
     /// Cropped luma width.
@@ -68,6 +71,13 @@ pub struct Picture {
     pub y: Vec<u8>,
     pub u: Vec<u8>,
     pub v: Vec<u8>,
+    /// BitDepth of the samples (8, or 9–10 for High 10).
+    pub bit_depth: u32,
+    /// 1 = 4:2:0, 2 = 4:2:2 (chroma at full height: `chroma_height` == `height`).
+    pub chroma_format_idc: u32,
+    /// Above 8 bits: the Y, Cb, Cr planes with `bit_depth` significant (LSB-aligned) bits per
+    /// sample, laid out like `y` / `u` / `v` (same strides).
+    pub high: Option<[Vec<u16>; 3]>,
     pub y_stride: usize,
     pub uv_stride: usize,
     /// Presentation timestamp passed to [`Decoder::decode`] with the access unit of this picture.

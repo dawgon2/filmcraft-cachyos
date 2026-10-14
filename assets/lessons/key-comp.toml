@@ -1,0 +1,96 @@
+# Grading Coach lesson (fork COMPOSITOR-PLAN C1 item 7: a lesson per comp node type; this one
+# covers Media In, Key, Solid, Merge and Color). Format: crates/engine/src/coach.rs.
+# Written for this fork in our own words.
+id = "key-comp"
+title = "Key a clip over a new background in a comp"
+summary = "Read the footage under a comp clip, key part of it out, put it over a solid background and grade the result."
+provenance = ["resolve-style", "fork"]
+order = 9
+
+[[step]]
+text = "This comp takes the clip under it, makes part of it transparent with a key, puts it over a new background and grades the whole picture, five nodes in a row."
+why = "Keeping the key, the background and the grade in separate nodes means each can be changed later without touching the others."
+expect = { manual = true }
+
+[[step]]
+text = "Open the Compositing workspace (Workspaces button, then Compositing). In the Resolve workflow this is the Fusion page."
+why = "The node canvas and the Program monitor sit side by side there."
+target = "header.workspaces"
+expect = { element = "panel.Compositor" }
+
+[[step]]
+text = "Put the playhead over your footage and click New Comp Clip to place a comp clip on a track above it."
+why = "A comp clip can read the tracks below it, so the footage stays where it is on the timeline."
+target = "comp.newClip"
+expect = { command = "comp.newClip" }
+
+[[step]]
+text = "Right-click the canvas and choose Add, then Media In, and set it to read the track with your footage."
+why = "Media In is where a picture enters the comp: a clip from the project, or a track under the comp clip."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "mediaIn" } }
+
+[[step]]
+text = "Add a Key node."
+why = "A Key makes part of the picture transparent: by brightness (Luma Key) or by colour (Ultra Key, for green or blue screens)."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "key" } }
+
+[[step]]
+text = "Connect Media In's output to the Key node's input."
+why = "The key works on whatever picture reaches it."
+target = "comp.canvas"
+expect = { command = "comp.connect" }
+
+[[step]]
+text = "Add a Solid node for the new background."
+why = "A Solid is a flat colour that fills the frame; a Gradient node works the same way if you want a fade."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "solid" } }
+
+[[step]]
+text = "Add a Merge node."
+why = "Merge puts its second input (the foreground) over its first (the background)."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "merge" } }
+
+[[step]]
+text = "Connect the Solid into the Merge node's first input (the background)."
+why = "Whatever the key removed now shows the solid colour instead of transparency."
+target = "comp.canvas"
+expect = { command = "comp.connect" }
+
+[[step]]
+text = "Connect the Key node into the Merge node's second input (the foreground)."
+why = "The keyed footage goes on top of the background."
+target = "comp.canvas"
+expect = { command = "comp.connect", params = { toPort = 1 } }
+
+[[step]]
+text = "Add a Color node."
+why = "A Color node is one grade node, the same corrections as on the Color page, applied to the combined picture so foreground and background sit together."
+target = "comp.canvas"
+expect = { command = "comp.addNode", params = { kind = "color" } }
+
+[[step]]
+text = "Connect the Merge node into the Color node."
+why = "The grade comes after the merge, so it treats the new background and the footage as one picture."
+target = "comp.canvas"
+expect = { command = "comp.connect" }
+
+[[step]]
+text = "Connect the Color node into Media Out."
+why = "Only what reaches Media Out appears on the timeline."
+target = "comp.canvas"
+expect = { command = "comp.connect", params = { to = 1 } }
+
+[[step]]
+text = "Click the Key node and raise its Threshold (or pick the screen colour on an Ultra Key) until the part you want gone disappears."
+why = "Check the edges at full size: a key that is too strong eats into hair and fine detail."
+target = ["comp.param.threshold", "comp.canvas"]
+expect = { command = "comp.setParam" }
+
+[[step]]
+text = "Double-click any node to see its own picture in the Program monitor. A Mask node limits a picture to shapes and a Blur node softens it; both go between two nodes the same way. Press Next to finish."
+why = "Viewing one node at a time shows which step a problem comes from."
+expect = { manual = true }

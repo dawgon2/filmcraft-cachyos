@@ -90,6 +90,8 @@ enum Do {
     Next,
     /// Switch to the Color Grading workspace (what the Workspaces menu does).
     Workspace,
+    /// Switch to another workspace by name.
+    WorkspaceNamed(&'static str),
     /// Select the n-th clip on V1.
     Select(usize),
     /// Click a control by automation id.
@@ -111,13 +113,19 @@ fn clips(d: &mut Driver) -> Vec<u64> {
 }
 
 fn fill(v: &Value, clip: u64, node: u64, other: u64, still: u64) -> Value {
+    fill_comp(v, clip, node, other, still, 0)
+}
+
+/// [`fill`], also filling `{comp}` (the comp the last command that returned one made).
+fn fill_comp(v: &Value, clip: u64, node: u64, other: u64, still: u64, comp: u64) -> Value {
     match v {
+        Value::String(s) if s == "{comp}" => json!(comp),
         Value::String(s) if s == "{clip}" => json!(clip),
         Value::String(s) if s == "{node}" => json!(node),
         Value::String(s) if s == "{other}" => json!(other),
         Value::String(s) if s == "{still}" => json!(still),
-        Value::Object(m) => Value::Object(m.iter().map(|(k, x)| (k.clone(), fill(x, clip, node, other, still))).collect()),
-        Value::Array(a) => Value::Array(a.iter().map(|x| fill(x, clip, node, other, still)).collect()),
+        Value::Object(m) => Value::Object(m.iter().map(|(k, x)| (k.clone(), fill_comp(x, clip, node, other, still, comp))).collect()),
+        Value::Array(a) => Value::Array(a.iter().map(|x| fill_comp(x, clip, node, other, still, comp)).collect()),
         x => x.clone(),
     }
 }
@@ -139,6 +147,7 @@ fn walk_on(lesson: &str, steps: &[Do], graded: bool) {
     let st = d.exec("coach.start", json!({"lesson": lesson}));
     assert_eq!(st["steps"].as_u64(), Some(steps.len() as u64), "{lesson}: one action per step: {st}");
     let mut clip = all[0];
+    let mut comp = 0u64;
     for (i, act) in steps.iter().enumerate() {
         d.frames(2);
         let st = d.state();
@@ -170,6 +179,10 @@ fn walk_on(lesson: &str, steps: &[Do], graded: bool) {
                 d.ok("ui.set", json!({"workspace": "Color Grading"}));
                 d.frames(3);
             }
+            Do::WorkspaceNamed(name) => {
+                d.ok("ui.set", json!({"workspace": name}));
+                d.frames(3);
+            }
             Do::Select(n) => {
                 clip = all[*n];
                 d.exec("timeline.select", json!({"clips": [clip]}));
@@ -186,8 +199,11 @@ fn walk_on(lesson: &str, steps: &[Do], graded: bool) {
                     .or_else(|| g["grade"]["nodes"].as_array().and_then(|n| n.last()).and_then(|n| n["id"].as_u64()))
                     .unwrap_or(0);
                 let still = d.exec("stills.list", json!({}))["stills"][0]["id"].as_u64().unwrap_or(0);
-                let p = fill(params, clip, node, all[0], still);
-                d.exec(cmd, p);
+                let p = fill_comp(params, clip, node, all[0], still, comp);
+                let r = d.exec(cmd, p);
+                if let Some(c) = r["comp"].as_u64() {
+                    comp = c;
+                }
             }
         }
         d.frames(3);
@@ -420,6 +436,56 @@ fn coach_match_shots_end_to_end() {
     );
 }
 
+/// C1 item 7: the comp lesson, built through the commands the canvas sends (node ids are fixed:
+/// Media Out is 1, then 2, 3, … in add order).
+#[test]
+fn coach_first_comp_end_to_end() {
+    let node = |kind: &str| Do::Exec("comp.addNode", json!({"comp": "{comp}", "kind": kind}));
+    let connect = |from: u64, to: u64, port: u64| Do::Exec("comp.connect", json!({"comp": "{comp}", "from": from, "to": to, "toPort": port}));
+    walk(
+        "first-comp",
+        &[
+            Do::Next,
+            Do::WorkspaceNamed("Compositing"),
+            Do::Exec("comp.newClip", json!({"track": "V2"})),
+            node("text"),
+            node("transform"),
+            connect(2, 3, 0),
+            node("merge"),
+            connect(3, 4, 1),
+            connect(4, 1, 0),
+            Do::Exec("comp.setParam", json!({"comp": "{comp}", "node": 3, "param": "scale", "value": 60.0})),
+            Do::Next,
+        ],
+    );
+}
+
+/// C1 item 7: the keying comp lesson (Media In 2, Key 3, Solid 4, Merge 5, Color 6; Media Out 1).
+#[test]
+fn coach_key_comp_end_to_end() {
+    let connect = |from: u64, to: u64, port: u64| Do::Exec("comp.connect", json!({"comp": "{comp}", "from": from, "to": to, "toPort": port}));
+    walk(
+        "key-comp",
+        &[
+            Do::Next,
+            Do::WorkspaceNamed("Compositing"),
+            Do::Exec("comp.newClip", json!({"track": "V2"})),
+            Do::Exec("comp.addNode", json!({"comp": "{comp}", "kind": "mediaIn", "track": 0})),
+            Do::Exec("comp.addNode", json!({"comp": "{comp}", "kind": "key", "effect": "luma_key"})),
+            connect(2, 3, 0),
+            Do::Exec("comp.addNode", json!({"comp": "{comp}", "kind": "solid"})),
+            Do::Exec("comp.addNode", json!({"comp": "{comp}", "kind": "merge"})),
+            connect(4, 5, 0),
+            connect(3, 5, 1),
+            Do::Exec("comp.addNode", json!({"comp": "{comp}", "kind": "color"})),
+            connect(5, 6, 0),
+            connect(6, 1, 0),
+            Do::Exec("comp.setParam", json!({"comp": "{comp}", "node": 3, "param": "threshold", "value": 30.0})),
+            Do::Next,
+        ],
+    );
+}
+
 #[test]
 fn coach_back_skip_and_exit_from_the_card() {
     let mut d = Driver::demo();
@@ -622,6 +688,10 @@ fn walked() -> (Driver, BTreeSet<String>) {
     d.click("presetManager.cancel");
     d.harness.state_mut().ui.export.settings = Default::default();
     d.ok("ui.set", json!({"mode": "edit"}));
+    snap(&mut d, &mut seen);
+    // the Compositor panel (fork C1) in its empty state: New Comp Clip
+    d.exec("timeline.select", json!({"clips": []}));
+    d.ok("ui.menu.invoke", json!({"id": "window.panel.Compositor"}));
     snap(&mut d, &mut seen);
     // the Project Manager home screen (fork RS2) and its New Project dialog
     try_exec(&mut d, "projects.show", json!({}));

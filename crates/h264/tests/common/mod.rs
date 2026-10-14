@@ -301,7 +301,187 @@ pub const FIXTURES: &[Fixture] = &[
         filter: NOISE,
         args: &["-profile:v", "main", "-qp", "1", "-x264-params", "cabac=0"],
     },
+    // High 10 (fork H2): x264 10-bit streams, compared with ffmpeg's yuv420p10le decode
+    Fixture {
+        name: "high10_intra",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 6,
+        filter: NOISE,
+        args: &["-profile:v", "high10", "-pix_fmt", "yuv420p10le", "-x264-params", "keyint=1"],
+    },
+    Fixture {
+        name: "high10_cavlc_b",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 20,
+        filter: NOISE,
+        args: &["-profile:v", "high10", "-pix_fmt", "yuv420p10le", "-x264-params", "cabac=0:bframes=3"],
+    },
+    Fixture {
+        name: "high10_weightp_fade",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 25,
+        filter: "fade=in:0:20,noise=alls=12:allf=t+u",
+        args: &["-profile:v", "high10", "-pix_fmt", "yuv420p10le", "-x264-params", "weightp=2:bframes=3:b-pyramid=normal:ref=4:weightb=1"],
+    },
+    Fixture {
+        name: "high10_qp1",
+        source: "mandelbrot",
+        width: 352,
+        height: 288,
+        frames: 8,
+        filter: NOISE,
+        args: &["-profile:v", "high10", "-pix_fmt", "yuv420p10le", "-qp", "1"],
+    },
+    Fixture {
+        name: "high10_slices_deblock",
+        source: "testsrc2",
+        width: 640,
+        height: 360,
+        frames: 15,
+        filter: NOISE,
+        args: &["-profile:v", "high10", "-pix_fmt", "yuv420p10le", "-x264-params", "slices=4:deblock=-2,-2:bframes=2"],
+    },
+    Fixture {
+        name: "high10_crop",
+        source: "testsrc2",
+        width: 638,
+        height: 358,
+        frames: 10,
+        filter: NOISE,
+        args: &["-profile:v", "high10", "-pix_fmt", "yuv420p10le"],
+    },
+    // High 4:2:2 intra (fork H2.3): every picture an IDR (keyint=1), 8- and 10-bit, CABAC and CAVLC
+    Fixture {
+        name: "i422_cabac",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 6,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p", "-x264-params", "keyint=1"],
+    },
+    Fixture {
+        name: "i422_cavlc",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 6,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p", "-x264-params", "keyint=1:cabac=0"],
+    },
+    Fixture {
+        name: "i422_10_cabac",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 6,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-x264-params", "keyint=1"],
+    },
+    Fixture {
+        name: "i422_10_cavlc_no8x8",
+        source: "mandelbrot",
+        width: 352,
+        height: 288,
+        frames: 6,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-x264-params", "keyint=1:cabac=0:8x8dct=0"],
+    },
+    Fixture {
+        name: "i422_10_qp1",
+        source: "mandelbrot",
+        width: 352,
+        height: 288,
+        frames: 4,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-qp", "1", "-x264-params", "keyint=1"],
+    },
+    Fixture {
+        name: "i422_slices_deblock_crop",
+        source: "testsrc2",
+        width: 638,
+        height: 358,
+        frames: 6,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p", "-x264-params", "keyint=1:slices=4:deblock=-2,-2"],
+    },
+    // High 4:2:2 Long-GOP (fork H2.4): chroma motion compensation at full vertical resolution
+    Fixture {
+        name: "p422_cabac_bpyramid",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 25,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p", "-x264-params", "bframes=3:b-pyramid=normal:ref=4"],
+    },
+    Fixture {
+        name: "p422_10_cavlc",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 20,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-x264-params", "cabac=0:bframes=2"],
+    },
+    Fixture {
+        name: "p422_10_weightp_fade",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 25,
+        filter: "fade=in:0:20,noise=alls=12:allf=t+u",
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-x264-params", "weightp=2:bframes=3:weightb=1:ref=3"],
+    },
+    Fixture {
+        name: "p422_direct_temporal_crop",
+        source: "testsrc2",
+        width: 638,
+        height: 358,
+        frames: 20,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p", "-x264-params", "bframes=3:direct=temporal"],
+    },
+    Fixture {
+        name: "p422_10_qp1",
+        source: "mandelbrot",
+        width: 352,
+        height: 288,
+        frames: 8,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-qp", "1", "-x264-params", "bframes=2"],
+    },
+    // 4K 10-bit 4:2:2 benchmarks (fork H2.7; XAVC S / S-I-like rates; stream only, no reference)
+    Fixture {
+        name: "bench_4k_422_10",
+        source: "testsrc2",
+        width: 3840,
+        height: 2160,
+        frames: 30,
+        filter: "noise=alls=3:allf=t",
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-preset", "veryfast", "-crf", "16", "-x264-params", "keyint=24:bframes=2"],
+    },
+    Fixture {
+        name: "bench_4k_422_10_intra",
+        source: "testsrc2",
+        width: 3840,
+        height: 2160,
+        frames: 30,
+        filter: "noise=alls=3:allf=t",
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-preset", "veryfast", "-crf", "12", "-x264-params", "keyint=1"],
+    },
 ];
+
+/// Benchmark fixtures generated without a raw reference (4K 10-bit 4:2:2: ~1 GB of yuv).
+pub fn stream_only(f: &Fixture) -> bool {
+    f.name.starts_with("bench_4k")
+}
 
 pub fn fixture(name: &str) -> &'static Fixture {
     FIXTURES.iter().find(|f| f.name == name).unwrap_or_else(|| panic!("unknown fixture {name}"))
@@ -330,16 +510,24 @@ fn run(cmd: &mut Command) -> bool {
     }
 }
 
-/// Generate (if needed) the fixture stream and its ffmpeg reference decode.
-/// Returns None (with a message) when ffmpeg is unavailable.
-pub fn ensure(f: &Fixture) -> Option<(PathBuf, PathBuf)> {
+/// The fixture's pixel format: its `-pix_fmt` argument, `yuv420p` without one.
+pub fn pix_fmt(f: &Fixture) -> &'static str {
+    f.args.iter().position(|a| *a == "-pix_fmt").and_then(|i| f.args.get(i + 1)).copied().unwrap_or("yuv420p")
+}
+
+/// Bytes per sample of the fixture's reference decode (2 for 10-bit `yuv420p10le`).
+pub fn sample_bytes(f: &Fixture) -> usize {
+    if pix_fmt(f).contains("10") { 2 } else { 1 }
+}
+
+/// Generate (if needed) only the fixture stream (benchmarks whose raw reference would be huge).
+/// Returns None (with a message) when ffmpeg or the encoder is unavailable.
+pub fn ensure_stream(f: &Fixture) -> Option<PathBuf> {
     let ff = filmcraft_testkit::ffmpeg_or_skip(f.name)?;
-    let dir = fixtures_dir();
-    let h264 = dir.join(format!("{}.h264", f.name));
-    let yuv = dir.join(format!("{}.yuv", f.name));
+    let h264 = fixtures_dir().join(format!("{}.h264", f.name));
     if !h264.exists() {
         let tmp = filmcraft_testkit::temp_path(&h264);
-        let mut vf = format!("{}=size={}x{}:rate=25,format=yuv420p", f.source, f.width, f.height);
+        let mut vf = format!("{}=size={}x{}:rate=25,format={}", f.source, f.width, f.height, pix_fmt(f));
         if !f.filter.is_empty() {
             vf.push(',');
             vf.push_str(f.filter);
@@ -360,11 +548,20 @@ pub fn ensure(f: &Fixture) -> Option<(PathBuf, PathBuf)> {
         }
         std::fs::rename(&tmp, &h264).unwrap();
     }
+    Some(h264)
+}
+
+/// Generate (if needed) the fixture stream and its ffmpeg reference decode.
+/// Returns None (with a message) when ffmpeg is unavailable.
+pub fn ensure(f: &Fixture) -> Option<(PathBuf, PathBuf)> {
+    let h264 = ensure_stream(f)?;
+    let ff = filmcraft_testkit::ffmpeg_or_skip(f.name)?;
+    let yuv = fixtures_dir().join(format!("{}.yuv", f.name));
     if !yuv.exists() {
         let tmp = filmcraft_testkit::temp_path(&yuv);
         let mut c = Command::new(&ff);
         c.args(["-hide_banner", "-loglevel", "error", "-y", "-i"]).arg(&h264);
-        c.args(["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p"]).arg(&tmp);
+        c.args(["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", pix_fmt(f)]).arg(&tmp);
         assert!(run(&mut c), "reference decode failed for {}", f.name);
         std::fs::rename(&tmp, &yuv).unwrap();
     }
@@ -427,10 +624,16 @@ pub fn decode_file_threads(path: &Path, threads: usize) -> Result<Vec<Picture>, 
 
 /// [`decode_file_threads`] with draft mode ([`Decoder::set_draft`]) on or off.
 pub fn decode_file_opts(path: &Path, threads: usize, draft: bool) -> Result<Vec<Picture>, DecodeFailure> {
+    decode_file_with(path, threads, draft, false)
+}
+
+/// [`decode_file_opts`], optionally through the 16-bit sample path (`Decoder::set_wide_samples`).
+pub fn decode_file_with(path: &Path, threads: usize, draft: bool, wide: bool) -> Result<Vec<Picture>, DecodeFailure> {
     let data = std::fs::read(path).unwrap();
     let mut dec = if threads == 0 { Decoder::new() } else { Decoder::with_threads(threads) };
     assert!(!dec.draft(), "draft mode is off by default");
     dec.set_draft(draft);
+    dec.set_wide_samples(wide);
     let mut out = Vec::new();
     for (i, au) in split_access_units(&data).into_iter().enumerate() {
         match dec.decode(au, i as i64) {
@@ -447,8 +650,22 @@ pub fn decode_file_opts(path: &Path, threads: usize, draft: bool) -> Result<Vec<
 
 /// Compare decoded pictures with a raw yuv420p reference; returns a diagnostic on the first mismatch.
 pub fn compare(pics: &[Picture], reference: &[u8], w: usize, h: usize) -> Result<(), String> {
-    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
-    let fsize = w * h + 2 * cw * ch;
+    compare_bytes(pics, reference, w, h, 1)
+}
+
+/// [`compare`] with `bytes` per reference sample (2: little-endian 16-bit, compared with
+/// [`Picture::high`]).
+pub fn compare_bytes(pics: &[Picture], reference: &[u8], w: usize, h: usize, bytes: usize) -> Result<(), String> {
+    compare_format(pics, reference, w, h, bytes, false)
+}
+
+/// [`compare_bytes`] for 4:2:0 or (`c422`) 4:2:2 references.
+pub fn compare_format(pics: &[Picture], reference: &[u8], w: usize, h: usize, bytes: usize, c422: bool) -> Result<(), String> {
+    let (cw, ch) = (w.div_ceil(2), if c422 { h } else { h.div_ceil(2) });
+    let fsize = (w * h + 2 * cw * ch) * bytes;
+    let samples = |b: &[u8]| -> Vec<u16> {
+        if bytes == 2 { b.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect() } else { b.iter().map(|&v| v as u16).collect() }
+    };
     let nref = reference.len() / fsize;
     for (i, p) in pics.iter().enumerate() {
         if i >= nref {
@@ -457,9 +674,17 @@ pub fn compare(pics: &[Picture], reference: &[u8], w: usize, h: usize) -> Result
         if p.width as usize != w || p.height as usize != h {
             return Err(format!("frame {i}: size {}x{} != {}x{}", p.width, p.height, w, h));
         }
-        let f = &reference[i * fsize..(i + 1) * fsize];
-        let planes =
-            [("Y", &p.y[..], &f[..w * h], w, h, 16), ("U", &p.u[..], &f[w * h..w * h + cw * ch], cw, ch, 8), ("V", &p.v[..], &f[w * h + cw * ch..], cw, ch, 8)];
+        let f = samples(&reference[i * fsize..(i + 1) * fsize]);
+        let got: [Vec<u16>; 3] = match (&p.high, bytes) {
+            (Some(hp), 2) => hp.clone(),
+            (None, 1) => [&p.y, &p.u, &p.v].map(|v| v.iter().map(|&s| s as u16).collect()),
+            _ => return Err(format!("frame {i}: bit depth {} does not match the {bytes}-byte reference", p.bit_depth)),
+        };
+        let planes = [
+            ("Y", &got[0][..], &f[..w * h], w, h, 16),
+            ("U", &got[1][..], &f[w * h..w * h + cw * ch], cw, ch, 8),
+            ("V", &got[2][..], &f[w * h + cw * ch..], cw, ch, 8),
+        ];
         for (name, got, exp, pw, ph, mbs) in planes {
             if got != exp {
                 let mut first = None;
@@ -501,18 +726,21 @@ pub fn check_fixture(name: &str) -> Result<bool, String> {
     let f = fixture(name);
     let Some((h264, yuv)) = ensure(f) else { return Ok(false) };
     let reference = std::fs::read(&yuv).unwrap();
+    let bytes = sample_bytes(f);
+    let c422 = pix_fmt(f).contains("422");
     // single-threaded and frame-threaded decoding (an odd thread count and every core) must all
-    // be bit-exact
-    for threads in [1, 3, 0] {
-        let pics = match decode_file_threads(&h264, threads) {
+    // be bit-exact, and so must the 16-bit sample path (fork H2)
+    for (threads, wide) in [(1, false), (3, false), (0, false), (3, true)] {
+        let pics = match decode_file_with(&h264, threads, false, wide) {
             Ok(p) => p,
             Err((au, e, partial)) => {
                 // still report comparison of what was decoded
-                let cmp = compare(&partial, &reference, f.width as usize, f.height as usize).err().unwrap_or_default();
-                return Err(format!("{name} (threads {threads}): decode error at access unit {au}: {e} (after {} pictures) {cmp}", partial.len()));
+                let cmp = compare_format(&partial, &reference, f.width as usize, f.height as usize, bytes, c422).err().unwrap_or_default();
+                return Err(format!("{name} (threads {threads}, wide {wide}): decode error at access unit {au}: {e} (after {} pictures) {cmp}", partial.len()));
             }
         };
-        compare(&pics, &reference, f.width as usize, f.height as usize).map_err(|e| format!("{name} (threads {threads}): {e}"))?;
+        compare_format(&pics, &reference, f.width as usize, f.height as usize, bytes, c422)
+            .map_err(|e| format!("{name} (threads {threads}, wide {wide}): {e}"))?;
         if pics.iter().any(|p| p.draft) {
             return Err(format!("{name} (threads {threads}): draft picture without draft mode"));
         }

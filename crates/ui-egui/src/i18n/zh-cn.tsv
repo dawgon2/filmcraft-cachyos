@@ -3711,6 +3711,7 @@
 	{n} steps left out: they name controls that aren't available here.	省略了 {n} 个步骤：它们提到的控件在此不可用。
 	This step runs the command {cmd}.	此步骤运行命令 {cmd}。
 	The guide doesn't cover this yet.	指南中还没有涉及这个主题。
+	The guide doesn't mention “{word}”.	指南中没有提到“{word}”。
 	{n} steps left out: they name commands that aren't available here.	省略了 {n} 个步骤：它们提到的命令在此不可用。
 	{n} steps left out: they name controls or commands that aren't available here.	省略了 {n} 个步骤：它们提到的控件或命令在此不可用。
 # Local AI explanations (fork G2.11)
@@ -3995,3 +3996,29 @@
 	No data folder for user effects in this session	本次会话没有用于用户效果的数据文件夹
 	Open Effects Folder	打开效果文件夹
 	Reload	重新加载
+	New Comp Clip	新建合成剪辑
+	Compositor	合成器
+	Convert to Comp Clip	转换为合成剪辑
+	Open in Compositor	在合成器中打开
+	Fusion	Fusion
+	Fusion Page	Fusion 页面
+	Compositing	合成工作区
+	Comp	合成
+	New Comp	新建合成
+	Comp Settings	合成设置
+	Select a comp clip to edit its nodes.	选择一个合成剪辑以编辑其节点。
+	Media In	媒体输入
+	Media Out	媒体输出
+	Merge	合并
+	Mask	蒙版
+	Foreground	前景
+	Input	输入
+	Set as Output	设为输出
+	Node canvas	节点画布
+	Connection	连接
+	Add ellipse	添加椭圆
+	Add rectangle	添加矩形
+	Mask Feather	遮罩羽化
+	Mask Opacity	遮罩不透明度
+	Mask Expansion	遮罩扩展
+	View Node	查看节点

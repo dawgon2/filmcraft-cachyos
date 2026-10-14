@@ -2,11 +2,12 @@
 //! index derivations).
 
 use crate::cabac::Cabac;
+use crate::deblock::DeblockSample;
 use crate::error::{Result, ensure, invalid};
 use crate::mbtypes::*;
 use crate::picture::MbKind;
 use crate::slice::SliceType;
-use crate::slicedec::{MbCur, SliceDecoder};
+use crate::slicedec::{MbCur, SliceDecoder, read_pcm};
 
 /// Table 9-43: significant_coeff_flag ctxIdxInc for 8x8 frame blocks.
 #[rustfmt::skip]
@@ -33,11 +34,13 @@ const IDENT_CTX: [u8; 64] = {
 };
 /// ctxIdxInc = Min(levelListIdx / NumC8x8, 2) for 4:2:0 chroma DC (ctxBlockCat 3).
 const CHROMA_DC_CTX: [u8; 4] = [0, 1, 2, 2];
+/// 4:2:2 chroma DC: ctxIdxInc = Min(i / NumC8x8, 2) with NumC8x8 = 2.
+const CHROMA_DC_422_CTX: [u8; 8] = [0, 0, 1, 1, 2, 2, 2, 2];
 
 /// Table 9-40 ctxIdxBlockCatOffset for ctxBlockCat 0..=5: (coded_block_flag, significant/last, abs level).
 const CAT_OFFSET: [(usize, usize, usize); 6] = [(0, 0, 0), (4, 15, 10), (8, 29, 20), (12, 44, 30), (16, 47, 39), (0, 0, 0)];
 
-impl SliceDecoder<'_> {
+impl<S: DeblockSample, const C422: bool> SliceDecoder<'_, S, C422> {
     /// Decode slice_data() with CABAC. `rbsp` is the whole slice RBSP.
     pub fn decode_cabac(&mut self, rbsp: &[u8]) -> Result<()> {
         let start = self.sh.header_bits.div_ceil(8) * 8;
@@ -371,7 +374,8 @@ impl SliceDecoder<'_> {
         let n = if bx < 0 { self.nb[0] } else { self.nb[1] };
         let Some(m) = n else { return intra_cur as usize };
         let st = &self.pic.mbs[m];
-        let (x, y) = if bx < 0 { (1, by as usize) } else { (bx as usize, 1) };
+        // left MB: its right column; MB above: its bottom row (1 for 4:2:0, 3 for 4:2:2)
+        let (x, y) = if bx < 0 { (1, by as usize) } else { (bx as usize, self.chroma_blocks() / 2 - 1) };
         (st.nnz_c[comp][y * 2 + x] != 0) as usize
     }
 
@@ -385,6 +389,7 @@ impl SliceDecoder<'_> {
         let (sig_base, last_base, abs_base) =
             if cat == 5 { (402, 417, 426) } else { (105 + CAT_OFFSET[cat].1, 166 + CAT_OFFSET[cat].1, 227 + CAT_OFFSET[cat].2) };
         let (sig_tab, last_tab): (&[u8], &[u8]) = match cat {
+            3 if max_num == 8 => (&CHROMA_DC_422_CTX, &CHROMA_DC_422_CTX),
             3 => (&CHROMA_DC_CTX, &CHROMA_DC_CTX),
             5 => (&SIG8_FRAME, &LAST8),
             _ => (&IDENT_CTX, &IDENT_CTX),
@@ -490,20 +495,29 @@ impl SliceDecoder<'_> {
             }
         }
         let cbp_c = cbp >> 4;
+        let nblk = self.chroma_blocks();
         if cbp_c != 0 {
             for comp in 0..2 {
                 let bit = 1 + comp as u8;
                 let inc = self.cbf_dc_cond(self.nb[0], bit, intra) + 2 * self.cbf_dc_cond(self.nb[1], bit, intra);
-                let mut lv = [0i32; 4];
-                if self.residual_block_cabac(c, &mut lv, 3, 4, inc) > 0 {
-                    self.mb_mut().cbf_dc |= 1 << bit;
-                    self.put_chroma_dc(comp, &lv);
+                if nblk == 8 {
+                    let mut lv = [0i32; 8];
+                    if self.residual_block_cabac(c, &mut lv, 3, 8, inc) > 0 {
+                        self.mb_mut().cbf_dc |= 1 << bit;
+                        self.put_chroma_dc_422(comp, &lv);
+                    }
+                } else {
+                    let mut lv = [0i32; 4];
+                    if self.residual_block_cabac(c, &mut lv, 3, 4, inc) > 0 {
+                        self.mb_mut().cbf_dc |= 1 << bit;
+                        self.put_chroma_dc(comp, &lv);
+                    }
                 }
             }
         }
         if cbp_c == 2 {
             for comp in 0..2 {
-                for b in 0..4 {
+                for b in 0..nblk {
                     let (bx, by) = ((b & 1) as i32, (b >> 1) as i32);
                     let inc = self.cbf_chroma_ac_cond(comp, bx - 1, by, intra) + 2 * self.cbf_chroma_ac_cond(comp, bx, by - 1, intra);
                     let mut lv = [0i32; 16];
@@ -525,12 +539,8 @@ impl SliceDecoder<'_> {
         if info.kind == MbKind::IPcm {
             // pcm alignment + samples, then re-initialise the arithmetic decoder
             let pos = c.bit_pos().div_ceil(8);
-            let data = c.data();
-            ensure!(data.len() >= pos + 384, "truncated I_PCM macroblock");
-            let Some(&samples) = data.get(pos..).and_then(|d| d.first_chunk::<384>()) else {
-                return invalid("truncated I_PCM macroblock");
-            };
-            c.set_bit_pos((pos + 384) * 8);
+            let (samples, len) = read_pcm(c.data(), pos, self.pcm_bits(), self.chroma_blocks() * 16)?;
+            c.set_bit_pos((pos + len) * 8);
             c.init_engine()?;
             self.finish_pcm();
             self.write_pcm(&samples);

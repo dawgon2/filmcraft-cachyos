@@ -192,7 +192,7 @@ pub(crate) fn f64_p(p: &Value, k: &str) -> Option<f64> {
     p.get(k).and_then(Value::as_f64)
 }
 /// `fps` as a sequence frame rate; zero or negative rates are refused (all frame maths divides by them).
-fn fps_p(p: &Value, cmd: &str) -> Result<Option<FrameRate>> {
+pub(crate) fn fps_p(p: &Value, cmd: &str) -> Result<Option<FrameRate>> {
     let Some(fps) = f64_p(p, "fps") else { return Ok(None) };
     let r = FrameRate::from_f64(fps);
     if r.num <= 0 || r.frame_duration() <= Tick::ZERO {
@@ -3023,6 +3023,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::essential_sound::commands());
     v.extend(crate::color::commands());
     v.extend(crate::grade::commands());
+    v.extend(crate::comp::commands());
     v.extend(crate::grade_tools::commands());
     v.extend(crate::tnr::commands());
     v.extend(crate::ai_explain::commands());

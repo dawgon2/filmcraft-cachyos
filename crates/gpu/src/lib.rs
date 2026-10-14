@@ -39,6 +39,7 @@ use filmcraft_render::Blend;
 use filmcraft_render::plan::{FramePlan, PlanLayer, PlanStep};
 
 pub mod colorops;
+mod comp;
 pub mod export_renderer;
 pub mod fx;
 #[cfg(target_os = "linux")]
@@ -112,6 +113,12 @@ pub struct GpuCompositor {
     post: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
     transition: transition::PushStage,
     transition_inputs: [Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>; 2],
+    /// The slot textures of comp programs (fork C1 step 7b), kept while comps of one size play.
+    comp_slots: Vec<comp::Slot>,
+    /// One slot set per comp layer of a frame (the active one is swapped into `comp_slots`).
+    comp_sets: Vec<Vec<comp::Slot>>,
+    /// Recent comp pictures and their frames (static nodes keep their texture across frames).
+    comp_images: Vec<(Arc<filmcraft_render::image::Image>, Arc<VideoFrame>)>,
     pub gpu_transitions: u64,
     pub cpu_transitions: u64,
     /// Total bytes uploaded (stats).
@@ -395,7 +402,8 @@ fn plan_has_output(plan: &FramePlan) -> bool {
 }
 
 fn prepare_layers(layers: &[PlanLayer]) -> PreparedPlan {
-    PreparedPlan { layers: layers.iter().map(|l| prepare_frame(&l.frame)).collect(), ..Default::default() }
+    // (a comp layer's frame has no pixels: its program runs when it is drawn)
+    PreparedPlan { layers: layers.iter().map(|l| if l.comp.is_some() { None } else { prepare_frame(&l.frame) }).collect(), ..Default::default() }
 }
 
 impl GpuCompositor {
@@ -561,6 +569,9 @@ impl GpuCompositor {
             post: None,
             transition: transition::PushStage::new(device),
             transition_inputs: [None, None],
+            comp_slots: Vec::new(),
+            comp_sets: Vec::new(),
+            comp_images: Vec::new(),
             gpu_transitions: 0,
             cpu_transitions: 0,
             uploaded_bytes: 0,
@@ -712,14 +723,17 @@ impl GpuCompositor {
             }
             PixelData::RgbaF32(d) => {
                 let owned;
-                let half = match prep {
-                    Some(p) => &p.planes[0],
+                let half = match prep.and_then(|p| p.planes.first()) {
+                    Some(p) => p,
                     None => {
                         owned = f32_to_f16_bytes(d);
                         &owned
                     }
                 };
-                let v = self.plane_texture(w, h, wgpu::TextureFormat::Rgba16Float, half, 8);
+                // too few texels (a comp slot's placeholder whose registration was evicted, or a
+                // short buffer): transparent instead of an invalid upload
+                let need = (w as usize).saturating_mul(h as usize).saturating_mul(8);
+                let v = if half.len() < need { dummy() } else { self.plane_texture(w, h, wgpu::TextureFormat::Rgba16Float, half, 8) };
                 Uploaded {
                     views: [v, dummy(), dummy(), dummy()],
                     kind: 1,
@@ -1043,6 +1057,30 @@ impl GpuCompositor {
     /// accumulator's view). A [`FramePlan::Layers`] with an output transform ([`OutputStage`])
     /// runs it at its place (fork ADR 0003).
     fn render_plan(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, clear: bool, resolve: bool) -> (wgpu::TextureView, (u32, u32)) {
+        // comp layers: their programs run first, on comp-sized slots (C1 step 7b); a comp that
+        // can't run here stays a comp layer and is rendered on the CPU below
+        let comps_run;
+        let plan = match plan {
+            FramePlan::Layers { width, height, layers, output } if layers.iter().any(|l| l.comp.is_some()) => {
+                let mut set = 0usize;
+                let layers = layers
+                    .iter()
+                    .map(|l| {
+                        let ran = l.comp.as_ref().and_then(|p| {
+                            set += 1;
+                            self.run_comp(p, set - 1)
+                        });
+                        match ran {
+                            Some(frame) => PlanLayer { frame, comp: None, ..l.clone() },
+                            None => l.clone(),
+                        }
+                    })
+                    .collect();
+                comps_run = FramePlan::Layers { width: *width, height: *height, layers, output: output.clone() };
+                &comps_run
+            }
+            _ => plan,
+        };
         let output = match plan {
             FramePlan::Layers { output, .. } => output.clone(),
             FramePlan::Image(_) | FramePlan::Composite { .. } => None,
@@ -1061,7 +1099,8 @@ impl GpuCompositor {
                     },
                     None => VideoFrame::rgba_f32(img.w as u32, img.h as u32, img.px.clone()),
                 };
-                owned = [PlanLayer { frame: Arc::new(frame), matrix: filmcraft_geom::Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None }];
+                owned =
+                    [PlanLayer { frame: Arc::new(frame), matrix: filmcraft_geom::Affine::IDENTITY, opacity: 1.0, blend: Blend::Normal, fx: None, comp: None }];
                 (img.w as u32, img.h as u32, &owned[..])
             }
             FramePlan::Composite { width, height, steps } => return self.composite_steps(*width, *height, steps, prep),
@@ -1083,11 +1122,19 @@ impl GpuCompositor {
         let cpu_fx: Vec<Option<PlanLayer>> = layers
             .iter()
             .map(|l| {
-                let lfx = l.fx.as_ref()?;
-                if self.fx.is_some() && lfx.size.0.max(lfx.size.1) <= max_side {
-                    return None;
+                // a comp program the GPU couldn't run (too large) runs on the CPU here
+                if l.comp.is_none() {
+                    let lfx = l.fx.as_ref()?;
+                    if self.fx.is_some() && lfx.size.0.max(lfx.size.1) <= max_side {
+                        return None;
+                    }
                 }
-                let img = filmcraft_render::plan::effect_image(&l.frame, lfx);
+                let img = l.cpu_image();
+                if img.w.max(img.h) > max_side as usize {
+                    // larger than a texture: placed on the CPU, drawn as a canvas-size picture
+                    let placed = img.transformed(w as usize, h as usize, &l.matrix);
+                    return Some(PlanLayer::new(Arc::new(VideoFrame::rgba_f32(w, h, placed.px)), filmcraft_geom::Affine::IDENTITY, l.opacity, l.blend));
+                }
                 Some(PlanLayer::new(Arc::new(VideoFrame::rgba_f32(img.w as u32, img.h as u32, img.px)), l.matrix, l.opacity, l.blend))
             })
             .collect();
@@ -1772,6 +1819,8 @@ fn quad_bounds(l: &PlanLayer, w: u32, h: u32) -> Option<(u32, u32, u32, u32)> {
 mod blend_tests;
 #[cfg(test)]
 mod colorops_tests;
+#[cfg(test)]
+mod comp_tests;
 #[cfg(test)]
 mod fx_tests;
 #[cfg(test)]

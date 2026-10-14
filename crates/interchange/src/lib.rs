@@ -475,6 +475,17 @@ pub fn merge_into(target: &mut Project, fragment: Imported, bin: Option<BinId>) 
                     mk.id = MarkerId(target.alloc_id());
                 }
             }
+            ItemKind::Comp(comp) => {
+                // Media In nodes point at pasted items by their old ids.
+                let comp = std::sync::Arc::make_mut(comp);
+                for n in &mut comp.nodes {
+                    if let filmcraft_project::comp::CompKind::MediaIn { source: filmcraft_project::comp::MediaInSource::Item { item }, .. } = &mut n.kind
+                        && let Some(i) = items.get(item)
+                    {
+                        *item = *i;
+                    }
+                }
+            }
             ItemKind::AdjustmentLayer { .. } | ItemKind::Graphic { .. } => {}
         }
         new_items.insert(it.id, it);

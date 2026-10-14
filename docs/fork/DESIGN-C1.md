@@ -314,7 +314,7 @@ the step it depends on is **committed**.
 
 | # | step | crate(s) | est. | lane | depends on |
 |---|---|---|---|---|---|
-| 1 | **ADR 0006** "One node graph for compositing and grading" (context: COMPOSITOR-PLAN + §1a.14; decision: `dag.rs` trait + scheduler shared by comps and grades, `Comp` as a project item, Color node = `GradeNode`, CPU oracle / GPU parity; consequences: C2 only adds node kinds; caps). Write first, update at the end. | docs | 1 h | integrator | — |
+| 1 | **ADR 0007** ([`docs/adr/0007-node-graph.md`](../adr/0007-node-graph.md); 0006 is user shader effects) "One node graph for compositing and grading" (context: COMPOSITOR-PLAN + §1a.14; decision: `dag.rs` trait + scheduler shared by comps and grades, `Comp` as a project item, Color node = `GradeNode`, CPU oracle / GPU parity; consequences: C2 only adds node kinds; caps). Write first, update at the end. | docs | 1 h | integrator | — |
 | 2 | `project/src/dag.rs` (trait, `validate`, errors, caps) + unit tests (topo order, cycle, caps, unreachable pruned, duplicate input, dangling ports) | project | 3 h | integrator | 1 |
 | 3 | `project/src/comp.rs` (`Comp`, `CompNode`, `CompKind`, params schema per kind, `sanitize`, `ItemKind::Comp` arms, `refuse_self_nesting` hook) + serde / hostile tests | project, engine (one fn) | 4 h | integrator | 2 |
 | 4 | Format bump + fixture + fuzz test | format | 1.5 h | **lane T** (test author) | 3 |

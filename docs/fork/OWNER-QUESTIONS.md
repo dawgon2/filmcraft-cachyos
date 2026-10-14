@@ -568,6 +568,9 @@ and to the linear working image), not raw linear premultiplied pixels; (c) the t
 because WGSL can't be stopped mid-frame. **Choice for now:** as in the ADR. Reversible: answer here
 and a run changes the ADR before step 4 (the runtime); steps 2–3 (parser, registry) don't depend on (a)–(c).
 
+**Owner answer (live, 2026-10-14 ~12:55): ok** (GPU-only stays).
+
+
 ## Q30 (2026-10-14, A2.8b, Dell lane): Voice Isolation misses two of its own acceptance bars on real speech (FYI, choice made)
 
 On ~50 LibriSpeech recordings (your Q26 yes), Voice Isolation beats DeNoise in every case and by a
@@ -585,3 +588,32 @@ anyway); (b) keep A2 open and re-measure on recordings of your own voice in a qu
 **Choice for now: (a)** with the numbers written into "A2 ready for acceptance"; (b) any time you
 drop recordings there. Nothing to undo.
 
+**Owner answer (live, 2026-10-14 ~12:55): (a) accepted.** "Yeah for now that's fine. We can train it
+better later." Re-measure if own-voice recordings appear.
+
+
+## Q31 (2026-10-14, H1 audit, Dell lane): test files for interlaced H.264 field pictures (PAFF) (question; MBAFF goes ahead)
+
+H1 makes interlaced H.264 (1080i camcorder footage) decode on the graphics card. There are two kinds
+of interlaced coding: **MBAFF**, which I can make test files for myself (x264 writes it), and **PAFF**
+(each field coded as its own picture), which neither x264 nor these GPUs' encoders can write. To test
+PAFF properly I'd need either (a) the ITU-T H.264.1 **conformance streams** (the official test
+bitstreams, freely downloadable from the ITU, tens of MB, kept on the Dell only, never committed),
+or (b) a 1080i file from a camcorder you have, or (c) nothing: PAFF then gets unit tests on synthetic
+headers only and no real-file check. **Until you answer: (c)** for PAFF, MBAFF fully tested; nothing
+to undo. Downloads still need your yes.
+
+**Owner answer (live, 2026-10-14 ~12:55): (a) yes.** Download the ITU-T H.264.1 conformance streams
+(Dell only, never committed) for PAFF and the other field / H2 conformance checks.
+
+
+## Q32 (2026-10-14, H2.7, Dell lane): slice-level threads in the H.264 software decoder (FYI, choice made)
+
+H264-PLAN H2 item 3 asks for slice-level threads, then frame-level. Frame-level threading already
+exists and measured on the Dell: 4K 10-bit 4:2:2 Long-GOP **43 fps**, a very high-rate (632 Mbit/s)
+4K 10-bit 4:2:2 Intra stream **27 fps** (docs/fork-benchmarks.md, H2.7). Slice threads would only
+shorten the wait for a single frame (scrubbing / a paused frame: ~0.1 s Long-GOP, ~0.3 s Intra at 4K
+on one core) and only on streams coded with several slices; a safe-Rust version needs per-slice views
+of the picture (a large refactor of the slice decoder). Options: (a) defer slice threads until a real
+file shows the single-frame wait matters; (b) build them now. **Choice: (a)**, revisit at H2.8 with
+real 4:2:2 / interlaced files and the i5-11600K numbers. Nothing to undo.

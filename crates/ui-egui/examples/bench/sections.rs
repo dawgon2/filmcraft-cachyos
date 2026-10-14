@@ -203,6 +203,8 @@ pub fn playback(o: &Opts) -> Vec<Value> {
         ("av1-2160", "full", 1.0, false),
         ("av1-2160", "half", 0.5, false),
         ("av1-2160", "half draft", 0.5, true),
+        ("comp-1080", "full", 1.0, false),
+        ("comp-2160", "half", 0.5, false),
     ];
     let mut rows = Vec::new();
     for &(scenario, res, scale, draft) in cases.iter().filter(|c| o.wants(&format!("{} {}", c.0, c.1))) {

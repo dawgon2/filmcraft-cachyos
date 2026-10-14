@@ -6,10 +6,12 @@
 //! jobs of later pictures block per row on the reference data they need, so several pictures decode
 //! concurrently (frame-level parallelism).
 
+use crate::deblock::DeblockSample;
 use crate::dpb::{Dpb, Output, OutputMeta, RefMark};
 use crate::error::{Error, Result, ensure, invalid, unsupported};
 use crate::params::{Pps, Sps};
 use crate::picture::{Frame, FrameRef, MbKind, MbState, Planes, RefPic};
+use crate::sample::Sample;
 use crate::slice::{NalHeader, Poc, PocState, SliceHeader, SliceType, is_new_picture, nal_type};
 use crate::slicedec::{PicState, SliceDecoder};
 use crate::transform::LevelScale;
@@ -19,24 +21,24 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 /// One slice of a picture job.
-struct SliceJob {
+struct SliceJob<S: Sample> {
     sh: SliceHeader,
     pps: Arc<Pps>,
     sps: Arc<Sps>,
     rbsp: Vec<u8>,
-    refs: [Vec<RefPic>; 2],
+    refs: [Vec<RefPic<S>>; 2],
     ls: Arc<LevelScale>,
 }
 
 /// A picture whose slices are being collected.
-struct PendingPic {
-    frame: FrameRef,
+struct PendingPic<S: Sample> {
+    frame: FrameRef<S>,
     sps: Arc<Sps>,
     first: SliceHeader,
     poc: Poc,
     pts: i64,
     key: bool,
-    slices: Vec<SliceJob>,
+    slices: Vec<SliceJob<S>>,
 }
 
 /// Counters describing what the decoder has seen (useful to check test coverage).
@@ -69,35 +71,103 @@ pub struct DecodeStats {
 
 /// State shared with decoding jobs.
 #[derive(Default)]
-struct Shared {
-    error: Mutex<Option<Error>>,
-    stats: Mutex<DecodeStats>,
+struct Shared<S: Sample> {
+    /// Error slot and statistics, kept across a change of sample type (jobs of the old core may
+    /// still finish after the switch).
+    error: Arc<Mutex<Option<Error>>>,
+    stats: Arc<Mutex<DecodeStats>>,
     /// Recycled picture buffers.
-    pool: Mutex<Vec<PicState>>,
+    pool: Mutex<Vec<PicState<S>>>,
 }
 
-/// H.264 decoder.
-pub struct Decoder {
+/// A picture sample type the decoder runs on: `u8` for 8-bit streams, `u16` above (fork H2).
+trait OutputSample: DeblockSample {
+    /// The cropped planes of a finished frame as [`Picture`] samples: 8-bit planes, or
+    /// (empty 8-bit planes and) 16-bit ones above 8 bits.
+    fn crop(frame: &Frame<Self>, crop: (usize, usize, usize, usize)) -> CroppedPlanes;
+}
+
+type CroppedPlanes = ((Vec<u8>, Vec<u8>, Vec<u8>), Option<[Vec<u16>; 3]>);
+
+impl OutputSample for u8 {
+    fn crop(frame: &Frame<u8>, crop: (usize, usize, usize, usize)) -> CroppedPlanes {
+        (frame.copy_cropped(crop), None)
+    }
+}
+
+impl OutputSample for u16 {
+    /// 8-bit pictures on this path ([`Decoder::set_wide_samples`]) come out as 8-bit planes.
+    fn crop(frame: &Frame<u16>, crop: (usize, usize, usize, usize)) -> CroppedPlanes {
+        let (y, u, v) = frame.copy_cropped_with(crop, Vec::with_capacity);
+        if frame.bit_depth > 8 {
+            return ((Vec::new(), Vec::new(), Vec::new()), Some([y, u, v]));
+        }
+        let narrow = |p: Vec<u16>| p.into_iter().map(|s| s.min(255) as u8).collect();
+        ((narrow(y), narrow(u), narrow(v)), None)
+    }
+}
+
+/// What a decoder core hands to its successor when the sample type changes.
+struct Parts {
     spss: Vec<Option<Arc<Sps>>>,
     ppss: Vec<Option<Arc<Pps>>>,
     nal_length_size: Option<usize>,
-    dpb: Dpb<FrameRef>,
+    next_id: u32,
+    stats: Arc<Mutex<DecodeStats>>,
+    error: Arc<Mutex<Option<Error>>>,
+    #[cfg(feature = "threads")]
+    pool: Option<rayon::ThreadPool>,
+    max_in_flight: usize,
+    threads: usize,
+    draft: bool,
+}
+
+/// The decoder for one sample type.
+struct Core<S: OutputSample> {
+    spss: Vec<Option<Arc<Sps>>>,
+    ppss: Vec<Option<Arc<Pps>>>,
+    nal_length_size: Option<usize>,
+    dpb: Dpb<FrameRef<S>>,
     poc_state: PocState,
     prev_ref_frame_num: u32,
-    pending: Option<PendingPic>,
+    pending: Option<PendingPic<S>>,
     next_id: u32,
     active_sps: Option<Arc<Sps>>,
     ls_cache: Vec<(Arc<Pps>, Arc<LevelScale>)>,
     /// Pictures leaving the DPB, converted once their decoding job has finished.
-    out_queue: VecDeque<Output<FrameRef>>,
-    shared: Arc<Shared>,
+    out_queue: VecDeque<Output<FrameRef<S>>>,
+    shared: Arc<Shared<S>>,
     #[cfg(feature = "threads")]
     pool: Option<rayon::ThreadPool>,
-    in_flight: VecDeque<FrameRef>,
+    in_flight: VecDeque<FrameRef<S>>,
     max_in_flight: usize,
     threads: usize,
     /// Draft mode: skip deblocking of non-reference pictures ([`Decoder::set_draft`]).
     draft: bool,
+}
+
+enum Inner {
+    /// 8-bit streams.
+    Narrow(Box<Core<u8>>),
+    /// Streams above 8 bits (and 8-bit ones with [`Decoder::set_wide_samples`]).
+    Wide(Box<Core<u16>>),
+}
+
+/// H.264 decoder.
+pub struct Decoder {
+    inner: Inner,
+    /// Pictures a replaced core output before the sample type changed.
+    carry: Vec<Picture>,
+    wide_samples: bool,
+}
+
+macro_rules! core {
+    ($inner:expr, $c:ident => $e:expr) => {
+        match $inner {
+            Inner::Narrow($c) => $e,
+            Inner::Wide($c) => $e,
+        }
+    };
 }
 
 impl Default for Decoder {
@@ -138,31 +208,25 @@ impl Decoder {
         let workers = if pool.is_some() { threads } else { 1 };
         #[cfg(not(feature = "threads"))]
         let workers = 1;
-        Decoder {
+        let parts = Parts {
             spss: vec![None; 32],
             ppss: vec![None; 256],
             nal_length_size: None,
-            dpb: Dpb::new(),
-            poc_state: PocState::default(),
-            prev_ref_frame_num: 0,
-            pending: None,
             next_id: 1,
-            active_sps: None,
-            ls_cache: Vec::new(),
-            out_queue: VecDeque::new(),
-            shared: Arc::new(Shared::default()),
+            stats: Arc::default(),
+            error: Arc::default(),
             #[cfg(feature = "threads")]
             pool,
-            in_flight: VecDeque::new(),
             max_in_flight: threads.max(1) + 2,
             threads: workers,
             draft: false,
-        }
+        };
+        Decoder { inner: Inner::Narrow(Box::new(Core::from_parts(parts))), carry: Vec::new(), wide_samples: false }
     }
 
     /// Worker threads decoding pictures (1: on the calling thread).
     pub fn threads(&self) -> usize {
-        self.threads
+        core!(&self.inner, c => c.threads)
     }
 
     /// Draft mode (off by default) for reduced-resolution playback: pictures submitted from now
@@ -172,11 +236,18 @@ impl Decoder {
     /// pictures themselves are approximate and flagged [`Picture::draft`]. Never use it for
     /// export or for a frame shown while paused.
     pub fn set_draft(&mut self, on: bool) {
-        self.draft = on;
+        core!(&mut self.inner, c => c.draft = on);
     }
 
     pub fn draft(&self) -> bool {
-        self.draft
+        core!(&self.inner, c => c.draft)
+    }
+
+    /// Test hook (fork H2): decode 8-bit streams through the 16-bit sample path too, from the
+    /// next slice on, so every 8-bit fixture checks that path against the 8-bit one.
+    #[doc(hidden)]
+    pub fn set_wide_samples(&mut self, on: bool) {
+        self.wide_samples = on;
     }
 
     /// Configure from an `avcC` (AVCDecoderConfigurationRecord) box payload.
@@ -190,7 +261,8 @@ impl Decoder {
     pub fn configure_avcc(&mut self, avcc: &[u8]) -> Result<()> {
         ensure!(avcc.len() >= 7, "avcC too short");
         ensure!(avcc[0] == 1, "unsupported avcC version {}", avcc[0]);
-        self.nal_length_size = Some((avcc[4] & 3) as usize + 1);
+        let length_size = Some((avcc[4] & 3) as usize + 1);
+        core!(&mut self.inner, c => c.nal_length_size = length_size);
         let mut pos = 5;
         let read_sets = |pos: &mut usize, count: usize, d: &mut Decoder| -> Result<()> {
             for _ in 0..count {
@@ -214,7 +286,7 @@ impl Decoder {
 
     /// Length of NAL length prefixes (from avcC), or None for Annex-B input.
     pub fn nal_length_size(&self) -> Option<usize> {
-        self.nal_length_size
+        core!(&self.inner, c => c.nal_length_size)
     }
 
     /// Decode one access unit (all NAL units of one picture, Annex-B or length-prefixed per
@@ -222,7 +294,7 @@ impl Decoder {
     /// pictures that became ready for output, in output order; `pts` travels with the picture of
     /// this access unit through reordering.
     pub fn decode(&mut self, data: &[u8], pts: i64) -> Result<Vec<Picture>> {
-        let nals = match self.nal_length_size {
+        let nals = match self.nal_length_size() {
             Some(n) => length_prefixed_nals(data, n)?,
             None => annexb_nals(data),
         };
@@ -233,7 +305,112 @@ impl Decoder {
                 break;
             }
         }
-        // The access unit is complete: hand its picture to a decoding job.
+        let pics = core!(&mut self.inner, c => c.finish_access_unit(result))?;
+        let mut out = std::mem::take(&mut self.carry);
+        out.extend(pics);
+        Ok(out)
+    }
+
+    /// Output all remaining pictures (end of stream).
+    pub fn flush(&mut self) -> Vec<Picture> {
+        let mut out = std::mem::take(&mut self.carry);
+        out.extend(core!(&mut self.inner, c => c.flush()));
+        out
+    }
+
+    /// Statistics accumulated so far (macroblock counts include finished pictures only).
+    pub fn stats(&self) -> DecodeStats {
+        core!(&self.inner, c => c.stats())
+    }
+
+    /// First error reported by a decoding job since the last call (also returned by
+    /// [`Decoder::decode`]); useful after [`Decoder::flush`].
+    pub fn take_error(&mut self) -> Option<Error> {
+        core!(&mut self.inner, c => c.take_error())
+    }
+
+    fn handle_nal(&mut self, nal: &[u8], pts: i64) -> Result<()> {
+        if let Some(wide) = core!(&self.inner, c => c.slice_is_wide(nal)) {
+            let wide = wide || self.wide_samples;
+            if wide != matches!(self.inner, Inner::Wide(_)) {
+                self.switch_core(wide);
+            }
+        }
+        core!(&mut self.inner, c => c.handle_nal(nal, pts))
+    }
+
+    /// Replace the core by one of the other sample type: the old one's remaining pictures are
+    /// output first, parameter sets, settings, statistics and a pending error carry over.
+    fn switch_core(&mut self, wide: bool) {
+        let carry = &mut self.carry;
+        let parts = core!(&mut self.inner, c => c.take_parts(carry));
+        self.inner = if wide { Inner::Wide(Box::new(Core::from_parts(parts))) } else { Inner::Narrow(Box::new(Core::from_parts(parts))) };
+    }
+}
+
+impl<S: OutputSample> Core<S> {
+    fn from_parts(p: Parts) -> Self {
+        let shared = Shared { error: p.error, stats: p.stats, pool: Mutex::new(Vec::new()) };
+        Core {
+            spss: p.spss,
+            ppss: p.ppss,
+            nal_length_size: p.nal_length_size,
+            dpb: Dpb::new(),
+            poc_state: PocState::default(),
+            prev_ref_frame_num: 0,
+            pending: None,
+            next_id: p.next_id,
+            active_sps: None,
+            ls_cache: Vec::new(),
+            out_queue: VecDeque::new(),
+            shared: Arc::new(shared),
+            #[cfg(feature = "threads")]
+            pool: p.pool,
+            in_flight: VecDeque::new(),
+            max_in_flight: p.max_in_flight,
+            threads: p.threads,
+            draft: p.draft,
+        }
+    }
+
+    /// Finish this core: its remaining pictures go to `out`, the rest to the returned parts.
+    fn take_parts(&mut self, out: &mut Vec<Picture>) -> Parts {
+        out.extend(self.flush());
+        Parts {
+            spss: std::mem::take(&mut self.spss),
+            ppss: std::mem::take(&mut self.ppss),
+            nal_length_size: self.nal_length_size,
+            next_id: self.next_id,
+            stats: self.shared.stats.clone(),
+            error: self.shared.error.clone(),
+            #[cfg(feature = "threads")]
+            pool: self.pool.take(),
+            max_in_flight: self.max_in_flight,
+            threads: self.threads,
+            draft: self.draft,
+        }
+    }
+
+    /// For a slice NAL whose parameter sets are known: whether its SPS needs more than 8 bits.
+    fn slice_is_wide(&self, nal: &[u8]) -> Option<bool> {
+        let hdr = NalHeader::parse(*nal.first()?).ok()?;
+        if !matches!(hdr.nal_unit_type, nal_type::SLICE | nal_type::IDR) {
+            return None;
+        }
+        // first_mb_in_slice, slice_type and pic_parameter_set_id fit in the first few bytes
+        let head = unescape_rbsp(nal.get(1..nal.len().min(33))?);
+        let mut r = BitReader::new(&head);
+        r.read_ue().ok()?;
+        r.read_ue().ok()?;
+        let pps_id = r.read_ue().ok()?;
+        let pps = self.ppss.get(pps_id as usize)?.as_ref()?;
+        let sps = self.spss.get(pps.sps_id as usize)?.as_ref()?;
+        Some(sps.bit_depth_luma > 8 || sps.bit_depth_chroma > 8)
+    }
+
+    /// The access unit is complete: hand its picture to a decoding job and return the pictures
+    /// ready for output (`result`: how parsing its NAL units went).
+    fn finish_access_unit(&mut self, mut result: Result<()>) -> Result<Vec<Picture>> {
         self.submit_pending();
         if let Some(e) = self.take_error() {
             result = result.and(Err(e));
@@ -252,8 +429,7 @@ impl Decoder {
         Ok(pics)
     }
 
-    /// Output all remaining pictures (end of stream).
-    pub fn flush(&mut self) -> Vec<Picture> {
+    fn flush(&mut self) -> Vec<Picture> {
         self.submit_pending();
         let mut outs = Vec::new();
         self.dpb.flush(&mut outs);
@@ -265,8 +441,7 @@ impl Decoder {
         pics
     }
 
-    /// Statistics accumulated so far (macroblock counts include finished pictures only).
-    pub fn stats(&self) -> DecodeStats {
+    fn stats(&self) -> DecodeStats {
         self.shared.stats.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
@@ -276,9 +451,7 @@ impl Decoder {
         }
     }
 
-    /// First error reported by a decoding job since the last call (also returned by
-    /// [`Decoder::decode`]); useful after [`Decoder::flush`].
-    pub fn take_error(&mut self) -> Option<Error> {
+    fn take_error(&mut self) -> Option<Error> {
         self.shared.error.lock().ok().and_then(|mut e| e.take())
     }
 
@@ -335,7 +508,7 @@ impl Decoder {
         let Some((pps, sps)) = found else {
             return Err(Error::MissingParameterSet("PPS".into()));
         };
-        sps.check_supported()?;
+        sps.check_software_supported()?;
         if pps.num_slice_groups > 1 {
             return unsupported("slice groups (FMO)");
         }
@@ -417,6 +590,9 @@ impl Decoder {
         self.dpb.max_reorder = sps.max_num_reorder_frames().min(self.dpb.capacity);
         let mb_w = sps.pic_width_in_mbs as usize;
         let mb_h = sps.frame_height_in_mbs() as usize;
+        // One depth per frame for now (luma's); H2.2 decides on differing luma / chroma depths.
+        let depth = sps.bit_depth_luma.clamp(8, 14) as u8;
+        let c422 = sps.chroma_format_idc == 2;
         if sh.idr {
             let mut outs = Vec::new();
             self.dpb.idr(sh.no_output_of_prior_pics, &mut outs);
@@ -436,16 +612,16 @@ impl Decoder {
                     *next_id += 1;
                     let planes = match &last {
                         Some(f) if f.mb_w == mb_w && f.mb_h() == mb_h => {
-                            let mut p = Planes::new(mb_w * 16, mb_h * 16);
-                            let (y, u, v) = f.copy_cropped((0, 0, mb_w * 16, mb_h * 16));
+                            let mut p = Planes::with_depth(mb_w * 16, mb_h * 16, depth, c422);
+                            let (y, u, v) = f.copy_cropped_with((0, 0, mb_w * 16, mb_h * 16), Vec::with_capacity);
                             p.y = y;
                             p.cb = u;
                             p.cr = v;
                             p
                         }
-                        _ => Planes::gray(mb_w * 16, mb_h * 16),
+                        _ => Planes::gray_with_depth(mb_w * 16, mb_h * 16, depth, c422),
                     };
-                    (Arc::new(Frame::from_planes(id, 0, &planes)), 0, meta.clone())
+                    (Arc::new(Frame::from_planes(id, 0, &planes, depth)), 0, meta.clone())
                 };
                 let mut upd = |fnum: u32| poc_state.update_gap_frame(fnum, sps);
                 self.shared.stats.lock().map(|mut s| s.frame_num_gaps += 1).ok();
@@ -458,7 +634,7 @@ impl Decoder {
         let frame_poc = if sh.has_mmco5() { 0 } else { poc.frame() };
         let id = self.next_id;
         self.next_id += 1;
-        let frame = Arc::new(Frame::new(id, frame_poc, mb_w, mb_h));
+        let frame = Arc::new(Frame::with_depth(id, frame_poc, mb_w, mb_h, depth, c422));
         self.pending = Some(PendingPic { frame, sps: sps.clone(), first: sh.clone(), poc, pts, key: sh.idr, slices: Vec::new() });
         Ok(())
     }
@@ -480,7 +656,7 @@ impl Decoder {
         self.emit(outs);
     }
 
-    fn dispatch(&mut self, frame: FrameRef, slices: Vec<SliceJob>, draft: bool) {
+    fn dispatch(&mut self, frame: FrameRef<S>, slices: Vec<SliceJob<S>>, draft: bool) {
         let shared = self.shared.clone();
         #[cfg(feature = "threads")]
         if let Some(pool) = &self.pool {
@@ -497,16 +673,16 @@ impl Decoder {
         run_job(frame, slices, &shared, draft);
     }
 
-    fn emit(&mut self, outs: Vec<Output<FrameRef>>) {
+    fn emit(&mut self, outs: Vec<Output<FrameRef<S>>>) {
         self.out_queue.extend(outs);
     }
 }
 
 /// Decode all slices of one picture and publish its rows.
-fn run_job(frame: FrameRef, slices: Vec<SliceJob>, shared: &Shared, draft: bool) {
+fn run_job<S: OutputSample>(frame: FrameRef<S>, slices: Vec<SliceJob<S>>, shared: &Shared<S>, draft: bool) {
     let reuse = shared.pool.lock().ok().and_then(|mut p| p.pop());
     let mut pic = match reuse {
-        Some(mut p) if p.mb_w == frame.mb_w && p.mb_h == frame.mb_h() => {
+        Some(mut p) if p.mb_w == frame.mb_w && p.mb_h == frame.mb_h() && (p.planes.cheight == p.planes.height) == frame.c422 => {
             p.reset(frame.clone());
             p
         }
@@ -527,7 +703,7 @@ fn run_job(frame: FrameRef, slices: Vec<SliceJob>, shared: &Shared, draft: bool)
         Ok(e) => e,
         Err(_) => {
             // Make sure readers never block on this frame.
-            let fallback = Planes::gray(frame.width, frame.height);
+            let fallback = Planes::gray_with_depth(frame.width, frame.height, frame.bit_depth, frame.c422);
             let blank = vec![MbState::default(); frame.mb_w * frame.mb_h()];
             for r in 0..frame.mb_h() {
                 if !frame.is_published(r) {
@@ -568,8 +744,13 @@ fn run_job(frame: FrameRef, slices: Vec<SliceJob>, shared: &Shared, draft: bool)
     }
 }
 
-fn decode_slice(s: &SliceJob, pic: &mut PicState) -> Result<()> {
-    let mut sd = SliceDecoder::new(&s.sh, &s.pps, &s.sps, pic, &s.refs, &s.ls)?;
+fn decode_slice<S: OutputSample>(s: &SliceJob<S>, pic: &mut PicState<S>) -> Result<()> {
+    // the chroma format as a type-level constant (no 4:2:2 branches in the 4:2:0 decoder)
+    if pic.frame.c422 { decode_slice_as::<S, true>(s, pic) } else { decode_slice_as::<S, false>(s, pic) }
+}
+
+fn decode_slice_as<S: OutputSample, const C422: bool>(s: &SliceJob<S>, pic: &mut PicState<S>) -> Result<()> {
+    let mut sd = SliceDecoder::<S, C422>::new(&s.sh, &s.pps, &s.sps, pic, &s.refs, &s.ls)?;
     if s.pps.entropy_coding_mode {
         sd.decode_cabac(&s.rbsp)
     } else {
@@ -594,11 +775,11 @@ fn output_meta(sps: &Sps, pts: i64, key: bool) -> OutputMeta {
     }
 }
 
-fn make_picture(o: &Output<FrameRef>) -> Picture {
+fn make_picture<S: OutputSample>(o: &Output<FrameRef<S>>) -> Picture {
     let (cx, cy, cw, ch) = o.meta.crop;
     let (cx, cy, cw, ch) = (cx as usize, cy as usize, cw as usize, ch as usize);
-    let (y, u, v) = o.frame.copy_cropped((cx, cy, cw, ch));
-    let (ccw, cch) = (cw.div_ceil(2), ch.div_ceil(2));
+    let ((y, u, v), high) = S::crop(&o.frame, (cx, cy, cw, ch));
+    let (ccw, cch) = (cw.div_ceil(2), if o.frame.c422 { ch } else { ch.div_ceil(2) });
     Picture {
         width: cw as u32,
         height: ch as u32,
@@ -607,6 +788,9 @@ fn make_picture(o: &Output<FrameRef>) -> Picture {
         y,
         u,
         v,
+        bit_depth: u32::from(o.frame.bit_depth),
+        chroma_format_idc: if o.frame.c422 { 2 } else { 1 },
+        high,
         y_stride: cw,
         uv_stride: ccw,
         pts: o.meta.pts,

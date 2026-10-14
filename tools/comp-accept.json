@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {"id": "comp.newClip", "params": {"track": "V2", "seconds": 0.0}},
+    {"id": "comp.addNode", "params": {"kind": "mediaIn", "track": 0, "label": "V1 footage", "pos": [0, 0]}},
+    {"id": "comp.addNode", "params": {"kind": "key", "effect": "luma_key", "pos": [160, 0]}},
+    {"id": "comp.addNode", "params": {"kind": "solid", "label": "Background", "pos": [160, 120]}},
+    {"id": "comp.addNode", "params": {"kind": "merge", "pos": [320, 60]}},
+    {"id": "comp.addNode", "params": {"kind": "color", "pos": [480, 60]}},
+    {"id": "comp.setParam", "params": {"node": 4, "param": "color", "value": [0.1, 0.1, 0.12, 1.0]}},
+    {"id": "comp.connect", "params": {"from": 2, "to": 3}},
+    {"id": "comp.connect", "params": {"from": 4, "to": 5, "toPort": 0}},
+    {"id": "comp.connect", "params": {"from": 3, "to": 5, "toPort": 1}},
+    {"id": "comp.connect", "params": {"from": 5, "to": 6}},
+    {"id": "comp.connect", "params": {"from": 6, "to": 1}},
+    {"id": "comp.newClip", "params": {"track": "V3", "seconds": 0.0}},
+    {"id": "comp.addNode", "params": {"kind": "text", "label": "Title", "pos": [0, 0]}},
+    {"id": "comp.addNode", "params": {"kind": "transform", "pos": [160, 0]}},
+    {"id": "comp.addNode", "params": {"kind": "mediaIn", "track": 0, "label": "V1 footage", "pos": [160, 120]}},
+    {"id": "comp.addNode", "params": {"kind": "merge", "pos": [320, 60]}},
+    {"id": "comp.setParam", "params": {"node": 2, "param": "text", "value": "Comp B"}},
+    {"id": "comp.setParam", "params": {"node": 3, "param": "scale", "value": 80.0}},
+    {"id": "comp.connect", "params": {"from": 2, "to": 3}},
+    {"id": "comp.connect", "params": {"from": 4, "to": 5, "toPort": 0}},
+    {"id": "comp.connect", "params": {"from": 3, "to": 5, "toPort": 1}},
+    {"id": "comp.connect", "params": {"from": 5, "to": 1}}
+  ]
+}

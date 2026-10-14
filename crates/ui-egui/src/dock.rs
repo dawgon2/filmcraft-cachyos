@@ -49,6 +49,7 @@ pub enum PanelKind {
     /// Color grading: the stills gallery (grab, compare, apply a still's grade).
     Gallery,
     ProjectNotes,
+    Compositor,
     /// Color page: the sequence's clips as thumbnails over a mini timeline (Resolve's clip strip).
     ColorClips,
     /// Resolve workflow's Deliver page (fork RS3): the export settings as a panel. Not in
@@ -60,7 +61,7 @@ pub enum PanelKind {
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 33] = [
+    pub const ALL: [PanelKind; 34] = [
         PanelKind::Project,
         PanelKind::MediaBrowser,
         PanelKind::Libraries,
@@ -94,6 +95,7 @@ impl PanelKind {
         PanelKind::ProjectNotes,
         PanelKind::ColorClips,
         PanelKind::ColorCurves,
+        PanelKind::Compositor,
     ];
     /// Panels only the Resolve workflow's pages use (fork RS3), kept out of [`PanelKind::ALL`].
     pub const RESOLVE_ONLY: [PanelKind; 2] = [PanelKind::RenderSettings, PanelKind::RenderQueue];
@@ -131,6 +133,7 @@ impl PanelKind {
             PanelKind::ColorCurves => "Curves",
             PanelKind::Gallery => "Gallery",
             PanelKind::ProjectNotes => "Project Notes",
+            PanelKind::Compositor => "Compositor",
             PanelKind::ColorClips => "Clips",
             PanelKind::RenderSettings => "Render Settings",
             PanelKind::RenderQueue => "Render Queue",
@@ -212,8 +215,8 @@ fn vsplit(size: SplitSize, a: DockNode, b: DockNode) -> DockNode {
     DockNode::Split { vertical: true, size, a: Box::new(a), b: Box::new(b) }
 }
 
-pub const WORKSPACES: [&str; 10] =
-    ["Editing", "Assembly", "Color", "Color Grading", "Effects", "Audio", "Captions and Graphics", "Learning", "Review", "All Panels"];
+pub const WORKSPACES: [&str; 11] =
+    ["Editing", "Assembly", "Color", "Color Grading", "Effects", "Audio", "Captions and Graphics", "Compositing", "Learning", "Review", "All Panels"];
 
 /// The Resolve workflow's page layouts (fork RS3), built-in workspaces listed only in that
 /// workflow: (workspace, the Premiere-workflow workspace it stands for). The Color page is the
@@ -516,6 +519,13 @@ pub fn workspace(name: &str) -> DockNode {
             FixedA(450.0),
             tabs(&[RenderSettings], 0),
             vsplit(Ratio(0.55), hsplit(FixedB(420.0), tabs(&[Program], 0), tabs(&[RenderQueue], 0)), tabs(&[Timeline], 0)),
+        ),
+        // fork C1: the Compositor large beside the Program monitor, the project and the timeline
+        // under them (Window ▸ Workspaces ▸ Compositing; Resolve workflow: the Fusion page)
+        "Compositing" => vsplit(
+            Ratio(0.58),
+            hsplit(Ratio(0.55), tabs(&[Compositor], 0), tabs(&[Program], 0)),
+            hsplit(Ratio(0.3), tabs(&[Project, EffectControls, Effects], 0), bottom_editing()),
         ),
         "Captions and Graphics" => hsplit(
             FixedB(330.0),
@@ -1096,7 +1106,7 @@ mod tests {
             s.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
         }
         let got: Vec<(&str, u64)> = WORKSPACES.iter().map(|w| (*w, fnv(&serde_json::to_string(&workspace(w)).unwrap()))).collect();
-        let want: [(&str, u64); 10] = [
+        let want: [(&str, u64); 11] = [
             ("Editing", 0x2d97a8099673ed40),
             ("Assembly", 0xee28d0d99897cb70),
             ("Color", 0xca51e1b14eabdf32),
@@ -1104,6 +1114,7 @@ mod tests {
             ("Effects", 0xbd17ffaeeb6d7ce9),
             ("Audio", 0x24656433eab1d7cf),
             ("Captions and Graphics", 0x83110857e008a2ee),
+            ("Compositing", 0x59e002669a53c992),
             ("Learning", 0x2d97a8099673ed40),
             ("Review", 0x2d97a8099673ed40),
             ("All Panels", 0x2b7399c614e112fa),

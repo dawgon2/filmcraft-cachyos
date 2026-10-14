@@ -63,6 +63,8 @@ const HOW_BOOST: f64 = 1.15;
 /// A section whose heading words all appear in the question scores this much more (in part when
 /// some do). One-word headings (glossary entries) only count for a "what is …" question.
 const HEADING_MATCH: f64 = 0.3;
+/// An "X vs Y" question: a section that names both counts this much more.
+const COMPARE_BOOST: f64 = 1.5;
 /// How much a synonym's expansion counts compared with a word of the question.
 const SYNONYM_WEIGHT: f64 = 0.5;
 
@@ -73,6 +75,7 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("audio.md", include_str!("../../../docs/guide/audio.md")),
     ("cards.md", include_str!("../../../docs/guide/cards.md")),
     ("edit-menu.md", include_str!("../../../docs/guide/edit-menu.md")),
+    ("compositor.md", include_str!("../../../docs/guide/compositor.md")),
     ("editing.md", include_str!("../../../docs/guide/editing.md")),
     ("essential-sound.md", include_str!("../../../docs/guide/essential-sound.md")),
     ("effects.md", include_str!("../../../docs/guide/effects.md")),
@@ -126,7 +129,9 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
 /// ranking of colour questions): not searched.
 /// AI3-PREP feature pages after `timeline.md` (AI3-PREP.2d): the 116-question colour eval sits at
 /// its floor, and each general page's words pushed it one below; they stay in the guide (and
-/// their headers) for AI3's retrieval, which replaces this keyword index.
+/// their headers) for AI3's retrieval, which replaces this keyword index. (`compositor.md` is
+/// indexed since C1 item 7: the colour set had room after the C1 routes; 91 of its questions still
+/// pass with it.)
 const NOT_INDEXED: &[&str] = &[
     "README.md",
     "linux.md",
@@ -529,6 +534,78 @@ fn synonyms() -> &'static HashMap<String, Vec<String>> {
     })
 }
 
+/// Words that make a question a "what is X for" one (C1 item 6, coach-eval DIAGNOSIS §4 route
+/// `what-for`).
+const PURPOSE_WORDS: &[&str] = &["useful", "good", "use", "purpose", "point", "handy", "helpful"];
+
+/// Whether the question asks what something is for: "what is X good / useful for", "what could I
+/// use X for", "when do I use X", "what's the point of X".
+fn what_for(question: &str) -> bool {
+    let lower = question.chars().take(MAX_QUESTION_CHARS).collect::<String>().to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let has = |w: &str| words.contains(&w);
+    let purpose = PURPOSE_WORDS.iter().any(|w| has(w));
+    (purpose && has("for")) || (has("when") && has("use")) || (has("point") && has("of"))
+}
+
+/// Words that make a question an "X vs Y" one (DIAGNOSIS §4 route `x-vs-y`); they say how to
+/// answer, not what about.
+const COMPARE_WORDS: &[&str] = &["difference", "differences", "different", "diff", "between", "compared", "versus"];
+
+/// Whether the question compares two things: "difference between X and Y", "X vs Y".
+fn x_vs_y(question: &str) -> bool {
+    let lower = question.chars().take(MAX_QUESTION_CHARS).collect::<String>().to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let has = |w: &str| words.contains(&w);
+    has("vs") || has("versus") || ((has("difference") || has("diff")) && (has("between") || has("and") || has("vs")))
+}
+
+/// Words of an order question ("at what point do I…", "where does X go in the chain") that say
+/// what kind of answer it wants (DIAGNOSIS §4 route `order`).
+const ORDER_WORDS: &[&str] = &["order", "first", "last", "before", "after", "tackle", "then", "point", "go", "should", "chain", "when"];
+
+/// The order words of an order question (stemmed; none for another question). They rank like any
+/// word of the question (sections about order use them) but only say what kind of answer is
+/// wanted, so the coverage gate counts them only where a section has them.
+fn order_words(question: &str) -> Vec<String> {
+    if order_question(question) { ORDER_WORDS.iter().flat_map(|w| tokenize(w, 64)).collect() } else { Vec::new() }
+}
+
+/// Whether the question asks about order or timing.
+fn order_question(question: &str) -> bool {
+    let lower = question.chars().take(MAX_QUESTION_CHARS).collect::<String>().to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let has = |w: &str| words.contains(&w);
+    has("order")
+        || has("tackle")
+        || (has("when") && has("should"))
+        || (has("what") && has("point"))
+        || (has("go") && has("chain"))
+        || has("before")
+        || has("after")
+}
+
+/// The `not-yet` route (DIAGNOSIS §4): in an "is there / do you have / where is / can I" question,
+/// the first word that no guide section uses, itself or through a synonym, as typed (at most 40
+/// chars). None for other questions or when every word is known.
+fn not_yet(question: &str) -> Option<String> {
+    let lower = question.chars().take(MAX_QUESTION_CHARS).collect::<String>().to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let starts = |a: &str, b: &str| words.windows(2).any(|p| p.first() == Some(&a) && p.get(1) == Some(&b));
+    if !(starts("is", "there") || starts("do", "you") || starts("where", "is") || starts("where", "s") || starts("can", "i")) {
+        return None;
+    }
+    let index = &guide().index;
+    let known = |t: &String| index.df.contains_key(t) || synonyms().get(t).is_some_and(|e| e.iter().any(|x| index.df.contains_key(x)));
+    words
+        .iter()
+        .find(|w| {
+            let toks = tokenize(w, 64);
+            !toks.is_empty() && !toks.iter().all(known)
+        })
+        .map(|w| w.chars().take(40).collect())
+}
+
 /// The query's terms with their weights: the question's words (1) and their synonyms (½).
 pub fn query_terms(question: &str) -> Vec<(String, f64)> {
     let mut terms: Vec<(String, f64)> = Vec::new();
@@ -539,7 +616,20 @@ pub fn query_terms(question: &str) -> Vec<(String, f64)> {
             terms.push((t.to_string(), w));
         }
     };
-    let words = tokenize(question, MAX_QUESTION_CHARS);
+    let mut words = tokenize(question, MAX_QUESTION_CHARS);
+    if x_vs_y(question) {
+        // "the difference between X and Y": X and Y are the topic
+        let kind: Vec<String> = COMPARE_WORDS.iter().flat_map(|w| tokenize(w, 64)).collect();
+        words.retain(|w| !kind.contains(w));
+    }
+    if what_for(question) {
+        // "what is X good for": the purpose words are the question type, not its topic
+        let purpose: Vec<String> = PURPOSE_WORDS.iter().flat_map(|w| tokenize(w, 64)).collect();
+        words.retain(|w| !purpose.contains(w));
+        for w in tokenize("why", 64) {
+            add(&w, SYNONYM_WEIGHT, &mut terms);
+        }
+    }
     for w in &words {
         add(w, 1.0, &mut terms);
     }
@@ -547,6 +637,21 @@ pub fn query_terms(question: &str) -> Vec<(String, f64)> {
         if let Some(exp) = synonyms().get(w) {
             for e in exp {
                 add(e, SYNONYM_WEIGHT, &mut terms);
+            }
+        }
+    }
+    // a word the guide never uses whose synonyms it does (a typo, a cut-off word) is replaced by
+    // them: otherwise it counts as an unknown word and sinks the confidence
+    let index = &guide().index;
+    for w in &words {
+        if index.df.contains_key(w) {
+            continue;
+        }
+        let Some(exp) = synonyms().get(w).filter(|e| e.iter().any(|x| index.df.contains_key(x))) else { continue };
+        terms.retain(|(t, _)| t != w);
+        for e in exp {
+            if let Some(t) = terms.iter_mut().find(|(t, _)| t == e) {
+                t.1 = 1.0;
             }
         }
     }
@@ -915,7 +1020,13 @@ fn rank_terms(question: &str, terms: &[(String, f64)]) -> Vec<(usize, f64)> {
     let lower = question.chars().take(MAX_QUESTION_CHARS).collect::<String>().to_lowercase();
     let has = |word: &str| lower.split(|c: char| !c.is_alphanumeric()).any(|w| w == word);
     let (how, what) = (has("how"), has("what") || has("explain") || has("mean"));
+    // "X vs Y": a section that names every topic word beats one that names only X (conjunctive)
+    let both: Vec<&String> =
+        if x_vs_y(question) { terms.iter().filter(|(t, w)| *w >= 1.0 && g.index.df.contains_key(t)).map(|(t, _)| t).collect() } else { Vec::new() };
     for (i, s) in &mut ranked {
+        if both.len() >= 2 && both.iter().all(|t| g.index.has(*i, t)) {
+            *s *= COMPARE_BOOST;
+        }
         if how && g.has_steps.get(*i).copied().unwrap_or(false) {
             *s *= HOW_BOOST;
         }
@@ -1177,6 +1288,12 @@ pub struct Source {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Answer {
     pub question: String,
+    /// A word of an "is there / where is" question that no guide section uses (the `not-yet`
+    /// route): the answer says the guide doesn't mention it.
+    pub missing: Option<String>,
+    /// A "why" or "what is X for" question: the summary (the section's why) is shown ahead of
+    /// the steps, not only when there are none (DIAGNOSIS §4).
+    pub explain: bool,
     pub steps: Vec<AskStep>,
     pub sources: Vec<Source>,
     /// The closest lesson (id, title).
@@ -1232,6 +1349,9 @@ impl Answer {
             (false, _, _) => Value::Null,
             (true, true, Some(title)) => json!(format!("Try the lesson \u{201c}{title}\u{201d}.")),
             (true, true, None) => json!("The guide has no step-by-step answer for this yet; see the source below."),
+            (true, false, _) if self.missing.is_some() => {
+                json!(format!("The guide doesn't mention \u{201c}{}\u{201d}.", self.missing.as_deref().unwrap_or_default()))
+            }
             (true, false, Some(title)) => json!(format!("The guide doesn't cover this yet. The closest lesson is \u{201c}{title}\u{201d}.")),
             (true, false, None) if query_terms(&self.question).is_empty() => {
                 json!("Ask about a grading task, for example \u{201c}how do I make the sky bluer?\u{201d}")
@@ -1255,24 +1375,28 @@ impl Answer {
             "summary": self.summary,
             "message": message,
             "uiChecked": self.ui_checked,
+            "missing": self.missing,
+            "explain": self.explain,
         })
     }
 }
 
 /// The share of the question's own words found (themselves or a synonym) in the sections
 /// `docs` of the guide index.
-fn coverage(terms: &[(String, f64)], docs: &[usize]) -> f64 {
-    coverage_in(&guide().index, terms, docs)
+fn coverage(terms: &[(String, f64)], docs: &[usize], optional: &[String]) -> f64 {
+    coverage_in(&guide().index, terms, docs, optional)
 }
 
 /// The same in any index (the lessons').
-fn coverage_in(index: &Index, terms: &[(String, f64)], docs: &[usize]) -> f64 {
-    let own: Vec<&String> = terms.iter().filter(|(_, w)| *w >= 1.0).map(|(t, _)| t).collect();
+/// An `optional` word counts when the sections have it and is ignored when they don't.
+fn coverage_in(index: &Index, terms: &[(String, f64)], docs: &[usize], optional: &[String]) -> f64 {
+    let found = |t: &str| docs.iter().any(|d| index.has(*d, t));
+    let hit = |t: &str| found(t) || synonyms().get(t).is_some_and(|e| e.iter().any(|x| found(x)));
+    let own: Vec<&String> = terms.iter().filter(|(t, w)| *w >= 1.0 && (!optional.contains(t) || hit(t))).map(|(t, _)| t).collect();
     if own.is_empty() {
         return 0.0;
     }
-    let found = |t: &str| docs.iter().any(|d| index.has(*d, t));
-    let hit = own.iter().filter(|t| found(t) || synonyms().get(t.as_str()).is_some_and(|e| e.iter().any(|x| found(x)))).count();
+    let hit = own.iter().filter(|t| hit(t)).count();
     hit as f64 / own.len() as f64
 }
 
@@ -1281,7 +1405,8 @@ pub fn ask(question: &str, checks: &Checks) -> Answer {
     let g = guide();
     let terms = query_terms(question);
     let ranked = rank_terms(question, &terms);
-    let ceiling = g.index.ceiling(&terms) * HOW_BOOST * (1.0 + HEADING_MATCH);
+    let compare = if x_vs_y(question) { COMPARE_BOOST } else { 1.0 };
+    let ceiling = g.index.ceiling(&terms) * HOW_BOOST * (1.0 + HEADING_MATCH) * compare;
     let shown: String = question.chars().take(200).map(|c| if c.is_control() { ' ' } else { c }).collect();
     let mut a = Answer {
         question: shown.trim().to_string(),
@@ -1299,6 +1424,8 @@ pub fn ask(question: &str, checks: &Checks) -> Answer {
         fallback: true,
         summary: String::new(),
         ui_checked: checks.ui.is_some(),
+        missing: not_yet(question),
+        explain: what_for(question) || question.split(|c: char| !c.is_alphanumeric()).next().is_some_and(|w| w.eq_ignore_ascii_case("why")),
     };
     // the closest lesson, when it is relevant enough
     let lesson_ceiling = g.lessons.ceiling(&terms);
@@ -1306,7 +1433,7 @@ pub fn ask(question: &str, checks: &Checks) -> Answer {
         .lessons
         .rank(&terms)
         .first()
-        .filter(|(i, _)| coverage_in(&g.lessons, &terms, &[*i]) >= MIN_COVERAGE)
+        .filter(|(i, _)| coverage_in(&g.lessons, &terms, &[*i], &[]) >= MIN_COVERAGE)
         .map(|(i, score)| (*i, if lesson_ceiling > 0.0 { score / lesson_ceiling } else { 0.0 }));
     let pick = |min: f64| lesson.filter(|(_, c)| *c >= min).and_then(|(i, _)| crate::coach::bundled().get(i)).map(|l| (l.id.clone(), l.title.clone()));
     // a question the guide doesn't cover gets a lesson only when that lesson is clearly about it
@@ -1317,8 +1444,10 @@ pub fn ask(question: &str, checks: &Checks) -> Answer {
     let from = steps_section(&g.sections, best);
     let from_index = from.filter(|n| !std::ptr::eq(*n, sec)).map(|_| best.saturating_add(1));
     let docs: Vec<usize> = [Some(best), from_index].into_iter().flatten().collect();
-    a.coverage = coverage(&terms, &docs);
+    a.coverage = coverage(&terms, &docs, &order_words(question));
     a.covered = a.confidence >= MIN_CONFIDENCE && a.coverage >= MIN_COVERAGE;
+    // "is there a …" about a word the guide never uses: say so instead of answering about the rest
+    a.covered &= a.missing.is_none();
     if !a.covered {
         return a;
     }

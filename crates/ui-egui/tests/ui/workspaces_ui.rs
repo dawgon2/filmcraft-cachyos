@@ -170,6 +170,7 @@ fn save_switch_reset_rename_delete_and_restart() {
             "Captions and Graphics",
             "Color",
             "Color Grading",
+            "Compositing",
             "Cutting",
             "Editing",
             "Effects",

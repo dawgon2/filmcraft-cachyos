@@ -483,6 +483,10 @@ fn rate_frames(fps: f64, secs: f64) -> i64 {
 }
 
 pub fn xm5(o: &Opts) -> Vec<Value> {
+    // (fork C1) the comp soak: only by its own name, nothing else in this section
+    if o.only.as_deref().is_some_and(|x| x.contains("comp-soak")) {
+        return comp_soak(o);
+    }
     let mut rows = Vec::new();
     let play_s = if o.quick { 8.0 } else { 60.0 };
     if o.wants("ceilings") {
@@ -1107,6 +1111,72 @@ fn soak(o: &Opts) -> Vec<Value> {
         "case": "xm5-soak", "minutes": minutes, "plays": plays, "shown": shown, "dropped": dropped,
         "rss_growth_mb": grow("rss_mb"), "vram_growth_mb": grow("vram_mb"), "cache_vram_growth_mb": grow("cache_vram_mb"),
         "va_surfaces_growth": grow("va_surfaces"), "samples": samples, "load": load_avg(),
+    })]
+}
+
+/// (fork C1 acceptance) Edit and play comps A and B (`comp-1080`) for `FILMCRAFT_SOAK_MINUTES`
+/// (default 30): each round changes parameters through `comp.*` commands, adds and deletes a node,
+/// undoes and redoes, then plays 2 s; RSS and VRAM are sampled per round and must not grow.
+fn comp_soak(o: &Opts) -> Vec<Value> {
+    let minutes: u64 = std::env::var("FILMCRAFT_SOAK_MINUTES").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+    let Some((mut s, seq)) = playback::scenario_session("comp-1080") else { return Vec::new() };
+    let comps: Vec<u64> = s
+        .project
+        .sequence(seq)
+        .map(|q| {
+            q.video_tracks
+                .iter()
+                .flat_map(|t| t.items.iter())
+                .map(|i| i.item)
+                .filter(|i| matches!(s.project.item(*i).map(|p| &p.kind), Some(filmcraft_project::ItemKind::Comp(_))))
+                .map(|i| i.0)
+                .collect()
+        })
+        .unwrap_or_default();
+    let [a, b] = comps.as_slice() else {
+        eprintln!("comp-soak: expected comps A and B, found {comps:?}");
+        return Vec::new();
+    };
+    let (a, b) = (*a, *b);
+    let bench = new_bench(&s, 2.0);
+    let mut display = Display::new(o.gpu);
+    let dev = amd_gpu_sysfs();
+    let vram = || dev.as_ref().and_then(|d| read_num(&d.join("mem_info_vram_used"))).unwrap_or(0.0) / 1e6;
+    let t0 = Instant::now();
+    let mut samples = Vec::new();
+    let (mut shown, mut dropped, mut rounds, mut errors) = (0u64, 0u64, 0u64, 0u64);
+    while t0.elapsed() < Duration::from_secs(minutes * 60) {
+        let k = rounds as f64;
+        let edits = [
+            ("comp.setParam", json!({"comp": a, "node": 3, "param": "threshold", "value": 10.0 + (k * 7.0) % 60.0})),
+            ("comp.setParam", json!({"comp": a, "node": 5, "param": "opacity", "value": 50.0 + (k * 11.0) % 50.0})),
+            ("comp.setParam", json!({"comp": b, "node": 3, "param": "scale", "value": 40.0 + (k * 13.0) % 80.0})),
+            ("comp.addNode", json!({"comp": b, "kind": "blur"})),
+            ("edit.undo", json!({})),
+            ("edit.redo", json!({})),
+            ("edit.undo", json!({})),
+        ];
+        for (id, p) in edits {
+            if s.execute(id, p).is_err() {
+                errors += 1;
+            }
+        }
+        let r = bench.play(&s, seq, &mut display, 1.0, Tick::ZERO, "comp-soak");
+        shown += r.shown;
+        dropped += r.dropped;
+        rounds += 1;
+        if rounds % 10 == 1 {
+            let row = json!({"minute": t0.elapsed().as_secs_f64() / 60.0, "rss_mb": rss_bytes().unwrap_or(0.0) / 1e6, "vram_mb": vram(), "shown": r.shown, "dropped": r.dropped});
+            eprintln!("comp-soak {row}");
+            samples.push(row);
+        }
+    }
+    let first = samples.get(1).or(samples.first()).cloned().unwrap_or_default();
+    let last = samples.last().cloned().unwrap_or_default();
+    let grow = |k: &str| last[k].as_f64().unwrap_or(0.0) - first[k].as_f64().unwrap_or(0.0);
+    vec![json!({
+        "case": "comp-soak", "minutes": minutes, "rounds": rounds, "errors": errors, "shown": shown, "dropped": dropped,
+        "rss_growth_mb": grow("rss_mb"), "vram_growth_mb": grow("vram_mb"), "samples": samples, "load": load_avg(),
     })]
 }
 

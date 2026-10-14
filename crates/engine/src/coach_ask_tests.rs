@@ -292,7 +292,7 @@ fn intros_fold_into_the_first_section_and_stubs_are_not_answers() {
 
 /// Questions of the eval set that must pass (DIAGNOSIS.md §1 rule). This may only go up; raise it
 /// when the guide or the coach improves (FORK-PLAN §1a.47).
-const EVAL_FLOOR: usize = 82;
+const EVAL_FLOOR: usize = 94;
 
 #[derive(Deserialize)]
 struct EvalFile {
@@ -496,4 +496,167 @@ fn section_headers_are_valid_unique_and_point_at_real_things() {
         }
     }
     assert!(problems.is_empty(), "{} header problem(s):\n{}", problems.len(), problems.join("\n"));
+}
+
+// ---------- the advanced set (docs/fork/coach-eval/advanced.toml, AI3 item 6; AI3-PREP part 4) ----------
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdvancedQuestion {
+    id: String,
+    kind: String,
+    q: String,
+    sources: Vec<String>,
+    must: Vec<String>,
+    #[serde(default)]
+    must_not: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct AdvancedFile {
+    question: Vec<AdvancedQuestion>,
+}
+
+/// Every compact-header id in the guide.
+fn header_ids() -> Vec<String> {
+    GUIDE_PAGES
+        .iter()
+        .filter(|(p, _)| *p != "README.md")
+        .flat_map(|(p, src)| coach_ask::split_page(p, src))
+        .filter_map(|s| s.header.as_deref().and_then(|h| coach_ask::parse_header(h).ok()).map(|h| h.id))
+        .collect()
+}
+
+#[test]
+fn advanced_eval_set_is_well_formed() {
+    let file: AdvancedFile = toml::from_str(include_str!("../../../docs/fork/coach-eval/advanced.toml")).expect("advanced.toml parses");
+    assert!(file.question.len() >= 60, "AI3 item 6 wants at least 60 questions, have {}", file.question.len());
+    let ids = header_ids();
+    let kinds = ["node-role", "approach", "tweak", "tool", "multi-step", "pro-practice", "gap"];
+    let mut seen = std::collections::HashSet::new();
+    for q in &file.question {
+        assert!(seen.insert(q.id.as_str()), "{}: id used twice", q.id);
+        assert!(kinds.contains(&q.kind.as_str()), "{}: unknown kind {}", q.id, q.kind);
+        assert!(!q.q.trim().is_empty() && !q.must.is_empty() && !q.sources.is_empty(), "{}: q, must and sources are required", q.id);
+        for src in &q.sources {
+            assert!(ids.contains(src), "{}: source `{src}` is not a section header id", q.id);
+        }
+        assert!(q.must.iter().chain(&q.must_not).all(|f| !f.trim().is_empty()), "{}: empty fact", q.id);
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrainingPair {
+    q: String,
+    a: String,
+    sources: Vec<String>,
+    kind: String,
+}
+
+/// The draft training pairs (docs/fork/coach-eval/training-pairs.jsonl, AI3 0c) come from the
+/// guide: every line parses, cites real sections, and names only commands that exist (engine
+/// commands or ones the guide names).
+#[test]
+fn training_pairs_are_grounded() {
+    let src = include_str!("../../../docs/fork/coach-eval/training-pairs.jsonl");
+    let ids = header_ids();
+    let named = guide_command_ids();
+    let s = Session::default();
+    let mut n = 0;
+    for (i, line) in src.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        let p: TrainingPair = serde_json::from_str(line).unwrap_or_else(|e| panic!("line {}: {e}", i + 1));
+        assert!(!p.q.trim().is_empty() && !p.a.trim().is_empty(), "line {}: empty q / a", i + 1);
+        assert!(["practice", "mapping", "feature"].contains(&p.kind.as_str()), "line {}: kind {}", i + 1, p.kind);
+        assert!(!p.sources.is_empty() && p.sources.iter().all(|x| ids.contains(x)), "line {}: unknown source in {:?}", i + 1, p.sources);
+        assert!(!p.a.contains("{ui:"), "line {}: raw ui id", i + 1);
+        for chunk in p.a.split('`').skip(1).step_by(2) {
+            let is_cmd = chunk.contains('.')
+                && chunk.bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+                && chunk.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.');
+            if is_cmd && !chunk.contains("..") {
+                assert!(s.shortcuts.is_known_command(chunk) || named.iter().any(|x| x == chunk), "line {}: `{chunk}` is not a known command", i + 1);
+            }
+        }
+        n += 1;
+    }
+    assert!(n >= 300, "only {n} pairs");
+}
+
+/// C1 item 6 (coach-eval DIAGNOSIS §4): a "what is X good for" question drops its purpose words
+/// (they are the question type, not the topic), and a typo the guide never uses is replaced by its
+/// known correction instead of counting as an unknown word.
+#[test]
+fn what_for_questions_and_typos_keep_only_the_topic() {
+    let own = |q: &str| -> Vec<String> { coach_ask::query_terms(q).into_iter().filter(|(_, w)| *w >= 1.0).map(|(t, _)| t).collect() };
+    let qualifier = tokenize("qualifier", 64);
+    let good = tokenize("good", 64);
+    let useful = tokenize("useful", 64);
+    let t = own("what would the qualifier be useful for on this clip");
+    assert!(qualifier.iter().all(|q| t.contains(q)), "{t:?}");
+    assert!(useful.iter().all(|u| !t.contains(u)), "{t:?}");
+    // the typo 'qualifer' stands for 'qualifier' at full weight and is gone itself
+    let t = own("whats the qualifer good for");
+    assert!(qualifier.iter().all(|q| t.contains(q)), "{t:?}");
+    assert!(!t.contains(&stem("qualifer")) && good.iter().all(|g| !t.contains(g)), "{t:?}");
+    // 'good' without 'for' is a topic word, not a purpose
+    let t = own("does this grade look good");
+    assert!(good.iter().all(|g| t.contains(g)), "{t:?}");
+    let mut s = Session::default();
+    assert_eq!(ask(&mut s, "why is my 4:2:2 clip so slow")["explain"], json!(true));
+    assert_eq!(ask(&mut s, "how do I add a node")["explain"], json!(false));
+    // both owner questions are answered from the qualifier section now, its why first
+    let mut s = Session::default();
+    for q in ["what would the qualifier be useful for on this cli", "whats the qualifer good for"] {
+        let a = ask(&mut s, q);
+        assert_eq!(a["covered"], json!(true), "{q}: {a}");
+        assert_eq!(a["explain"], json!(true), "{q}: {a}");
+        assert!(!a["summary"].as_str().unwrap_or("").is_empty(), "{q}: {a}");
+        assert_eq!(a["sources"][0]["heading"], json!("The qualifier: select by colour"), "{q}: {a}");
+    }
+}
+
+/// C1 item 6 (DIAGNOSIS §4 route `x-vs-y`): "difference between X and Y" keeps only X and Y and
+/// prefers a section that names both; a comparison of things the guide doesn't cover still declines.
+#[test]
+fn x_vs_y_questions_compare_both_topics_and_off_topic_ones_decline() {
+    let own = |q: &str| -> Vec<String> { coach_ask::query_terms(q).into_iter().filter(|(_, w)| *w >= 1.0).map(|(t, _)| t).collect() };
+    let t = own("what is the difference between disable and bypass");
+    assert!(tokenize("difference between", 64).iter().all(|w| !t.contains(w)), "{t:?}");
+    assert!(tokenize("disable bypass", 64).iter().all(|w| t.contains(w)), "{t:?}");
+    let mut s = Session::default();
+    for q in ["what is the difference between disable and bypass", "gain vs gamma whats the diff"] {
+        assert_eq!(ask(&mut s, q)["covered"], json!(true), "{q}");
+    }
+    for q in ["what's the difference between a cat and a dog", "pizza vs pasta"] {
+        assert_eq!(ask(&mut s, q)["covered"], json!(false), "{q}");
+    }
+}
+/// C1 item 6 (DIAGNOSIS §4 route `order`): in an order question the order words ("go", "chain",
+/// "point", "before") still rank but the coverage gate doesn't demand them, so "where does the LUT
+/// go in the chain" is answered; a non-order question with the same words is unchanged.
+#[test]
+fn order_questions_do_not_demand_their_order_words() {
+    let mut s = Session::default();
+    for q in ["where does the LUT go in the chain", "at what point do I do the white balance", "does lumetri happen before or after the nodes"] {
+        let a = ask(&mut s, q);
+        assert_eq!(a["covered"], json!(true), "{q}: {a}");
+    }
+    assert_eq!(ask(&mut s, "at what point does the pizza go in the oven")["covered"], json!(false));
+}
+
+/// C1 item 6 (DIAGNOSIS §4 route `not-yet`): "is there a X" about a word no guide section uses
+/// declines and names the word; a known word (or one with a known synonym) doesn't trigger it.
+#[test]
+fn is_there_questions_about_unknown_words_name_the_word() {
+    let mut s = Session::default();
+    for (q, w) in [("is there a teleprompter", "teleprompter"), ("do you have a spirograph node", "spirograph")] {
+        let a = ask(&mut s, q);
+        assert_eq!(a["covered"], json!(false), "{q}: {a}");
+        assert_eq!(a["missing"], json!(w), "{q}: {a}");
+        assert!(a["message"].as_str().unwrap_or("").contains(w), "{q}: {a}");
+    }
+    for q in ["is there a smart cache", "where is the qualifier", "how do I add a teleprompter"] {
+        assert_eq!(ask(&mut s, q)["missing"], Value::Null, "{q}");
+    }
 }

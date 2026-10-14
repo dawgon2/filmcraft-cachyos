@@ -33,6 +33,9 @@ pub enum Target {
     MulticamGrid(ItemId, u8, u16),
     /// One angle of a multi-camera source (Edit Cameras thumbnails).
     MulticamAngle(ItemId, u32),
+    /// One node's output of a comp clip (sequence, clip id, node id) at a timeline time: the
+    /// Compositor's node viewer in the Program monitor (fork C1 step 10b).
+    CompNode(ItemId, u64, u64),
 }
 
 /// Item jobs at this priority or a larger number are background work: thumbnails of the Project
@@ -1325,7 +1328,7 @@ fn plan_job(job: &Job, seq: ItemId, pool: &Arc<MediaPool>, services: &Arc<dyn Se
         // captions (they are not part of the preview hash), so captions are layered on live.
         let (w, h) = filmcraft_render::output_size(q, job.scale);
         let matrix = filmcraft_geom::Affine::scale(w as f64 / frame.width.max(1) as f64, h as f64 / frame.height.max(1) as f64);
-        let mut layers = vec![filmcraft_render::plan::PlanLayer { frame, matrix, opacity: 1.0, blend: filmcraft_render::Blend::Normal, fx: None }];
+        let mut layers = vec![filmcraft_render::plan::PlanLayer { frame, matrix, opacity: 1.0, blend: filmcraft_render::Blend::Normal, fx: None, comp: None }];
         for o in filmcraft_render::caption_overlays(q, job.time, w, h) {
             layers.push(filmcraft_render::plan::PlanLayer {
                 frame: Arc::new(filmcraft_frame::VideoFrame::rgba_f32(o.w as u32, o.h as u32, o.px)),
@@ -1333,6 +1336,7 @@ fn plan_job(job: &Job, seq: ItemId, pool: &Arc<MediaPool>, services: &Arc<dyn Se
                 opacity: 1.0,
                 blend: filmcraft_render::Blend::Normal,
                 fx: None,
+                comp: None,
             });
         }
         // (a render preview is display-referred already: no output transform)
@@ -1373,6 +1377,9 @@ fn render_job(job: &Job, pool: &Arc<MediaPool>, services: &Arc<dyn Services>, pr
         }
         Target::MulticamAngle(item, angle) => {
             filmcraft_render::multicam::render_angle_thumbnail(&job.project, item, angle as usize, job.time, job.scale, &provider)
+        }
+        Target::CompNode(seq, clip, node) => {
+            filmcraft_render::render_comp_node(&job.project, seq, filmcraft_project::ClipId(clip), node, job.time, opts, &provider)
         }
     };
     let rgba = match img {

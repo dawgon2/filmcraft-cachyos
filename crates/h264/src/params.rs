@@ -515,15 +515,49 @@ impl Sps {
         self.max_dpb_frames()
     }
 
+    /// Whether the software decoder can decode streams using this SPS: everything
+    /// [`Sps::check_coding_tools`] requires, and progressive (frame-only) coding.
     pub fn check_supported(&self) -> Result<()> {
         if !self.frame_mbs_only {
             return unsupported("interlaced (field / MBAFF) coding");
         }
-        if self.chroma_array_type() != 1 {
-            return unsupported(format!("chroma_format_idc {} (only 4:2:0 is implemented)", self.chroma_format_idc));
+        self.check_coding_tools()
+    }
+
+    /// The SPS-level coding tools every decoder path here needs (4:2:0, 8-bit, no lossless
+    /// bypass), without the progressive-only restriction: a hardware front that decodes field
+    /// pictures and MBAFF itself checks this instead of [`Sps::check_supported`].
+    pub fn check_coding_tools(&self) -> Result<()> {
+        self.check_tools(8, false)
+    }
+
+    /// What the software decoder handles (fork H2): progressive 4:2:0 or 4:2:2 at 8 to 10 bits
+    /// with the same luma and chroma bit depth, no lossless bypass. The hardware fronts keep
+    /// [`Sps::check_supported`] / [`Sps::check_coding_tools`] (8-bit).
+    pub fn check_software_supported(&self) -> Result<()> {
+        if !self.frame_mbs_only {
+            return unsupported("interlaced (field / MBAFF) coding");
         }
-        if self.bit_depth_luma != 8 || self.bit_depth_chroma != 8 {
-            return unsupported(format!("bit depth luma {} chroma {} (only 8-bit is implemented)", self.bit_depth_luma, self.bit_depth_chroma));
+        if self.bit_depth_luma != self.bit_depth_chroma {
+            return unsupported(format!("bit depth luma {} chroma {} (different depths are not implemented)", self.bit_depth_luma, self.bit_depth_chroma));
+        }
+        self.check_tools(10, true)
+    }
+
+    fn check_tools(&self, max_bit_depth: u32, allow_422: bool) -> Result<()> {
+        if allow_422 && self.chroma_array_type() == 2 {
+            return self.check_depth_and_bypass(max_bit_depth);
+        }
+        if self.chroma_array_type() != 1 {
+            let what = if allow_422 { "only 4:2:0 and 4:2:2 are implemented" } else { "only 4:2:0 is implemented" };
+            return unsupported(format!("chroma_format_idc {} ({what})", self.chroma_format_idc));
+        }
+        self.check_depth_and_bypass(max_bit_depth)
+    }
+
+    fn check_depth_and_bypass(&self, max_bit_depth: u32) -> Result<()> {
+        if self.bit_depth_luma > max_bit_depth || self.bit_depth_chroma > max_bit_depth {
+            return unsupported(format!("bit depth luma {} chroma {} (up to {max_bit_depth}-bit is implemented)", self.bit_depth_luma, self.bit_depth_chroma));
         }
         if self.qpprime_y_zero_transform_bypass {
             return unsupported("qpprime_y_zero_transform_bypass (lossless)");
@@ -712,5 +746,86 @@ mod tests {
         assert_eq!((sps.width(), sps.height()), (176, 144));
         assert_eq!(sps.pic_order_cnt_type, 2);
         assert_eq!(sps.crop_rect(), (0, 0, 176, 144));
+    }
+
+    /// Interlaced SPS (frame_mbs_only = 0, MBAFF on): Main profile, or High with the given
+    /// chroma_format_idc; 8-bit, 11 MBs wide,
+    /// map-unit rows of 4 (field-pair map units, so 8 MB rows per frame).
+    fn interlaced_sps(chroma_format_idc: Option<u32>) -> Sps {
+        let mut w = BitWriter::new();
+        let profile = if chroma_format_idc.is_some() { 100 } else { 77 };
+        w.write_bits(profile, 8);
+        w.write_bits(0, 8);
+        w.write_bits(30, 8);
+        w.write_ue(0); // sps_id
+        if let Some(cf) = chroma_format_idc {
+            w.write_ue(cf);
+            if cf == 3 {
+                w.write_bit(false); // separate_colour_plane
+            }
+            w.write_ue(0); // bit_depth_luma_minus8
+            w.write_ue(0); // bit_depth_chroma_minus8
+            w.write_bit(false); // qpprime_y_zero_transform_bypass
+            w.write_bit(false); // seq_scaling_matrix_present
+        }
+        w.write_ue(0); // log2_max_frame_num_minus4
+        w.write_ue(2); // poc type 2
+        w.write_ue(1); // max_num_ref_frames
+        w.write_bit(false); // gaps
+        w.write_ue(10); // width 11 MBs
+        w.write_ue(3); // 4 map units -> 8 MB rows per frame
+        w.write_bit(false); // frame_mbs_only
+        w.write_bit(true); // mb_adaptive_frame_field
+        w.write_bit(true); // direct_8x8
+        w.write_bit(false); // cropping
+        w.write_bit(false); // vui
+        w.rbsp_trailing();
+        Sps::parse(&w.finish()).unwrap()
+    }
+
+    #[test]
+    fn interlaced_sps_passes_the_coding_tool_check_but_not_the_software_check() {
+        let sps = interlaced_sps(None);
+        assert!(!sps.frame_mbs_only && sps.mb_adaptive_frame_field);
+        assert_eq!((sps.width(), sps.height()), (176, 128));
+        assert!(sps.check_coding_tools().is_ok());
+        let err = sps.check_supported().unwrap_err().to_string();
+        assert!(err.contains("interlaced"), "{err}");
+    }
+
+    #[test]
+    fn coding_tool_check_still_refuses_unsupported_chroma_on_interlaced_streams() {
+        let sps = interlaced_sps(Some(2));
+        assert!(sps.check_coding_tools().is_err());
+        assert!(sps.check_supported().is_err());
+        assert!(interlaced_sps(Some(1)).check_coding_tools().is_ok());
+    }
+
+    #[test]
+    fn software_check_takes_high_10_and_hardware_checks_stay_8_bit() {
+        let mut sps = interlaced_sps(Some(1));
+        sps.frame_mbs_only = true;
+        sps.mb_adaptive_frame_field = false;
+        for depth in [8, 9, 10] {
+            sps.bit_depth_luma = depth;
+            sps.bit_depth_chroma = depth;
+            assert!(sps.check_software_supported().is_ok(), "{depth}");
+            assert_eq!(sps.check_supported().is_ok(), depth == 8, "{depth}");
+        }
+        sps.bit_depth_luma = 12;
+        sps.bit_depth_chroma = 12;
+        assert!(sps.check_software_supported().unwrap_err().to_string().contains("10-bit"));
+        sps.bit_depth_luma = 10;
+        sps.bit_depth_chroma = 8;
+        assert!(sps.check_software_supported().unwrap_err().to_string().contains("different"));
+        sps.bit_depth_chroma = 10;
+        sps.chroma_format_idc = 2; // 4:2:2: software yes (fork H2.3), hardware fronts no
+        assert!(sps.check_software_supported().is_ok());
+        assert!(sps.check_coding_tools().is_err());
+        sps.chroma_format_idc = 3;
+        assert!(sps.check_software_supported().unwrap_err().to_string().contains("4:2:2"));
+        sps.chroma_format_idc = 1;
+        sps.frame_mbs_only = false;
+        assert!(sps.check_software_supported().unwrap_err().to_string().contains("interlaced"));
     }
 }

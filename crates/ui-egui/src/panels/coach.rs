@@ -335,11 +335,13 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
                 let covered = answer["covered"].as_bool().unwrap_or(false);
                 let asked_nothing = answer["message"].as_str().is_some_and(|m| m.starts_with("Ask about"));
                 let none = if asked_nothing {
-                    Some(tl!("Ask about a grading task."))
+                    Some(tl!("Ask about a grading task.").to_string())
+                } else if let Some(word) = answer["missing"].as_str().filter(|_| !covered) {
+                    Some(tlf!("The guide doesn't mention “{word}”.", word = word))
                 } else if !covered {
-                    Some(tl!("The guide doesn't cover this yet."))
+                    Some(tl!("The guide doesn't cover this yet.").to_string())
                 } else if !answer["lesson"].is_object() {
-                    Some(tl!("The guide has no step-by-step answer for this yet."))
+                    Some(tl!("The guide has no step-by-step answer for this yet.").to_string())
                 } else {
                     None
                 };
@@ -350,6 +352,11 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
                     ui.label(RichText::new(summary).small().color(t.text_dim));
                 }
             } else {
+                // a "why" / "what is it for" question: the section's why comes before the steps
+                if let Some(summary) = answer["summary"].as_str().filter(|s| !s.is_empty() && answer["explain"].as_bool() == Some(true)) {
+                    ui.label(RichText::new(summary).color(t.text_dim));
+                    ui.add_space(4.0);
+                }
                 egui::ScrollArea::vertical().max_height(240.0).auto_shrink([false, true]).show(ui, |ui| {
                     for (i, st) in steps.iter().enumerate() {
                         let n = i + 1;

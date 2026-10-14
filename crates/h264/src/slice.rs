@@ -304,7 +304,9 @@ impl SliceHeader {
         }
         let slice_qp_delta = r.read_se()?;
         let qp = pps.pic_init_qp + slice_qp_delta;
-        ensure!((0..=51).contains(&qp), "slice QP {qp} out of range");
+        // SliceQPY: -QpBdOffsetY ..= 51 (7.4.3)
+        let qp_bd_offset = 6 * (sps.bit_depth_luma.clamp(8, 14) as i32 - 8);
+        ensure!((-qp_bd_offset..=51).contains(&qp), "slice QP {qp} out of range");
         let mut sp_for_switch = false;
         let mut slice_qs_delta = 0;
         if matches!(slice_type, SliceType::Sp | SliceType::Si) {
@@ -421,6 +423,16 @@ impl Poc {
     pub fn frame(&self) -> i32 {
         self.top.min(self.bottom)
     }
+
+    /// PicOrderCnt of the picture `sh` codes (8.2.1): the frame POC, or for a field picture its
+    /// own field order count (the value under its parity; the other one is meaningless then).
+    pub fn picture(&self, sh: &SliceHeader) -> i32 {
+        match (sh.field_pic, sh.bottom_field) {
+            (false, _) => self.frame(),
+            (true, false) => self.top,
+            (true, true) => self.bottom,
+        }
+    }
 }
 
 impl PocState {
@@ -517,5 +529,82 @@ impl PocState {
         let off = self.frame_num_offset(false, frame_num, sps);
         self.prev_frame_num_offset = off;
         self.prev_frame_num = frame_num;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dpb::tests::hdr;
+    use filmcraft_bitstream::BitWriter;
+
+    /// Interlaced Main-profile SPS with the given POC type (type 1: offset_for_non_ref_pic -1,
+    /// offset_for_top_to_bottom_field 1, one offset_for_ref_frame of 4).
+    fn sps(poc_type: u32) -> Sps {
+        let mut w = BitWriter::new();
+        w.write_bits(77, 8);
+        w.write_bits(0, 8);
+        w.write_bits(30, 8);
+        w.write_ue(0); // sps_id
+        w.write_ue(0); // log2_max_frame_num_minus4
+        w.write_ue(poc_type);
+        match poc_type {
+            0 => w.write_ue(2), // log2_max_poc_lsb_minus4
+            1 => {
+                w.write_bit(false); // delta_pic_order_always_zero
+                w.write_se(-1); // offset_for_non_ref_pic
+                w.write_se(1); // offset_for_top_to_bottom_field
+                w.write_ue(1); // num_ref_frames_in_pic_order_cnt_cycle
+                w.write_se(4);
+            }
+            _ => {}
+        }
+        w.write_ue(2); // max_num_ref_frames
+        w.write_bit(false); // gaps
+        w.write_ue(10);
+        w.write_ue(3);
+        w.write_bit(false); // frame_mbs_only
+        w.write_bit(false); // mb_adaptive_frame_field
+        w.write_bit(true); // direct_8x8
+        w.write_bit(false); // cropping
+        w.write_bit(false); // vui
+        w.rbsp_trailing();
+        Sps::parse(&w.finish()).unwrap()
+    }
+
+    /// Field POCs (8.2.1.1-8.2.1.3) for an IDR top field and then its bottom field, then the
+    /// next frame's top field; `lsbs` are their pic_order_cnt_lsb values (type 0 only).
+    fn field_pocs(poc_type: u32, lsbs: [u32; 3]) -> [i32; 3] {
+        let sps = sps(poc_type);
+        let mut st = PocState::default();
+        let mut out = [0; 3];
+        let pics = [(0, false, true), (0, true, false), (1, false, false)];
+        for (k, (frame_num, bottom, idr)) in pics.into_iter().enumerate() {
+            let mut sh = hdr(frame_num, Some(bottom), 1, idr);
+            sh.pic_order_cnt_lsb = lsbs[k];
+            let poc = st.compute(&sh, &sps);
+            out[k] = poc.picture(&sh);
+            st.update(&sh, &poc);
+        }
+        out
+    }
+
+    #[test]
+    fn field_pocs_for_each_poc_type() {
+        // Type 0: each field's own lsb (no delta_pic_order_cnt_bottom for fields).
+        assert_eq!(field_pocs(0, [0, 1, 4]), [0, 1, 4]);
+        // Type 1: expected POC (0 for the IDR frame, 4 for the next), plus
+        // offset_for_top_to_bottom_field (1) for a bottom field.
+        assert_eq!(field_pocs(1, [0; 3]), [0, 1, 4]);
+        // Type 2: both fields of a reference frame share 2 * FrameNum.
+        assert_eq!(field_pocs(2, [0; 3]), [0, 0, 2]);
+    }
+
+    #[test]
+    fn picture_poc_of_a_frame_is_the_smaller_field_count() {
+        let poc = Poc { top: 6, bottom: 5, msb: 0, frame_num_offset: 0 };
+        assert_eq!(poc.picture(&hdr(0, None, 1, false)), 5);
+        assert_eq!(poc.picture(&hdr(0, Some(false), 1, false)), 6);
+        assert_eq!(poc.picture(&hdr(0, Some(true), 1, false)), 5);
     }
 }

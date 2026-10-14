@@ -1,7 +1,7 @@
 # Handoff: FilmCraft fork (6.2K HEVC on CachyOS + RX 6700 XT)
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**
-§1a.1–74 incl. §1a.6 order; §5 phases; only the last ~80 lines of §7), then
+§1a.1–75 incl. §1a.6 order; §5 phases; only the last ~80 lines of §7), then
 [`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md) "Phase Y3" (next) and [`PREP-Y3.md`](PREP-Y3.md), then
 [`FORK-ONLY.md`](FORK-ONLY.md), [`OWNER-QUESTIONS.md`](OWNER-QUESTIONS.md), this file. Other plan
 files (GRADE, RESOLVE-UI, YOUTUBE, AUDIO, AI, COMPOSITOR, STORAGE, H264, RAW, DECODER) only when a
@@ -12,6 +12,7 @@ X422 ✓ → **Y3** → C1 → **AI3** (§1a.73–74; knowledge work on the Dell
 R2 → D → 8. Small phases are accepted in groups (§1a.41). AI1 moved right after U0.2 and the
 4:2:2 export cases (X422) right after AI1 by the owner 2026-10-13 (§1a.69). **A2 and then
 H1 → H2 → H3 run on the Dell lane (owner 2026-10-14, §1a.72); the main runner skips them.**
+**Owner, live 2026-10-14 ~12:55 (§1a.75):** AI3 trains on **all of editing**, the Compositor (C1) included, not only grading; only features built by the tune, later phases add pages / pairs / eval questions and the tune is refreshed. **Q30 (a) accepted** (A2's numbers stand). **Q31 (a) yes:** the Dell lane may download the ITU-T H.264.1 conformance streams (Dell only, never committed) for H1.5 PAFF and H2. Q29 ok.
 **A1 (Dell lane, §1a.60) accepted by the owner 2026-10-14 ~01:20 (§1a.71)**; its tag `audio-1` is on `f8c3e788` with `x422` (2026-10-14).
 **L1 / L2 part 2 accepted by the owner (live, 2026-10-14 ~01:10; was ready 2026-10-13 22:55, Dell lane; scheduled task `filmcraft-dell-lane`,
 lock `.dell-lane.lock`):** the last two steps merged: **L1.5** `d0c68898` (upstream #260 off-thread
@@ -95,30 +96,137 @@ cargo test --release -p filmcraft-engine --features voice-isolation <voice_isola
 -- --ignored --nocapture` (gate ~17 min on the Dell). Reviews were self-reviews (weekly usage
 above pace, no subagents): **a fresh-context review of A2.1–A2.3 and A2.8–A2.9 is owed** before
 the tag. **Owed on the PC at acceptance:** live voice isolation during playback on the i5-11600K.
-**AI3-PREP in progress on the Dell lane** (§1a.74, task §5b, marker `.dell-ai3prep-complete`;
-same worktree / branch), then H1 → H3. Order: (1) **compact headers done** (AI3-PREP.1 … .1e, last `HEAD` of the lane): spec in
-docs/guide/README.md "Section headers (for the coach)", 183 headers on 27 pages. **Every new `##`
-guide section now needs a header** (`> id: <page id>.<slug> | does: …` under the heading), or
-`coach_ask_tests::section_headers_are_valid_unique_and_point_at_real_things` fails: main runner,
-please add one with each new section. Headers are parsed (`Section::header`) but not searched by
-today's keyword index (adding them moved the 30-question eval below its floor); AI3's retrieval
-uses them. (2) **feature pages done** (AI3-PREP.2a–2n): text, mixing, graphics, timeline, effects, media,
-shortcuts, edit-menu, trimming, export-queue, file-menu, essential-sound pages, getting-started's
-X-M5 import, voice-over recording and caption tracks; ~580 of ~700 engine commands are named
-(by family); the rest are small variants and agent-only `*.inspect` / `prefs.*` calls.
-**Keyword-index note:** the 116-question colour eval sits exactly at its floor (82); general
-pages from timeline.md on pushed it to 81, so timeline, effects, media, shortcuts, edit-menu,
-trimming, export-queue and file-menu are in `coach_ask::NOT_INDEXED` (in the guide, headed and
-checked, for AI3's retrieval; AI3 main runner: index them again when the retriever replaces the
-keyword index). New guide pages need a GUIDE_PAGES entry, a contents row, tags and headers.
-(3), practice notes. A new page needs a GUIDE_PAGES entry, a contents row,
-tags and headers; avoid new `{ui:}` ids unless the coach walk shows them; (3) **practice notes done**: 150 notes on ten pages in `docs/guide/practice/` (grading,
-editing, audio, delivery, node-trees, looks, youtube, titles, workflow, mixed-cameras; AI3-PREP.3a–3j),
-each with goal, the Resolve and Premiere way, the FilmCraft way (the mapping, AI3 0c: real
-commands, gaps said as "not yet"), why and pitfalls; own words, no source text (plan/ai3-sources.md,
-maintainer-local, records that per batch); headed and checked; NOT_INDEXED; (4) training pairs + ≥ 60-question advanced eval. Sources rule (task §5b): open licences may be
-quoted with attribution, everything else read-only, our own words; source list in
-`plan/ai3-sources.md` (maintainer-local).
+**AI3-PREP done (Dell lane, 2026-10-14 ~13:45; §1a.74, task §5b; marker `.dell-ai3prep-complete`)**,
+for the main runner's AI3: (1) **compact headers** on all 27+ guide pages (spec docs/guide/README.md
+"Section headers"; parser `coach_ask::parse_header`, `Section::header`; check
+`section_headers_are_valid_unique_and_point_at_real_things` covers every page but README.md: **every
+new guide section needs a header**); (2) **feature pages**: text, mixing, graphics, timeline, effects,
+media, shortcuts, edit-menu, trimming, export-queue, file-menu, essential-sound, plus getting-started
+X-M5 import, voice-over recording, caption tracks (~580 of ~700 engine commands named by family);
+(3) **150 practice notes** in docs/guide/practice/ (10 pages; each mapped to FilmCraft with gaps said as
+"not yet"; own words, no source text, plan/ai3-sources.md is maintainer-local); (4) **advanced eval**
+docs/fork/coach-eval/advanced.toml (63 questions with source header ids, must / must-not facts;
+`advanced_eval_set_is_well_formed`) and **885 draft training pairs**
+docs/fork/coach-eval/training-pairs.jsonl (generator tools/fork/ai3-training-pairs.py, TRAINING-PAIRS.md,
+`training_pairs_are_grounded`; needs a human review sample before tuning). **Keyword-index note:**
+the 116-question colour eval sits at its floor (82), so the general and practice pages are in
+`coach_ask::NOT_INDEXED`; AI3's retrieval should index them (and the headers). No model downloads
+were made. **H1 in progress on the Dell lane** (task §6, H264-PLAN; same worktree / branch `dell-lane`):
+audit **docs/fork/PREP-H1.md** (H1.0 `b731932c`, step map §4); **H1.1** `ec7ce8ed` (`Sps::check_coding_tools`
+for hardware fronts, `check_supported` still refuses interlaced for software) and **H1.2** (field-aware DPB in
+`crates/h264/src/dpb.rs`: H1.2a `7158790c` per-field marks / POCs, `Dpb::store` with `FieldPocs`,
+`is_second_field` pairing (ask it before `idr()` / gap fill), field sliding window and MMCOs; H1.2b `c61fcb00`
+`build_field_ref_lists` (to_ref gets entry + `Parity`); H1.2c `e9294236` `Poc::picture`) merged, self-reviewed
+(weekly usage above pace). **H1.3 + H1.4 are built but NOT merged**: local branch **`dell-lane-h1-3`**
+(`52cdb73b` H1.3, `1c6c8243` H1.4, on top of `585b4bd6`; also on the Dell's scratch repo), waiting only for the
+**fresh-context Opus review** the platform rule requires (weekly usage above pace: no subagents this run).
+H1.3: `vaapi/mod.rs` `geometry()` takes interlaced H.264 (HEVC still refused) and `h264_setup` calls
+`check_coding_tools`; `vaapi/h264.rs`: `check_coding_tools`, no `field_pic` refusal, a second field
+(`Dpb::is_second_field`) decodes into its first field's surface without IDR / gap handling, CurrPic and
+reference entries carry `VA_PICTURE_H264_TOP/BOTTOM_FIELD` (new consts in `ffi.rs`, no new `unsafe`) with only
+their own fields' order counts, field slices use `build_field_ref_lists`, the frame list goes by
+`DpbEntry::is_reference`, storage through `Dpb::store` with both field POCs (equivalent for frames); recorder
+tests: synthetic PAFF stream (pairing, flags, lists by 8.2.4.2.5), MBAFF, hostile field sequences + 200 bit-flip
+rounds; the Recorder now allows a second field's target to be listed as its first field alone. H1.4:
+`tests/vaapi.rs::interlaced_h264_matches_ffmpeg`: three libx264 MBAFF fixtures (tff / bff, B-pyramid, 4 refs,
+weightp, CAVLC) **bit-exact vs ffmpeg's decode on the Dell's UHD 770**; interlaced dropped from the decline test;
+guide `hardware.md` row. Gates on the Dell green (fmt, clippy, h264 + platform tests incl. hardware, layers,
+wasm, engine coach tests). **Review points:** the second-field surface reuse vs the zero-copy accelerator's
+held frames (a first field is never read out before its pair, so it can't be held); a mid-stream hardware
+failure on an interlaced stream can't continue in software (the software decoder refuses interlaced until H2),
+so it errors as before H1; the ffmpeg-pipe path (`vaapi_pipe.rs`) still declines interlaced. **Next run with
+subagent room:** review `git diff 585b4bd6 dell-lane-h1-3` (Opus, fresh context), fix, rebase onto
+hevc-vaapi, re-run the platform tests on the Dell, fast-forward merge; then H1.5 (PAFF real files: **Q31**
+open; zero-drop playback check; "H1 ready for acceptance"). AMD checks (MBAFF / PAFF on VCN) owed on the PC at
+acceptance.
+**H2 started in parallel** (H1 waits only for its review; sequencing choice logged here): audit
+**docs/fork/PREP-H2.md** (H2.0 `e29d8814`: parsing and the field DPB are done, frame threading exists, everything
+below the slice header is 8-bit 4:2:0 frame coding; step map H2.1–H2.8; conformance vectors ride on **Q31** a).
+**H2.1 (sample-type groundwork) done** (2026-10-14 ~11:45, self-reviewed: weekly usage above pace, PREP-H2 §4 allows
+it for H2.1): `crates/h264/src/sample.rs` (`Sample` for `u8` / `u16`, `clip1`, `chroma_row`, `code_max`: constant
+255 for `u8` so 8-bit kernels clip at compile time); H2.1a `1e7c0d65` inter, H2.1b `a0ae378c` intra, H2.1c
+`9ceb574c` residual kernels generic; H2.1d `833feb88` storage (`Planes` / `FrameRow` / `Frame` over `Sample` with
+`bit_depth`, windows / cropping for `u16`) and deblocking (alpha / beta / tC0 × (1 << (BitDepth − 8)), clip to max,
+packed `u8` vertical edges kept, plain `u16` lanes; 16-bit lanes safe to 12 bits); H2.1e `3f744cc9` slice decoding
+(`PicState` / `Scratch` / `SliceDecoder` / `RefPic` generic); H2.1f `cf22ac31` decoder dispatch: a private
+`Core<S>` per sample type behind `Decoder`; a slice whose SPS needs > 8 bits switches to the `u16` core (old core's
+pictures flushed first; parameter sets, settings, error slot and stats carry over). Hidden test hook
+`Decoder::set_wide_samples` runs **every conformance fixture (32 on the Dell) and the synth streams through the
+`u16` path too: bit-exact vs ffmpeg**, plus `sample_path_switch_at_idr`. **8-bit speed unchanged** (perf_1080p
+1 thread 99.5–100.7 fps vs 99.8–100.2 before, release, Dell; edge filters same speed / checksum). > 8-bit streams
+are still refused (`check_coding_tools`); the `u16` core's `Picture` is reduced to 8 bits until H2.2.
+**H2.2 (High 10 4:2:0) done** (2026-10-14 ~11:55, self-reviewed): H2.2a `b011e9a4` QpBdOffset (slice QP /
+mb_qp_delta ranges and wrap, negative QP_Y / QP_C as `i8` in `MbState`, dequant at QP′); H2.2b `0195ae20` I_PCM at
+BitDepth bits (`read_pcm`, CAVLC + CABAC); H2.2c `6d9e6f1d` `Sps::check_software_supported` (9–10-bit, equal luma /
+chroma depth; `check_supported` / `check_coding_tools` stay 8-bit for the VA-API fronts), explicit WP offsets ×
+(1 << (BitDepth − 8)), `Picture::bit_depth` + `Picture::high` (16-bit planes), codecs → `PixelData::Yuv16 { bits }`;
+guide `hardware.md` row. **Six x264 `high10` fixtures (intra, CAVLC B, weightp + fade, qp 1, 4 slices + deblock
+−2/−2, odd crop) bit-exact vs ffmpeg's yuv420p10le decode** (1 / 3 / all threads), MP4 High 10 seek test
+(`crates/codecs`) sample-exact; 8-bit speed unchanged (99.7 fps). Owed / later: a `u16` plane allocator (output
+planes use `Vec::with_capacity`, not the frame pool), 10-bit decode speed (not measured).
+**H2.3 (High 4:2:2 intra, 8 / 10-bit) done** (2026-10-14 ~12:30, self-reviewed): H2.3a `ad61e1ed` 4:2:2 geometry
+(`Planes::cheight`, `Frame::c422`, 16 chroma lines per published MB row, windows / cropping, `Picture::chroma_format_idc`,
+codecs `C422`); H2.3b `f28cafa7` 8×16 chroma intra prediction (DC rules per 4×4, plane yCF = 4); H2.3c `8af81317`
+chroma residual (2×4 DC: CAVLC nC = −2, CABAC cat 3 Min(i/2, 2), [[c0,c2],[c1,c5],[c3,c6],[c4,c7]] transform at
+QP′c + 3; 8 AC blocks with 2×4 neighbours; 4:2:2 I_PCM); H2.3d `4e9d88df` deblocking (vertical chroma edges over 16
+lines, horizontal at chroma rows 0/4/8/12 from luma edges 0..3, odd edges' bS derived under the 8×8 transform too),
+4:2:2 allowed in `check_software_supported`, **4:2:2 P / B slices refused per slice until H2.4**; guide
+`hardware.md` row. **Six x264 High 4:2:2 Intra fixtures (8 / 10-bit, CABAC / CAVLC, no 8x8dct, qp 1, 4 slices +
+deblock −2/−2 + odd crop) bit-exact vs ffmpeg** (1 / 3 / all threads + the u16 path). deblock −2/−2 + odd crop) bit-exact vs ffmpeg** (1 / 3 / all threads + the u16 path).
+**H2.4 (High 4:2:2 inter) done** (`8a9e9321`, 2026-10-14 ~12:55, self-reviewed): chroma MC at full vertical
+resolution (yIntC = yAL + (mv >> 2), yFracC = (mv & 3) << 1), 8×16 chroma predictions / weighted stores, P / B
+refusal lifted; slice decoding and deblocking are now **monomorphised over the chroma format** (`SliceDecoder<S,
+C422>`, `deblock_mb_planes<S, C422>`, dispatched per slice / MB) so 4:2:0 carries no 4:2:2 branches. **Five x264 High
+4:2:2 Long-GOP fixtures (B-pyramid + 4 refs, CAVLC, weightp + weightb on a fade, temporal direct + odd crop, qp 1;
+8 / 10-bit) bit-exact vs ffmpeg**, MP4 4:2:2 10-bit seek test (`crates/codecs`) sample-exact; guide `hardware.md`.
+**8-bit 4:2:0 speed is 2.3 % below pre-H2.3** (perf_1080p, 1 thread, builds with forced code alignment
+`RUSTFLAGS="-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=5"` and their own target
+dir, interleaved: 99.6 → 97.3 fps; unaligned builds vary ±1.5 % by layout). Bisect: H2.3a 0, H2.3b–d ~−1.5, H2.4
+before monomorphising −2.3 (fixed). Ruled out: `MbState` / scratch sizes (probe at the old sizes: same speed),
+chroma-window / add-chroma loop bounds. No `perf` on the Dell (no sudo): **profile owed at H2.7** (or on the PC).
+**H2.4 never-crash rounds** `cdd9a216` (High 10 / 4:2:2 bit flips incl. parameter sets, truncation, a stream switching
+bit depth and chroma format; no panics, caught or not). **H2.7a** (perf_4k_422_10): 4K 10-bit 4:2:2 **Long-GOP
+43.2 fps, Intra (632 Mbit/s) 26.8 fps** with 16 threads on the Dell (1 thread: 8.5 / 3.3), fork-benchmarks.md;
+**slice threads deferred (Q32, FYI)**; fps on the i5-11600K owed at acceptance.
+**Q31 answered (a): ITU-T H.264.1 conformance streams may be downloaded (Dell only, never committed).**
+**Conformance (H2.8a):** ITU-T H.264.1 AVCv1 + FRExt + the Hi422 / Hi10 Intra professional streams (4:4:4
+skipped) **downloaded** to the Dell's `~/fork-data/h264-conformance/` (219 archives, `SHA256SUMS*`; outside git) and
+extracted into `extracted/` (218 dirs; `~/fork-logs/conf-extract.sh`). Harness `tests/conformance_vectors.rs` (ignored;
+`FILMCRAFT_H264_CONFORMANCE_DIR=~/fork-data/h264-conformance/extracted cargo test --release -p filmcraft-h264 --test
+conformance_vectors -- --ignored --nocapture`); `f65643cb` (merged) crops references stored uncropped (CVFC1) and
+accepts references that repeat pictures / mix fields per the pic_struct SEI (CVSE2 / CVSE3 / CVSEFDFT3) when both
+fields of every decoded picture appear in order. **hevc-vaapi (2026-10-14 14:40): 125 pass, 92 unsupported (all
+interlaced, FMO, SP/SI, monochrome), 1 skipped (alpha), 0 failed.**
+**H2.5 (PAFF in software) built and green, NOT merged** — branch **`dell-lane-h2-5`** (local + the Dell's scratch
+repo; on top of): H2.5a field-aware `Frame`; H2.5b intra field pictures (first /
+second field, interleave after the second, unpaired field filled by copying); H2.5c inter fields (reference
+fields, chroma offset, field scans and CABAC field contexts, field deblocking); H2.5d direct prediction in
+fields (Table 8-6 colocated, Frm_To_Fld); H2.5e frames referencing field pairs (Fld_To_Frm), frame-coded
+pictures stored with both field POCs, PAFF sequences accepted without the test hook (MBAFF ones still refused until
+H2.6), guide `hardware.md` rows; PREP-H2 §6 "As built" (the design's chroma-offset sign was reversed, and
+it missed field scans / contexts / deblocking). **Branch results on the Dell: fmt, workspace clippy, h264 tests
+(incl. new synthetic field test + damaged-field-stream rounds), layers, wasm green; conformance 168 pass / 49
+unsupported (42 MBAFF, 3 FMO, 2 SP/SI, 2 monochrome) / 1 skipped / 0 failed (+43 PAFF streams bit-exact);
+8-bit progressive perf_1080p 1 thread −0.9 % (96.4 vs 97.3 fps, alignment-pinned A/B, inside layout noise).**
+Engine test `ai_explain_tests::panic_error_and_timeout_fall_back` failed once under full-workspace load and passes
+alone (timing; not touched here). Self-reviewed only (weekly usage above pace, no subagents).
+**H2.6a–c (MBAFF intra, inter, direct) built and green, NOT merged** — branch **`dell-lane-h2-6`** (on top of
+`dell-lane-h2-5`): design PREP-H2 §7 (merged); H2.6a pair addressing, mb_field_decoding_flag (read ahead /
+inferred), the Table 6-4 neighbour mapping behind every neighbour lookup, field-MB reconstruction (line step 2),
+MBAFF as a const generic of `SliceDecoder` (progressive perf parity 97.1 vs 97.2 fps); H2.6b field-MB references
+(refIdx >> 1 frame, refIdx & 1 parity), weights, MC, motion neighbours by luma sample (C / D from the line above);
+H2.6c direct with MBAFF colocated pairs (per-MB field flags + field reference ids in published rows), temporal
+over field POCs. **Conformance 177 pass / 40 unsupported (33 = MBAFF with the loop filter, 3 FMO, 2 SP/SI, 2
+monochrome) / 0 failed** (+9 MBAFF streams over H2.5; every loop-filter-off MBAFF stream bit-exact). Lessons: two
+recalled Table 6-4 details were wrong and the conformance streams (and the Toshiba `mv_trace` MVP files) decided;
+Dell-only tools `crates/h264/examples/fc_*.rs` on the scratch repo (untracked, never committed).
+**Next:** H2.6d MBAFF deblocking (33 streams as the oracle), H2.6e accept MBAFF by default (hook off), guide rows.
+**Next run with subagent room:** fresh-context **Opus** review of `git diff f65643cb dell-lane-h2-5` and then
+`dell-lane-h2-5..dell-lane-h2-6` (decoder.rs
+field picture lifecycle / unpaired fields / job threading, slicedec.rs colocated mapping, deblock.rs, picture.rs),
+fix, fast-forward merge; also still owed: the H1.3 + H1.4 review (`dell-lane-h1-3`). Then **H2.6 MBAFF** (42
+conformance streams as the oracle; flip `set_field_pictures` default when done) and H1.5. Dell leftovers: A/B
+worktree `~/Projects/fc-base` (at `9c7f81a5`) + `~/Projects/fc-perf-*` targets (≈0.5 GB, reusable for perf A/B).
 
 ## Status
 
@@ -127,11 +235,11 @@ quoted with attribution, everything else read-only, our own words; source list i
   `coach-1`, `yt-1`) and the **6E group on `d866cb4c` (2026-10-13): `phase-6e`, `linux-1a`,
   `linux-2a`**, **`upstream-sync-2` on `e090c0c9` (2026-10-13, U0.2 + U0.2.3b)** and `ai-1` on
   `bcb5f713` (2026-10-14) and the **X422 group on `f8c3e788` (2026-10-14): `x422`, `audio-1`, `linux-1b`,
-  `linux-2b`**. Builds in `~/Apps/filmcraft-builds/`; `latest` → `x422`; launcher
+  `linux-2b`** and **`yt-3` on `db7c1d0d` (2026-10-14)**. Builds in `~/Apps/filmcraft-builds/`; `latest` → `yt-3`; launcher
   `~/.local/share/applications/filmcraft-fork.desktop`. Public (§1a.33): dawgon2/filmcraft-cachyos
-  branch `fork` snapshot `62992ebb` (of `x422`, parent `6e3428fc` = `fork-ai-1`), tags `fork-x422`,
-  `fork-audio-1`, `fork-linux-1b`, `fork-linux-2b`, release `fork-x422` (scrubbed Dell build of `f8c3e788`,
-  `strings`: only /home/user; NOTES.md).
+  branch `fork` snapshot `9abdf285` (of `yt-3`, parent `62992ebb` = `fork-x422`), tag `fork-yt-3`,
+  release `fork-yt-3` (scrubbed Dell build; NOTES.md); earlier tags `fork-x422`, `fork-audio-1`,
+  `fork-linux-1b`, `fork-linux-2b`.
 - **U0.2 as shipped:** one VA-API stack: upstream's H.264 / HEVC front ends on the fork's
   `va::Display` with `va_accel::ZeroCopyAccel` (zero-copy, hand-off incl. scaled, read-back mode);
   fork `va_hevc.rs`, `crates/hevc/src/accel.rs` and upstream's `vaapi/va.rs` deleted. Displays are
@@ -145,10 +253,10 @@ quoted with attribution, everything else read-only, our own words; source list i
   (`docs/fork-benchmarks.md` "Phase 6E"). Diagnostic env vars: `FILMCRAFT_EXPORT_TRACE=1`,
   `FILMCRAFT_EXPORT_GPU_PROBE=1` (per-frame GPU time per device), `FILMCRAFT_BENCH_ENGINES=dual|single`,
   `FILMCRAFT_BENCH_KEEP=<dir>`.
-- **Schema v17**, prefs version 3. New user-visible strings need es + zh-cn rows. New guide pages go
+- **Schema v18** (C1 comps), prefs version 3. New user-visible strings need es + zh-cn rows. New guide pages go
   in `GUIDE_PAGES` (`crates/engine/src/coach_ask.rs`) and their `{ui:}` ids must be known to the
   `coach_ui` walk; dynamic automation ids (`format!`) must be listed in
-  `crates/ui-egui/src/coach_ids.rs::DYNAMIC_ID_PATTERNS` (a test fails otherwise). Coach eval floor 82.
+  `crates/ui-egui/src/coach_ids.rs::DYNAMIC_ID_PATTERNS` (a test fails otherwise). Coach eval floor 94.
 - **RS1** feature `fork-resolve-default` is on in ci: new UI tests that assume Premiere set
   `prefs.workflow = Premiere`.
 - **Desktop integration is off under `--control`** unless `FILMCRAFT_DESKTOP_INTEGRATION=1`
@@ -193,97 +301,82 @@ quoted with attribution, everything else read-only, our own words; source list i
 - Cloud: CLOUD-QUEUE has C1-PREP, AI1-PREP, R1-PREP (docs only). Merge `origin/cloud-work` first
   if it has new commits.
 
-## Exact next step: Y3.4 (WGSL custom shader effects), then the yt-3 acceptance
+## Exact next step: C1 (COMPOSITOR-PLAN, simplified node compositor), step 1
 
-Y3 so far (2026-10-14, one scheduled run, MINIMAL mode, all self-reviewed; all results synthetic; details
-in FORK-PLAN §7):
+**yt-3 accepted 2026-10-14** (Y3.1 GPU keys, Y3.2 attach to track / tracked blur, Y3.3 screen replacement,
+Y3.4 user WGSL shader effects + 4 examples, Y3.5 look packs; all synthetic). The Y3 working notes are
+archived at the end of `docs/fork/PROGRESS-LOG-ARCHIVE.md` ("HANDOFF notes for Y3"). Owed from Y3 (not
+blocking): a fresh-context review of the Y3 diffs (`git log 14705d16^..yt-3`, the GPU user-effect pass in
+`crates/gpu/src/fx.rs` and the device-lost hook especially) when the mode allows (STEADY or better); the
+X422 2b fusion review; the MKV 4K-from-6.2K Intel export check (cloud MKV-HANDOFF); Color Key Edge Thin;
+a look at the Effects ▸ User folder on screen (not screenshotted).
 
-- **Y3.1 keys on the GPU ✓** `FxOp::LumaKey` / `UltraKey(Box<UltraKey>)` / `ColorKey`; GPU ops 37–41 in
-  `crates/gpu/src/fx.rs` + `fx.wgsl` (Ultra Key: matte → choke boxes → `OP_UKEY_CHOKE` → soften boxes as
-  passes before a combine, `OP_UKEY` combine; `route` binds the original as `aux` for those passes). CPU
-  references: `vfx::color::ultra_key_eval` / `ultra_key_apply`, `FxOp::apply`. Parity ≤ 6e-7 AMD + Intel.
-  4K cost (`fx_tests.rs` `gpu_key_timing_4k`, ignored): AMD Ultra Key 1.9 ms (11.2 with choke + soften);
-  Intel 10.9 / 95 ms. Guide `docs/guide/keying.md`. Color Key's Edge Thin was never implemented (gap).
-- **Y3.2 attach to a track ✓** `tracking.attach` (layer Motion follows a region in the clip below;
-  Position or P-R / P-S-R), Motion's Attach to Track row; `tracking.blurRegion` (one-click tracked blur /
-  mosaic). 0.57 px / 0.49 px + 0.08° synthetic.
-- **Y3.3 screen replacement ✓** `render/track.rs` homography fit + `track_step_perspective`;
-  `tracking.cornerPin` (+ Corner Pin's Track Surface row; source defaults to the clip below). 0.67 px.
-  Code: `crates/engine/src/tracking.rs`, tests `tracking_tests.rs`, UI test `tests/ui/tracking_ui.rs`
-  (both workflows), guide `docs/guide/tracking.md`.
-- **Y3.5 packs ✓** `packs.export` / `packs.import` (`.fcpack` zip, `crates/engine/src/packs.rs`, hostile
-  caps), `lut.importFolder`; guide `docs/guide/packs.md`.
-- Coach eval sits **exactly at its floor (82 / 116)** after keying.md: new guide pages can push it
-  under; reword (see the progress log) rather than lower the floor.
-
-**Y3.4 step 1 done: ADR [0006](../adr/0006-user-shader-effects.md)** (provisional, OWNER-QUESTIONS Q29 FYI):
-files in `<data dir>/Effects/*.wgsl` + `assets/effects/`, `// @param` annotations, user writes `fn effect(px)
--> vec4` on straight sRGB colour, leaf crate `filmcraft-usershader` (naga 30) composes + validates, interned
-`&'static EffectDef` registry in `filmcraft_project::effect` (cap 4096), missing effects load and render as
-pass-through, `FxOp::User` GPU-only, slow-pass rule (3 frames > 50 ms at 1080p) + quarantine on device loss.
-**Y3.4 step 2 done:** new L2 crate `crates/usershader` (`filmcraft-usershader`, naga 30 `wgsl-in`):
-`parse(source, name_hint) -> Result<UserEffect, Vec<ShaderError>>` (annotations, forbidden constructs, `fn
-effect(` required, 256 KB / 16-param caps), `compose(fx, storage_format)` (prelude: `fx_u` uniform with
-`size.xyzw` (z = time) + `pv: array<vec4<f32>, 16>` one slot per param, `fx_src`, `fx_dst`, `size`, `time`, `P`,
-`load`, `sample`; entry `fx_user_main` 16×16; straight sRGB in/out ↔ linear premultiplied), `validate` (naga,
-errors mapped to user lines). 6 tests. **Y3.4 step 3 done:** registry in `filmcraft_project::effect` (`register_user_effects`, `user_effects`,
-`is_user_effect`, interned `&'static EffectDef`s, cap `MAX_INTERNED_USER_EFFECTS` 4096; `find_effect` falls back
-to it); engine `user_effects.rs` (`reload` at `start_autosave` and `effects.reloadUser`, `effects.listUser`,
-`Session.user_effects` statuses with the parsed `UserEffect` for the GPU stage; `EXAMPLES` empty until step 5);
-ids `user.<slug>` / `example.<slug>`. Tests: project registry (intern / refuse / drop), engine (load, line-3 error,
-size cap, apply + save, reopen without the file keeps the instance and its values, renders). **Y3.4 step 4 done (2026-10-14 08:30–09:00 EDT, MINIMAL, self-reviewed):** the registry keeps each effect's
-composed module (`UserEffectSpec.module`, `user_effect_module(id) -> (hash, Arc<str>)`; engine composes at load);
-`FxOp::User(Box<UserOp>)` (`render/gpufx.rs`: pv slots in declaration order, colour straight sRGB, point in working
-px with Auto → centre, `time` = clip seconds; CPU = pass-through; unregistered → no GPU op); GPU `fx.rs`: own
-bind group layout `ubgl` / `upl`, pipelines cached per (id, hash) built in a validation error scope (broken →
-skipped, pass-through), `user_dispatch`. **Slow-pass rule:** `wanted_features()` now includes
-`TIMESTAMP_QUERY`; each user pass runs in its own timed compute pass, timestamps resolved and read back
-non-blocking (`FxStage::after_submit`, called after the composite and `effect_image` submits); 3 frames in a row
-over 50 ms at 1080p (pixel-scaled) → turned off for the session + message
-(`GpuCompositor::take_user_effect_messages`, `set_user_effect_slow_limit`). Without timestamp queries there is no
-timing (deviation from the ADR's wall-time fallback: wall time would include unrelated passes and poll lag;
-AMD and Intel both have timestamps). Tests `crates/gpu/src/user_fx_tests.rs` (4) on AMD + Intel: full ≤ 4.2e-7,
-half ≤ 4.9e-4. **Y3.4 step 4c done (quarantine):** user passes count as in flight (`filmcraft_gpu::user_effects_in_flight`)
-from submit until `on_submitted_work_done`; a lost device (UI device in `ui-egui` `set_wgpu`, export device in
-`export_renderer.rs`) calls `filmcraft_gpu::notify_device_lost()` → the hook set by the UI →
-`filmcraft_engine::user_effects::quarantine(<Effects dir>, keys)` writes `quarantine.json` (`[{id, hash}]`, hash as
-a decimal string, ≤ 256 entries, ≤ 256 KB read, hostile files ignored); `reload` marks a quarantined (id, hash) as
-broken ("the GPU stopped while this effect was running"); a changed file (new hash) loads again;
-`effects.unquarantine {id?}` turns one / all back on. Not tested with a real GPU hang (would freeze the desktop).
-**Y3.4 step 5 done (Y3.4 complete):** four original examples in `assets/effects/` (chromatic-aberration, glitch,
-vhs, light-leak; sidecars + ATTRIBUTION.md; `EXAMPLES` in `user_effects.rs`, ids `example.<name>`, Video Effects ▸
-User ▸ Stylize); GPU test renders each (defaults, two times, full + half, AMD + Intel). UI: the Effects panel lists
-user effects under Video Effects ▸ User, broken files with ⚠ + hover error (`effects.user.broken.<id>`), a "needs
-the GPU" note without a GPU (`effects.user.needsGpu`), **Reload** / **Open Effects Folder**
-(`effects.user.reload` / `effects.user.openFolder`); Effect Controls shows "⚠ Missing effect: <id>"
-(`effectControls.missing.<id>`); slow-pass messages go to the status line. UI test `tests/ui/user_effects_ui.rs`.
-Guide `docs/guide/shader-effects.md` (headed; in GUIDE_PAGES / HEADED_PAGES; coach eval kept at its floor by
-avoiding the word "settings"). Not yet looked at on screen (no screenshot taken: MINIMAL). **Next: the yt-3
-acceptance** (below).
-Original sketch for reference: (1) ADR 0006, the user-effect
-registry (effect def shape shared with C1's nodes; how a project refers to a user effect and loads as
-"missing effect" without it; where files live: `<data dir>/Effects/*.wgsl`); (2) a leaf parser /
-validator: annotation comments → params (name, kind, default, range), naga-validated module with a fixed
-entry point and bindings, size caps, errors with line numbers; (3) runtime: the GPU effect pass runs the
-user module (one pipeline per file, cached), CPU fallback = pass-through with a warning badge; time limit
-= measured per-frame cost, disabled after N slow frames with a message; (4) four original examples
-(glitch, chromatic aberration, VHS, light leak) with `.attribution` sidecars; (5) UI + guide page. Design
-the ADR in a fresh, short step (MINIMAL: no Fable; write it yourself from PREP-Y3). Then the **yt-3
-acceptance**: quick passes per YOUTUBE-PLAN Y3 "Accept" (keys real-time at Full ✓ synthetic, text follows
-✓, face blur ✓, screen replacement ✓, a WGSL example on AMD and Intel, a broken one rejected), `cargo xtask
-ci`, tag `yt-3`, build + publish per §1a.9 / §1a.33, rewrite this file for C1.
-
-Owed from this run: a fresh-context review of the Y3 diffs (`git log 14705d16^..HEAD`) when the mode
-allows (STEADY or better); the X422 2b fusion review is also still owed.
-
-**X422 as shipped (summary):** (a) 6.2K 4:2:2 graded → 4:2:0 20.0 fps, limited by the Intel UHD 750's
-4:2:2 decode + ~104 MB hand-off copy (~50 ms / frame; AMD waits); (b) → 4:2:2 HEVC master 7.2 fps
-(Intel 4:2:2 encode, Q27); fused graded passes (2b): graded GPU work per 6.2K frame AMD 19.1 → 8.2 ms,
-Intel 286 → 178 ms, `FILMCRAFT_FX_FUSE=0` = old passes; aims short → Q28 (FYI). Owed: a titles page in
-the guide (the coach off-topic test tolerates one word-match miss since A2.6, see progress log);
-the optional 2b.3 (F1 point-run fusion) and the LUT-bake idea (Q28 (b)) only if the owner asks. A fresh-context review
-of the 2b fusion diff (`crates/gpu/src/fx.rs`, `fx.wgsl`, `colorops.wgsl`; self-reviewed in MINIMAL) is owed
-when the mode allows.
+**C1 plan:** `docs/fork/DESIGN-C1.md` (2026-10-12) is the design; §7 has the 13 steps, lanes and the
+critical path 1 → 2 → 3 → 5 → 7 → 10 → 13. **Done:** step 1 (ADR **0007** `docs/adr/0007-node-graph.md`,
+provisional) and step 2 (`crates/project/src/dag.rs`: `validate`, `Order { steps }`, `Order::last_use`,
+`DagError`, caps; 12 tests) and step 3a (`crates/project/src/comp.rs`: types, `params(kind)`,
+`sanitize`, `impl DagNode`; the Text node holds the `graphic_text` `EffectInstance`, not a
+`LayerSpec`) and step 3b (`ItemKind::Comp(Arc<Comp>)` everywhere; `nest_cycle` follows comps; format
+sanitizes comps on load; a comp clip renders transparent until step 5). Step 4 done (schema v18, fuzz test). Step 5a done (`crates/render/src/comp/mod.rs`: `compile`,
+`Program` / `Pass`, liveness slots, `execute_cpu`, `render_cpu`, `CompSources`, gradient; 12 golden /
+scheduling tests). Step 5b done (comp clips render on the CPU path and through the frame plan as CPU layers;
+`comp/project.rs` `ProjectSources`; `comp_clip_tests.rs`). Step 6 done (Text node via
+`graphic_clip::render_graphic_layers`, comp B shape test). Step 11 started 2026-10-14: `docs/guide/compositor.md` (partial: basics, making, convert, the two recipes, speed; in `GUIDE_PAGES` + `NOT_INDEXED`; the coach UI walk opens the Compositor) — add the inspector / viewer / Fusion page sections with 10b. **Next** (any order; critical path is 7, a large GPU step best done in STEADY or better with a Fable/Opus builder):
+**step 7: 7a done 2026-10-14** (`PlanLayer.comp`, not a `PlanStep::Comp`: keeps `FramePlan::Layers` so GPU export
+stays on the GPU; `render::comp_plan_layer`; the GPU still runs the program on the CPU in `render_plan`'s fallback).
+**Step 13 progress 2026-10-14:** bench comp-1080 / comp-2160 half real time; 30-min comp soak passed (0 drops / errors,
+RSS plateau); architecture §5 + ADR 0007 as-built written. 10b done 2026-10-14 (Color node fully editable; Mask shapes dragged on the Program monitor,
+no Bézier handles yet). Still for acceptance: screenshots in both workflows (looked at 2026-10-14, both fine; redo at the tag), an Opus review of `gpu/src/comp.rs` (LEAN+), `cargo xtask ci`, tag `comp-1`,
+build / publish. **7d done 2026-10-14 (comps real time: comp-1080 / comp-2160 half 192 / 0 drops, synthetic; Item Media In sources still
+CPU images: give them `media_in_layers` too when a bench shows it).** Was: bench (`bench --section playback --only comp`, scenarios `comp-1080` /
+`comp-2160`) shows 75 % / 91 % drops: ~400 ms CPU per frame because Media In nodes render their source on the CPU
+(`comp::project::ProjectSources::media_in` → CPU image → `Pass::Image`, uploaded every frame). Plan: a new
+`Pass::Layers { dst, layers: Vec<PlanLayer> }` that `compile` emits for Media In when the sources can give plan
+layers (`CompSources::media_in_layers`, default None → today's image path): `ProjectSources` builds them with the
+frame-plan code (`push_item` for the Media In item / the track's items at comp time, scaled to the comp size);
+`execute_cpu` runs `plan::execute_layers` into a blank image; the GPU `slot_draw`s the layers (decoded / hardware
+frames, zero-copy). Then re-bench. **7b + 7c done 2026-10-14** (`crates/gpu/src/comp.rs` `run_comp`, `comp_tests.rs`, AMD + Intel parity; owed: an Opus
+review of `comp.rs` in LEAN or better; `backdrop` / `post` reallocate when comp and frame sizes alternate: pool per
+size if the step-13 bench shows it). The design as built (kept for the review): in `crates/gpu` (new `comp.rs`), `GpuCompositor::run_comp(&Program) -> Arc<VideoFrame>`:
+slots = `Option<(Texture, View, (w, h))>` per `Tex` + scratch, created like `Self::target` with ACCUM_FORMAT and
+`COPY_SRC | COPY_DST`; each slot has a stable placeholder frame (`RgbaF32(Arc::new(Vec::new()))`, program size) and is
+**registered in `self.uploads`** under that frame's key (`Uploaded { views: [slot view, dummy ×3], kind: 1,
+code_scale 1, texel_scale 1, alpha_scale 0, chroma (w, h), last_used: clock }`) right before every use (the LRU
+evicts at 24; never let `upload` see a placeholder unregistered: its empty pixels would be uploaded). Passes:
+Image = `render_plan(Layers [PlanLayer::new(image frame, IDENTITY, 1, Normal)], clear)` into the slot (swap
+`self.accum` with the slot as transitions do, lib.rs `transition_inputs`); Fill = a 1×1 `rgba_f32` frame scaled by
+`Affine::scale(w, h)`; Copy = `copy_texture_to_texture`; Draw / Over = one slot layer with `xform` (Draw: clear
+true; Over: clear false, `mode`, `opacity`; hq → `with_quality`); src == dst or Fx = draw into scratch and swap
+slot handles; Fx = the slot layer with `fx: Some(LayerFx { size: program size, decimation: 1, ops })`, identity.
+Then in `render_plan`, before the accumulator is taken, replace each comp layer's frame with `run_comp`'s out
+frame (drop its CPU fallback branch). VRAM: `textures × w × h × 8 B` over `fx::FX_VRAM_BUDGET` → keep the CPU
+fallback (log once). Sizes alternate (comp vs frame) so `backdrop` / `post` reallocate: pool them per size if it
+shows in the bench. **7c:** parity tests in `crates/gpu/src/tests.rs` per pass kind + comps A / B vs `execute_cpu`
+(≤ 1e-3 rel) on AMD and Intel (`MESA_VK_DEVICE_SELECT`, see memory `machine-gpu-render-nodes`).
+(Was: **step 7** GPU `PlanStep::Comp` (Draw / Fx / Over on pooled canvases, VRAM check → CPU
+fallback, AMD + Intel parity; a Fable/Opus builder per §1a.44 when the mode allows, else do it here);
+step 9 done (`widgets/node_canvas.rs`, generic canvas + 5 tests); step 10a done
+(`panels/comp.rs`, `PanelKind::Compositor`, `tests/ui/comp_ui.rs` both workflows); **step 10b**: node
+inspector (schema rows done 2026-10-14: `panels/comp.rs::inspector` with the shared
+`transition_controls::param_widget`, ids `comp.param.<key>`; still owed: Color node = grade tab widgets, Text rows done (layer params, text field), Mask = mask list done 2026-10-14 (`panels/comp.rs::mask_rows`: Add ellipse / rectangle, Inverted, Delete → `comp.setMasks`; ids `comp.mask.{ellipse,rect}`, `comp.mask<k>.{inverted,delete}`), feather / opacity / expansion rows `comp.mask<k>.<param>` done; still owed: viewer shape editor (Color needs `grade.rs::palette` refactored to target a comp node instead of a clip: do it in STEADY or better); the per-row stopwatch `comp.param.<key>.stopwatch` is done), `Target::CompNode` viewer (render side done 2026-10-14: `filmcraft_render::render_comp_node(project, seq, clip, node, t, opts, sources)` = the clip's comp with `output = node`, at comp time; `Target::CompNode(seq, clip, node)` in `frames.rs`, `panels/comp.rs::viewer_target` used by the Program monitor while the Compositor is open and a non-output node is viewed (`canvas.viewed`: double-click / node menu View / UI command `comp.view {node?}`) done 2026-10-14, not screenshotted; the "Show: Media Out / <node>" combo `comp.viewer` done too; Compositing workspace + Fusion page between Edit and Color done 2026-10-14: `dock.rs` "Compositing", `pages.rs` `fusion`, Fusion toolbar; not screenshotted)
+(done 2026-10-14: Open in Compositor = `comp.open`, and the timeline node-count badge `timeline.rs::comp_badge`,
+not yet looked at on screen); step 8a done (`engine/src/comp.rs`: 15 core `comp.*` commands + `comp_tests.rs`); step 8b part done (`comp.newClip`, `comp.setMasks`, and `comp.convertToCompClip` 2026-10-14: stacked clips
+only, same start / end, strict refusals per DESIGN-C1 §9; same-track sequences and animated Motion / Opacity are
+refused for now, relax in C4; the step-11 guide page must cover it); `comp.open` done 2026-10-14 (UI command in `panels/comp.rs::route`, Clip ▸ Compositor ▸ Open in Compositor, by `clip` / `comp` / selection; an opened comp holds until the selection changes, `opened_with` in the panel state); **rest of 8b**: none (`comp.view` done as a UI command). `tools/comp-accept.json` done 2026-10-14 (the `command_batch` args building comp A on
+V2 and comp B on V3 over V1 footage via Media In `track: 0`; node ids are fixed: 1 = Media Out, then 2, 3, … in
+add order; engine test `the_acceptance_batch_builds_comps_a_and_b` runs it step by step as the MCP server does). Static-subgraph cache (DESIGN-C1 §3.2) done 2026-10-14:
+`comp::compile_cached` (used by `render_cpu`; step 7's GPU path should call it too, its cached pictures arrive as
+`Pass::Image`), `static_tops`, 256 MB LRU `StaticCache`; Color nodes and Media In are never static, any keyframe
+makes a node dynamic. **C1 item 7 (AI help for Fusion)** part done 2026-10-14: `comp.explain` (`engine/src/comp_explain.rs`, template
+sentences per node; no UI button yet); 8 compositing eval questions added and `compositor.md` indexed (eval 93/124, floor 93; 6 compositing misses
+left); lesson `first-comp` (Text / Transform / Merge / Media Out, walk test
+`coach_first_comp_end_to_end`); and `key-comp` (Media In / Key / Solid / Merge / Color,
+`coach_key_comp_end_to_end`); assistant plan §4a written: **item 7 done**. **Step 12 / C1 item 6 (Coach fixes)** part done 2026-10-14: what-for, x-vs-y, order and not-yet routes + typo stand-in in
+`coach_ask` (eval 91/116, floor 91); heading-idf weight measured useless (dead end); and the why-first summary (`Answer::explain`):
+**C1 item 6 done** (`docs/fork/coach-eval/DIAGNOSIS.md` §4). In
+MINIMAL mode do the integrator steps yourself, no lanes; lanes A–D / T only when the mode allows
+builders. The user-effect registry (`filmcraft_project::effect::UserEffectSpec` / `user_effect_module`)
+is the shape a later "Shader" comp node can reuse (ADR 0006 consequences).
 
 ## Environment and gotchas
 

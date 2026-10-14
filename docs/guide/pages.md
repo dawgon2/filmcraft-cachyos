@@ -5,7 +5,7 @@ DaVinci Resolve (the fork's default); the Premiere workflow keeps its header and
 
 ## What a page is
 
-> id: pages.what | does: the Resolve workflow's pages, one per stage of the work | ui: page.* | cmd: page.* | resolve: pages (Media, Edit, Color, Fairlight, Deliver) | premiere: workspaces | when: choosing the Resolve workflow; finding where a tool lives | see: pages.panels
+> id: pages.what | does: the Resolve workflow's pages, one per stage of the work | ui: page.* | cmd: page.* | resolve: pages (Media, Edit, Fusion, Color, Fairlight, Deliver) | premiere: workspaces | when: choosing the Resolve workflow; finding where a tool lives | see: pages.panels
 
 **[Resolve-style]** layout, **[Fork]** mechanism
 
@@ -25,15 +25,17 @@ project, the same timeline and one undo history behind every page, only the pane
 2. Along the top, the menus on a row of their own, then the page's **toolbar**: buttons with a
    label that show or hide that page's panels, the project name in the middle.
 3. Click a page in the bar to go there: **Media** ({ui:page.media}), **Edit** ({ui:page.edit}),
-   **Color** ({ui:page.color}), **Fairlight** ({ui:page.fairlight}), **Deliver**
-   ({ui:page.deliver}). The commands are `page.media`, `page.edit`, `page.color`,
-   `page.fairlight` and `page.deliver`; with the DaVinci Resolve Compatible keys, Shift+2, 4, 6,
-   7 and 8 do the same.
+   **Fusion** ({ui:page.fusion}), **Color** ({ui:page.color}), **Fairlight**
+   ({ui:page.fairlight}), **Deliver** ({ui:page.deliver}). The commands are `page.media`,
+   `page.edit`, `page.fusion`, `page.color`, `page.fairlight` and `page.deliver`; with the
+   DaVinci Resolve Compatible keys, Shift+2, 4, 6, 7 and 8 open Media, Edit, Color, Fairlight
+   and Deliver.
 
 ### If you know Resolve
 
-Resolve's Cut and Fusion pages are not shown yet: FilmCraft has no Cut layout (the dual
-timeline) or compositor to put on them. The Photo page is not planned. Unlike Resolve, the menus
+Resolve's Cut page is not shown yet: FilmCraft has no Cut layout (the dual timeline). The
+Fusion page holds FilmCraft's much smaller node compositor ([compositor.md](compositor.md)), not
+Fusion itself. The Photo page is not planned. Unlike Resolve, the menus
 and the pages are one window's furniture: closing a panel on one page doesn't close it on the
 others, and every page's layout can be changed and saved (below).
 
@@ -51,6 +53,7 @@ Controls, Mixer is the Audio Track Mixer.
 |---|---|---|---|
 | Media | Media Page | Media Browser and Source Viewer over the Media Pool; Metadata and the meters on the right | Media Browser, Media Pool / Audio Meters, Metadata, Inspector |
 | Edit | Edit Page | Media Pool (with Effects and Markers as tabs) down the left; Source Viewer and Timeline Viewer side by side over the Tools strip and the Timeline | Media Pool, Effects, Markers / Quick Export, Mixer, Metadata, Inspector |
+| Fusion | Compositing | the Compositor (node canvas with the selected node's settings under it) beside the Timeline Viewer, over the Media Pool and the Timeline ([compositor.md](compositor.md)) | Media Pool, Effects, Compositor / Metadata, Inspector |
 | Color | Color Grading | the node grader: Gallery, viewer, Nodes; the clips strip; Primaries and scopes ([color/README.md](color/README.md)) | Gallery, Media Pool, Clips / Nodes, Lumetri Scopes, Effects |
 | Fairlight | Fairlight Page | a small viewer and the meters with the loudness readout across the top; Tools and the Timeline; the Mixer (and Essential Sound) on the right | Media Pool, Effects, Markers / Mixer, Audio Meters, Metadata, Inspector |
 | Deliver | Deliver Page | Render Settings down the left; the Timeline Viewer and the Render Queue over the Timeline | Render Settings / Render Queue |

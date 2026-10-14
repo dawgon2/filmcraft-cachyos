@@ -777,3 +777,17 @@ render loop waiting for frames 26.3 of 28.5 s; summed per frame: va decode sync 
 AMD card (AMD can't decode 4:2:2 or import Intel's tiled surfaces), ~50 ms of Intel time per frame; the AMD render +
 encode (~8 + ~4 ms) waits on it. Raising it needs a cheaper hand-off (smaller format, DMA-BUF import of a linear decode
 target) or a 4:2:2 decoder on another engine, not rendering work.
+
+## H2.7: built-in H.264 software decoder, 4K 10-bit 4:2:2 (Dell lane, 2026-10-14, synthetic)
+
+Dell (i5-13500T, 6P + 8E, 16 decode threads), release, `cargo test --release -p filmcraft-h264 --test perf
+perf_4k_422_10 -- --ignored --nocapture`. x264 `high422` / `yuv422p10le`, 3840×2160, 30 frames of `testsrc2` + noise,
+`-preset veryfast` (XAVC S / S-I-like rates). Frame-level threading only (no slice threads).
+
+| stream | 1 thread | 16 threads |
+|---|---|---|
+| Long-GOP (keyint 24, 2 B-frames, CRF 16: **123 Mbit/s**) | 8.5 fps | **43.2 fps** |
+| Intra (keyint 1, CRF 12: **632 Mbit/s**, CABAC-bound) | 3.3 fps | **26.8 fps** |
+
+Owed on the i5-11600K at acceptance. Same run, 8-bit 4:2:0 1080p (`perf_1080p`): ~97 fps 1 thread (2.3 % below
+pre-H2.3 in alignment-pinned A/B builds; see HANDOFF).

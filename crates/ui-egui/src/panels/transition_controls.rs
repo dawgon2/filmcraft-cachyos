@@ -33,7 +33,7 @@ use crate::FilmcraftApp;
 use crate::state::TransitionDurationDraft;
 use crate::theme::Tokens;
 
-type Elems = Vec<(String, Rect, String)>;
+pub(crate) type Elems = Vec<(String, Rect, String)>;
 
 // the same sizes as the clip view's (`effect_controls.rs`), so the two look alike
 const MIN_LIST_W: f32 = 260.0;
@@ -157,7 +157,7 @@ pub fn effect_controls(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, id
             for pd in def.map(|d| d.params.as_slice()).unwrap_or(&[]) {
                 let value = x.effect.params.get(pd.id).map_or(&pd.default, |p| &p.value);
                 ui.label(crate::i18n::t(pd.label));
-                if let Some(v) = param_widget(ui, &mut elems, pd.id, &pd.kind, value, (fw, fh)) {
+                if let Some(v) = param_widget(ui, &mut elems, &format!("effectControls.transition.param.{}", pd.id), pd.id, &pd.kind, value, (fw, fh)) {
                     changes.push(v);
                 }
                 ui.end_row();
@@ -395,9 +395,19 @@ fn paint_ruler(p: &egui::Painter, ruler: Rect, view: (Tick, Tick), rate: FrameRa
     }
 }
 
-/// One of a transition's own settings. Returns the change, as `sequence.setTransition` params.
-fn param_widget(ui: &mut egui::Ui, elems: &mut Elems, pid: &str, kind: &ParamKind, value: &ParamValue, frame: (f64, f64)) -> Option<Value> {
-    let eid = format!("effectControls.transition.param.{pid}");
+/// One parameter's widget (a transition's own settings; a comp node's in the Compositor), with
+/// automation id `eid`. Returns the change as `{"params": {pid: value}}` (plus `merge` / `begin`
+/// for drags), the shape of `sequence.setTransition` params.
+pub(crate) fn param_widget(
+    ui: &mut egui::Ui,
+    elems: &mut Elems,
+    eid: &str,
+    pid: &str,
+    kind: &ParamKind,
+    value: &ParamValue,
+    frame: (f64, f64),
+) -> Option<Value> {
+    let eid = eid.to_string();
     let drag = |r: &egui::Response| json!({"merge": true, "begin": r.drag_started() || !r.dragged()});
     match (kind, value) {
         (ParamKind::Float { min, max, soft_min, soft_max, unit, decimals }, ParamValue::Float(v)) => {
@@ -431,7 +441,7 @@ fn param_widget(ui: &mut egui::Ui, elems: &mut Elems, pid: &str, kind: &ParamKin
             let shown = opts.get(*c as usize).copied().unwrap_or("");
             let mut picked = None;
             let mut options = Vec::new();
-            let r = egui::ComboBox::from_id_salt(("tr-param", pid.to_string())).selected_text(crate::i18n::t(shown)).show_ui(ui, |ui| {
+            let r = egui::ComboBox::from_id_salt(("param-widget", eid.clone())).selected_text(crate::i18n::t(shown)).show_ui(ui, |ui| {
                 for (i, o) in opts.iter().enumerate() {
                     let r = ui.selectable_label(i == *c as usize, crate::i18n::t(o));
                     if r.clicked() && i != *c as usize {
@@ -453,6 +463,14 @@ fn param_widget(ui: &mut egui::Ui, elems: &mut Elems, pid: &str, kind: &ParamKin
                 v["params"] = json!({ pid: [c[0], c[1], c[2], c[3]] });
                 v
             })
+        }
+        (ParamKind::Text, ParamValue::Text(text)) => {
+            // the field shows the stored text, so every keystroke is sent (the caller's command
+            // merges a run of edits to one parameter into one undo step)
+            let mut text = text.clone();
+            let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(180.0));
+            elems.push((eid, r.rect, text.clone()));
+            r.changed().then(|| json!({"merge": true, "params": { pid: text }}))
         }
         (ParamKind::Point, ParamValue::Vec2(p)) => {
             // an automatic point (NaN) is the frame's centre until it is moved

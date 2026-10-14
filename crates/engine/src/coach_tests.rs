@@ -168,7 +168,7 @@ fn every_bundled_lesson_parses_and_names_real_commands() {
         }
     }
     let ids: Vec<&str> = coach::bundled().iter().map(|l| l.id.as_str()).collect();
-    assert_eq!(ids, ["nodes-and-flow", "first-grade", "which-node", "match-shots", "fix-skin", "tracked-window", "log-noise"]);
+    assert_eq!(ids, ["nodes-and-flow", "first-grade", "which-node", "match-shots", "fix-skin", "tracked-window", "log-noise", "first-comp", "key-comp"]);
 }
 
 #[test]
