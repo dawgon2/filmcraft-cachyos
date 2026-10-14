@@ -179,6 +179,12 @@ forward pass (MIT/Apache, ~860 lines) with gemm-based prefill (≈ 2 s per expla
 without the flag; more code to own). **Provisional: (a)**, committed with a comment block
 in `.cargo/config.toml` (delete it to undo); (c) stays a possible later speed-up.
 **Owner, 2026-10-12: do (c)** as AI-PLAN Phase AI1 (after C2), then remove the flag (FORK-PLAN §1a.37).
+**Resolved 2026-10-13 (AI1.2):** the flag block is gone from `.cargo/config.toml`; the fork builds for
+plain x86-64 and picks AVX2 at run time. Synthetic, this PC, no flag: explanations 1.62 s mean (was
+~4 s with the flag on candle), Q8_0 / Q4_K / Q6_K dots at or above flagged candle. Whisper / Kokoro
+(still candle f32): gemm-backed ops unchanged; two candle ops were 6.7× / 10× slower without the flag
+(Kokoro's transposed conv, the instance-norm mean), now routed through gemm (8.0 ms vs 6.7 flagged,
+0.09 ms vs 0.2).
 
 ## Q9 (2026-10-12, Phase 6 item 7): temporal noise reduction on which node?
 
@@ -220,6 +226,8 @@ in a child window, plus a tone-mapped SDR UI around a true HDR picture, an "HDR 
 Settings, and checks on both GPUs. Size: **20–30 h**. Options: (a) not now: revisit after G4 /
 A3 (HDR grading tools exist by then); (b) schedule as its own phase after L2; (c) wait for egui
 to gain HDR surfaces upstream. **Provisional: (a)** (nothing built; reversible by scheduling it).
+
+**Answered 2026-10-14 ~01:10 (owner, live): keep (a).** Not now; revisit after G4 / A3. Resolved.
 
 ## Q12 (2026-10-13, §1a.56 DC1): the Dell build-and-test service needs your hand to install
 
@@ -410,3 +418,51 @@ to switch on. Options:
     on repeated exports.
 **Choice for now: (a).** Reversible: (b) and (c) can be scheduled any time.
 
+
+## Q22 (2026-10-13, AI1.1): the tuned SmolLM2 explainer scores 70/75 on the new runtime instead of 72/75 (FYI, choice made, reversible)
+
+AI1 replaces candle with FilmCraft's own quantized forward pass (no x86-64-v3 build flag needed).
+On the 75 held-out cases (greedy, 80 tokens, repeat penalty 1.0, this PC, synthetic prompts):
+`qwen05-v1` scores **74/75, identical** to its recorded run; `smol360-v1` (the default tune) scores
+**70/75** (set 1 34/36 as before, set 2 36/39 instead of 38/39), and answers in **1.62 s** on average
+instead of ~3 s. Its set-2 result moves with the order in which the maths adds numbers up: 36 with
+our AVX2 kernels, 37 with our portable path (which is bit-identical to candle's plain path), 38 in
+the recorded run (candle's AVX2 path). The cases that flip are claims just at the fact checker's
+thresholds (a cooler highlight it omits, a red-curve brightening it overstates), so this is
+rounding noise on borderline cases, not a broken model. AI-PLAN's accept line says "scores the
+same". Options:
+(a) **Accept within ±2 cases on 75** for the switch of runtime, and let AI1.6's retrained
+    `smol360-v2`, which is evaluated only on the new runtime, settle the score.
+(b) Hold AI1 until `smol360-v1` scores exactly 72 again (would mean matching candle's AVX2
+    summation order, slower and arbitrary).
+(c) Make `qwen05-v1` the default meanwhile (74/75, same speed now), against §1a.27's SmolLM2
+    base rule.
+**Choice for now: (a).** Reversible: (b) or (c) any time. Outputs:
+`~/Apps/filmcraft-train/runs/ai1-own-pass/` (`eval.jsonl`, `score-set{1,2}.md`,
+`eval-baseline-set2.jsonl`, `score-baseline-set2.md`).
+
+## Q23 (2026-10-13, L1.5): upstream's non-blocking file dialogs (#260) taken early (FYI, choice made)
+
+L1.5 builds on upstream's #260 ("file dialogs on Linux no longer stop the app"). The audit expected it
+to arrive with U0.2, but U0.2 only synced the VA-API stack; the next full upstream sync is weeks of
+commits away (565 pending). Options: (a) wait for that sync; (b) write our own; (c) **cherry-pick
+upstream's commit `059376af` unchanged** (`-x`, so the next sync sees the same change) and add L1.5's
+parts (dialog parented to the window, each kind of dialog starts in its last folder) as a
+fork-side hook `run_dialog_from` next to upstream's `run_dialog`, leaving upstream's signature and
+tests alone. **Choice: (c).** The next sync's merge of `native_dialogs.rs` / `main.rs` may need a small
+hand resolution; the fork's version keeps both hooks.
+## Q24 (2026-10-13, AI1.4): may the run download SmolLM2-135M-Instruct to try a "fast" explainer?
+
+AI-PLAN step 4 tries a smaller tune: SmolLM2-135M-Instruct (Apache-2.0, Hugging Face
+`HuggingFaceTB/SmolLM2-135M-Instruct`, about 270 MB of weights plus tokenizer / config, saved under
+`~/.local/share/filmcraft-fork/models/llm-base/`), trained with TRAINING.md's pipeline and shipped
+as a "fast" option only if it matches the 360M tune within a few cases. Downloads need your yes.
+It matters less now: the 360M tune answers in ~1.6 s and shows its first words in ~0.3 s, so the
+"fast" option would mainly help much slower PCs (the Dell is one to test it on).
+Options: (a) yes, download and try it (~1 h of GPU training + evaluation); (b) skip AI1.4 for
+good (the 360M tune stays the only one); (c) later, after AI1.
+**Choice for now: skip AI1.4 and continue with AI1.5 / AI1.6**; if you answer (a), a later run
+does AI1.4 (before or after the `ai-1` tag, it doesn't block it). Reversible.
+
+**Answered 2026-10-14 ~01:10 (owner, live): (a) yes.** The run may download SmolLM2-135M-Instruct
+(Apache-2.0, ~270 MB) and do AI1.4; keep the "fast" tune only if it passes. Doesn't block `ai-1`.

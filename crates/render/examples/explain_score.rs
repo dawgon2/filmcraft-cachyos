@@ -32,7 +32,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::Write as _;
 
-use filmcraft_render::grade_explain::cases::{EvalCase, eval_cases, eval_cases_v2};
+use filmcraft_render::grade_explain::cases::{EvalCase, eval_cases, eval_cases_v2, eval_cases_v3};
 use filmcraft_render::grade_explain::{FactMismatch, check_explanation_labeled};
 
 #[derive(Default)]
@@ -77,13 +77,13 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--json" => a.json = Some(it.next().ok_or("--json needs a path")?),
             "--fails" => a.fails = true,
             "--dump-cases" => a.dump = Some(it.next().ok_or("--dump-cases needs a path")?),
-            "--set" => a.set = it.next().ok_or("--set needs 1, 2 or all")?,
+            "--set" => a.set = it.next().ok_or("--set needs 1, 2, 3 or all")?,
             "--dedupe" => a.dedupe.push(it.next().ok_or("--dedupe needs a path")?),
             _ => a.inputs.push(arg),
         }
     }
-    if !matches!(a.set.as_str(), "1" | "2" | "all") {
-        return Err(format!("--set {}: expected 1, 2 or all", a.set).into());
+    if !matches!(a.set.as_str(), "1" | "2" | "3" | "all") {
+        return Err(format!("--set {}: expected 1, 2, 3 or all", a.set).into());
     }
     if a.inputs.is_empty() && a.dump.is_none() {
         return Err("usage: explain_score <outputs.jsonl>... [--summary out.md] [--json out.json] [--fails]".into());
@@ -94,7 +94,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
 fn selected_cases(set: &str) -> Vec<EvalCase> {
     match set {
         "2" => eval_cases_v2(),
-        "all" => eval_cases().into_iter().chain(eval_cases_v2()).collect(),
+        "3" => eval_cases_v3(),
+        "all" => eval_cases().into_iter().chain(eval_cases_v2()).chain(eval_cases_v3()).collect(),
         _ => eval_cases(),
     }
 }

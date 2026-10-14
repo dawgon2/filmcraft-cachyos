@@ -355,3 +355,15 @@ thread's CPU time, so it runs with the rest of the suite. Hosts without a per-th
 explicitly with
 `cargo test --release -p filmcraft-render --lib perf_24_tracks_3_effects_realtime_factor -- --ignored --nocapture`
 and record the machine with the result.
+
+## 6. Audio playback soak (Linux, fork A1)
+
+`tools/fork/a1-audio-soak.sh [seconds=1800] [report.json]` plays the desktop app's real audio output
+(`apps/filmcraft/src/audio_soak.rs`, an `#[ignore]` test) for a long run: a 20-track timeline with
+overlapping clips, seeks every 23 s and 2× shuttles, into a PipeWire / PulseAudio null sink so
+nothing is heard (the content is at −90 dB too). Mid-run it removes and restores the sink and
+switches the first sound card's profile off and back, then restores everything, also when
+interrupted. It passes with 0 underruns, the picture within one frame of the sound (measured with
+a position-coded track and a tap on the device callback), and every device event recovered within
+3 s without restarting playback. Needs `pactl`; never root. The in-process counterpart without
+hardware is `crates/ui-egui/tests/ui/av_sync_ui.rs`.

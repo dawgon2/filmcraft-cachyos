@@ -1,6 +1,6 @@
 [package]
 name = "filmcraft-llm"
-description = "FilmCraft local language model: the catalogue of small instruct models (pinned, checksummed, never bundled), the checked GGUF loader and guarded offline text generation on candle (pure Rust, CPU)"
+description = "FilmCraft local language model: the catalogue of small instruct models (pinned, checksummed, never bundled), the checked GGUF loader and guarded offline text generation with its own quantized forward pass (pure Rust, CPU, run-time SIMD dispatch)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,9 @@ workspace = true
 
 [features]
 default = []
-# Quantized (GGUF) inference on the CPU via candle (pure Rust). Off by default and in wasm builds.
-infer = ["dep:candle-core", "dep:candle-transformers", "dep:tokenizers"]
+# Quantized (GGUF) inference on the CPU with our own forward pass (pure Rust, run-time SIMD
+# dispatch; AI-PLAN AI1). Off by default and in wasm builds.
+infer = ["dep:tokenizers", "dep:pulp", "dep:half", "dep:rayon", "dep:bytemuck"]
 # Model downloads over HTTPS, through filmcraft-speech's verified downloader.
 download = ["filmcraft-speech/download"]
 
@@ -22,9 +23,17 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"
-candle-core = { version = "0.9", default-features = false, optional = true }
-candle-transformers = { version = "0.9", default-features = false, optional = true }
+# Own quantized kernels (AI1.1): run-time SIMD dispatch, f16 scales.
+pulp = { version = "0.22", optional = true }
+half = { version = "2.7", optional = true }
+rayon = { workspace = true, optional = true }
+bytemuck = { version = "1", optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"], optional = true }
+
+[dev-dependencies]
+# The previous inference path, kept as the test oracle (and for the llm_quantize tool).
+candle-core = { version = "0.9", default-features = false }
+candle-transformers = { version = "0.9", default-features = false }
 
 [[example]]
 name = "llm_eval"

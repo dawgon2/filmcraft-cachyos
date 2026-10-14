@@ -43,8 +43,9 @@ rustix = { version = "1", default-features = false, features = ["std", "time"] }
 [target.'cfg(windows)'.dependencies]
 cpu-time = "1"
 
-# blocking adapter / device requests when FilmCraft creates the wgpu device (Linux interop)
-[target.'cfg(target_os = "linux")'.dependencies]
+# blocking adapter / device requests when FilmCraft creates the wgpu device (Linux interop) and
+# lists the GPUs for Settings ▸ Playback ▸ Graphics device (L2.6)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.4"
 
 [dev-dependencies]

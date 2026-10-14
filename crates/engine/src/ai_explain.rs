@@ -150,11 +150,14 @@ impl Outcome {
     }
 }
 
-/// The answer to a request: final, or pending with the template to show meanwhile.
+/// The answer to a request: final, or pending with the template to show meanwhile and, while the
+/// model writes, `partial`: its complete sentences so far that already passed the fact check
+/// (shown with the node's label, like a final answer). The final answer may still be the template
+/// (a later sentence rejected).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Answer {
     Ready(Outcome),
-    Pending { key: String, template: String },
+    Pending { key: String, template: String, partial: Option<String> },
 }
 
 // ---------- the backend seam ----------
@@ -165,6 +168,20 @@ pub trait ExplainBackend: Send + Sync {
     fn ready(&self, model: &ModelInfo) -> std::result::Result<(), (Fallback, String)>;
     /// Generate an answer to the prompt (on a worker thread; may be slow, may fail).
     fn generate(&self, model: &ModelInfo, system: &str, user: &str, opts: GenOptions) -> std::result::Result<String, String>;
+    /// [`ExplainBackend::generate`], calling `on_text` with the answer so far as it grows;
+    /// `on_text` returning false asks to stop early (the result is then not used). The default
+    /// does not stream.
+    fn generate_streaming(
+        &self,
+        model: &ModelInfo,
+        system: &str,
+        user: &str,
+        opts: GenOptions,
+        on_text: &mut dyn FnMut(&str) -> bool,
+    ) -> std::result::Result<String, String> {
+        let _ = on_text;
+        self.generate(model, system, user, opts)
+    }
     /// Free a loaded model's memory (AI explanations switched off, another model chosen). Must
     /// never wait: called on the UI thread; a running generation may keep its model.
     fn release(&self) {}
@@ -283,6 +300,17 @@ impl ExplainBackend for LlmBackend {
     }
 
     fn generate(&self, m: &ModelInfo, system: &str, user: &str, opts: GenOptions) -> std::result::Result<String, String> {
+        self.generate_streaming(m, system, user, opts, &mut |_| true)
+    }
+
+    fn generate_streaming(
+        &self,
+        m: &ModelInfo,
+        system: &str,
+        user: &str,
+        opts: GenOptions,
+        on_text: &mut dyn FnMut(&str) -> bool,
+    ) -> std::result::Result<String, String> {
         let dir = self.dir.as_ref().map(|d| catalogue::model_dir(d, m)).ok_or("there is no data folder for models")?;
         // (one verify / load / generation at a time: the lock is held until the answer is done)
         let mut g = self.lock();
@@ -301,7 +329,7 @@ impl ExplainBackend for LlmBackend {
             *g = Some(filmcraft_llm::Model::load(&dir, m).map_err(|e| e.to_string())?);
         }
         let model = g.as_mut().ok_or("the model could not be loaded")?;
-        let r = model.generate(system, user, opts).map_err(|e| e.to_string());
+        let r = model.generate_streaming(system, user, opts, on_text).map(|g| g.text).map_err(|e| e.to_string());
         self.finish(&mut g);
         r
     }
@@ -353,7 +381,14 @@ fn available_memory() -> Option<u64> {
 // ---------- the request cache ----------
 
 enum Entry {
-    Pending { since: web_time::Instant, template: String },
+    /// `partial`: the checked complete sentences so far (see [`Answer::Pending`]); `speculative`:
+    /// a background pre-generation nobody has asked for yet ([`AiExplain::prefetch`]).
+    Pending {
+        since: web_time::Instant,
+        template: String,
+        partial: Option<String>,
+        speculative: bool,
+    },
     Done(Outcome),
 }
 
@@ -475,6 +510,28 @@ impl AiExplain {
     /// `label` is the node's own name (None when unnamed), `index` its 1-based position and
     /// `display` the label the template sentence starts with.
     pub fn request(&self, prefs: &AiPrefs, facts: &NodeFacts, label: Option<&str>, index: usize, display: &str, template: &str) -> Answer {
+        self.request_as(prefs, facts, label, index, display, template, false)
+    }
+
+    /// Whether a [`AiExplain::prefetch`] would run the model now (on, a backend, a model, ready):
+    /// cheap, so the UI asks before computing a node's facts.
+    pub fn can_prefetch(&self, prefs: &AiPrefs) -> bool {
+        let Some(backend) = self.backend().filter(|_| prefs.enabled) else { return false };
+        resolve_model(&prefs.model, backend.models_dir().as_deref()).is_some_and(|m| backend.ready(m).is_ok())
+            && self.live.load(Ordering::Relaxed) < MAX_PENDING
+    }
+
+    /// Start writing the explanation in the background before anyone asks (AI1.3: the UI calls
+    /// this once the user pauses adjusting a node), so **Explain node** is usually answered from
+    /// the cache. Only one pre-generation is wanted at a time: a newer one makes older ones that
+    /// nobody asked for yet unwanted (a queued one skips, a running one stops at its next token).
+    /// [`AiExplain::request`] for the same facts adopts a pending pre-generation.
+    pub fn prefetch(&self, prefs: &AiPrefs, facts: &NodeFacts, label: Option<&str>, index: usize, display: &str, template: &str) -> Answer {
+        self.request_as(prefs, facts, label, index, display, template, true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn request_as(&self, prefs: &AiPrefs, facts: &NodeFacts, label: Option<&str>, index: usize, display: &str, template: &str, speculative: bool) -> Answer {
         if !prefs.enabled {
             return Answer::Ready(Outcome::template(template, Fallback::Off, "AI explanations are off (Settings ▸ Color ▸ AI explanations)"));
         }
@@ -493,7 +550,12 @@ impl AiExplain {
         match self.poll(&key) {
             // (a timeout or error is asked again)
             Some(Answer::Ready(o)) if !cacheable(&o) => {}
-            Some(a) => return a,
+            Some(a) => {
+                if !speculative && let Some(Entry::Pending { speculative: s, .. }) = self.entries().get_mut(&key) {
+                    *s = false;
+                }
+                return a;
+            }
             None => {}
         }
         if let Err((code, reason)) = backend.ready(model) {
@@ -502,7 +564,7 @@ impl AiExplain {
         let mut entries = self.entries();
         // (requests past their time cap are answered, polled or not)
         for e in entries.values_mut() {
-            if let Entry::Pending { since, template } = e
+            if let Entry::Pending { since, template, .. } = e
                 && since.elapsed() > self.timeout
             {
                 *e = Entry::Done(Outcome::template(template, Fallback::Timeout, timeout_reason(self.timeout)));
@@ -517,7 +579,10 @@ impl AiExplain {
                 entries.remove(&k);
             }
         }
-        entries.insert(key.clone(), Entry::Pending { since: web_time::Instant::now(), template: template.to_string() });
+        if speculative {
+            entries.retain(|k, e| !matches!(e, Entry::Pending { speculative: true, .. }) || *k == key);
+        }
+        entries.insert(key.clone(), Entry::Pending { since: web_time::Instant::now(), template: template.to_string(), partial: None, speculative });
         drop(entries);
 
         let (system, user) = filmcraft_llm::explain_prompt(&facts_json, without_label(template, display));
@@ -550,7 +615,7 @@ impl AiExplain {
             self.entries().remove(&key);
             return Answer::Ready(Outcome::template(template, Fallback::Error, "couldn't start the AI model"));
         }
-        Answer::Pending { key, template: template.to_string() }
+        Answer::Pending { key, template: template.to_string(), partial: None }
     }
 
     /// The state of request `key`: None when unknown (never asked, or forgotten).
@@ -559,9 +624,9 @@ impl AiExplain {
         let e = entries.get_mut(key)?;
         match e {
             Entry::Done(o) => Some(Answer::Ready(o.clone())),
-            Entry::Pending { since, template } => {
+            Entry::Pending { since, template, partial, .. } => {
                 if since.elapsed() <= self.timeout {
-                    return Some(Answer::Pending { key: key.to_string(), template: template.clone() });
+                    return Some(Answer::Pending { key: key.to_string(), template: template.clone(), partial: partial.clone() });
                 }
                 let o = Outcome::template(template, Fallback::Timeout, timeout_reason(self.timeout));
                 *e = Entry::Done(o.clone());
@@ -615,7 +680,25 @@ impl Job {
             return;
         }
         let opts = gen_options(&self.model);
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.backend.generate(&self.model, &self.system, &self.user, opts)));
+        // Stream: publish each longer run of complete sentences that passes the fact check; stop
+        // when nobody waits for this answer any more (timed out or forgotten).
+        let mut checked_len = 0;
+        let mut on_text = |so_far: &str| {
+            let done = complete_sentences(so_far);
+            if done.len() > checked_len {
+                checked_len = done.len();
+                if let Some(shown) = self.checked_text(done) {
+                    let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+                    if let Some(Entry::Pending { partial, .. }) = entries.get_mut(&self.key) {
+                        *partial = Some(shown);
+                    }
+                }
+            }
+            self.wanted()
+        };
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.backend.generate_streaming(&self.model, &self.system, &self.user, opts, &mut on_text)
+        }));
         let o = match r {
             Err(_) => Outcome::template(&self.template, Fallback::Error, "the AI model stopped unexpectedly"),
             Ok(Err(e)) => {
@@ -636,6 +719,14 @@ impl Job {
         }
     }
 
+    /// `text` as shown when it passes the fact check (with the node's label in front, like the
+    /// template, unless the model wrote it).
+    fn checked_text(&self, text: &str) -> Option<String> {
+        let text = text.trim();
+        check_explanation_labeled(&self.facts, self.label.as_deref(), Some(self.index), text).ok()?;
+        Some(if text.starts_with("Node ") { text.to_string() } else { format!("{}: {text}", self.display) })
+    }
+
     fn checked(&self, text: &str) -> Outcome {
         let text = text.trim();
         match check_explanation_labeled(&self.facts, self.label.as_deref(), Some(self.index), text) {
@@ -652,17 +743,46 @@ impl Job {
     }
 }
 
+/// The leading complete sentences of `text` (up to the last `.`, `!` or `?` followed by
+/// whitespace; a final one counts only once more text follows it, since "1." may be "1.5").
+fn complete_sentences(text: &str) -> &str {
+    let mut end = 0;
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?') && chars.peek().is_some_and(|(_, n)| n.is_whitespace()) {
+            end = i + c.len_utf8();
+        }
+    }
+    text.get(..end).unwrap_or("")
+}
+
 /// `grade.explainNode`'s AI fields for one node: `text`, `source`, `reason`, `reasonCode` and,
 /// while the model is writing, `aiKey` (poll `ai.explanation`).
-pub(crate) fn explain_fields(s: &Session, facts: &NodeFacts, node_name: &str, index: usize, display: &str, template: &str, wait: bool) -> Value {
+/// `prefetch`: start it in the background only ([`AiExplain::prefetch`]).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn explain_fields(
+    s: &Session,
+    facts: &NodeFacts,
+    node_name: &str,
+    index: usize,
+    display: &str,
+    template: &str,
+    wait: bool,
+    prefetch: bool,
+) -> Value {
     let label = (!node_name.is_empty()).then_some(node_name);
-    match s.ai.request(&s.prefs.color.ai, facts, label, index, display, template) {
+    let answer = if prefetch {
+        s.ai.prefetch(&s.prefs.color.ai, facts, label, index, display, template)
+    } else {
+        s.ai.request(&s.prefs.color.ai, facts, label, index, display, template)
+    };
+    match answer {
         Answer::Ready(o) => o.to_json(),
-        Answer::Pending { key, template } => {
+        Answer::Pending { key, template, partial } => {
             if wait && let Some(o) = s.ai.wait(&key) {
                 return o.to_json();
             }
-            json!({"text": template, "source": "template", "reason": null, "reasonCode": null, "pending": true, "aiKey": key})
+            json!({"text": template, "source": "template", "reason": null, "reasonCode": null, "pending": true, "aiKey": key, "partial": partial})
         }
     }
 }
@@ -753,7 +873,7 @@ fn explanation(s: &mut Session, p: &Value) -> Result<Value> {
     let a = if wait { s.ai.wait(key).map(Answer::Ready) } else { s.ai.poll(key) };
     Ok(match a {
         None => json!({"state": "unknown"}),
-        Some(Answer::Pending { template, .. }) => json!({"state": "pending", "text": template, "source": "template"}),
+        Some(Answer::Pending { template, partial, .. }) => json!({"state": "pending", "text": template, "source": "template", "partial": partial}),
         Some(Answer::Ready(o)) => {
             let mut v = o.to_json();
             v["state"] = json!("done");
@@ -894,6 +1014,16 @@ mod release_tests {
 
     /// Switching AI explanations off while a generation holds the model: the release waits for
     /// the generation to finish, which then drops the model.
+    #[test]
+    fn complete_sentences_stop_at_the_last_finished_one() {
+        assert_eq!(complete_sentences(""), "");
+        assert_eq!(complete_sentences("It warms"), "");
+        assert_eq!(complete_sentences("It warms."), "", "a final stop counts once more text follows");
+        assert_eq!(complete_sentences("It warms. It"), "It warms.");
+        assert_eq!(complete_sentences("Gain 1.5 up. Less red! Why"), "Gain 1.5 up. Less red!");
+        assert_eq!(complete_sentences("Größer. ü"), "Größer.");
+    }
+
     #[test]
     fn a_release_during_a_generation_drops_the_model_when_it_finishes() {
         let b = LlmBackend::with_dir(std::env::temp_dir());

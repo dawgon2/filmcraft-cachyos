@@ -41,11 +41,13 @@ pub mod dock;
 mod dock_shared;
 mod dock_ui;
 pub mod frames;
+pub mod graphics_device;
 pub mod header;
 pub mod i18n;
 pub mod icons;
 pub mod links;
 pub mod menus;
+pub mod native_dialogs;
 pub mod panels;
 pub mod perf;
 #[cfg(not(target_arch = "wasm32"))]
@@ -70,6 +72,7 @@ use serde_json::{Value, json};
 pub use control::ControlRequest;
 use dock::PanelKind;
 use frames::{FrameKey, FrameServer, Target};
+use native_dialogs::FileDialog;
 use state::UiState;
 use theme::{ThemeKind, Tokens};
 
@@ -86,6 +89,10 @@ pub trait AudioOut {
     }
     /// Frames played since `start` (the playback master clock), if the device reports it.
     fn played_frames(&self) -> Option<u64>;
+    /// Called every frame while playing, before `played_frames`: restart a stream the device
+    /// dropped (a driver error, an unplugged device), keeping the clock and `fill`. A stream that
+    /// cannot be restarted reports `played_frames() == None`.
+    fn recover(&mut self) {}
     /// Hosts and devices that can be chosen in Settings ▸ Audio Hardware.
     fn devices(&self) -> AudioDevices {
         AudioDevices::default()
@@ -179,7 +186,22 @@ pub struct HostHooks {
     /// Desktop shell integration (taskbar progress, notifications, idle inhibit, single
     /// instance, media keys; [`desktop`]). Without it nothing is published.
     pub desktop: Option<Box<dyn desktop::DesktopHost>>,
+    /// Show a file dialog without blocking the UI thread and answer on the returned channel with
+    /// the chosen paths (none: cancelled). With it, [`FilmcraftApp::pick`] keeps the frame loop
+    /// running while the dialog is open (the desktop app on Linux, #260); without it the
+    /// synchronous pickers above are used.
+    pub run_dialog: Option<Box<dyn FnMut(native_dialogs::FileDialog) -> Receiver<Vec<String>>>>,
+    /// Fork L1.5: [`Self::run_dialog`] with the folder the dialog should start in (the one that
+    /// kind of dialog was last used in, or the project's for Save; `None`: the host's default).
+    /// Preferred over `run_dialog` when both are set; the chosen folder is remembered.
+    pub run_dialog_from: Option<Box<DialogRunnerFrom>>,
+    /// This computer's GPUs for Settings ▸ Playback ▸ Graphics device (L2.6; the desktop app:
+    /// [`graphics_device::list`]). Without it Settings offers Auto only.
+    pub graphics_devices: Option<Box<dyn FnMut() -> Vec<graphics_device::GpuChoice>>>,
 }
+
+/// [`HostHooks::run_dialog_from`]: a dialog and the folder it starts in.
+pub type DialogRunnerFrom = dyn FnMut(native_dialogs::FileDialog, Option<String>) -> Receiver<Vec<String>>;
 
 /// What [`HostHooks::clipboard_media`] found on the system clipboard.
 pub enum ClipboardMedia {
@@ -264,6 +286,17 @@ pub struct Playback {
     pub stop_at: Option<Tick>,
 }
 
+impl Playback {
+    /// Fork A1.2: this play's mixer stopped after repeated panics (desktop; the web build mixes
+    /// in its callback).
+    pub(crate) fn mixer_stopped(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.audio_stats.mixer_stopped.load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(target_arch = "wasm32")]
+        false
+    }
+}
+
 /// How long (s) the audio clock may stand still during playback before the wall clock takes over.
 /// An output stream can open and then never call back (ALSA with a busy or misconfigured device,
 /// #136); playback must not freeze on it. Devices that are slow to start (Bluetooth) stay well
@@ -301,6 +334,8 @@ pub struct FilmcraftApp {
     pub hooks: HostHooks,
     pub dialog: Option<Dialog>,
     pub file_dialogs: panels::file_dialogs::FileDialogState,
+    /// The native file dialog the host is showing ([`Self::pick`]).
+    native_dialog: Option<native_dialogs::PendingDialog>,
     pub auto: automation::Registry,
     /// Named textures (monitors, thumbnails) with the key they show.
     textures: HashMap<String, (FrameKey, TextureHandle)>,
@@ -512,11 +547,35 @@ pub fn gpu_compositor_unsupported(adapter: &eframe::wgpu::Adapter) -> Option<Str
 /// (`filmcraft_gpu::interop`, docs/adr/0002-linux-video-interop.md); if that fails, eframe's own
 /// device setup is used. Pass as `NativeOptions::wgpu_options`.
 pub fn wgpu_configuration() -> eframe::egui_wgpu::WgpuConfiguration {
+    wgpu_configuration_on("")
+}
+
+/// [`wgpu_configuration`] on the GPU Settings ▸ Playback ▸ Graphics device names
+/// (`playback.graphicsDevice`, L2.6; "" or a GPU that isn't there: Auto).
+pub fn wgpu_configuration_on(graphics_device: &str) -> eframe::egui_wgpu::WgpuConfiguration {
     let mut c = eframe::egui_wgpu::WgpuConfiguration::default();
     #[cfg(target_os = "linux")]
-    if let Some(existing) = interop_setup() {
+    if let Some(existing) = interop_setup(graphics_device) {
         c.wgpu_setup = eframe::egui_wgpu::WgpuSetup::Existing(existing);
         return c;
+    }
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup
+        && graphics_device::parse(graphics_device).is_some()
+    {
+        let pref = graphics_device.to_string();
+        n.native_adapter_selector = Some(std::sync::Arc::new(move |adapters: &[eframe::wgpu::Adapter], surface: Option<&eframe::wgpu::Surface<'_>>| {
+            // only adapters that can show the window; the platform's own backend (DX12, Metal)
+            // before Vulkan, as eframe's default would
+            let mut usable: Vec<&eframe::wgpu::Adapter> = adapters.iter().filter(|a| surface.is_none_or(|s| a.is_surface_supported(s))).collect();
+            usable.sort_by_key(|a| a.get_info().backend == eframe::wgpu::Backend::Vulkan);
+            let infos: Vec<_> = usable.iter().map(|a| a.get_info()).collect();
+            let ids: Vec<_> = infos.iter().map(|i| (i.vendor, i.device)).collect();
+            let index = graphics_device::pick(&ids, &pref).or_else(|| {
+                log::warn!("graphics device {pref} not found; Auto");
+                graphics_device::auto_index(&infos.iter().map(|i| i.device_type).collect::<Vec<_>>())
+            });
+            index.and_then(|i| usable.get(i).map(|a| (*a).clone())).ok_or_else(|| "no GPU adapter".to_string())
+        }));
     }
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup {
         let base = n.device_descriptor.clone();
@@ -540,9 +599,10 @@ pub fn device_descriptor(adapter: &eframe::wgpu::Adapter) -> eframe::wgpu::Devic
     }
 }
 
-/// A Vulkan instance, the high-performance adapter and a device with DMA-BUF import (Linux).
+/// A Vulkan instance, the adapter Settings ▸ Playback ▸ Graphics device names (else the
+/// high-performance one) and a device with DMA-BUF import (Linux).
 #[cfg(target_os = "linux")]
-fn interop_setup() -> Option<eframe::egui_wgpu::WgpuSetupExisting> {
+fn interop_setup(graphics_device: &str) -> Option<eframe::egui_wgpu::WgpuSetupExisting> {
     use eframe::wgpu;
     if std::env::var_os("FILMCRAFT_NO_GPU_IMPORT").is_some() {
         return None;
@@ -554,8 +614,25 @@ fn interop_setup() -> Option<eframe::egui_wgpu::WgpuSetupExisting> {
         memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
         display: None,
     });
-    let power = wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance);
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: power, ..Default::default() })).ok()?;
+    let chosen = match graphics_device::parse(graphics_device) {
+        Some(_) => {
+            let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN));
+            let ids: Vec<_> = adapters.iter().map(|a| a.get_info()).map(|i| (i.vendor, i.device)).collect();
+            let found = graphics_device::pick(&ids, graphics_device).and_then(|i| adapters.into_iter().nth(i));
+            if found.is_none() {
+                log::warn!("graphics device {graphics_device} not found; Auto");
+            }
+            found
+        }
+        None => None,
+    };
+    let adapter = match chosen {
+        Some(a) => a,
+        None => {
+            let power = wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance);
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: power, ..Default::default() })).ok()?
+        }
+    };
     match filmcraft_gpu::interop::create_device(&adapter, &device_descriptor(&adapter))? {
         Ok((device, queue)) => {
             log::info!("GPU: {} with DMA-BUF import (hardware-decoded frames drawn in place)", adapter.get_info().name);
@@ -699,6 +776,7 @@ impl FilmcraftApp {
             // Unsaved changes left by a session that died are offered first thing.
             dialog: recovery.then_some(Dialog::Recovery),
             file_dialogs: Default::default(),
+            native_dialog: None,
             auto,
             textures: HashMap::new(),
             control_rx: None,
@@ -1304,6 +1382,14 @@ impl FilmcraftApp {
     }
 
     fn start_audio(&mut self) {
+        self.start_audio_at_rate(true);
+    }
+
+    /// `rate_retry`: a device that opened at another rate than it reported before (`configure`
+    /// read it; the default sink changed in between, or the rate it was asked for isn't
+    /// available) gets the mix rebuilt once at the rate it really plays (fork A1.3b): a mix built
+    /// for the old rate would play at the wrong pitch and speed.
+    fn start_audio_at_rate(&mut self, rate_retry: bool) {
         let speed = self.playback.speed;
         // normal speed, and shuttling (JKL) up to 2× either way, tape-style
         if !shuttle_audio::audible(speed) {
@@ -1332,6 +1418,19 @@ impl FilmcraftApp {
             })
         };
         match a.start(fill) {
+            Ok(started) if started != sr && started > 0 && rate_retry => {
+                log::warn!("the audio output opened at {started} Hz, not {sr} Hz; mixing again at {started} Hz");
+                a.stop();
+                self.start_audio_at_rate(false);
+            }
+            Ok(started) if started != sr => {
+                // still another rate: sound at the wrong pitch and a clock running off the
+                // picture would be worse than no sound
+                log::warn!("the audio output keeps changing its rate ({sr} Hz, then {started} Hz); playing without sound");
+                a.stop();
+                self.playback.audio_clock = false;
+                self.ui.status = tl!("No sound: the audio output keeps changing its sample rate (check Settings ▸ Audio Hardware)").into();
+            }
             Ok(_) => {
                 self.playback.audio_clock = true;
                 if let Some(note) = self.audio.as_ref().and_then(|audio| audio.note()) {
@@ -1341,6 +1440,9 @@ impl FilmcraftApp {
             Err(e) => {
                 log::warn!("audio output unavailable: {e}");
                 self.playback.audio_clock = false;
+                // fork A1.2: say so instead of playing silently without a word
+                let why: String = e.chars().filter(|c| !c.is_control()).take(160).collect();
+                self.ui.status = tlf!("No sound: the audio output could not start ({why})", why).to_string();
             }
         }
     }
@@ -1364,8 +1466,24 @@ impl FilmcraftApp {
             self.playback.anchor_time = now;
         }
         let rate = self.session.sequence_rate();
-        let reading = if self.playback.audio_clock { self.audio.as_ref().and_then(|a| a.played_frames().map(|f| (f, a.sample_rate()))) } else { None };
-        if self.playback.audio_clock && reading.is_none() {
+        if self.playback.audio_clock
+            && let Some(audio) = self.audio.as_mut()
+        {
+            audio.recover();
+        }
+        let mut reading = if self.playback.audio_clock { self.audio.as_ref().and_then(|a| a.played_frames().map(|f| (f, a.sample_rate()))) } else { None };
+        // Fork A1.2: the mixer stopped after repeated panics: the device only plays silence now,
+        // so say so once and go on with the wall clock
+        if self.playback.audio_clock && self.playback.mixer_stopped() {
+            self.playback.anchor_tick = self.session.playhead();
+            self.playback.anchor_time = now;
+            self.playback.audio_clock = false;
+            if let Some(audio) = self.audio.as_mut() {
+                audio.stop();
+            }
+            self.ui.status = tl!("Audio mixing stopped after an error: playing without sound").into();
+            reading = None;
+        } else if self.playback.audio_clock && reading.is_none() {
             // A device error relinquishes its clock immediately. Resume from the displayed
             // frame, rather than jumping to the old wall-clock anchor after buffered playback.
             self.playback.anchor_tick = self.session.playhead();
@@ -1543,65 +1661,69 @@ impl FilmcraftApp {
                     .chain(&["srt", "vtt", "scc", "edl", "xml", "fcpxml", "otio", "aaf", "omf"])
                     .copied()
                     .collect();
-                let paths = self.hooks.pick_files.as_mut().map(|f| f(&exts)).unwrap_or_default();
-                if paths.is_empty() {
-                    return Ok(Value::Null);
-                }
-                let bin = params.get("bin").cloned().unwrap_or_else(|| json!(self.import_bin().0));
-                let r = self.session.execute("file.import", json!({"paths": paths, "bin": bin})).map_err(|e| e.to_string());
-                if let Ok(v) = &r
-                    && let Some(errs) = v.get("errors").and_then(Value::as_array)
-                    && !errs.is_empty()
-                {
-                    self.ui.status = errs.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ");
-                }
-                r
+                let bin = params.get("bin").cloned();
+                self.pick(FileDialog::open_files(&exts), move |app, paths| {
+                    if paths.is_empty() {
+                        return Ok(Value::Null);
+                    }
+                    let bin = bin.unwrap_or_else(|| json!(app.import_bin().0));
+                    let r = app.session.execute("file.import", json!({"paths": paths, "bin": bin})).map_err(|e| e.to_string());
+                    if let Ok(v) = &r
+                        && let Some(errs) = v.get("errors").and_then(Value::as_array)
+                        && !errs.is_empty()
+                    {
+                        app.ui.status = errs.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ");
+                    }
+                    r
+                })
             }
             // File ▸ Import with Image Sequence: choose the first numbered still
-            "file.importImageSequence" => {
-                let paths = self.hooks.pick_files.as_mut().map(|f| f(filmcraft_media::STILL_EXTENSIONS)).unwrap_or_default();
+            "file.importImageSequence" => self.pick(FileDialog::open_files(filmcraft_media::STILL_EXTENSIONS), |app, paths| {
                 let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
-                let r = self.session.execute("file.importImageSequence", json!({"path": path})).map_err(|e| e.to_string());
+                let r = app.session.execute("file.importImageSequence", json!({"path": path})).map_err(|e| e.to_string());
                 if let Err(e) = &r {
-                    self.ui.status = e.clone();
+                    app.ui.status = e.clone();
                 }
                 r
-            }
+            }),
             "file.saveAs" | "file.save" | "file.saveCopy" => {
                 let suggested =
                     if id == "file.saveCopy" { format!("{} copy.fcproj", self.session.project.name) } else { format!("{}.fcproj", self.session.project.name) };
-                let Some(path) = self.hooks.pick_save.as_mut().and_then(|f| f(&suggested)) else { return Ok(Value::Null) };
                 let cmd = if id == "file.saveCopy" { "file.saveCopy" } else { "file.saveAs" };
-                self.session.execute(cmd, json!({"path": path})).map_err(|e| e.to_string())
+                self.pick(FileDialog::SaveProject { name: suggested }, move |app, paths| {
+                    let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
+                    app.session.execute(cmd, json!({"path": path})).map_err(|e| e.to_string())
+                })
             }
-            "file.open" => {
-                let Some(path) = self.hooks.pick_open_project.as_mut().and_then(|f| f()) else { return Ok(Value::Null) };
-                self.session.execute("file.open", json!({"path": path})).map_err(|e| e.to_string())
-            }
+            "file.open" => self.pick(FileDialog::OpenProject, |app, paths| {
+                let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
+                app.session.execute("file.open", json!({"path": path})).map_err(|e| e.to_string())
+            }),
             "graphics.newFromFile" => {
                 let exts: Vec<&str> = filmcraft_media::STILL_EXTENSIONS.iter().chain(filmcraft_media::VIDEO_EXTENSIONS).copied().collect();
-                let paths = self.hooks.pick_files.as_mut().map(|f| f(&exts)).unwrap_or_default();
-                let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
-                self.session.execute("graphics.newFromFile", json!({"path": path})).map_err(|e| e.to_string())
+                self.pick(FileDialog::open_files(&exts), |app, paths| {
+                    let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
+                    app.session.execute("graphics.newFromFile", json!({"path": path})).map_err(|e| e.to_string())
+                })
             }
-            "captions.import" => {
-                let paths = self.hooks.pick_files.as_mut().map(|f| f(&["srt", "vtt", "scc", "mcc", "stl", "ttml", "dfxp", "xml"])).unwrap_or_default();
+            "captions.import" => self.pick(FileDialog::open_files(&["srt", "vtt", "scc", "mcc", "stl", "ttml", "dfxp", "xml"]), |app, paths| {
                 let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
-                self.session.execute("captions.import", json!({"path": path})).map_err(|e| e.to_string())
-            }
+                app.session.execute("captions.import", json!({"path": path})).map_err(|e| e.to_string())
+            }),
             "captions.export" => {
                 let name = self.session.state.active_sequence.and_then(|s| self.session.project.item(s)).map(|i| i.name.clone()).unwrap_or_default();
                 let suggested = format!("{}.srt", name.replace(' ', "_"));
-                let Some(path) =
-                    self.hooks.pick_save_as.as_mut().and_then(|f| {
-                        f("Captions (SRT, WebVTT, SCC, MCC, EBU STL, TTML, DFXP)", &["srt", "vtt", "scc", "mcc", "stl", "ttml", "dfxp"], &suggested)
-                    })
-                else {
-                    return Ok(Value::Null);
-                };
+                let dialog = FileDialog::save_as(
+                    "Captions (SRT, WebVTT, SCC, MCC, EBU STL, TTML, DFXP)",
+                    &["srt", "vtt", "scc", "mcc", "stl", "ttml", "dfxp"],
+                    &suggested,
+                );
                 let mut p = params.clone();
-                p["path"] = json!(path);
-                self.session.execute("captions.export", p).map_err(|e| e.to_string())
+                self.pick(dialog, move |app, paths| {
+                    let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
+                    p["path"] = json!(path);
+                    app.session.execute("captions.export", p).map_err(|e| e.to_string())
+                })
             }
             _ => match EXPORT_SAVE_DIALOGS.iter().find(|(c, ..)| *c == id) {
                 Some(&(_, filter, ext)) => self.export_save_dialog(id, filter, ext, params),
@@ -1614,9 +1736,9 @@ impl FilmcraftApp {
     /// run the command with that `path` and the rest of `params`.
     fn export_save_dialog(&mut self, id: &str, filter: &str, ext: &str, params: &Value) -> Result<Value, String> {
         filmcraft_engine::find_command(id).map_or(Ok(()), |c| (c.enabled)(&self.session))?;
-        let Some(pick) = self.hooks.pick_save_as.as_mut() else {
+        if !FileDialog::save_as(filter, &[ext], "").available(&self.hooks) {
             return Err("no save dialog available: run the command with a `path`".into());
-        };
+        }
         // Timelines are named after the sequence; a selection must not suggest the open project's file.
         let sequence = self.session.state.active_sequence.and_then(|s| self.session.project.item(s)).map(|i| i.name.clone());
         let stem = match id {
@@ -1626,15 +1748,18 @@ impl FilmcraftApp {
         };
         let stem: String = stem.chars().map(|c| if matches!(c, '/' | '\\') || c.is_control() { '-' } else { c }).collect();
         let stem = if stem.trim().is_empty() { "Untitled".to_string() } else { stem };
-        let Some(path) = pick(filter, &[ext], &format!("{stem}.{ext}")) else { return Ok(Value::Null) };
         let mut p = params.as_object().cloned().unwrap_or_default();
-        p.insert("path".into(), json!(path));
-        let r = self.session.execute(id, Value::Object(p)).map_err(|e| e.to_string());
-        self.ui.status = match &r {
-            Ok(_) => tlf!("Exported {path}", path),
-            Err(e) => e.clone(),
-        };
-        r
+        let id = id.to_string();
+        self.pick(FileDialog::save_as(filter, &[ext], &format!("{stem}.{ext}")), move |app, paths| {
+            let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
+            p.insert("path".into(), json!(path));
+            let r = app.session.execute(&id, Value::Object(p)).map_err(|e| e.to_string());
+            app.ui.status = match &r {
+                Ok(_) => tlf!("Exported {path}", path),
+                Err(e) => e.clone(),
+            };
+            r
+        })
     }
 
     /// Import dropped files. With Timeline ▸ drop imports to the timeline, the new items are also
@@ -2269,6 +2394,8 @@ impl eframe::App for FilmcraftApp {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // a native file dialog's answer first, so the panels draw what it chose (#260)
+        self.poll_native_dialog(ctx);
         if !self.styled {
             theme::install(ctx, &self.tokens);
             // theme::install replaces the fonts: add the system Japanese font back (or fall back to
@@ -2294,8 +2421,13 @@ impl eframe::App for FilmcraftApp {
             self.playback.hidden = true;
         }
         self.timeline_still = if self.ui.timeline.animating() { 0 } else { self.timeline_still.saturating_add(1) };
+        // Fork L1.5: a file dialog parented to the window is still open (its thread holds the
+        // window's Wayland export): it is closed first, so the window isn't torn down under it.
         // Quitting with unsaved changes asks to save them first.
-        if ctx.input(|i| i.viewport().close_requested()) && panels::clip_dialogs::intercept_quit(self) {
+        if ctx.input(|i| i.viewport().close_requested()) && self.close_waits_for_dialog() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.ui.status = tl!("Close the file dialog first").into();
+        } else if ctx.input(|i| i.viewport().close_requested()) && panels::clip_dialogs::intercept_quit(self) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
         let had_synthetic = !self.synthetic.is_empty();
@@ -2440,15 +2572,19 @@ pub fn playback_mix(session: &Session, seq_id: filmcraft_project::ItemId, sr: u3
             let channels = r.process(cursor, n, |s0, m| previews.mix_layout(&project, seq_id, s0, m, &provider, layout, mixdown).channels);
             filmcraft_frame::AudioBuffer { sample_rate: sr, channels }
         };
+        // (checked access: a mix with fewer channels or frames than asked for plays silence there
+        // instead of panicking the mixer, fork A1.2)
         if layout == Layout::Surround51 {
             buf.fill(0.0);
-            for (i, frame) in buf.chunks_mut(ch).enumerate() {
+            for (i, frame) in buf.chunks_mut(ch.max(1)).enumerate() {
                 for (c, x) in frame.iter_mut().take(6).enumerate() {
-                    *x = mix.channels[c][i];
+                    *x = mix.channels.get(c).and_then(|s| s.get(i)).copied().unwrap_or(0.0);
                 }
             }
         } else {
-            filmcraft_engine::settings::map_output(&mix.channels[0], &mix.channels[1.min(mix.channels.len() - 1)], buf, ch, map);
+            let left = mix.channels.first().map_or(&[][..], Vec::as_slice);
+            let right = mix.channels.get(1).map_or(left, Vec::as_slice);
+            filmcraft_engine::settings::map_output(left, right, buf, ch, map);
         }
         panels::voiceover::mix_cues(buf, ch, cursor, &cues);
     }
@@ -2594,6 +2730,92 @@ mod audio_recovery_tests {
         }
     }
 
+    /// A device whose rate moves when it starts (the default sink changed since `configure`):
+    /// each start opens at `rates[n]` and reports it from then on.
+    struct Moving {
+        rates: Vec<u32>,
+        rate: u32,
+        starts: Arc<AtomicUsize>,
+        mixed_at: Arc<std::sync::Mutex<Vec<u32>>>,
+    }
+
+    impl AudioOut for Moving {
+        fn sample_rate(&self) -> u32 {
+            self.rate
+        }
+        fn start(&mut self, _: Box<dyn FnMut(&mut [f32], usize) + Send>) -> Result<u32, String> {
+            // the mix handed in was built at the rate reported before this start
+            self.mixed_at.lock().unwrap().push(self.rate);
+            let n = self.starts.fetch_add(1, Ordering::Relaxed);
+            self.rate = self.rates.get(n).copied().unwrap_or(self.rate);
+            Ok(self.rate)
+        }
+        fn stop(&mut self) {}
+        fn played_frames(&self) -> Option<u64> {
+            Some(0)
+        }
+    }
+
+    /// Fork A1.3b: a device that opens at another rate than it reported gets the mix rebuilt at
+    /// the rate it really plays, once; one that keeps moving isn't chased: no sound, wall clock.
+    #[test]
+    fn a_device_that_opens_at_another_rate_gets_a_mix_at_that_rate() {
+        for (rates, starts_wanted, last_mix, sound) in
+            [(vec![44_100, 44_100], 2, 44_100, true), (vec![48_000], 1, 48_000, true), (vec![44_100, 96_000, 22_050], 2, 44_100, false)]
+        {
+            let mut session = Session::default();
+            session.execute("file.newSequence", json!({"width":16,"height":16})).unwrap();
+            let mut app = FilmcraftApp::new(session);
+            let starts = Arc::new(AtomicUsize::new(0));
+            let mixed_at = Arc::new(std::sync::Mutex::new(Vec::new()));
+            app.audio = Some(Box::new(Moving { rates: rates.clone(), rate: 48_000, starts: starts.clone(), mixed_at: mixed_at.clone() }));
+            app.play(1.0);
+            app.end_preroll(0.0);
+            assert_eq!(starts.load(Ordering::Relaxed), starts_wanted, "{rates:?}");
+            assert_eq!(mixed_at.lock().unwrap().last().copied(), Some(last_mix), "{rates:?}");
+            // a device that keeps moving plays on the wall clock without sound, and says so
+            assert_eq!(app.playback.audio_clock, sound, "{rates:?}");
+            assert_eq!(app.ui.status.contains("keeps changing its sample rate"), !sound, "{rates:?}: {}", app.ui.status);
+            app.stop();
+        }
+    }
+
+    /// Fork A1.2: an output that can't start says so in the status line (it used to only log).
+    #[test]
+    fn an_audio_output_that_cannot_start_says_so() {
+        let mut session = Session::default();
+        session.execute("file.newSequence", json!({"width":16,"height":16})).unwrap();
+        let mut app = FilmcraftApp::new(session);
+        app.audio = Some(Box::new(Device { ready: false, starts: Arc::default(), reading: Some(0) }));
+        app.play(1.0);
+        app.end_preroll(0.0);
+        assert!(!app.playback.audio_clock);
+        assert!(app.ui.status.contains("could not start") && app.ui.status.contains("device unavailable"), "{}", app.ui.status);
+        app.stop();
+    }
+
+    /// Fork A1.2: a mixer that stopped after repeated panics hands playback to the wall clock and
+    /// says so once, instead of the device clock running on over silence.
+    #[test]
+    fn a_stopped_mixer_hands_over_to_the_wall_clock_and_says_so() {
+        let mut session = Session::default();
+        session.execute("file.openDemoProject", json!({})).unwrap();
+        let ctx = egui::Context::default();
+        let mut app = FilmcraftApp::new(session);
+        app.audio = Some(Box::new(Device { ready: true, starts: Arc::default(), reading: Some(4_800) }));
+        app.playback.playing = true;
+        app.playback.audio_clock = true;
+        app.playback.anchor_tick = Tick::ZERO;
+        app.playback.anchor_time = 0.0;
+        app.playback.audio_seen = (0, 0.0);
+        app.playback.audio_stats.mixer_stopped.store(true, Ordering::Relaxed);
+        let mut output = ctx.run_ui(egui::RawInput { time: Some(1.0), ..Default::default() }, |ui| app.advance_playback(ui.ctx()));
+        output.textures_delta.clear();
+        assert!(!app.playback.audio_clock);
+        assert!(app.ui.status.contains("Audio mixing stopped"), "{}", app.ui.status);
+        app.stop();
+    }
+
     #[test]
     fn forward_shuttle_playback_keeps_audio_enabled() {
         // (2x is within `shuttle_audio::audible`: varispeed, tape-style)
@@ -2649,6 +2871,52 @@ mod audio_recovery_tests {
         assert_eq!(app.playback.anchor_tick, displayed);
         assert_eq!(app.session.playhead(), displayed);
         assert!(app.ui.status.contains("Audio output failed"));
+        app.stop();
+    }
+
+    /// A stream the device dropped, which `recover` restarts on the same clock.
+    struct Restartable {
+        reading: Option<u64>,
+    }
+
+    impl AudioOut for Restartable {
+        fn start(&mut self, _: Box<dyn FnMut(&mut [f32], usize) + Send>) -> Result<u32, String> {
+            Ok(48000)
+        }
+        fn stop(&mut self) {}
+        fn sample_rate(&self) -> u32 {
+            48000
+        }
+        fn played_frames(&self) -> Option<u64> {
+            self.reading
+        }
+        fn recover(&mut self) {
+            self.reading = self.reading.or(Some(48_000));
+        }
+    }
+
+    #[test]
+    fn a_restarted_stream_keeps_the_device_clock_and_the_sound() {
+        let mut session = Session::default();
+        session.execute("file.openDemoProject", json!({})).unwrap();
+        let ctx = egui::Context::default();
+        let mut app = FilmcraftApp::new(session);
+        app.audio = Some(Box::new(Restartable { reading: None }));
+        app.playback.playing = true;
+        app.playback.audio_clock = true;
+        app.playback.anchor_tick = Tick::ZERO;
+        app.playback.anchor_time = 0.0;
+        app.playback.audio_seen = (0, 10.0);
+        let mut output = ctx.run_ui(egui::RawInput { time: Some(10.0), ..Default::default() }, |ui| app.advance_playback(ui.ctx()));
+        output.textures_delta.clear();
+        assert!(app.playback.audio_clock, "the restarted stream is still the master clock");
+        assert!(!app.ui.status.contains("Audio output failed"));
+        // 48 000 frames played at 48 kHz: one second in, on a frame boundary
+        let (shown, second) = (app.session.playhead(), Tick::from_seconds_f64(1.0));
+        assert!(
+            shown <= second && shown + app.session.sequence_rate().frame_duration() > second,
+            "the playhead follows the frames the device played: {shown:?}"
+        );
         app.stop();
     }
 }

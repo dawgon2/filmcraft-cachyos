@@ -213,6 +213,11 @@ impl FilmcraftApp {
             self.source_playback.clock.audio_seen = (0, now);
             self.start_source_audio();
         }
+        if self.source_playback.clock.audio_clock
+            && let Some(audio) = self.audio.as_mut()
+        {
+            audio.recover();
+        }
         let clock = &mut self.source_playback.clock;
         if clock.anchor_time < 0.0 {
             clock.anchor_time = now;
@@ -224,14 +229,20 @@ impl FilmcraftApp {
         {
             clock.audio_seen = (frames, now);
         }
-        if clock.audio_clock && (reading.is_none() || now - clock.audio_seen.1 >= AUDIO_STALL_S) {
+        // (fork A1.2: also when this play's mixer stopped after repeated panics)
+        let mixer_stopped = clock.mixer_stopped();
+        if clock.audio_clock && (mixer_stopped || reading.is_none() || now - clock.audio_seen.1 >= AUDIO_STALL_S) {
             clock.anchor_tick = time;
             clock.anchor_time = now;
             clock.audio_clock = false;
             if let Some(audio) = self.audio.as_mut() {
                 audio.stop();
             }
-            self.ui.status = "Source audio output stopped responding: playing without sound (check Settings ▸ Audio Hardware)".into();
+            self.ui.status = if mixer_stopped {
+                tl!("Audio mixing stopped after an error: playing without sound").into()
+            } else {
+                "Source audio output stopped responding: playing without sound (check Settings ▸ Audio Hardware)".into()
+            };
         }
         let elapsed = match reading {
             Some((frames, sr)) if clock.audio_clock && sr > 0 => frames as f64 / f64::from(sr),

@@ -377,3 +377,79 @@ fn real_model_answers_or_falls_back_cleanly() {
         _ => assert!(["rejected", "timeout"].contains(&r["reasonCode"].as_str().unwrap_or("")), "a working model answers: {r}"),
     }
 }
+
+/// A backend that streams the template body, then a wrong sentence once `go` is set.
+struct Streaming(Arc<std::sync::atomic::AtomicBool>);
+
+impl ExplainBackend for Streaming {
+    fn ready(&self, _: &ModelInfo) -> Result<(), (Fallback, String)> {
+        Ok(())
+    }
+    fn generate(&self, _: &ModelInfo, _: &str, _: &str, _: GenOptions) -> Result<String, String> {
+        Err("streaming only".into())
+    }
+    fn generate_streaming(&self, _: &ModelInfo, _: &str, user: &str, _: GenOptions, on_text: &mut dyn FnMut(&str) -> bool) -> Result<String, String> {
+        let first = reference(user);
+        on_text(&first);
+        on_text(&format!("{first} It makes"));
+        let t0 = std::time::Instant::now();
+        while !self.0.load(std::sync::atomic::Ordering::Relaxed) && t0.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(format!("{first} It makes the picture much darker."))
+    }
+}
+
+/// While the model writes, its checked complete sentences are `partial`; the final answer is
+/// still checked whole (here a wrong second sentence → the template).
+#[test]
+fn checked_sentences_stream_before_the_answer() {
+    let (mut s, c, n) = graded();
+    let go = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    with_backend(&mut s, Streaming(go.clone()));
+    let r = explain(&mut s, c, n, false);
+    let key = r["aiKey"].as_str().unwrap().to_string();
+    let t0 = std::time::Instant::now();
+    let partial = loop {
+        let a = s.execute("ai.explanation", json!({"key": key})).unwrap();
+        assert_eq!(a["state"], "pending", "{a}");
+        if let Some(p) = a["partial"].as_str() {
+            break p.to_string();
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "no partial text: {a}");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(partial.starts_with("Node 1: "), "{partial}");
+    assert!(!partial.contains("It makes"), "an unfinished sentence is never shown: {partial}");
+    go.store(true, std::sync::atomic::Ordering::Relaxed);
+    let a = s.execute("ai.explanation", json!({"key": key, "wait": true})).unwrap();
+    assert_eq!(a["state"], "done", "{a}");
+    assert_eq!(a["reasonCode"], "rejected", "{a}");
+}
+
+/// Background pre-generation (AI1.3): a newer prefetch drops an older one nobody asked for; an
+/// explicit request for the same facts adopts the pending prefetch and gets its answer.
+#[test]
+fn a_newer_prefetch_supersedes_and_a_request_adopts() {
+    let (mut s, c, n) = graded();
+    let go = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    with_backend(&mut s, Streaming(go.clone()));
+    let prefetch = |s: &mut Session| s.execute("grade.explainNode", json!({"clip": c.0, "node": n, "prefetch": true})).unwrap();
+    let rev = s.revision;
+    let first = prefetch(&mut s)["aiKey"].as_str().unwrap().to_string();
+    assert_eq!(s.revision, rev, "a prefetch is not an edit (the UI keys its debounce on the revision)");
+    s.execute("grade.setParam", json!({"clip": c.0, "node": n, "param": "gain", "value": [0.0, 0.0, 0.0, 0.5]})).unwrap();
+    let second = prefetch(&mut s)["aiKey"].as_str().unwrap().to_string();
+    assert_ne!(first, second);
+    assert_eq!(s.execute("ai.explanation", json!({"key": first})).unwrap()["state"], "unknown", "superseded");
+    // the user clicks Explain node: same facts, so the same pending answer (adopted)
+    let r = explain(&mut s, c, n, false);
+    assert_eq!(r["aiKey"].as_str(), Some(second.as_str()), "{r}");
+    // a prefetch elsewhere no longer drops it
+    s.execute("grade.setParam", json!({"clip": c.0, "node": n, "param": "gain", "value": [0.0, 0.0, 0.0, 0.7]})).unwrap();
+    prefetch(&mut s);
+    assert_eq!(s.execute("ai.explanation", json!({"key": second})).unwrap()["state"], "pending");
+    go.store(true, std::sync::atomic::Ordering::Relaxed);
+    let a = s.execute("ai.explanation", json!({"key": second, "wait": true})).unwrap();
+    assert_eq!(a["state"], "done", "{a}");
+}

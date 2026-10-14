@@ -36,4 +36,14 @@ impl Model {
     pub fn generate_detailed(&mut self, _system: &str, _user: &str, _opts: GenOptions) -> Result<Generation, LlmError> {
         match self._never {}
     }
+
+    pub fn generate_streaming(
+        &mut self,
+        _system: &str,
+        _user: &str,
+        _opts: GenOptions,
+        _on_text: &mut dyn FnMut(&str) -> bool,
+    ) -> Result<Generation, LlmError> {
+        match self._never {}
+    }
 }

@@ -177,6 +177,35 @@ Set 1 answers are identical to the first run (greedy), so its numbers repeat.
 but consistent in direction on both sets, and the Qwen tune is also ~20 % faster per answer.
 Q4_K is not better than Q8_0 on either set.
 
+## smol360-v2 (AI1.6, 2026-10-13)
+
+**Why:** v1's misses on both held-out sets were small colour-cast / saturation claims just below
+the checker's thresholds (see above), and G2c (white-balance picker, Auto balance) shipped since.
+**Data** (`runs/data-v2`): `explain_traindata --grades 3400 --per-grade 2 --seed 2 --subtle 0.3`:
+30 % of the corrections have their colour / tone amounts shrunk to 10–40 %, so many targets leave
+a sub-threshold change out; facts of all three held-out sets are dropped (sets 2 and 3 were not
+excluded before; data-v1 regenerates unchanged with the defaults). 6066 train / 352 val examples.
+**Train:** `DATA=…/data-v2 TRAIN_ARGS="--epochs 3" tools/explainer-train/run.sh smol360 smol360-v2`.
+**Third held-out set** (`eval_cases_v3`, `--set 3`, 13 `h3_` cases on the second set's frame):
+Temperature / Tint pairs as the picker and Auto balance write them (alone, with exposure, in a
+qualifier, in a window) and corrections with a too-small colour / saturation change to leave out.
+**Accept** (AI-PLAN): v2 ≥ v1 on sets 1 and 2 and passes set 3, else v1 stays the default.
+**Results** (2026-10-14, `runs/v2-compare/`, one `llm_eval` run, our own runtime, greedy, 80
+tokens, repeat penalty 1.0, cases deduped against data-v2; synthetic prompts, idle machine):
+
+| model | set 1 (36) | set 2 (40) | set 3 (13) | mean s / answer |
+|---|---|---|---|---|
+| `smol360-v1` Q8_0 | **34** | **37** | 13 | 1.26 / 1.34 / 1.14 |
+| `smol360-v2` Q8_0 | 33 | 36 | 13 | 1.27 / 1.34 / 1.10 |
+
+Training: 3 epochs ran to the end (val loss 0.461 at step 1000/1140). **v2 does not beat v1**,
+so it is not catalogued and v1 stays (AI-PLAN Accept). The kind of miss moved: v2 makes fewer
+"Direction" errors (sub-threshold casts) but new "Omission" ones (it leaves out a main change, e.g.
+`contrast_sat_warm`'s warmer shadows), so the subtle data taught omission a little too broadly.
+Set 3 doesn't separate them (both 13/13). Ideas for a v3: a smaller `--subtle` (0.1–0.15),
+subtle only on a secondary correction of a multi-correction grade, or more set-3-like near-threshold
+cases. Weights stay in `models/tuned/smol360-v2/` (unused).
+
 ## Converter validation
 
 `llm_quantize` was checked on the stock bases before any tuned model:

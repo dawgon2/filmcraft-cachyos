@@ -126,3 +126,92 @@ fn the_ring_keeps_no_more_than_the_lead() {
     let lead_blocks = (SR as f64 * LEAD_S / BLOCK_FRAMES as f64).ceil() as u64;
     assert!(calls.load(Ordering::Relaxed) <= lead_blocks + 1, "mixed {} blocks", calls.load(Ordering::Relaxed));
 }
+
+/// Fork A1.2: one block whose mixing panics plays as silence and the mixer carries on in time; a
+/// mixer that panics block after block stops and says so (`mixerStopped`).
+#[test]
+fn a_panicking_block_is_silence_and_only_repeated_panics_stop_the_mixer() {
+    let stats = Arc::new(AudioStats::default());
+    let mut blocks = 0;
+    let mix = move |cursor: i64, buf: &mut [f32], ch: usize| {
+        blocks += 1;
+        if blocks == 3 {
+            panic!("one bad block");
+        }
+        frame_numbers(Duration::ZERO, Arc::default())(cursor, buf, ch);
+    };
+    let mut fill = spawn(mix, 1, SR, 2, stats.clone());
+    std::thread::sleep(Duration::from_millis(50));
+    let out = play(&mut fill, 2, 16);
+    assert_eq!(stats.mixer_panics.load(Ordering::Relaxed), 1);
+    assert!(!stats.mixer_stopped.load(Ordering::Relaxed));
+    // the third block (frames 2049..=3072) is silent, the fourth plays its own frames: in time
+    let frame = |p: usize| out.get(p * 2).copied();
+    assert_eq!(frame(2048), Some(0.0));
+    assert_eq!(frame(3072), Some(3073.0));
+    assert_eq!(frame(4000), Some(4001.0));
+
+    let stats = Arc::new(AudioStats::default());
+    let mut first = true;
+    let mix = move |cursor: i64, buf: &mut [f32], ch: usize| {
+        if !first {
+            panic!("mixer bug");
+        }
+        first = false;
+        frame_numbers(Duration::ZERO, Arc::default())(cursor, buf, ch);
+    };
+    let _fill = spawn(mix, 1, SR, 2, stats.clone());
+    // (a loaded machine symbolising backtraces can take a while per panic)
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !stats.mixer_stopped.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(stats.mixer_stopped.load(Ordering::Relaxed));
+    assert_eq!(stats.mixer_panics.load(Ordering::Relaxed), 4);
+    assert_eq!(stats.to_json(SR)["mixerStopped"], true);
+}
+
+/// Fork A1.2: a device with large buffers gets a lead of a few of them, and every underrun grows
+/// the lead, up to MAX_LEAD_S; a hostile sample rate or channel count doesn't size the ring by it.
+#[test]
+fn the_lead_follows_the_device_buffer_and_grows_after_underruns() {
+    use filmcraft_ui_egui::play_ahead::MAX_LEAD_S;
+    let stats = Arc::new(AudioStats::default());
+    let mut fill = spawn(frame_numbers(Duration::ZERO, Arc::default()), 1, SR, 2, stats.clone());
+    assert_eq!(stats.lead_frames.load(Ordering::Relaxed), (SR as f64 * LEAD_S) as u64);
+    let mut buf = vec![0.0; 4096 * 2];
+    fill(&mut buf, 2);
+    assert_eq!(stats.lead_frames.load(Ordering::Relaxed), 4 * 4096, "four of the device's 4096-frame buffers");
+
+    // a mixer faster than real time that stalls longer than the lead now and then (a slow file
+    // open at a cut; 40 blocks = 0.85 s of sound between stalls):
+    // each underrun grows the lead, up to the cap, never past it
+    let stats = Arc::new(AudioStats::default());
+    let mut blocks = 0u32;
+    let mut numbers = frame_numbers(Duration::ZERO, Arc::default());
+    let stalling = move |cursor: i64, buf: &mut [f32], ch: usize| {
+        blocks += 1;
+        if blocks.is_multiple_of(40) {
+            std::thread::sleep(Duration::from_millis(320));
+        }
+        numbers(cursor, buf, ch);
+    };
+    let mut fill = spawn(stalling, 1, SR, 2, stats.clone());
+    std::thread::sleep(Duration::from_millis(50));
+    let _ = play(&mut fill, 2, 600);
+    let lead = stats.lead_frames.load(Ordering::Relaxed);
+    assert!(stats.underruns.load(Ordering::Relaxed) > 1, "a stall underruns several callbacks");
+    assert!(lead > (SR as f64 * LEAD_S) as u64, "grew: {lead}");
+    // one step per stall (not per short callback): it stops growing once the lead covers the
+    // 320 ms stall, well short of the cap
+    assert!(lead < (SR as f64 * MAX_LEAD_S) as u64, "grew once per stall, not to the cap: {lead}");
+
+    // hostile device values: still plays, no runaway allocation
+    for (rate, ch) in [(u32::MAX, 64), (0, 2), (1, 1)] {
+        let stats = Arc::new(AudioStats::default());
+        let mut fill = spawn(frame_numbers(Duration::ZERO, Arc::default()), 1, rate, ch, stats.clone());
+        let mut buf = vec![f32::NAN; 64 * ch];
+        fill(&mut buf, ch);
+        assert!(buf.iter().all(|x| x.is_finite()), "{rate} Hz, {ch} ch");
+    }
+}

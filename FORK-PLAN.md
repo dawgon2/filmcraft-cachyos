@@ -381,8 +381,8 @@ the agent's own recorded interpretations, not the owner's words.
     - **Build:** release builds embed absolute paths, so the public build is made on the Dell
       (§1a.32) in a worktree at `/var/tmp/filmcraft` (outside any home folder: some paths come
       from `CARGO_MANIFEST_DIR` and aren't remapped) with
-      `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C target-cpu=x86-64-v3
-      --remap-path-prefix=…"` (script `~/fork-logs/release-build.sh` on the Dell), then
+      `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="--remap-path-prefix=…"` (no
+      `target-cpu` flag since AI1.2: the build runs on any x86-64 and picks AVX2 at run time) (script `~/fork-logs/release-build.sh` on the Dell), then
       `strings` must show no owner user name and no `/home/<name>` other than `/home/user`. The
       private `~/Apps/filmcraft-builds/<tag>/` binaries contain home paths: never upload them.
     - **Release:** `gh release create fork-<tag> --target fork` with the phase `NOTES.md`
@@ -1289,318 +1289,81 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
 
 Older entries (everything before the newest ~20) are in [`docs/fork/PROGRESS-LOG-ARCHIVE.md`](docs/fork/PROGRESS-LOG-ARCHIVE.md) (§1a.55); read them only when HANDOFF points at one.
 
-- **2026-10-13 06:21 (scheduled run, LEAN: weekly U 5 % vs L ≈ 1.4 %, 5-hour 55 % vs L5 ≈ 82 %).** S11 bench
-  not possible (titlebar session's `cargo xtask ci` + its app running). Did cloud-queue A1-PREP instead (Sonnet
-  scout, spot-checked): `docs/fork/PREP-A1.md`. Main gaps: runtime device loss (`stream_error` only sets a flag),
-  mixer built from the pre-`start()` rate, no A/V drift measurement; biggest risk: a mixer-thread panic leaves
-  silent playback with no UI notice. I18N-2 left: es / zh-cn coverage of `tl!` literals is already enforced by
-  tests. Next: S11 when the machine is idle.
-- **2026-10-13 06:36 (scheduled run, LEAN, U 5 / L 1.5; 5-hour 58 / L5 86):** machine busy (titlebar
-  session's `xtask ci`), so CLOUD-QUEUE Y3-PREP instead (Sonnet scout, spot-checked): `docs/fork/PREP-Y3.md`.
-  Keys (ultra / luma / colour) are CPU only, not in `GPU_EFFECTS`; tracker is affine only (no homography), nothing
-  drives Motion / Corner Pin; no user WGSL hook (needs ADR 0006, runtime time limit); presets / `.fcgt` / LUT import
-  exist but no pack container. Next: S11 when the machine is idle.
-- **2026-10-13 06:17–06:45 EDT, Dell lane: L1.4b reduced motion merged (909ce174).** Settings ▸ Appearance ▸
-  Animations (`appearance.motion`: Sync with system (default) / On / Off) switches egui's animation time and
-  scroll animation off. Linux reads the portal's `reduced-motion` (decides when it answers), else KDE
-  `AnimationDurationFactor` = 0 (Instant) or GNOME `enable-animations` false; followed live through
-  `SettingChanged`. Opus review: no blockers; applied stale-key precedence, `ready` before the motion reads,
-  guide paths (GNOME 46 Accessibility ▸ Seeing), es / fr agreement, extra decode cases. Text-scale hint left
-  out of part 1 (would rescale the whole UI from a font setting; candidate for part 2). Next: L1.6, `makepkg`.
-- **2026-10-13 06:50 (scheduled run, LEAN, U 5 / L 1.7; 5-hour 60 / L5 91):** machine busy (titlebar
-  session's ci, load ~84), so no S11 bench. I18N-2 closed with nothing to add (the es / zh-cn
-  `tl!` coverage tests already enforce it); CLOUD-QUEUE refilled with C1-PREP, AI1-PREP, R1-PREP
-  (docs only). **S11 still next.**
-- **2026-10-13 06:45–07:00 EDT, Dell lane: L1.6 merged (4926e868); makepkg check passes; L1 / L2 part 1 ready
-  for acceptance.** L1.6: arboard `wayland-data-control` (native Wayland clipboard on Plasma / wlroots, X11
-  fallback on GNOME; 8 new transitive crates, MIT / Apache / Zlib), IME preedit / commit and touchpad
-  pixel / line / Alt-zoom UI tests in both workflows; the Timeline now clamps a frame's wheel input (a huge
-  line / page event could overflow to infinity after unit conversion; the finiteness check ran before it). makepkg on the Dell: both packages build, `check()`
-  and validators clean. Checklist and PC-owed items in HANDOFF. Self-reviewed (weekly over its line: no
-  subagents).
-- **2026-10-13 07:20 EDT, Dell lane: L1.8 merged (b6d302dd, part 2).** Settings ▸ Playback ▸ Global
-  shortcuts: Play/Stop and Add Marker through the XDG GlobalShortcuts portal on its own thread (off by
-  default; session closed when switched off or on exit; activations filtered by session). Gates on the Dell
-  by the previous run (fmt re-checked after its fmt-only amend); the owed fresh-context review was done by
-  this run, which hadn't written it (weekly over its line, so no subagent): no blocking findings. Next: L2.10.
-- **2026-10-13 07:40 EDT, Dell lane: L2.10a merged (bd93a644, part 2).** Send via KDE Connect from the
-  Project panel item menu (file media, only while a paired device is reachable) and `kdeconnect.devices` /
-  `kdeconnect.send`, through the user's running kdeconnectd on a worker thread (never auto-started; ids
-  validated, names cleaned, list capped). Gated on the Dell by the previous run; fresh-context review done by
-  this run (weekly over its line, no subagent): no blocking findings. Next: L2.10b.
-- **2026-10-13 07:41 (scheduled run, LEAN, U 6 / L 1.8; 5-hour 1 / L5 ≈ 1 at start):** machine busy (another
-  session's nextest, load ~112, 3 GB free) until ~07:40, so no S11 bench then. Did the owed Phase 6 item
-  "automated 4:2:2 export chroma test": `hevc_422_master_keeps_per_row_chroma` (platform `tests/hevc_export.rs`)
-  encodes one-row red / blue alternation + flat orange through the 4:2:2 master on VaNative, Vaapi and x265,
-  decodes with our decoder and checks each row keeps its own Cr / Cb (gap ≥ 75 % of BT.709's; measured 488 of
-  489 on Intel) and orange within 12 of BT.709. Mutation-checked (fails when the threshold is raised).
-- **2026-10-13 08:00 EDT, Dell lane: L2.10b merged (1f33cc46) and L2.10c (4b5c8791), part 2.** Files shared from a
-  phone (KDE Connect `shareReceived`, only from the daemon's bus name) → Project panel offer bar / Inbox bin / ignore
-  (Settings ▸ Media); gated on the Dell by the previous run, fresh-context review by this one (weekly over its line, no
-  subagent): no blocking findings (Inbox mode re-imports a re-shared file, like a second manual import). L2.10c is a
-  guide page: KDE Connect's Multimedia control already drives FilmCraft's MPRIS player. Next: L2.4 card import.
-- **2026-10-13 08:15 (same scheduled run, LEAN, U 7 / L 2.4; 5-hour 9 / L5 ≈ 18):** merged the owner's title-bar
-  commit and the Dell lane's L1.8 / L2.10a–c (union of log and es / zh-cn rows; i18n and settings tests, app check
-  green). Machine idle from ~07:55, so **6E.3 S11 bench: not accepted.** Full-length `xm5-export-6k`: single 19.4 fps
-  (encode-bound), dual 16.2–17.0 fps (AMD lane 8.6, Intel 7.5; render-bound: ≈ 116 ms render per frame per lane vs
-  30 ms single, GPU busy 12 %). Bench rows now carry `stages_s` (per-stage wall time). Next: diagnose the lane render
-  slowdown (leads in `docs/fork-benchmarks.md`), then rerun.
-- **2026-10-13 08:35 EDT, Dell lane: L2.4a / L2.4b merged (76d4bdfd, 0fa6636c, fix c9d182d6), part 2.** Copy Card
-  (whole card to a media drive, every file CRC-32 verified by read-back, checksum list, resumable, imported into a bin)
-  and the Project panel card bar (mount-table watch, Copy, Eject through UDisks2). Fresh-context review by this run
-  (weekly over its line, no subagent): one fix (an identical file already copied was re-checked without progress or
-  Cancel), one minor left (a resume after midnight gets a new dated folder). Gates green on the Dell. Next: L1.5 / L2.6
-  after U0.2.
-- **2026-10-13 08:35 (same scheduled run, LEAN, U 7 / L 2.6; 5-hour 13 / L5 ≈ 26):** traced the S11 slowdown to
-  plan + decode (3.7× per frame in the lanes); an Opus diagnostician found the cause: `hwgate::run` gated every
-  hardware decode in the process through one gate, so the AMD and Intel lanes took turns. Now one gate per decode
-  node (thread's `hw::decode_node()`, default / playback unchanged, ≤ 8 nodes), test `engines_are_gated_separately`;
-  Opus review: concurrency sound, cap off-by-one fixed. **Dual 25.0 / 24.9 fps vs single 19.4 (synthetic): 6E.3's
-  ≥ 24 fps gate met** (target 26+ not yet; the Intel lane runs 7.5 fps). Codecs + export tests green. Next: the rest
-  of EXPORT-PLAN "Accept" (ffprobe / mpv, 4K and graded cases, xm5 export suite), then group acceptance.
-- **2026-10-13 08:54 (same scheduled run, LEAN, U 8 / L 2.7):** export suite on two GPUs (synthetic): 4K 38.6 vs
-  single 24.6, 6.2K 25.1 vs 19.4; outputs pass ffprobe (Main 10, yuv420p10le, 1798 frames, hev1), mpv and ffmpeg
-  decode. **Graded 4K regresses: dual 18.4 < single 22.3** (Intel lane 1.8 fps on its single 180-frame chunk,
-  plan+decode 560 s summed). Next: diagnose the slow graded path on the Intel lane and add a slow-lane guard.
-- **2026-10-13 08:58 (same scheduled run, LEAN, U 8 / L 2.8):** Opus diagnostician on the graded 4K regression
-  (read-only, unconfirmed): no CPU fallback; the Intel iGPU runs the full `Rgba32Float` effect stage at 4K through
-  shared DDR and the stall shows as decode waits; AMD lane has fewer threads. Fix design written into HANDOFF
-  (slow-lane tail split + Auto probe in the coordinator, optional 16-bit float effects on integrated GPUs); confirm
-  with a GPU-time probe first. Run ends here (LEAN, weekly over its line).
-- **2026-10-13 EDT, side lane (worktree): UI test binary memory fixed.** `cargo test -p filmcraft-ui-egui
-  --test ui -- --test-threads=1` grew ~0.5–1 GB per test (Dell: OOM at ~12 GB in `coach_ui`; this PC:
-  8 GB after 16 tests). Not a static leak (idle RSS returns to ~0.3 GB with a fixed glibc mmap
-  threshold): each test's dropped app left its work running for 5–15 s (the render cache's 1080p demo
-  batches and in-flight frame jobs on the shared rayon pool, each holding its frames, generator caches
-  and media pool), and that work starved behind the next test's, so it piled up. Fixes: the background
-  worker cancels its running job on shutdown and has `stop_and_wait`; `render_batch` and the batch
-  rendered ahead carry the job's cancel flag into rayon (`filmcraft_media::cancel::current`) and skip
-  frames not started; `encode_batch` stops between frames; `FrameServer::stop_and_wait`; **`impl Drop
-  for FilmcraftApp`** stops and waits (≤ 3 s each) for both. Result: the whole UI binary in one process, `--test-threads=1`: **371 passed, peak
-  2.88 GB, ~1.3–1.9 GB flat to the end** ; after merging hevc-vaapi 54795eb3: 380 passed, flat ~1.6–1.9 GB
-  except inside `hevc_presets`, which peaks at 3–7 GB by itself: its 6.2K preset runs as a 6E.3
-  dual-lane export when two GPUs and ≥ 6 GB `MemAvailable` are there, so the peak follows free RAM;
-  released right after. Worth a look in 6E acceptance: ~7 GB RSS for a 6-frame 6.2K dual export. Regression tests: `teardown_ui` (fails
-  without the fix: 20 media-pool references survived the drop), background / frame-server / export
-  cancel tests. **Dead end:** making demo generator frames abort on the frame job's cancel flag made
-  the parallel UI run crawl (137 tests in 34 min; likely superseded requests never finishing, so
-  nothing got cached); reverted: the closing app waits for the frame in hand instead.
-  **Not fixed (pre-existing, same on 94c32319):** the UI binary in parallel mode (default 20 threads)
-  needs ~1 GB per concurrent test (18 GB cap hit after 36–52 tests here); on 16 GB, run it with
-  `--test-threads` ≤ 8 or 1.
-- **2026-10-13 09:03–09:25 EDT, scheduled run (LEAN: weekly U 8 / L 3.0, 5-hour 18 / L5 39): 6E.3 graded dual
-  regression fixed.** Env-gated GPU-time probe (`FILMCRAFT_EXPORT_GPU_PROBE`) confirmed the 08:58 diagnosis:
-  Intel iGPU 509 ms of GPU work per graded 4K frame vs AMD 18.8 ms (no CPU fallback). Fix: the lane
-  coordinator's slow-lane rule (a lane < 25 % of another's speed after 4 s is retired, its chunk requeued; an
-  idle lane takes over a last chunk it redoes 1.5× sooner); tests with fake lanes (ratio, tail, equal speeds
-  never retired). Benches (synthetic, full length): graded 4K dual 22.3 / 23.8 fps (was 18.4; single 22.3),
-  6.2K dual 25.9 (was 25.1), 4K 31.3 / 35.7 (was 38.6 on one run; spread). Self-reviewed (LEAN); Opus review
-  owed. Leftover worktree `agent-a3613e020ce2b61ce` (L2.9 PKGBUILD, 10 commits) belongs to the Dell / Linux lane:
-  left for it.
-- **2026-10-13 09:30 EDT, same run: 6E.3 colour check on a dual export.** New test
-  `two_gpus_keep_the_colours_of_one` (bars, one vs two GPUs, chroma PSNR to the BT.709 4:2:0 source and mean
-  shift): AMD + Intel 0.00 dB worse than one GPU, mean shift 0.06 codes. HANDOFF item (2) done; next is group
-  acceptance.
-- **2026-10-13 09:45 EDT, Dell lane: L2.10 Flatpak grant (10515534), part 2.** Both Flatpak manifests now grant
-  `--talk-name=org.kde.kdeconnect` (Send via KDE Connect and phone shares work in the sandbox), guide note in
-  `linux.md`. Manifest-only, YAML checked; no Rust touched, so no cargo gates. Weekly over its line: no subagent,
-  self-reviewed. Next: L1.5 / L2.6 after U0.2.
-- **2026-10-13 09:40–10:45 EDT, same run (LEAN, U 8–9 / L 3.1–4.0): 6E group acceptance with L1 / L2 part 1.**
-  Opus end-of-phase review of the slow-lane rule: nothing blocking; fixed (fefc140f) the only 4:2:2-capable lane
-  is kept while 4:2:2 chunks are open (test proven by mutation), pending lane events are read before judging an
-  idle lane, ratio / margin tunable so the fake-lane tests aren't timing-bound, GPU dual tests accept a lane the
-  rule retired; not fixed (low): a hung lane can still be the comparison until the watchdog, `failed` doubles as
-  "retired" in `perf.stats`. `cargo xtask ci` (commit e7c58f3c): fmt, clippy green; tests 3606 / 3608 (2563 s):
-  `coach_ids::the_pattern_list_matches_the_source` (L2.10a's `project.itemMenu.kdeconnect.{}` id missing from
-  `DYNAMIC_ID_PATTERNS`) and `teardown_ui` (8 references left after the bounded close wait under the parallel
-  run) failed; both fixed in fefc140f and re-run green with the touched crates' tests, clippy and fmt; then
-  `xtask layers` / `assets` / `wasm` green (they hadn't run after the test failure). Full ci not re-run (43 min;
-  §2c). Suite (synthetic, dual, full length): 6.2K 25.8 fps (≥ 24 ✓), 4K 33.9, graded 4K 24.2 (single 22.3);
-  outputs ffprobe / mpv / ffmpeg clean; colour test and static-shot join test ✓, failing-lane test ✓.
-  Real desktop (release build, Plasma 6 Wayland, this PC): native Wayland (socket wayland-0, no X11 socket),
-  MPRIS `org.mpris.MediaPlayer2.filmcraft` (PlaybackStatus, Pause works over D-Bus), playback calls the portal
-  Inhibit, export → 56 taskbar progress updates + "Export … Finished" notification with Show in Folder, journal
-  records with PRIORITY / CODE_MODULE when started as a systemd unit, a second launch hands over to the running
-  window, X11 (XWayland) run clean. Note: with `--control` desktop integration is off unless
-  `FILMCRAFT_DESKTOP_INTEGRATION=1`. Owed to the owner (visual, or needs system settings / sudo): KWin look and
-  icon, Program monitor 1:1 at 125 / 150 %, accent / light-dark / Animation speed following System Settings live,
-  window size restore, 10 min without screen lock, Dolphin thumbnails / double-click / paste, nested non-KDE
-  compositor, `makepkg -si`. Guide `export.md` "Two GPUs": measured speeds and the slow-chip rule.
-- **2026-10-13 10:45–10:58 EDT, same run: 6E group built and published.** Build
-  `~/Apps/filmcraft-builds/phase-6e/` (filmcraft + filmcraft-cli of fefc140f; d866cb4c only adds docs), NOTES.md
-  (with a "Please check" list for the owner's desktop), `latest` → `phase-6e`, launcher valid. Public (§1a.33): the
-  scrubber refused the tag (card-mount fixtures under the owner's media path, a laptop host-name doc example): fixed in
-  e7a7b374, snapshot of that commit `94e88700` on cachyos `fork` (parent `c72dcac2`), tags `fork-phase-6e`,
-  `fork-linux-1a`, `fork-linux-2a`; scrubbed Dell build of d866cb4c (277 s; `strings`: no user name, only
-  `/home/user`) as release `fork-phase-6e`. HANDOFF rewritten for **U0.2**; CLOUD-QUEUE header updated.
-- **2026-10-13 10:57–11:20 EDT, Dell lane: L1.4 text-size hint merged (1f480f45, review fix 2e67f732; part 2,
-  Q15 b).** Settings ▸ Appearance ▸ Match the desktop's text size: UI Scale ▸ Auto times KDE's General font
-  size / 10 pt or GNOME's `text-scaling-factor` (portal Read + SettingChanged, held to 75–200 %); off by
-  default; a fixed UI Scale ignores it. Opus review: GNOME's factor is ignored off native Wayland (X11 has it in
-  Xft/DPI already), guide notes the session zoom is replaced on a change. Dell gates: fmt, clippy, ui-egui lib
-  171 ✓, app appearance ✓, layers, wasm ✓; engine lib 786 / 787 (`ai_explain_tests::panic_error_and_timeout_fall_back`
-  timing flake under -j 4, 3 / 3 alone; untouched code). The Flatpak build waits for the owner's yes to download
-  the SDK; L1.5 / L2.6 wait for U0.2.
-- **2026-10-13 10:55–12:15 EDT, scheduled run (LEAN, U 9–10 / L 4.1–4.8; 5-hour 26–34 % of L5 75+): U0.2.2.**
-  Gate: no cloud work; upstream sync not due (Sync 1 on 10-11; 565 new upstream commits, none in `vaapi/`).
-  Removed stale, already-merged worktrees `agent-a3613e020ce2b61ce` (L2.9, landed as 1fea4c05 …) and
-  `agent-a38398e5daf51e782`, plus `target/agent-theme` (8.9 GB). Opus leaf builder (LEAN: no Fable) → daf191c4:
-  HEVC 4:2:0 through upstream's `vaapi/hevc.rs::Front` with `ZeroCopyAccel` first in `vaapi_factory`, fork
-  `NativeVaDecoder` only for what `front_takes` refuses (4:2:2 / Rext); grey stand-ins (zero-copy only), hostile
-  tile / entry-point checks in the front end, saturating PPS / slice math in crates/hevc (+ test), ZeroCopyAccel on
-  the thread's decode node, frames keep the context alive (fixes an iHD `vaSyncSurface` SIGSEGV after the decoder
-  was dropped; 2 crashes in 4 runs before, 0 in 5 after). Opus review: no blocking issues; fixed (76d40251) a slice
-  with no data after its header (`>=`) and stand-ins matched by POC + long-term flag; the property test does not
-  kill the `>` mutant (the slice-header parser already refuses that cut; noted in the test). Follow-ups to U0.2.3
-  (HANDOFF). Tests: platform lib 86 / vaapi 1 / va_native 20 green on AMD and Intel, clippy clean. Merged
-  18fddc60 (+ the Dell lane's L1.4 commits from origin). Bench (synthetic, quick): play-full 240/0 1.96 ms, graded
-  240/0 3.41 ms (= U0); export dual A/B against a freshly built base binary (saved as
-  `target/fork-bench/bench-phase6e`, new one `bench-u022`): 22.1 / 26.2 / 17.2 fps vs 22.2 / 11.0 / 17.2; multicut
-  A/B drops 50, 49 vs 60, 22 (noise), CPU 2.9–3.2 vs 2.2–2.5 ms/frame and 330 vs 357 due → investigate in U0.2.3.
-  Pitfall: a bench binary built in a worktree looks for fixtures in that worktree's `target/fixtures` and
-  regenerates the 6.2K 5-min fixture there (symlink it to the main one first). Pre-existing:
-  `two_gpus_keep_the_colours_of_one` fails only with the Intel device forced (also at the base).
-- **2026-10-13 12:37–13:25 EDT, Dell lane: L2.9 Flatpak build checked (18d523e4), part 2.** Q17 yes → Flathub SDK /
-  Platform / rust-stable 25.08 + `org.flatpak.Builder` installed `--user` on the Dell (7.2 GB with duplicate GL /
-  codecs extensions; cleanup command in Q17). The from-source manifest builds offline with `cargo vendor` instead of
-  the generator script (no extra download; manifest comment says how), 6.5 min. In a virtual KWin with
-  `--share=network` for the control port: native Wayland, VA-API iHD + DMA-BUF, playback 122 shown / 0 dropped with
-  PipeWire audio, MPRIS Playing → Pause over D-Bus, portal Inhibit on play, LauncherEntry progress, export, and
-  Notifications / FileManager1 / kdeconnect (lists the paired PC) / UDisks2 reachable through the proxy. Guide
-  `linux.md` "Installing: a distribution package, Flatpak, or the tarball" (options + trade-offs). Gates: packaging
-  lint (7), engine + ui-egui coach tests; no Rust changed. Review: self-review only (weekly usage over the line, no
-  subagents). Test app uninstalled; L1.5 / L2.6 still wait for U0.2.
-- **2026-10-13 12:15–13:20 EDT, same run (LEAN, U 10–11 / L 4.9–5.3): U0.2.3.** Opus leaf builder → df8a18cb: HEVC
-  4:2:2 + range extensions on upstream's front end (hand-written Rext / Scc / Extension structs with ABI tests vs
-  `va_sys` + GCC, Y210 pool, Intel→AMD hand-off, grey-surface reuse, 4:2:2 stop rule), `NativeVaDecoder` out of
-  `vaapi_factory`; iHD refuses pictures predicted from grey stand-ins (found by the new hardware test), so they are
-  refused up front there. Opus review: FFI / ABI / lifetimes clean; fixed (220c498a) a grey flag that survived a
-  failed write, and an up-front missing-reference refusal that stopped a 4:2:2 decoder and set the 4:2:2 failure
-  badge (now `CodecError::Unsupported`; new test fails on the old rule, mutation-checked). Platform tests green on
-  AMD and Intel (lib 90, vaapi 23, va_native, va_hevc_422 6, va_422_handoff 5, vaapi_displays 1); one Intel flake of
-  `hevc_missing_references_on_the_hardware` in 3 runs (ffmpeg-pipe step; owed to U0.2.5). Merged 8777f478 (+ the
-  Dell lane's L2.9 commits). Owner's §1a.58 (U0.2.3b speed floor) arrived meanwhile: next step.
-- **2026-10-13 13:20–13:57 EDT, same run (LEAN, U 12 / L 5.3–5.8): U0.2.3b part 1.** Baseline (full-length export,
-  repeat 2) showed U0.2.2 / U0.2.3 had **regressed export**: 4K 12–14 fps (A/B against a rebuilt phase-6e bench:
-  34.4 → 7.7), graded 4K 22.7 → 12.5; the quick A/B in U0.2.2 had missed it (short timelines). Stack samples
-  (`eu-stack` on a child started with PR_SET_PTRACER; no perf here) showed upstream's read-back `Session::get_image`;
-  a new `backends` field in the bench's export rows gave the reason: zero-copy "no free surface" at the GOP-budget cap
-  (frames held by export lanes / encoder queue), fallback to read-back. Fixed: the budget is a soft bound, growth up
-  to `MAX_SLOTS` / driver memory as the fork decoder had (test fails on the old cap, both GPUs). After (one run
-  overlapped by another session's build): 4K 34.2 / 37.6 ✓, 6.2K 24.4 / 24.2 ✓ thin, new 6.2K graded 19.1 / 19.2,
-  4K graded 21.1 / 21.4 (floor 30 ✗), multicut CPU 2.49–2.68 ms (~U0). Table in `docs/fork-benchmarks.md`.
-  Lesson: export regressions need the full-length bench; quick dual runs are too noisy. Next: graded export speed.
-- **2026-10-13 13:57–14:34 EDT, scheduled run (LEAN, U 13 / L 5.9; 5-hour 20 / L5 37): U0.2.3b part 2, step a.**
-  Owner update (live, §1a.62–65, HANDOFF item 4): graded export speed (Intel and AMD at f32), the
-  Auto rule and preview-only half floats are all U0.2.3b now, before U0.2.4. Diagnosed graded exports: AMD's lane is
-  not GPU-bound (12 ms GPU per frame, VCN-bound; 6.2K graded encode 44 ms), Intel UHD 750 spends ~490 ms per 6.2K
-  frame, mostly the colour-chain interpreter (~50 ms per op, ALU-bound, the same in f16); new ignored timing test
-  `graded_export_ops_timing_6k`. Built a selectable effect-stage format (`Rgba16Float` seam in `crates/gpu/src/fx.rs`);
-  per §1a.64 export always renders f32 (`GpuCompositor::for_export`, tests in gpu + platform on AMD and Intel); half
-  floats preview opt-in only, because Sharpen lands 3.4–3.8 10-bit codes off f32 (colour ops 0.3–0.7): owner Q18
-  (provisional, one constant). f16 A/B (full length): 4K graded 21.0 → 22.3, 6.2K graded 19.1 → 19.2 (not shipped
-  for export). gpu tests 56/56 on both GPUs; self-review (LEAN, not risky code). Next: step b (Auto rule).
-- **2026-10-13 14:34–15:05 EDT, same run (LEAN, U 14 / L 6.2): U0.2.3b step b, the Auto rule (§1a.63).** Export
-  engines = Auto keeps exports with an effect stage (effects, grade, TNR, opacity masks, a colour-space interpretation,
-  nested ≤ 8 deep) on the primary GPU; plain exports still get both; Dual forces both. Test per case (effect, grade,
-  TNR, input transform → one GPU; bypassed grade, ungraded → both; Dual → both; nesting; depth bound). "?" help next to
-  the choice (es / zh-cn), guide `export.md` "Two GPUs" says what Auto does and why. Tests: export lanes 30, ui-egui
-  coach / i18n / export filters green; clippy clean. Self-review. Next: step c (Intel faster on graded frames at f32).
-- **2026-10-13 14:49–15:02 EDT, scheduled run (LEAN, U 14 / L 6.4; 5-hour 32 / L5 54): U0.2.3b step c, part 1.**
-  Colour chains on the GPU now run as WGSL specialised to their op codes instead of the per-pixel `switch`
-  interpreter (`colorops::specialise` cuts each used `case` into its own function; pipelines cached per op
-  sequence; interpreter kept for > 64 ops, wasm, failed builds (error scope, no crash) and
-  `FILMCRAFT_CHAIN_SPECIALISE=0`). 6.2K f32 graded ops (synthetic, ignored timing test): Intel 980 → 332 ms
-  (chain 473 → 82, HSL Secondary 315 → 53), AMD 34 → 23 ms. A first version inlining the whole switch per op
-  compiled cold in up to 32 s: replaced (19 ops now 43 / 108 ms cold). gpu tests 60/60 on AMD and Intel, new
-  specialised-vs-interpreter parity (within the CPU tolerance), naga validation of every code. Self-review
-  (LEAN). Next: Intel Unsharp, the output pass, then a quick graded export.
-- **2026-10-13 15:02–15:13 EDT, same run (MINIMAL from 15:02, U 15 / L 6.5): U0.2.3b step c, part 2 (c closed).**
-  Plain effect passes get one pipeline per op (`override PX_OP` on `fx_px`, cached; error scope, generic
-  fallback) and the colour-managed output pass uses specialised chains (shared `colorops::build_specialised`).
-  The ignored timing test now times the GPU only (`stage_ms`, median of 5): the read-back-based numbers swung
-  by ±30 ms. 6.2K f32 (synthetic): Intel 960 → 286 ms per graded frame (chain 470 → 97, HSL Secondary 298 → 71,
-  Unsharp 190 → 122), AMD 23.9 → 20.8 ms. Intel is now bandwidth-bound (~30–40 ms per f32 pass): ~3.5 fps, so
-  graded exports stay on AMD; pass fusion logged as owner question Q19 (FYI, choice (a)). gpu tests 61/61 on
-  AMD and Intel (new `per_op_pipelines_match_the_generic_pass`), clippy clean. Self-review. Next: step d.
-- **2026-10-13 15:15–15:20 EDT, same run (MINIMAL, U 15 / L 6.6): U0.2.3b step d, diagnosis only.** Quick
-  traced exports (synthetic): 4K graded on AMD alone 21 fps vs 4K ungraded forced single 28 fps; the ~12 ms gap
-  equals AMD's GPU work per graded frame, so render doesn't overlap decode. Stack samples: workers wait on the
-  clip's GopCache lock while one decodes and blocks in `vaSyncSurface`. Op evaluation 0.02 ms (not it). The GPU
-  probe holds the compositor lock while waiting (inflates lock wait; diagnostic only). Next step written in
-  HANDOFF item 4d. No code changed.
-- **2026-10-13 15:30 EDT, same run (MINIMAL, U 15 / L 6.8): U0.2.3b d, diagnosis corrected.** Full-length single-GPU
-  exports (synthetic): 4K ungraded 23.3 fps vs graded 23.1 / 22.0: grading costs nothing on one AMD lane; the
-  earlier quick-run gap was noise. One lane is decode-bound (new trace counter "va decode sync", `trace::DEC_SYNC`:
-  ~70 s of a 77 s export) and re-decodes ~25–33 % of pictures after GOP-cache evictions. HANDOFF 4d rewritten:
-  next = stop the re-decodes, then more pictures in flight. export lib tests green, clippy clean (export, platform).
-- **2026-10-13 15:36 EDT, same run (MINIMAL, U 15 / L 6.9): U0.2.3b d, AMD is VCN-bound.** Diagnostic env
-  `FILMCRAFT_EXPORT_SECOND_NODE` (second lane on a chosen render node). Two lanes both on the RX 6700 XT: 4K graded
-  18.5 fps vs 23 on one lane (synthetic): the shared VCN (decode ~29 ms + encode ~28 ms per frame) is AMD's limit,
-  not the shaders. Next (HANDOFF 4d): Intel's media engine takes decode (DMA-BUF to AMD) or encode while AMD renders;
-  measure both splits, then design Auto's graded plan.
-- **2026-10-13 15:37–16:05 EDT, scheduled run (MINIMAL, U 15 / L 6.8–7.0, 5-hour 38–40 % vs L5 ~87): U0.2.3b d,
-  Intel decodes → AMD renders + encodes.** Split chosen from the 6E.1 numbers (Intel decode 2× AMD's, Intel encode
-  half AMD's); no designer. 4:2:0 hand-off built (`hw::set_thread_decode_handoff`, diagnostic `FILMCRAFT_DECODE_NODE`;
-  linear NV12 / P010 import + mapped reads; linear copies described at their visible size, fixing right-edge chroma
-  from the padding) with `tests/va_420_handoff.rs` (Intel → AMD, bit-exact, in place = read back). Fixed a stale
-  failure: up-front `Unsupported` no longer stops a 4:2:2 decoder (the U0.2.3 review fix had only added a comment).
-  Bench (synthetic, full length): 4K graded single 24.7 / 25.0 fps with Intel decoding vs 24.9 on AMD: VCN freed
-  (encode 62 → 14 s) but the serial chain now waits ~20 ms per picture on the hand-off copy (4.3 ms alone). platform
-  + codecs tests green (AMD + Intel), clippy clean. Self-review (MINIMAL). Next in HANDOFF 4d: the copy off the chain.
-- **2026-10-13 16:05–16:25 EDT, same run (MINIMAL, U 15 / L 7.0): U0.2.3b d, the copy's cost.** Trace counters
-  "copy lock wait" / "copy sync": the hand-off copy's time is its sync (lock wait 0). Handing copies out unsynced
-  (first reader waits) tried and reverted: 22.7 fps, the wait moved into the compositor's GPU lock and Intel's
-  decode slowed (decode and copy share the iGPU). Inside the export Intel decode + copy reach ~30 pictures/s at 4K
-  vs ~100 alone (new ignored test `handed_off_4k_decode_time`); suspect iGPU clocks under CPU load (next step in
-  HANDOFF 4d). platform + export tests green, clippy clean.
-- **2026-10-13 16:25–16:40 EDT, same run (MINIMAL, U 16 / L 7.1): U0.2.3 owed (i) + d check.** An up-front
-  `Unsupported` (iHD, missing references) now goes straight to software in the hybrid, skipping the ffmpeg pipe
-  (0.11 s vs ~10 s; the flaky-once-in-3 test now asserts < 5 s). vaapi 23/23, fallback 3/3, lib 92 on AMD and Intel,
-  clippy clean. iGPU clock during the Intel-decode export: median 1100 of 1300 MHz, not the cause (HANDOFF 4d next:
-  time the real 10-bit clip standalone; pictures in flight).
-- **2026-10-13 16:30 EDT, same run (MINIMAL, U 16 / L 7.1): U0.2.3b d explained.** The "4K" export scales the 6.2K
-  clip: Intel decodes and copies 6240×4160 P010 (78 MB) pictures, ~12 + ~13 ms serial ≈ the measured ~30 pictures/s;
-  no hidden slowdown. Next (HANDOFF 4d): a scaling hand-off copy for exports smaller than the source, else accept
-  the gap and go to step e. Docs only.
-- **2026-10-13 16:33 EDT, scheduled run (MINIMAL, U 16 / L 7.4; 5-hour 44 / L5 86): 6E owed item, lane report.** `perf.stats`
-  `export.lanes` entries get `retired` (slow-lane rule took a working lane off) apart from `failed` (something
-  went wrong); tests assert the split; guide `export.md` explains both. HANDOFF 4d (scaling hand-off copy) is design
-  work, postponed while far over the weekly line.
-- **2026-10-13 16:48–16:57 EDT, scheduled run (MINIMAL, U 16 / L 7.5; 5-hour 45 / L5 91): DC1 done.** Q12's
-  draft popped from the stash, gentle mode (§1a.56, `5b33232a`) folded into `dell-ci.sh` (MemAvailable ≥ 3 GB,
-  games hold GPU jobs, MPRIS playback → 8 build jobs and soaks wait), committed as FORK-ONLY, installed on the
-  Dell (timer enabled, Linger=no: runs while the owner is logged in; install line needed `~` quoted, noted in
-  Q12). Self-tests: deliberate failure → FAIL with its line, `test-filmcraft-time` → PASS. `intel-1` queued
-  (U0.2.3 owed iii). Self-reviewed (MINIMAL, no subagents).
-- **2026-10-13 17:03 EDT, same run (MINIMAL, U 16 / L 7.6): U0.2.3 owed (iii) done via DC1.** `intel-1` on the Dell's
-  UHD 770 at `1335df19`: vaapi 23/23, va_hevc_422 6/6, va_422_handoff 5/5 (PASS, 3m47s). Next unchanged: HANDOFF 4d
-  (scaling hand-off copy, design work, postponed while far over the weekly line).
-- **2026-10-13 17:14 EDT, new run (MINIMAL, U 16 / L 7.7; 5-hour 0 %): U0.2.3b d (1) platform half.** No lock, no
-  cloud work (cloud heartbeat 2 days old). `LinearCopy::copy_scaled` + `Context::process_scaled` with test
-  `scaled_handoff_copy_keeps_values`; Intel 6.2K hand-off copy 14.5 → 7.6 ms scaled to the 4K fit (synthetic,
-  ignored timing test; AMD 1.1 / 0.4 ms). Platform tests green. Self-reviewed (MINIMAL). Next: the export →
-  decoder size hint (HANDOFF 4d).
-- **2026-10-13 17:51 EDT, same run (MINIMAL, U 16 / L 8.3): U0.2.3b d (1) scaled hand-off, diagnostic.**
-  `hw::set_thread_handoff_scale` + `FILMCRAFT_HANDOFF_SCALE`; `ZeroCopyAccel` hands off scaled. Full-length 4K
-  graded with Intel decode 24.7 → 37–40 fps, ungraded 26.0 → 41.8 (synthetic). Not bit-identical (fine texture,
-  PSNR 42.6 / 32.9 dB): owner question Q20, provisional (a) use it. platform tests green. Next: the per-source
-  plumbing + Auto's Intel-decode plan (HANDOFF 4d).
-- **2026-10-13 18:21 EDT, same run (MINIMAL, U 17 / L 8.9): U0.2.3b d plumbing parts 1–3.** Per-source
-  hand-off scale (`MediaSource::set_handoff_scale`, MP4), `render::handoff::handoff_scales`, scaled lane copies,
-  and Auto's decode-only plan (one AMD lane, Intel decodes, scaled). 4K graded full length 24.7 → 30.2–30.9 fps
-  (synthetic; clip zoom 120 % → scale 62 %, Q20 corrected). Guide `export.md` updated. va_dual_lanes /
-  va_dual_export pass (owed iv). Self-reviewed (MINIMAL); Opus review owed. Next: step e.
-- **2026-10-13 18:49 EDT, same run (MINIMAL, U 17 / L 9.0): U0.2.3b closed (step e).** Full length, median of 2,
-  before `bench-u023` / after `bench-u023b-d7` (synthetic): 4K 8.7–14.5 → 32.5 / 35.1, 4K graded 12.2–13.3 → 31.1 /
-  30.5, 6.2K 25.5 → 25.5, 6.2K graded 19.1 → 19.6 (aim 24: gap, Q21 FYI, accepted; Intel decode unscaled 20.5, not
-  worth it). Next: U0.2.4.
-
-- **2026-10-13 19:03 EDT, same run (MINIMAL, U 17 / L 9.3): U0.2.4 done (one display layer).** `render_nodes()` →
-  `va.rs`; the read-back decoder is `ZeroCopyAccel::new_read_back`; upstream's `vaapi/va.rs` (own libva loader,
-  Display, Session, probe) deleted; `va::displays_opened`. Platform tests green (vaapi / va_native on both GPUs),
-  workspace check clean. Self-reviewed (MINIMAL); Opus review of U0.2.3b d + U0.2.4 owed. Next: U0.2.5.
-- **2026-10-13 20:11 EDT, same run (MINIMAL): U0.2.5 ci run 1 found a crash, fixed.** `filmcraft-cli help` aborted
-  in ~25 % of runs (exit during Intel driver init by the 4:2:2 probe; hidden before by upstream's always-open display).
-  Displays kept for process life, `va::Busy` + `filmcraft_platform::quiesce()` on exit; 0 / 300; regression test
-  added (fails without the fix). ci to re-run.
+- **2026-10-13 21:29 EDT, same run (MINIMAL): AI1.1f-1, batched prefill** (generic row kernel, `Weight::matmul`, 64-token chunks,
+  parallel attention; bit-identical to token-by-token). Synthetic 300-token prefill on the 360M tune: 1.86 s
+  without the flag vs candle 15.9 s (no flag) / 2.75 s (flag). Next AI1.1f-2 sampling, then AI1.1h swap infer.rs.
+- **2026-10-13 21:30 EDT, same run (MINIMAL): AI1.1f-2, sampling** (`sample.rs`: greedy + repeat penalty equal to candle;
+  seeded temperature sampling). Next AI1.1h: swap infer.rs onto our pass, then the 75-case evaluation.
+- **2026-10-13 21:44 EDT, same run (MINIMAL): AI1.1h, infer.rs on our own forward pass** (candle → dev-dependency oracle).
+  Real models, no flag: tuned smol360-v1 1.57 s / answer, all six models answer sensibly; engine ai_explain
+  green. Regression found: 958-token prefill on Qwen2.5-1.5B 50 s vs candle-with-flag 17 s (compute-bound
+  portable dots) → AI1.1g fast per-arch kernels is now required before AI1 acceptance.
+- **2026-10-13 21:49 EDT, same run (MINIMAL): AI1.1g-1, AVX2 Q8_0 dot** (pulp V3 safe intrinsics, run-time chosen): synthetic
+  960 × 2560 matvec 91.5 µs 1 thread / 26 µs 12 threads, beating candle with the flag (110 / 41.7); 958-token
+  prefill on the 360M tune 8.3 → 5.2 s. Next: vectorized attention, Q4_K / Q6_K on AVX2.
+- **2026-10-13 21:55 EDT, same run (MINIMAL): AI1.1g-2, vectorized attention dot + 4-token blocking** (bit-identical per lane):
+  958-token prefill on the 360M tune 5.2 → 4.2 s (candle no-flag 54.7 s). Next: Q4_K / Q6_K on AVX2.
+- **2026-10-13 22:00 EDT, same run (MINIMAL): AI1.1g-3, Q4_K / Q6_K on AVX2**: synthetic 12-thread matvecs 24.3 / 31.7 µs
+  (candle flagged 31 / 37); Qwen2.5-1.5B 958-token prefill 50 → 11.9 s (candle flagged 17 s): the AI1.1h
+  regression is closed. Test race on the global SIMD override fixed. Next AI1.2 (drop the x86-64-v3 flag).
+- **2026-10-13 22:09 EDT, same run (MINIMAL): AI1 held-out evaluation on our own pass** (75 cases, no flag, synthetic): qwen05-v1
+  74/75 (identical), smol360-v1 70/75 (recorded 72; summation-order noise on threshold cases, Q22 provisional (a)),
+  mean 1.62 s / answer (was ~3 s). llm_eval header reports the run-time SIMD level now.
+- **2026-10-13 22:26 EDT, scheduled run (MINIMAL, U 20 / L 11, 5 h 5 %): AI1.2, x86-64-v3 flag dropped** (Q8 resolved). No Whisper /
+  Kokoro weights on disk, so candle's f32 ops were timed synthetically with vs without the flag
+  (`crates/speech/examples/candle_ops_bench.rs`): gemm-backed ops equal; `conv_transpose1d` 6.7 → 45 ms and last-dim
+  mean 0.2 → 2 ms without it, so Kokoro's ConvT / `norm_last` now go through gemm (8.0 / 0.09 ms, tested against candle).
+  Also fixed an `expect` in the Whisper tokenizer that clippy only sees with `--all-features` (+ test). Next AI1.3.
+- **2026-10-13 22:38 EDT, same run (MINIMAL): AI1.3a, streaming + prompt-prefix KV reuse in crates/llm**: `generate_streaming` (cancel,
+  panic-safe) and the system prompt's KV cache kept between calls (identical answers): first words 0.29–0.31 s on the
+  tuned models (synthetic; was ~0.6 s). Next AI1.3b: stream into the explainer panel, then pre-generation.
+- **2026-10-13 22:47 EDT, same run (MINIMAL): AI1.3b, checked sentences stream into the explainer** (engine `partial`, Match tab, guide);
+  never unchecked text. Next AI1.3c background pre-generation.
+- **2026-10-13 22:54 EDT, same run (MINIMAL): AI1.3c, background pre-generation of node explanations** (engine prefetch with
+  supersede / adopt, grade panel debounce 0.6 s, guide). Next AI1.4 (needs a download: owner question) → AI1.5.
+- **2026-10-13 20:47–22:55 EDT, Dell lane: L1 / L2 part 2 done, ready for acceptance.** L1.5 (`d0c68898`): upstream #260
+  off-thread file dialogs cherry-picked (U0.2 didn't bring them; Q23), dialogs parented to the window (rfd
+  `set_parent`, xdg-foreign), each kind starts in its last folder (`dialogs.lastFolders`, lenient), close waits for an
+  open dialog. L2.6 (`7f6d79dc`): Settings ▸ Playback ▸ Graphics device (PCI ids; Linux interop + eframe selector),
+  VA-API prefers the chosen GPU's node (`va::prefer_gpu`), GPU list on a thread, `graphics.listDevices`; prefs
+  sanitize keeps the file when a device value is malformed. Dell gates green (86 UI modules one per process; the
+  combined test run OOM-killed twice before that). Opus reviews for both, findings fixed. Seen: workspace clippy
+  fails in `filmcraft-speech` example `candle_ops_bench` since `a2cd09d4` (main runner's). Next on the lane: A1.
+- **2026-10-13 22:58 EDT, same run (MINIMAL): AI1.4 deferred (download → Q24), AI1.5 shared ML runtime `crates/ml`** (L1: SIMD level,
+  guarded cancellable jobs, gemm-backed candle ops moved from Kokoro). Next AI1.6 (retrain smol360-v2).
+- **2026-10-13 23:00–23:14 EDT, Dell lane: A1 started; A1.1 merged (`a7b753c2`).** U0.2 brought nothing for audio;
+  upstream main's #840 (restart a dropped stream on the same clock and mixer) cherry-picked and ported to cpal 0.18
+  (error kinds mapped: device / server gone or stream invalidated → restart at once; Xrun etc. → restart when samples
+  stop; reroute → nothing). Guide linux.md "Sound when the audio device has a hiccup". Opus review: no bugs; a failed
+  reopen gives up at once and the restart's channel check is too strict → next step A1.3a.
+- **2026-10-13 23:18 EDT, Dell lane: A1.3a merged (`39f4439a`).** A dropped stream whose reopen fails is retried every
+  200 ms within the restart budget (clock held still, given up ~600 ms after the loss, under the UI's 1 s); a restart
+  asks for the running rate / channel count. Tested through `recover_with` with injected restarts. Next: A1.2 hardening.
+- **2026-10-13 23:31 EDT, Dell lane: A1.2 merged.** Play-ahead mixer: a panicking block plays as silence (4 in a row
+  stop it: status + wall clock), non-finite samples silenced, adaptive lead (≥ 4 device buffers, +50 ms per underrun
+  episode, ≤ 0.5 s), checked `playback_mix` access, start failure shown. Opus review findings fixed. Next: A1.2b
+  (Source monitor), A1.3b rate agreement.
+- **2026-10-13 23:34 EDT, Dell lane: A1.2b merged.** The Source monitor hands over to the wall clock with a status
+  message when its mixer stops, like the Program monitor. Next: A1.3b rate agreement between configure and start.
+- **2026-10-13 23:36 EDT, Dell lane: A1.3b merged (`a9077873`).** The playback mix is rebuilt at the rate the output
+  really opened (it used the rate `configure` read); a device that changes again plays without sound on the wall
+  clock and says so. Next: clock latency compensation, sync probe, soak harness.
+- **2026-10-13 23:40–23:47 EDT, Dell lane: A1.4a (`c0a81628`) and A1.4b (`cdd0dc69`) merged.** The playback clock
+  counts frames heard (cpal callback timestamps: output latency + the buffer, capped, monotonic); an A/V sync probe
+  (position-coded WAV through the real mix and play-ahead path) measures 0 frames off after 100 seeks, at 1× and 2×,
+  with a self-check that a skewed clock is caught. Sonnet reviews. Next: A1.5 real-device soak harness (null sink).
+- **2026-10-14 00:43 EDT, same run (MINIMAL): AI1.6 smol360-v2 trained and evaluated, not shipped**: v2 33/36, 36/40, 13/13 vs v1
+  34/36, 37/40, 13/13 (synthetic), so v1 stays (AI-PLAN Accept; TRAINING.md "smol360-v2" has the analysis).
+  AI1 acceptance (synthetic, no build flag): smol360-v1 ~1.3 s / answer (≤ 2.5 ✓), forced portable path 35/36 at
+  1.92 s, first words ~0.3 s (< 0.5 ✓), scores within Q22's ±2, missing / corrupt model tests green. Next: ci, tag ai-1.
+- **2026-10-13 23:50 – 2026-10-14 00:55 EDT, Dell lane: A1.5 merged (`c008e455`); A1 ready for acceptance.** Soak harness
+  (`tools/fork/a1-audio-soak.sh`, `apps/filmcraft/src/audio_soak.rs`): real CpalOut into a null sink, 20 tracks, seeks,
+  2× shuttles, sink removal / card profile off-on automated. 30 min: 0 underruns, drift ≤ 1 frame (87 383 readings),
+  every device event recovered in ≤ 0.56 s, profile restored. Along the way the harness's own measurement errors
+  (frame snapping of a 23.976 fps loop, reading the clock after the step drew) were found and fixed. Checklist and
+  owed PC checks in HANDOFF. `.dell-a1-complete` created; the Dell lane is done.
+- **2026-10-14 01:39 EDT, same run (MINIMAL): AI1 ci** (`cargo xtask ci`, 48 min): 3717 / 3719 passed; the two failures pass alone:
+  `teardown_ui` (the known parallel-load flake, CLOUD-QUEUE TEARDOWN-FLAKE) and the Dell lane's new A1.4b
+  `av_sync_ui` (3 frames off once under full load; renamed `…_realtime` so ci runs it alone, as for the mixer test).
+  Prefetch now runs the model-file readiness check only when its debounce fires. §1a.33's public build drops
+  `-C target-cpu=x86-64-v3`. Self-reviewed (MINIMAL: no reviewer subagents; Opus review of AI1.1g–AI1.5 owed).

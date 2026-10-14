@@ -74,6 +74,7 @@ memory instead (slower, same result) and one line is written to the log.
 | Where | Label | Id | What it does |
 |---|---|---|---|
 | Preferences ▸ Playback | **Hardware decoding**: Auto / Off | {ui:settings.playback.hardwareDecoding} | Auto (default) uses the video engine for the streams it can take, FilmCraft's own decoder for the rest. Off decodes everything in software (slow at 6.2K; useful only to rule out a driver problem). Clips already open keep their decoder until reopened. |
+| Preferences ▸ Playback | **Graphics device**: Auto / one of the computer's GPUs | {ui:settings.playback.graphicsDevice} | which graphics chip draws the interface and the monitors (see [Linux: which GPU draws FilmCraft](linux.md#which-gpu-draws-filmcraft)). Takes effect at the next start. |
 | Preferences ▸ Memory | **Decoded frames in GPU memory (0 = Auto)** | {ui:settings.memory.vramCacheMb} | how much graphics memory keeps recently decoded frames, so scrubbing back and forth doesn't decode again |
 | Preferences ▸ Memory | **Decoded source frames (0 = Auto)** | {ui:settings.memory.decodeCacheMb} | the same for frames held in main memory |
 | Export dialog, Video, H.265 | **Encoder**: Auto (hardware if available) / Hardware (VA-API) / Software (x265) | {ui:export.video.hevcEncoder} | Auto uses the video engine when it can take the size and profile, else x265. Hardware refuses to export rather than fall back. |

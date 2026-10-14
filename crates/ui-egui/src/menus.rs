@@ -158,6 +158,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("kdeconnect.received", "File Shared from a Phone (KDE Connect)", [], None),
     uic!("kdeconnect.importReceived", "Import Files Shared from a Phone", [], None),
     uic!("kdeconnect.dismissReceived", "Dismiss Files Shared from a Phone", [], None),
+    // Settings ▸ Playback ▸ Graphics device (LINUX-PLAN L2.6)
+    uic!("graphics.listDevices", "List Graphics Devices", [], None),
     // camera cards (LINUX-PLAN L2.4): the Project panel's card bar
     uic!("card.detected", "Camera Card Mounted", [], None),
     uic!("card.removed", "Camera Card Removed", [], None),
@@ -267,6 +269,9 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
         return r;
     }
     if let Some(r) = crate::desktop::route(app, id, &params) {
+        return r;
+    }
+    if let Some(r) = crate::graphics_device::route(app, id) {
         return r;
     }
     if id == "perf.stats" {

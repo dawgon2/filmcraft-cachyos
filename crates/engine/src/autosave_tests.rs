@@ -207,3 +207,41 @@ fn journal_costs_the_ui_thread_only_a_handoff() {
     s.shutdown();
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// Fork L1.5: remembered dialog folders survive a round trip, and a hostile prefs file (unknown
+/// kinds, huge or empty paths) neither grows the map nor hands out a bad folder.
+#[test]
+fn dialog_folders_are_remembered_per_kind_and_hostile_entries_are_ignored() {
+    let mut d = autosave::DialogPrefs::default();
+    assert!(d.remember("import", "/media/card/DCIM"));
+    assert!(!d.remember("import", "/media/card/DCIM"), "unchanged");
+    assert!(!d.remember("nonsense", "/tmp"));
+    assert!(!d.remember("export", ""));
+    assert!(!d.remember("export", &"x".repeat(5000)));
+    assert_eq!(d.last_folder("import"), Some("/media/card/DCIM"));
+    assert_eq!(d.last_folder("export"), None);
+
+    let hostile: autosave::Preferences = serde_json::from_value(json!({
+        "dialogs": {"lastFolders": {"import": "", "open": "y".repeat(10_000), "junk": "/tmp"}}
+    }))
+    .unwrap();
+    let mut d = hostile.dialogs;
+    assert_eq!(d.last_folder("import"), None);
+    assert_eq!(d.last_folder("open"), None);
+    assert!(!d.last_folders.contains_key("junk"), "unknown kinds are dropped");
+    assert!(d.remember("folder", "/home/me/Videos"));
+
+    // a malformed entry or block costs only the remembered folders, never the rest of the file
+    for dialogs in [json!({"lastFolders": {"import": 5, "open": "/ok"}}), json!(3), json!({"lastFolders": [1]})] {
+        let p = autosave::Preferences::from_value(json!({"playback": {"stepManyFrames": 7}, "dialogs": dialogs}));
+        assert_eq!(p.playback.step_many_frames, 7, "{dialogs}");
+        assert_eq!(p.dialogs.last_folder("import"), None);
+    }
+    let p = autosave::Preferences::from_value(json!({"dialogs": {"lastFolders": {"import": 5, "open": "/ok"}}}));
+    assert_eq!(p.dialogs.last_folder("open"), Some("/ok"));
+
+    let mut p = autosave::Preferences::default();
+    p.dialogs.remember("project", "/home/me/Projects");
+    let back: autosave::Preferences = serde_json::from_value(serde_json::to_value(&p).unwrap()).unwrap();
+    assert_eq!(back.dialogs.last_folder("project"), Some("/home/me/Projects"));
+}

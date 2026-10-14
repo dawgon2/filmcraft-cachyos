@@ -1,7 +1,7 @@
 //! Building blocks shared by the Kokoro modules. Tensors are `[1, channels, time]` unless noted;
 //! everything runs in f32 on the CPU.
 
-use candle_core::{D, Tensor};
+use candle_core::Tensor;
 
 use super::weights::{Weights, err};
 use crate::TtsError;
@@ -63,7 +63,11 @@ impl ConvT {
         Ok(ConvT { w: wt.get(&format!("{name}.weight"))?, b: wt.get(&format!("{name}.bias")).ok(), pad, out_pad, stride, groups })
     }
     pub(crate) fn fwd(&self, x: &Tensor) -> R<Tensor> {
-        let y = x.conv_transpose1d(&self.w, self.pad, self.out_pad, self.stride, 1, self.groups).map_err(err)?;
+        let y = if self.groups == 1 {
+            filmcraft_ml::ops::conv_transpose1d(x, &self.w, self.pad, self.out_pad, self.stride).map_err(err)?
+        } else {
+            x.conv_transpose1d(&self.w, self.pad, self.out_pad, self.stride, 1, self.groups).map_err(err)?
+        };
         add_bias(y, self.b.as_ref())
     }
 }
@@ -94,9 +98,9 @@ pub(crate) fn leaky(x: &Tensor, slope: f64) -> R<Tensor> {
 
 /// Normalise over the last dimension (layer norm without affine).
 pub(crate) fn norm_last(x: &Tensor, eps: f64) -> R<Tensor> {
-    let mean = x.mean_keepdim(D::Minus1).map_err(err)?;
+    let mean = filmcraft_ml::ops::mean_last(x).map_err(err)?;
     let xc = x.broadcast_sub(&mean).map_err(err)?;
-    let var = xc.sqr().map_err(err)?.mean_keepdim(D::Minus1).map_err(err)?;
+    let var = filmcraft_ml::ops::mean_last(&xc.sqr().map_err(err)?).map_err(err)?;
     xc.broadcast_div(&(var + eps).map_err(err)?.sqrt().map_err(err)?).map_err(err)
 }
 

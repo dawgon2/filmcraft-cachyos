@@ -18,6 +18,7 @@ use filmcraft_project::Label;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use crate::native_dialogs::FileDialog;
 use crate::theme::Tokens;
 use crate::{AudioDevices, Dialog, FilmcraftApp};
 
@@ -48,6 +49,9 @@ pub struct SettingsDraft {
     /// Audio devices reported by the platform (Audio Hardware page).
     #[serde(default)]
     pub devices: Option<AudioDevices>,
+    /// GPUs reported by the host (Playback page, Graphics device; L2.6).
+    #[serde(default)]
+    pub gpus: Option<Vec<crate::graphics_device::GpuChoice>>,
 }
 
 /// Open the dialog on a category page.
@@ -412,6 +416,13 @@ fn static_opts(o: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 fn device_opts(app: &mut FilmcraftApp, d: &mut SettingsDraft, list: DeviceList) -> Vec<(String, String)> {
+    if matches!(list, DeviceList::Gpus) {
+        if d.gpus.is_none() {
+            d.gpus = Some(app.hooks.graphics_devices.as_mut().map(|f| f()).unwrap_or_default());
+        }
+        let current = get(&d.values, "playback.graphicsDevice").as_str().unwrap_or_default().to_string();
+        return crate::graphics_device::options(d.gpus.as_deref().unwrap_or_default(), &current);
+    }
     if d.devices.is_none() {
         d.devices = Some(app.audio.as_ref().map(|a| a.devices()).unwrap_or_default());
     }
@@ -420,6 +431,7 @@ fn device_opts(app: &mut FilmcraftApp, d: &mut SettingsDraft, list: DeviceList) 
         DeviceList::Hosts => dev.hosts,
         DeviceList::Inputs => dev.inputs,
         DeviceList::Outputs => dev.outputs,
+        DeviceList::Gpus => Vec::new(),
     };
     let mut v = vec![(String::new(), tl!("System Default").to_string())];
     v.extend(names.into_iter().map(|n| (n.clone(), n)));
@@ -520,10 +532,13 @@ fn draw_field(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, f: &Fi
                     if matches!(f.kind, Kind::Path) {
                         let b = ui.button(tl!("Browse…"));
                         app.auto.add(&format!("settings.{}.browse", f.key), b.rect, "Browse…");
-                        if b.clicked()
-                            && let Some(dir) = app.hooks.pick_folder.as_mut().and_then(|p| p())
-                        {
-                            put(&mut d.values, f.key, json!(dir));
+                        if b.clicked() {
+                            let key = f.key;
+                            app.pick_ui(FileDialog::Folder { at: None }, move |app, paths| {
+                                if let (Some(dir), Some(d)) = (paths.into_iter().next(), app.ui.settings.as_mut()) {
+                                    put(&mut d.values, key, json!(dir));
+                                }
+                            });
                         }
                     }
                 }

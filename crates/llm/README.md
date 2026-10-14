@@ -35,8 +35,9 @@ candle 0.9's k-quant dot products are selected at **compile time** (`#[cfg(targe
 "avx2")]`), so a default `x86-64` build runs them scalar: Qwen2.5-0.5B prefill ~16 tok/s, decode
 ~12 tok/s, 15–19 s per explanation. With `RUSTFLAGS="-C target-cpu=x86-64-v3"` (or `native`) the
 same answer takes ~4–5 s (prefill ~65–75 tok/s, decode ~34). Cargo profiles cannot set target
-features per crate, and `#[target_feature]` in this crate cannot reach candle's `cfg`, so the fix is
-a build flag. Prefill is slow even with AVX2 because candle multiplies a multi-token batch one row
+features per crate, and `#[target_feature]` in this crate cannot reach candle's `cfg`, so the fork first used
+a build flag; it now runs its own forward pass with run-time AVX2 dispatch instead (AI1.1, flag
+dropped in AI1.2). Prefill is slow even with AVX2 because candle multiplies a multi-token batch one row
 at a time against the quantized weights; dequantized f32 weights (`CANDLE_DEQUANTIZE_ALL=1`) prefill
 at ~350 tok/s through `gemm` (runtime CPU dispatch) but decode 3× slower and use 4× the memory.
 `Generation::prefill` and the `llm_eval` example report both phases.

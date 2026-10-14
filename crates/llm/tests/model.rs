@@ -61,6 +61,34 @@ fn installed_models_explain_a_grade() {
         // Greedy decoding is deterministic.
         let again = model.generate(&system, &user, opts).unwrap();
         assert_eq!(again, g.text);
+        // Streaming reports a growing answer that ends as the final text; the first words come
+        // after the prefill, long before the answer is done.
+        // (Run another grade first so only the shared system prompt is cached: the realistic case.)
+        let other = r#"{"node":"Sky","changes":[{"what":"blue saturation","direction":"more","amount":"20%"}],"untouched":["skin"]}"#;
+        let (os, ou) = explain_prompt(other, "This node makes the blues 20% more saturated.");
+        model.generate_detailed(&os, &ou, GenOptions { max_tokens: 1, ..opts }).unwrap();
+        let mut seen: Vec<String> = Vec::new();
+        let t = std::time::Instant::now();
+        let mut first = None;
+        let gs = model
+            .generate_streaming(&system, &user, opts, &mut |so_far| {
+                first.get_or_insert(t.elapsed());
+                seen.push(so_far.to_string());
+                true
+            })
+            .unwrap();
+        eprintln!("{}: first words after {:.2?}, {} updates", m.id, first.unwrap_or_default(), seen.len());
+        assert_eq!(gs.text, g.text);
+        assert!(seen.windows(2).all(|w| w[1].len() > w[0].len()), "{seen:?}");
+        assert_eq!(seen.last().map(|s| s.trim_end()), Some(g.text.as_str()));
+        // Returning false cancels and keeps the text so far.
+        let gc = model.generate_streaming(&system, &user, opts, &mut |_| false).unwrap();
+        assert_eq!(gc.stop, StopReason::Cancelled);
+        assert!(gc.new_tokens >= 1 && gc.new_tokens < g.new_tokens.max(2), "{gc:?}");
+        assert!(g.text.starts_with(&gc.text), "{gc:?}");
+        // A panicking callback is an error, not a crash.
+        let gp = model.generate_streaming(&system, &user, opts, &mut |_| panic!("callback"));
+        assert!(matches!(gp, Err(filmcraft_llm::LlmError::Panicked(_))), "{gp:?}");
         // A deadline of zero stops at once.
         let g0 = model.generate_detailed(&system, &user, GenOptions { deadline: Duration::ZERO, ..opts }).unwrap();
         assert_eq!(g0.stop, StopReason::Deadline);

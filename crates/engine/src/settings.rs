@@ -729,6 +729,8 @@ pub enum DeviceList {
     Hosts,
     Inputs,
     Outputs,
+    /// GPUs (`playback.graphicsDevice`, L2.6).
+    Gpus,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1227,6 +1229,7 @@ static CATEGORIES: &[Category] = &[
             f("playback.hardwareDecoding", "Hardware decoding", Kind::Choice(HW_DECODE), true),
             b("playback.desktopMediaControls", "Media keys and the desktop's media controls", true),
             b("playback.desktopGlobalShortcuts", "Global shortcuts: Play / Pause and Add Marker while another window has focus", true),
+            f("playback.graphicsDevice", "Graphics device (takes effect at the next start)", Kind::Device(DeviceList::Gpus), true),
             Row::Note(
                 "Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.",
             ),
@@ -1374,6 +1377,11 @@ pub fn sanitize(v: &mut Value, defaults: &Value) {
         let def = path.iter().try_fold(defaults, |v, k| v.get(*k)).cloned().unwrap_or(Value::Null);
         match f.kind {
             Kind::Choice(_) | Kind::Color if validate(f.key, slot).is_err() => {
+                *slot = def;
+            }
+            // a hand-edited file with a number where a name goes: that key's default, not the
+            // whole file's (serde would refuse the file)
+            Kind::Device(_) | Kind::Text | Kind::Path if !slot.is_string() && (def.is_string() || (def.is_null() && !slot.is_null())) => {
                 *slot = def;
             }
             Kind::Int { min, max, .. } => match slot.as_f64().filter(|x| x.is_finite()) {

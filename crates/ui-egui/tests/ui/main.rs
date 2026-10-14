@@ -6,6 +6,7 @@
 
 mod audio51_ui;
 mod audio_fx_editor_ui;
+mod av_sync_ui;
 mod captions_font_ui;
 mod chrome_ui;
 mod clip_audio_ui;
@@ -16,6 +17,7 @@ mod color_ui;
 mod delete_caption_tracks_ui;
 mod deselect_ui;
 mod desktop_ui;
+mod dialog_folders_ui;
 mod edit_point_menu_ui;
 mod essential_sound_ui;
 mod export_menu_ui;
@@ -23,6 +25,7 @@ mod export_ui;
 mod frame_export_ui;
 mod full_screen_ui;
 mod grade_ui;
+mod graphics_device_ui;
 mod graphics_handles_ui;
 mod graphics_templates_ui;
 mod graphics_ui;

@@ -29,6 +29,7 @@ use crate::FilmcraftApp;
 use crate::automation::Registry;
 use crate::frames::{FrameKey, Target};
 use crate::icons::{self, Icon};
+use crate::native_dialogs::FileDialog;
 use crate::theme::Tokens;
 
 /// Tile thumbnail size at the default thumbnail scale.
@@ -365,32 +366,37 @@ pub fn route(app: &mut FilmcraftApp, id: &str, params: &Value) -> Option<Result<
             let Some(path) = param(params, "path").map(str::to_string).or_else(|| app.ui.home.selected.clone()) else {
                 return Some(Err("select a missing project first".into()));
             };
-            match app.hooks.pick_open_project.as_mut().and_then(|f| f()) {
-                Some(to) => run(app, id, json!({"path": path, "newPath": to})),
+            let id = id.to_string();
+            app.pick(FileDialog::OpenProject, move |app, paths| match paths.into_iter().next() {
+                Some(to) => run(app, &id, json!({"path": path, "newPath": to})),
                 None => Ok(Value::Null),
-            }
+            })
         }
         "projects.export" if param(params, "destination").is_none() => {
             let Some(path) = param(params, "path").map(str::to_string).or_else(|| selected_summary(app).filter(|s| s.error.is_none()).map(|s| s.path)) else {
                 return Some(Err("select a project to export".into()));
             };
             let name = std::path::Path::new(&path).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            match app.hooks.pick_folder.as_mut().and_then(|f| f()) {
+            let id = id.to_string();
+            app.pick(FileDialog::Folder { at: None }, move |app, paths| match paths.into_iter().next() {
                 Some(dir) => {
                     let dest = std::path::Path::new(&dir).join(tlf!("{name} archive", name));
-                    let r = run(app, id, json!({"path": path, "destination": dest.to_string_lossy()}));
+                    let r = run(app, &id, json!({"path": path, "destination": dest.to_string_lossy()}));
                     if r.is_ok() {
                         app.ui.status = tlf!("Exporting {name} to {dest}", name, dest = dest.display());
                     }
                     r
                 }
                 None => Ok(Value::Null),
-            }
+            })
         }
-        "projects.import" if param(params, "path").is_none() => match app.hooks.pick_open_project.as_mut().and_then(|f| f()) {
-            Some(path) => run(app, id, json!({"path": path, "folder": app.ui.home.folder})),
-            None => Ok(Value::Null),
-        },
+        "projects.import" if param(params, "path").is_none() => {
+            let id = id.to_string();
+            app.pick(FileDialog::OpenProject, move |app, paths| match paths.into_iter().next() {
+                Some(path) => run(app, &id, json!({"path": path, "folder": app.ui.home.folder})),
+                None => Ok(Value::Null),
+            })
+        }
         _ => run(app, id, params.clone()),
     };
     if let Err(e) = &r {

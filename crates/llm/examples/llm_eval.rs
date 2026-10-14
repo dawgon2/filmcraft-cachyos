@@ -185,14 +185,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some(p) => Some(std::io::BufWriter::new(std::fs::File::create(p)?)),
         None => None,
     };
+    #[cfg(target_arch = "x86_64")]
+    let cpu = format!(
+        "avx2 {}, fma {}, avx512f {}",
+        std::is_x86_feature_detected!("avx2"),
+        std::is_x86_feature_detected!("fma"),
+        std::is_x86_feature_detected!("avx512f")
+    );
+    #[cfg(not(target_arch = "x86_64"))]
+    let cpu = String::from("non-x86");
     eprintln!(
-        "# threads: candle {} (RAYON_NUM_THREADS={:?}), avx2 compiled in: {}, avx512f: {}, fma: {}, f16c: {}",
-        candle_core::utils::get_num_threads(),
+        "# threads: {} (RAYON_NUM_THREADS={:?}), SIMD level {:?}, CPU: {cpu}, avx2 compiled in: {}",
+        rayon::current_num_threads(),
         std::env::var("RAYON_NUM_THREADS").ok(),
+        filmcraft_llm::quant::simd_level(),
         cfg!(target_feature = "avx2"),
-        cfg!(target_feature = "avx512f"),
-        cfg!(target_feature = "fma"),
-        cfg!(target_feature = "f16c"),
     );
 
     let mut run: Vec<(ModelInfo, std::path::PathBuf)> = Vec::new();

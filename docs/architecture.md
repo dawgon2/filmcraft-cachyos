@@ -27,7 +27,7 @@ Design principles:
  L4  engine
  L3  render · gpu · export · golden (test-only)
  L2  edit · codecs · interchange · captions · speech · llm · tts · tts-text
- L1  frame · media · project · audio-dsp · text
+ L1  frame · media · project · audio-dsp · text · ml
  L0  foundation: time · geom · color · bitstream · testkit (dev-dependency only)
      codecs/containers: isobmff · matroska · mxf · cfb · mpegts · ogg · h264 · h264enc · hevc · vp9 · av1 · mpeg2v · prores · dnx · apv · aac · ac3 · opus
 ```
@@ -60,6 +60,7 @@ and `filmcraft-cli`.
 | `frame` | L1 | `VideoFrame` (planar YUV / RGBA8 / linear RGBA f32, colour metadata), `AudioBuffer` |
 | `media` | L1 | `MediaSource` trait, probing/openers, frame cache, generators, stills, image sequences, WAV / Broadcast WAV |
 | `project` | L1 | document model, effect definitions, keyframes |
+| `ml` | L1 | shared on-device ML layer: run-time SIMD report, panic-guarded cancellable jobs, (feature `candle`) candle ops through run-time-dispatched gemm (fork AI1.5) |
 | `audio-dsp` | L1 | loudness metering (BS.1770 / R128), audio effects, channel layouts (BS.775 up/downmix, 5.1 panner), music remix analysis; no dependencies |
 | `text` | L1 | text engine: font database (bundled OFL fonts + system fonts), shaping (harfrust), bidi, line breaking, paragraph layout, glyph/path rasteriser, strokes ([crates/text/README.md](../crates/text/README.md)) |
 | `edit` | L2 | pure edit algebra (insert, overwrite, razor, ripple, roll, slip, slide, rate stretch…; text-based editing: `edit::transcript`) |

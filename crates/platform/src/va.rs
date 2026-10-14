@@ -62,6 +62,16 @@ fn check(l: &sys::Va, st: sys::VAStatus, what: &str) -> Result<(), String> {
 }
 
 /// The HEVC Main 4:2:2 10 display ([`Display::for_hevc_422`]), searched once.
+/// Fork L2.6: the GPU (PCI vendor, device) Settings ▸ Playback ▸ Graphics device chose.
+static PREFERRED_GPU: OnceLock<(u32, u32)> = OnceLock::new();
+
+/// Fork L2.6: try the render node of this GPU first for the process's display ([`Display::get`]),
+/// so decoded frames are imported on the GPU that draws them. Call before the first
+/// `Display::get`; only the first call counts. `FILMCRAFT_VAAPI_DEVICE` still wins.
+pub fn prefer_gpu(vendor: u32, device: u32) {
+    let _ = PREFERRED_GPU.set((vendor, device));
+}
+
 static HEVC_422: OnceLock<Result<Arc<Display>, String>> = OnceLock::new();
 
 /// An initialised VA display on a DRM render node.
@@ -93,14 +103,21 @@ impl Drop for Display {
 
 impl Display {
     /// The process's display: `FILMCRAFT_VAAPI_DEVICE` when set, else the first render node
-    /// (AMD, NVIDIA, other, Intel) that initialises. Opened once.
+    /// (the [`prefer_gpu`] one, then AMD, NVIDIA, other, Intel) that initialises. Opened once.
     pub fn get() -> Result<Arc<Display>, String> {
         static D: OnceLock<Result<Arc<Display>, String>> = OnceLock::new();
         D.get_or_init(|| {
             let lib = lib()?;
             let nodes = match std::env::var("FILMCRAFT_VAAPI_DEVICE").ok().filter(|v| !v.is_empty()) {
                 Some(n) => vec![n],
-                None => render_nodes(),
+                None => {
+                    let mut nodes = render_nodes();
+                    if let Some(want) = PREFERRED_GPU.get() {
+                        // stable: the chosen GPU's node first, the usual order after it
+                        nodes.sort_by_key(|node| crate::pci_ids(node) != Some(*want));
+                    }
+                    nodes
+                }
             };
             let mut why = Vec::new();
             for node in nodes {

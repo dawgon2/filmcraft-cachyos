@@ -339,6 +339,47 @@ pub fn eval_cases_v2() -> Vec<EvalCase> {
     measure_all(&frame_v2(), list.into_iter().map(|(l, n)| (format!("h2_{l}"), n)).collect())
 }
 
+/// A third, small evaluation set for what shipped after the v1 tunes (fork AI1.6): the
+/// Temperature / Tint pairs the white-balance picker and Auto balance (G2c) write, alone, with
+/// exposure, inside a qualifier or a window, and corrections with a colour or saturation change
+/// too small for the checker to report (a tune must leave it out; v1's misses). On the second
+/// set's frame; labels start with `h3_`. Fixed values (no seed).
+pub fn eval_cases_v3() -> Vec<EvalCase> {
+    let gain = |v: f32| color("gain", [0.0, 0.0, 0.0, v]);
+    let skin_hue = f64::from(qualifier_hsl(WS, SKIN2)[0]);
+    let w2 = W2 as f64;
+    let h2 = H2 as f64;
+    let list: Vec<(&str, GradeNode)> = vec![
+        ("wb_remove_warm_green_cast", node(&[float("temperature", -28.0), float("tint", 14.0)])),
+        ("wb_remove_cool_cast", node(&[float("temperature", 36.0), float("tint", -6.0)])),
+        ("wb_remove_green_cast", node(&[float("tint", 22.0)])),
+        ("wb_auto_balance", node(&[float("temperature", -18.0), float("tint", 6.0)])),
+        ("auto_balance_below_threshold", node(&[float("temperature", -9.0), float("tint", 3.0)])),
+        ("wb_and_exposure", node(&[float("temperature", -22.0), gain(0.18)])),
+        ("wb_inside_skin_qualifier", {
+            node(&[
+                float("qual.on", 1.0),
+                float("qual.hue", skin_hue),
+                float("qual.hueWidth", 0.06),
+                float("qual.satLow", 0.12),
+                float("qual.soft", 0.03),
+                float("temperature", 26.0),
+            ])
+        }),
+        ("wb_in_window", {
+            let mut n = node(&[float("temperature", -32.0), float("tint", 8.0)]);
+            n.windows.push(rect_window(0.0, 0.0, w2 / 2.0, h2, false));
+            n
+        }),
+        ("gain_with_tiny_tint", node(&[gain(0.3), float("tint", 4.0)])),
+        ("contrast_with_tiny_saturation", node(&[float("contrast", 1.3), float("saturation", 1.04)])),
+        ("gain_with_faint_blue_highlights", node(&[color("gain", [0.0, 0.0, 0.015, 0.22])])),
+        ("lift_with_faint_warm_shadows", node(&[color("lift", [0.008, 0.0, 0.0, -0.05])])),
+        ("tiny_temperature_only", node(&[float("temperature", 3.0)])),
+    ];
+    measure_all(&frame_v2(), list.into_iter().map(|(l, n)| (format!("h3_{l}"), n)).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{RangeFacts, VOCABULARY, check_explanation, check_explanation_labeled, check_grammar, check_vocabulary};
@@ -665,6 +706,27 @@ mod tests {
         assert!(cases.iter().any(|c| c.facts.enabled && !c.facts.showing_matte && !c.facts.visible()));
         // the LUT case uses a real look, so it changes the picture
         assert!(cases.iter().any(|c| c.label == "h2_lut_look" && c.facts.visible()));
+    }
+
+    #[test]
+    fn third_set_is_fixed_distinct_and_its_templates_pass() {
+        let cases = eval_cases_v3();
+        assert_eq!(cases.len(), 13);
+        assert_eq!(cases, eval_cases_v3(), "deterministic");
+        let labels: std::collections::BTreeSet<_> = cases.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels.len(), cases.len(), "unique labels");
+        let others: Vec<EvalCase> = eval_cases().into_iter().chain(eval_cases_v2()).collect();
+        for c in &cases {
+            assert!(c.label.starts_with("h3_"), "{}", c.label);
+            assert_eq!(check_grammar(&c.template), Ok(()), "{}", c.template);
+            assert_eq!(check_explanation_labeled(&c.facts, None, Some(1), &c.template).map_err(|e| e.to_string()), Ok(()), "{}: {}", c.label, c.template);
+            if c.facts.visible() {
+                assert!(others.iter().all(|f| f.facts != c.facts), "{} repeats another set's facts", c.label);
+            }
+        }
+        // the white-balance cases change the picture
+        let invisible: Vec<&str> = cases.iter().filter(|c| c.label.starts_with("h3_wb_") && !c.facts.visible()).map(|c| c.label.as_str()).collect();
+        assert!(invisible.is_empty(), "{invisible:?}");
     }
 
     #[test]

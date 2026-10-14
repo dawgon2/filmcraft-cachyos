@@ -1862,6 +1862,7 @@ dependencies = [
  "cpal",
  "eframe",
  "egui",
+ "egui_kittest",
  "filmcraft-engine",
  "filmcraft-export",
  "filmcraft-gpu",
@@ -2256,9 +2257,13 @@ dependencies = [
 name = "filmcraft-llm"
 version = "0.6.0"
 dependencies = [
+ "bytemuck",
  "candle-core",
  "candle-transformers",
  "filmcraft-speech",
+ "half",
+ "pulp",
+ "rayon",
  "serde",
  "serde_json",
  "sha2",
@@ -2285,6 +2290,13 @@ dependencies = [
  "rayon",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "filmcraft-ml"
+version = "0.6.0"
+dependencies = [
+ "candle-core",
 ]
 
 [[package]]
@@ -2468,6 +2480,7 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "filmcraft-audio-dsp",
+ "filmcraft-ml",
  "filmcraft-tts-text",
  "serde",
  "serde_json",

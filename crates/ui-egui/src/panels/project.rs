@@ -366,13 +366,24 @@ fn card_bar(app: &mut FilmcraftApp, ui: &mut egui::Ui, bar: Rect, card: &crate::
         let copy = child.button(if again { tl!("Copy Again") } else { tl!("Copy") });
         app.auto.add("project.card.copy", copy.rect, "Copy");
         if copy.clicked() {
-            // the first time: ask where cards go, and remember it
-            if app.session.prefs.media.card_destination.trim().is_empty()
-                && let Some(dir) = app.hooks.pick_folder.as_mut().and_then(|f| f())
-            {
-                actions.push(("prefs.set".into(), json!({"key": "media.cardDestination", "value": dir})));
+            // the first time: ask where cards go, remember it, then copy (when the dialog answers:
+            // #260, it doesn't stop the frame loop)
+            if app.session.prefs.media.card_destination.trim().is_empty() {
+                let mount = mount.to_string();
+                app.pick_ui(crate::native_dialogs::FileDialog::Folder { at: None }, move |app, paths| {
+                    let Some(dir) = paths.into_iter().next() else { return };
+                    let r = app
+                        .session
+                        .execute("prefs.set", json!({"key": "media.cardDestination", "value": dir}))
+                        .map_err(|e| e.to_string())
+                        .and_then(|_| crate::desktop::route(app, "card.copy", &json!({"mount": mount})).unwrap_or(Ok(Value::Null)));
+                    if let Err(e) = r {
+                        app.ui.status = e;
+                    }
+                });
+            } else {
+                actions.push(("card.copy".into(), json!({"mount": mount})));
             }
-            actions.push(("card.copy".into(), json!({"mount": mount})));
         }
     }
     child.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {

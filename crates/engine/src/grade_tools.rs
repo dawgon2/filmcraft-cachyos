@@ -52,7 +52,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
         query(
             "grade.explainNode",
             "Explain Node",
-            r#"{"clip":id?,"node":id?,"time":ticks?,"overlay":path?,"wait":bool? (AI text: blocks at most 20 s)}"#,
+            r#"{"clip":id?,"node":id?,"time":ticks?,"overlay":path?,"wait":bool? (AI text: blocks at most 20 s),"prefetch":bool? (start the AI text in the background only)}"#,
             explain_node,
         ),
         query("grade.explainGrade", "Explain Grade", r#"{"clip":id?,"time":ticks?}"#, explain_grade),
@@ -307,7 +307,16 @@ fn explain_node(s: &mut Session, p: &Value) -> Result<Value> {
     let sentence = facts.sentence(&label);
     // (G2.11: the text to show: a checked local-AI rewrite when enabled and ready, else the
     // template; `aiKey` while the model is still writing, poll `ai.explanation`)
-    let ai = crate::ai_explain::explain_fields(s, &facts, &node.label, pos + 1, &label, &sentence, bool_p(p, "wait").unwrap_or(false));
+    let ai = crate::ai_explain::explain_fields(
+        s,
+        &facts,
+        &node.label,
+        pos + 1,
+        &label,
+        &sentence,
+        bool_p(p, "wait").unwrap_or(false),
+        bool_p(p, "prefetch").unwrap_or(false),
+    );
     let mut v = json!({
         "clip": clip.0,
         "node": id,

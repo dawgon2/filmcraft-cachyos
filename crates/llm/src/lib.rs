@@ -7,9 +7,9 @@
 //!   file pinned to a Hugging Face revision with its SHA-256 and size. Weights are **never
 //!   bundled or committed**; with feature `download` they are fetched after the user opts in,
 //!   through `filmcraft-speech`'s verified downloader.
-//! - [`gguf`]: a bounds-checked walk over a GGUF header that runs before the file reaches candle,
+//! - [`gguf`]: a bounds-checked walk over a GGUF header that runs before any tensor is read,
 //!   so a damaged or hostile file is an error, never a huge allocation or a panic.
-//! - [`Model`] (feature `infer`): CPU inference on candle (pure Rust): load, ChatML prompt,
+//! - [`Model`] (feature `infer`): CPU inference with our own forward pass (pure Rust, run-time SIMD dispatch): load, ChatML prompt,
 //!   greedy or sampled decoding that stops at end-of-turn, `max_tokens` or a deadline, under
 //!   `catch_unwind`. Without the feature, [`Model::load`] returns [`LlmError::Unavailable`], so
 //!   callers need no `cfg`.
@@ -18,9 +18,19 @@
 //! The caller must still check the output against the facts (numbers, directions, length) and
 //! fall back to the template sentence on any mismatch, error or timeout.
 
+#[cfg(feature = "infer")]
+pub mod forward;
 pub mod gguf;
+#[cfg(feature = "infer")]
+pub mod kquant;
 pub mod models;
 mod prompt;
+#[cfg(feature = "infer")]
+pub mod quant;
+#[cfg(feature = "infer")]
+pub mod sample;
+#[cfg(feature = "infer")]
+pub mod weights;
 
 #[cfg(feature = "infer")]
 mod infer;
@@ -105,6 +115,8 @@ pub enum StopReason {
     MaxTokens,
     /// The deadline passed; the text may end mid-sentence.
     Deadline,
+    /// The caller's streaming callback asked to stop ([`Model::generate_streaming`]).
+    Cancelled,
 }
 
 /// The result of [`Model::generate_detailed`].

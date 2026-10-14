@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! cargo run --release -p filmcraft-render --example explain_traindata -- \
-//!     --out-dir ~/Apps/filmcraft-train/runs/<name> [--grades 2600] [--per-grade 2] [--seed 1] [--val 0.05]
+//!     --out-dir ~/Apps/filmcraft-train/runs/<name> [--grades 2600] [--per-grade 2] [--seed 1] [--val 0.05] [--subtle 0.3]
 //! ```
 //!
 //! Builds many random one-node grades on synthetic frames (every control family of the 36-case
@@ -30,7 +30,7 @@ use filmcraft_project::mask::Mask;
 use filmcraft_project::{MaskPath, Param};
 use filmcraft_render::Image;
 use filmcraft_render::grade::{GradeCtx, compile_fx, qualifier_hsl};
-use filmcraft_render::grade_explain::cases::eval_cases;
+use filmcraft_render::grade_explain::cases::{eval_cases, eval_cases_v2, eval_cases_v3};
 use filmcraft_render::grade_explain::{FactMismatch, NodeFacts, check_explanation_labeled, explain_node};
 use filmcraft_time::Tick;
 
@@ -146,7 +146,7 @@ fn window(rng: &mut Rng, inverted: bool) -> Mask {
 }
 
 /// A wheel offset: colour ball and/or master.
-fn wheel(rng: &mut Rng, key: &str) -> [f32; 4] {
+fn wheel(rng: &mut Rng, key: &str, s: f64) -> [f32; 4] {
     let (col, master): (f64, (f64, f64)) = match key {
         "lift" => (0.06, (-0.12, 0.12)),
         "gamma" => (0.06, (-0.4, 0.4)),
@@ -160,17 +160,17 @@ fn wheel(rng: &mut Rng, key: &str) -> [f32; 4] {
         // a hue direction: one or two channels pushed
         for v in c.iter_mut().take(3) {
             if rng.chance(0.6) {
-                *v = rng.range(-col, col) as f32;
+                *v = (rng.range(-col, col) * s) as f32;
             }
         }
     }
     if use_master {
-        c[3] = rng.range(master.0, master.1) as f32;
+        c[3] = (rng.range(master.0, master.1) * s) as f32;
     }
     c
 }
 
-fn curve(rng: &mut Rng) -> Vec<[f32; 2]> {
+fn curve(rng: &mut Rng, s: f64) -> Vec<[f32; 2]> {
     let k = 1 + rng.below(3);
     let mut xs: Vec<f64> = (0..k).map(|_| rng.range(0.12, 0.88)).collect();
     xs.sort_by(f64::total_cmp);
@@ -178,7 +178,7 @@ fn curve(rng: &mut Rng) -> Vec<[f32; 2]> {
     let mut pts = vec![[0.0f32, 0.0f32]];
     let mut last_y = 0.0f64;
     for x in xs {
-        let y = (x + rng.range(-0.15, 0.15)).clamp(last_y + 0.02, 0.98);
+        let y = (x + rng.range(-0.15, 0.15) * s).clamp(last_y + 0.02, 0.98);
         pts.push([x as f32, y as f32]);
         last_y = y;
     }
@@ -186,38 +186,47 @@ fn curve(rng: &mut Rng) -> Vec<[f32; 2]> {
     pts
 }
 
-/// One correction family on `n`; returns its name.
-fn correction(rng: &mut Rng, n: &mut GradeNode, luts: &[String]) -> &'static str {
+/// `v` moved toward 1 by the subtle factor `s` (exactly `v` when `s` is 1).
+fn toward_one(v: f64, s: f64) -> f64 {
+    if s == 1.0 { v } else { 1.0 + (v - 1.0) * s }
+}
+
+/// One correction family on `n`; returns its name. With probability `subtle` the colour and tone
+/// amounts shrink to 10–40 % (smol360-v2, AI1.6: near the checker's thresholds the tunes claimed
+/// changes too small to report; these teach leaving them out). `subtle` 0 draws no extra random
+/// numbers, so older data sets regenerate unchanged.
+fn correction(rng: &mut Rng, n: &mut GradeNode, luts: &[String], subtle: f64) -> &'static str {
+    let s = if subtle > 0.0 && rng.chance(subtle) { rng.range(0.1, 0.4) } else { 1.0 };
     match rng.below(14) {
         0..=3 => {
             let key = rng.word(&["lift", "gamma", "gain", "offset"]);
-            let v = wheel(rng, key);
+            let v = wheel(rng, key, s);
             set(n, key, ParamValue::Color(v));
             key
         }
         4 => {
-            setf(n, "contrast", rng.range(0.5, 1.8));
+            setf(n, "contrast", toward_one(rng.range(0.5, 1.8), s));
             if rng.chance(0.3) {
                 setf(n, "pivot", rng.range(0.3, 0.6));
             }
             "contrast"
         }
         5 => {
-            setf(n, "saturation", if rng.chance(0.15) { rng.range(0.0, 0.15) } else { rng.range(0.4, 2.0) });
+            setf(n, "saturation", if rng.chance(0.15) { rng.range(0.0, 0.15) } else { toward_one(rng.range(0.4, 2.0), s) });
             "saturation"
         }
         6 | 7 => {
             if rng.chance(0.7) {
-                setf(n, "temperature", rng.range(-80.0, 80.0));
+                setf(n, "temperature", rng.range(-80.0, 80.0) * s);
             }
             if rng.chance(0.5) || !n.params.contains_key("temperature") {
-                setf(n, "tint", rng.range(-60.0, 60.0));
+                setf(n, "tint", rng.range(-60.0, 60.0) * s);
             }
             "temperature_tint"
         }
         8 | 9 => {
             let key = if rng.chance(0.7) { "curve.master" } else { rng.word(&["curve.r", "curve.g", "curve.b"]) };
-            set(n, key, ParamValue::Curve(curve(rng)));
+            set(n, key, ParamValue::Curve(curve(rng, s)));
             "curve"
         }
         10 => {
@@ -262,7 +271,7 @@ fn add_qualifier(rng: &mut Rng, n: &mut GradeNode, patches: &[[f32; 3]; 4]) {
 }
 
 /// A random one-node grade and the names of its families.
-fn random_grade(rng: &mut Rng, patches: &[[f32; 3]; 4], luts: &[String]) -> (GradeNode, String) {
+fn random_grade(rng: &mut Rng, patches: &[[f32; 3]; 4], luts: &[String], subtle: f64) -> (GradeNode, String) {
     let mut n = GradeNode::new(1);
     let roll = rng.f();
     if roll < 0.02 {
@@ -277,7 +286,7 @@ fn random_grade(rng: &mut Rng, patches: &[[f32; 3]; 4], luts: &[String]) -> (Gra
         3
     };
     for _ in 0..k {
-        fams.push(correction(rng, &mut n, luts));
+        fams.push(correction(rng, &mut n, luts, subtle));
     }
     if roll < 0.06 {
         add_qualifier(rng, &mut n, patches);
@@ -915,10 +924,11 @@ struct Args {
     val: f64,
     tries: usize,
     samples: usize,
+    subtle: f64,
 }
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {
-    let mut a = Args { out_dir: std::path::PathBuf::new(), grades: 2600, per_grade: 2, seed: 1, val: 0.05, tries: 48, samples: 0 };
+    let mut a = Args { out_dir: std::path::PathBuf::new(), grades: 2600, per_grade: 2, seed: 1, val: 0.05, tries: 48, samples: 0, subtle: 0.0 };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         let mut v = || it.next().ok_or_else(|| format!("{arg} needs a value"));
@@ -930,11 +940,12 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--val" => a.val = v()?.parse::<f64>()?.clamp(0.0, 0.5),
             "--tries" => a.tries = v()?.parse::<usize>()?.clamp(1, 1000),
             "--samples" => a.samples = v()?.parse::<usize>()?.min(1000),
+            "--subtle" => a.subtle = v()?.parse::<f64>()?.clamp(0.0, 1.0),
             other => return Err(format!("unknown argument {other}").into()),
         }
     }
     if a.out_dir.as_os_str().is_empty() {
-        return Err("usage: explain_traindata --out-dir <dir> [--grades N] [--per-grade K] [--seed S] [--val F] [--tries T] [--samples N]".into());
+        return Err("usage: explain_traindata --out-dir <dir> [--grades N] [--per-grade K] [--seed S] [--val F] [--tries T] [--samples N] [--subtle F]".into());
     }
     Ok(a)
 }
@@ -950,7 +961,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     std::fs::create_dir_all(&args.out_dir)?;
     let mut rng = Rng(args.seed ^ 0x6772_6164_6532_6262);
     let held_out: BTreeSet<String> =
-        eval_cases().iter().filter_map(|c| serde_json::to_string(&c.facts).ok()).map(|s| filmcraft_llm::compact_facts(&s)).collect();
+        // (every held-out set: sets 2 and 3 judge v2 tunes, AI1.6)
+        eval_cases().iter().chain(eval_cases_v2().iter()).chain(eval_cases_v3().iter()).filter_map(|c| serde_json::to_string(&c.facts).ok()).map(|s| filmcraft_llm::compact_facts(&s)).collect();
     let luts: Vec<String> = {
         let all: Vec<String> = filmcraft_render::luts::builtins().iter().map(|b| format!("builtin:{}", b.id)).collect();
         // looks more often than camera conversions
@@ -981,7 +993,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         let gamma = if rng.chance(0.5) { 2.0 } else { rng.range(1.0, 3.0) as f32 };
         let src = frame(patches, gamma);
-        let (node, fam) = random_grade(&mut rng, &patches, &luts);
+        let (node, fam) = random_grade(&mut rng, &patches, &luts, args.subtle);
         let mut out = src.clone();
         let g = Grade { nodes: vec![node.clone()], bypass: false };
         for op in compile_fx(&g, Tick(0), WS, GradeCtx::default(), src.w, src.h) {
@@ -1091,6 +1103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "candidates_passed": passed,
         "candidate_rejections": reasons,
         "families": stats_fam,
+        "subtle": args.subtle,
         "kinds": kinds,
     });
     std::fs::write(args.out_dir.join("data-stats.json"), serde_json::to_string_pretty(&stats)?)?;

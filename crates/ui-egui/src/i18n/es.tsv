@@ -810,6 +810,8 @@
 	Relink others automatically	Volver a vincular los demás automáticamente
 	Search in:	Buscar en:
 	Browse…	Examinar…
+	A file dialog is already open	Ya hay un cuadro de diálogo de archivos abierto
+	Close the file dialog first	Cierra primero el cuadro de diálogo de archivos
 	Exact name matches only	Solo coincidencias exactas de nombre
 	No candidates yet — Search a folder or Locate the file.	Aún no hay candidatos: busca en una carpeta o localiza el archivo.
 	✔ same file	✔ mismo archivo
@@ -3945,3 +3947,14 @@
 	Untitled project: File ▸ Save As keeps it	Proyecto sin título: Archivo ▸ Guardar como lo conserva
 	FilmCraft	FilmCraft
 	Project Manager full screen	Gestor de proyectos en pantalla completa
+	discrete	dedicada
+	integrated	integrada
+	virtual	virtual
+	software	software
+	other	otra
+	List Graphics Devices	Mostrar dispositivos gráficos
+	{gpu} (not found: Auto)	{gpu} (no encontrada: Automático)
+	Graphics device (takes effect at the next start)	Dispositivo gráfico (se aplica en el próximo inicio)
+	Audio mixing stopped after an error: playing without sound	La mezcla de audio se detuvo por un error: reproducción sin sonido
+	No sound: the audio output could not start ({why})	Sin sonido: no se pudo iniciar la salida de audio ({why})
+	No sound: the audio output keeps changing its sample rate (check Settings ▸ Audio Hardware)	Sin sonido: la salida de audio cambia continuamente su frecuencia de muestreo (revisa Ajustes ▸ Hardware de audio)

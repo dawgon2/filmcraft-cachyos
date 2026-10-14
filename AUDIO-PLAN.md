@@ -15,7 +15,7 @@ Order: FORK-PLAN §1a.6 (A1 after U0.2; A2 after C2 / AI2 and before STORAGE-PLA
 - `crates/engine`: Essential Sound (`essential_sound.rs`), voice-over recording with punch-in /
   out and pre-roll (`voiceover.rs`), text-to-speech narration (`narration.rs`), mixer graph,
   automation, 5.1.
-- `crates/llm`: candle inference on the CPU (x86-64-v3 build, OWNER-QUESTIONS Q8), the runtime
+- `crates/llm`: own quantized inference on the CPU (run-time SIMD, no build flag since AI1.2), the runtime
   A2 reuses.
 - **Weak spots:** device output and playback (`docs/gaps.md` G17: #336 cut-outs with overlapping
   clips, #410, #602 no audio, #605 Xonar DX, #617 Linux stutter; cpal only); noise removal only

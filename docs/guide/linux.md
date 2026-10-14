@@ -267,6 +267,113 @@ Each data folder has its own "one at a time": the fork's launcher (`--data-dir`)
 install can run side by side. To start a second window anyway, launch with `--new-instance`.
 Agents (`--control`) always get their own.
 
+## File dialogs: the desktop's own, and where they start
+
+**[Standard] [FilmCraft]**
+
+Why: Open, Import, Save and Export use your desktop's own file dialog (KDE's on Plasma, GNOME's
+on GNOME, through the XDG desktop portal), so your Places, bookmarks and network folders are all
+there.
+
+- **FilmCraft keeps running while a dialog is open.** Playback, a running export and agents on
+  the control port carry on; the dialog's answer is used when you click Open or Save. One file
+  dialog at a time: asking for a second shows "A file dialog is already open" in the status line.
+- **The dialog belongs to the FilmCraft window.** It opens over it, stays over it, and moves to
+  the same virtual desktop (on Wayland the compositor needs `xdg-foreign`, which KWin and Mutter
+  have; elsewhere the dialog is simply a separate window). Closing FilmCraft while one is open
+  asks you to close the dialog first ("Close the file dialog first" in the status line).
+- **Each kind of dialog starts where you last used it.** Importing media, opening other files
+  (LUTs, presets), opening projects, exporting, and choosing folders each remember their own
+  folder, so importing from a card doesn't send the next export there. (Every "choose a folder"
+  dialog shares one memory: the card copy destination, an archive, frame exports.) **File ▸ Save As** of a
+  project that's already saved starts in the project's folder. A remembered folder that's gone
+  (an ejected card) is skipped, and the dialog starts in its usual place.
+
+How you might use it:
+
+- **Card, then project folder (beginner):** import from the card each time; the Import dialog
+  opens on the card again while it's mounted, and export opens on your exports folder.
+- **One folder per project (pro):** keep media, project and exports inside one project folder;
+  after the first import and save every dialog opens there. Trade-off: switching projects means
+  one click back to the new project's folder the first time.
+- **Prefer the Media Browser for cards:** the **Media Browser** panel (the Media page in the
+  Resolve workflow) stays open, shows camera folders as clips and has Favorites; the file dialog is quicker for a single file.
+
+The remembered folders live in the preferences file (`dialogs.lastFolders`); deleting that
+entry makes the dialogs start in their default place again. macOS and Windows dialogs remember
+their folders themselves.
+
+## Which GPU draws FilmCraft
+
+**[Standard] [FilmCraft]**
+
+Why: a laptop with integrated and discrete graphics, or a desktop with a CPU's graphics next to a
+card, has two GPUs. The one that draws the interface and the monitors does the colour work and
+the effects during playback, so it matters for smooth playback and for battery life.
+
+1. Choose Edit ▸ Preferences ▸ **Playback…** (`app.settings.playback`).
+2. Open **Graphics device** {ui:settings.playback.graphicsDevice} and pick **Auto** or a GPU.
+   Each is listed with its name and whether it's discrete or integrated.
+3. Press **OK**, then quit and start FilmCraft again: the GPU is chosen when the window opens.
+
+The choices:
+
+- **Auto (default):** the high-performance GPU (the discrete one). It also follows the
+  system-wide switches: `DRI_PRIME=1` (start FilmCraft on the discrete GPU from a launcher's
+  "Run on discrete graphics" option), `MESA_VK_DEVICE_SELECT`, or `WGPU_POWER_PREF=low`. Good for
+  most people.
+- **The discrete GPU:** the fastest playback with effects and grades. Trade-off: more power and
+  heat; on a laptop the battery lasts less.
+- **The integrated GPU:** quieter and longer on battery, fine for cutting; heavy grades or 4K+
+  effects may drop frames. On a desktop it leaves the card free for a game or another program.
+
+FilmCraft remembers the GPU by its PCI ids, not its position, so a driver update doesn't change
+it. If that GPU isn't there any more (a removed card, an eGPU unplugged, preferences copied from
+another computer) FilmCraft starts on Auto and Settings shows the stored one as "not found".
+Hardware video decoding (VA-API) follows the choice when that GPU has a video engine, so decoded
+frames are drawn in place without a copy (`FILMCRAFT_VAAPI_DEVICE` still overrides it; see
+[Hardware](hardware.md)). The list fills in a moment after FilmCraft starts; if Settings shows
+only Auto, close and reopen it. Exports choose their GPUs in the Export dialog
+([Export: Two GPUs](export.md)). Agents:
+`graphics.listDevices` lists the GPUs, the stored choice and the one drawing now.
+
+## Sound when the audio device has a hiccup
+
+**[FilmCraft]**
+
+Why: on Linux, sound goes through PipeWire or PulseAudio (or straight to ALSA). A device can drop
+out for a moment: a buffer runs dry under load, a USB or Bluetooth device reconnects, the audio
+server restarts. FilmCraft keeps playing through it.
+
+- **A short glitch:** the stream is restarted within about a third of a second and the sound
+  carries on in step with the picture (the clock isn't reset, so audio and video stay in sync).
+- **The device is gone** (unplugged, its server stopped): FilmCraft restarts the stream at once on
+  the device chosen in Edit ▸ Preferences ▸ **Audio Hardware** (`app.settings.audioHardware`), or
+  the desktop's default output when that one isn't there, at the same sample rate and channel
+  count as before. When the audio server is still restarting, it tries again every 0.2 s for about
+  half a second; the picture holds still meanwhile, then sound and picture carry on together.
+- **It keeps failing** (more than three restarts in ten seconds): playback goes on without sound
+  and the status line says "Audio output failed: playing without sound (check Settings ▸ Audio
+  Hardware)". Press Stop and Play once
+  the device is back, or pick another output in Audio Hardware.
+- **Switching the default output in the desktop** (Plasma's audio widget, GNOME's Sound
+  settings) while FilmCraft plays: with Audio Hardware's output on the system default, PipeWire
+  normally moves the stream along; if it doesn't, Stop and Play picks up the new default.
+
+When the output opens at another sample rate than it had a moment before (the desktop's default
+output changed just as you pressed Play), FilmCraft mixes again at the new rate so the pitch stays
+right; if it changes yet again, it plays without sound and the status line says so.
+
+When the sound runs dry anyway (a slow disk at a cut, a busy computer), FilmCraft plays a moment
+of silence, keeps the sound in step with the picture, and from then on mixes a little further
+ahead (up to half a second) for the rest of that play. The trade-off: a change made while playing
+(a volume fader) is heard that much later. If mixing itself fails, the status line says "Audio
+mixing stopped after an error: playing without sound"; if the output can't start at all, it says
+"No sound: the audio output could not start" with the reason.
+
+Agents: `perf.stats` reports `playback.audio` (callbacks, underruns, missing frames, `leadMs`,
+`mixerPanics`, `mixerStopped`).
+
 ## Dragging files in from the file manager
 
 **[FilmCraft]**

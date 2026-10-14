@@ -417,6 +417,7 @@ fn palette(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, middle: bool) 
     let Some(node_id) = current_node(app, clip, &grade) else { return };
     let Some(node) = grade.node(node_id).cloned() else { return };
     let index = grade.nodes.iter().position(|n| n.id == node_id).unwrap_or(0);
+    prefetch_explanation(app, bui.ctx(), clip, node_id);
     let ph = app.session.playhead();
     let mt = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
     let mut sets: Vec<Value> = Vec::new();
@@ -769,8 +770,14 @@ fn palette(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, middle: bool) 
             continue;
         }
         if p.get("browse").is_some() {
-            let Some(path) = app.hooks.pick_open_file.as_mut().and_then(|f| f(tl!("LUT"), &["cube", "3dl"])) else { continue };
-            p = json!({"node": node_id, "path": path});
+            // the LUT is set when the dialog answers (#260: it doesn't stop the frame loop)
+            let clip = clip.0;
+            app.pick_ui(crate::native_dialogs::FileDialog::open_file("LUT", &["cube", "3dl"]), move |app, paths| {
+                if let Some(path) = paths.into_iter().next() {
+                    run(app, cmd, json!({"node": node_id, "path": path, "clip": clip}));
+                }
+            });
+            continue;
         }
         if p.get("clip").is_none() {
             p["clip"] = json!(clip.0);
@@ -1067,6 +1074,42 @@ impl AiView {
     }
 }
 
+/// AI1.3: once the user has left a node alone for [`PREFETCH_AFTER`] (not while playing), start
+/// its AI explanation in the background so **Explain node** is answered from the cache. Once per
+/// (edit, clip, node); the engine keeps only the newest pre-generation.
+const PREFETCH_AFTER: f64 = 0.6;
+
+fn prefetch_explanation(app: &mut FilmcraftApp, ctx: &egui::Context, clip: ClipId, node_id: u64) {
+    // (the full readiness check stats the model files: only when the debounce fires)
+    if app.playback.playing || !app.session.prefs.color.ai.enabled {
+        return;
+    }
+    let id = egui::Id::new("grade-ai-prefetch");
+    let sig = (app.session.revision, clip.0, node_id);
+    let now = ctx.input(|i| i.time);
+    match ctx.data(|d| d.get_temp::<((u64, u64, u64), f64, bool)>(id)) {
+        Some((s, _, true)) if s == sig => {}
+        Some((s, since, false)) if s == sig => {
+            let left = PREFETCH_AFTER - (now - since);
+            if left > 0.0 {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(left));
+            } else {
+                ctx.data_mut(|d| d.insert_temp(id, (sig, since, true)));
+                if !app.session.ai.can_prefetch(&app.session.prefs.color.ai) {
+                    return;
+                }
+                if let Err(e) = app.session.execute("grade.explainNode", json!({"clip": clip.0, "node": node_id, "prefetch": true})) {
+                    log::debug!("explanation prefetch: {e}");
+                }
+            }
+        }
+        _ => {
+            ctx.data_mut(|d| d.insert_temp(id, (sig, now, false)));
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(PREFETCH_AFTER));
+        }
+    }
+}
+
 /// Replace a pending explanation with the model's answer once it is ready (polled each frame
 /// while the Match tab shows it; never blocks).
 fn poll_ai(app: &FilmcraftApp, ctx: &egui::Context, clip: ClipId, result: &mut MatchResult) {
@@ -1077,7 +1120,16 @@ fn poll_ai(app: &FilmcraftApp, ctx: &egui::Context, clip: ClipId, result: &mut M
             result.ai = Some(AiView::from_outcome(&o));
             ctx.data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-result", clip.0)), result.clone()));
         }
-        Some(filmcraft_engine::ai_explain::Answer::Pending { .. }) => ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+        Some(filmcraft_engine::ai_explain::Answer::Pending { partial, .. }) => {
+            // (the model's checked sentences so far, as they come)
+            if let Some(p) = partial
+                && p != result.text
+            {
+                result.text = p;
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new(("grade-match-result", clip.0)), result.clone()));
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         None => {
             if let Some(a) = result.ai.as_mut() {
                 a.key = None;

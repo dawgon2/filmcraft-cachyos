@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::Session;
 use crate::autosave::Preferences;
 use crate::media_test_util::tmp_dir;
-use crate::settings::{self, Kind};
+use crate::settings::{self, DeviceList, Kind};
 
 fn demo() -> Session {
     let mut s = Session::default();
@@ -678,4 +678,21 @@ fn appearance_choices_validate_and_legacy_theme_still_selects() {
         seen.push(a.appearance_mode.clone());
     }
     assert_eq!(seen, ["auto", "light", "dark", "auto"]);
+}
+
+/// L2.6: Settings ▸ Playback ▸ Graphics device is a GPU-list field, settable by agents; a number
+/// in a hand-edited file falls back to Auto without costing the rest of the file.
+#[test]
+fn graphics_device_preference_is_a_gpu_list_and_survives_a_bad_file() {
+    let mut s = Session::default();
+    assert_eq!(s.prefs.playback.graphics_device, "");
+    set(&mut s, "playback.graphicsDevice", json!("1002:73df"));
+    assert_eq!(s.prefs.playback.graphics_device, "1002:73df");
+    let f = settings::field("playback.graphicsDevice").unwrap();
+    assert!(matches!(f.kind, Kind::Device(DeviceList::Gpus)));
+    for bad in [json!(5), json!({"x": 1}), json!([1])] {
+        let p = Preferences::from_value(json!({"playback": {"graphicsDevice": bad, "stepManyFrames": 9}, "audioHardware": {"defaultOutput": 3}}));
+        assert_eq!(p.playback.graphics_device, "", "{bad}");
+        assert_eq!(p.playback.step_many_frames, 9, "{bad}: the rest of the file is kept");
+    }
 }

@@ -800,6 +800,8 @@
 	Relink others automatically	自动重新链接其他项
 	Search in:	搜索位置：
 	Browse…	浏览…
+	A file dialog is already open	已有一个文件对话框处于打开状态
+	Close the file dialog first	请先关闭文件对话框
 	Exact name matches only	仅精确名称匹配
 	No candidates yet — Search a folder or Locate the file.	暂无候选项 — 请搜索文件夹或定位文件。
 	✔ same file	✔ 同一文件
@@ -3939,3 +3941,14 @@
 	Untitled project: File ▸ Save As keeps it	未命名项目：文件 ▸ 另存为可保留它
 	FilmCraft	FilmCraft
 	Project Manager full screen	项目管理器全屏
+	discrete	独立显卡
+	integrated	集成显卡
+	virtual	虚拟
+	software	软件渲染
+	other	其他
+	List Graphics Devices	列出图形设备
+	{gpu} (not found: Auto)	{gpu}（未找到：自动）
+	Graphics device (takes effect at the next start)	图形设备（下次启动时生效）
+	Audio mixing stopped after an error: playing without sound	音频混音因错误而停止：正在无声播放
+	No sound: the audio output could not start ({why})	无声音：音频输出无法启动（{why}）
+	No sound: the audio output keeps changing its sample rate (check Settings ▸ Audio Hardware)	无声音：音频输出的采样率不断变化（请检查“设置 ▸ 音频硬件”）

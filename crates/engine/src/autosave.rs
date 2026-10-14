@@ -96,6 +96,11 @@ pub struct PlaybackPrefs {
     /// that work while another window has focus. Off by default; the desktop asks once which keys
     /// to use.
     pub desktop_global_shortcuts: bool,
+    /// "Graphics device" (L2.6): the GPU that draws the interface and the monitors, as its PCI
+    /// `vendor:device` ids in hex (`1002:73df`); "" = Auto (the high-performance GPU, or the one
+    /// `DRI_PRIME` / `MESA_VK_DEVICE_SELECT` / `WGPU_POWER_PREF` pick). Takes effect at the next
+    /// start; a GPU that isn't there any more falls back to Auto. Exports choose their own.
+    pub graphics_device: String,
 }
 
 impl Default for PlaybackPrefs {
@@ -111,6 +116,7 @@ impl Default for PlaybackPrefs {
             hardware_decoding: "auto".into(),
             desktop_media_controls: true,
             desktop_global_shortcuts: false,
+            graphics_device: String::new(),
         }
     }
 }
@@ -179,6 +185,8 @@ pub struct Preferences {
     pub project_panel: crate::project_panel::ProjectPanelPrefs,
     /// Media Browser: Favorites, recent directories, file types, view, columns.
     pub media_browser: crate::media_browser::MediaBrowserPrefs,
+    /// Fork L1.5: the folder each kind of file dialog was last used in. Not shown in Settings.
+    pub dialogs: DialogPrefs,
     /// Settings ▸ Workflow: which editor's conventions the keyboard follows.
     pub workflow: settings::Workflow,
     /// The keyboard preset to return to when the workflow goes back to Premiere ("" = FilmCraft
@@ -219,12 +227,61 @@ impl Default for Preferences {
             voice_over: Default::default(),
             project_panel: Default::default(),
             media_browser: Default::default(),
+            dialogs: Default::default(),
             workflow: Default::default(),
             workflow_return_preset: String::new(),
             workflow_return_theme: String::new(),
             workflow_auto_theme: String::new(),
             pending_resolve_migration: false,
         }
+    }
+}
+
+/// Fork L1.5: where the next file dialog of each kind starts (the desktop app on Linux, whose
+/// portal dialogs don't remember a folder per application). Keys are
+/// [`DialogPrefs::KINDS`]; anything else in the file is ignored (read leniently: a malformed
+/// entry must not make the whole preferences file fall back to the defaults).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", from = "serde_json::Value")]
+pub struct DialogPrefs {
+    pub last_folders: std::collections::BTreeMap<String, String>,
+}
+
+impl From<serde_json::Value> for DialogPrefs {
+    fn from(v: serde_json::Value) -> Self {
+        let last_folders = v
+            .get("lastFolders")
+            .and_then(serde_json::Value::as_object)
+            .map(|m| m.iter().filter(|(k, _)| Self::KINDS.contains(&k.as_str())).filter_map(|(k, f)| Some((k.clone(), f.as_str()?.to_string()))).collect())
+            .unwrap_or_default();
+        Self { last_folders }
+    }
+}
+
+impl DialogPrefs {
+    /// The kinds of dialog that remember their own folder.
+    pub const KINDS: [&'static str; 5] = ["import", "open", "project", "export", "folder"];
+    /// Longest folder path kept (a hostile prefs file can't grow it without bound).
+    const MAX_PATH: usize = 4096;
+
+    /// The folder the last dialog of `kind` was used in, if any.
+    pub fn last_folder(&self, kind: &str) -> Option<&str> {
+        self.last_folders.get(kind).map(String::as_str).filter(|f| !f.is_empty() && f.len() <= Self::MAX_PATH)
+    }
+
+    /// Remember `folder` for `kind`; unknown kinds, empty or overlong paths are ignored. Returns
+    /// whether anything changed.
+    pub fn remember(&mut self, kind: &str, folder: &str) -> bool {
+        if !Self::KINDS.contains(&kind) || folder.is_empty() || folder.len() > Self::MAX_PATH {
+            return false;
+        }
+        if self.last_folders.get(kind).map(String::as_str) == Some(folder) {
+            return false;
+        }
+        // drop entries no version writes (a hand-edited or hostile file)
+        self.last_folders.retain(|k, _| Self::KINDS.contains(&k.as_str()));
+        self.last_folders.insert(kind.to_string(), folder.to_string());
+        true
     }
 }
 

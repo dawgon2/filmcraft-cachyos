@@ -29,6 +29,8 @@ mod appearance;
 mod args;
 mod audio;
 mod audio_in;
+#[cfg(test)]
+mod audio_soak;
 #[cfg(target_os = "linux")]
 mod cards;
 mod control_server;
@@ -160,6 +162,15 @@ fn main() -> eframe::Result {
     // Taskbar progress, notifications, idle / suspend inhibit (L1.7). Off for agents unless
     // FILMCRAFT_DESKTOP_INTEGRATION=1 (a scripted run shouldn't pop notifications).
     let desktop_integration = control_port.is_none() || std::env::var_os("FILMCRAFT_DESKTOP_INTEGRATION").is_some_and(|v| v == "1");
+    // The preferences as saved (the session loads them again; these choose how the window opens)
+    let prefs = data_dir.clone().or_else(default_data_dir).map(|d| filmcraft_engine::autosave::Preferences::load(&d.join("preferences.json")));
+    let prefs = prefs.unwrap_or_default();
+    // Settings ▸ Playback ▸ Graphics device (L2.6): VA-API decodes on the chosen GPU first, so
+    // decoded frames are drawn in place on it (a frame from another GPU is copied instead)
+    #[cfg(target_os = "linux")]
+    if let Some((vendor, device)) = filmcraft_ui_egui::graphics_device::parse(&prefs.playback.graphics_device) {
+        filmcraft_platform::va::prefer_gpu(vendor, device);
+    }
     // OS hardware video decoders (VideoToolbox on macOS) in front of our own; Settings ▸ Playback ▸
     // Hardware decoding switches them off. Unsupported streams and failures use our decoders.
     register_hardware_decoders();
@@ -170,8 +181,6 @@ fn main() -> eframe::Result {
     let window = window_file.as_deref().and_then(WindowState::load).unwrap_or_default();
     // Settings ▸ General ▸ Window title bar (fork): open without the desktop's title bar when
     // FilmCraft draws its own, so it doesn't flash up first (the app follows later changes)
-    let prefs = data_dir.clone().or_else(default_data_dir).map(|d| filmcraft_engine::autosave::Preferences::load(&d.join("preferences.json")));
-    let prefs = prefs.unwrap_or_default();
     let own_title_bar = filmcraft_ui_egui::window_chrome::wants_own(&prefs.general.title_bar);
     // Settings ▸ General ▸ Full screen / Project Manager full screen: open the way the first
     // screen wants it (the Project Manager when no project is named and the startup setting shows
@@ -198,7 +207,8 @@ fn main() -> eframe::Result {
             // Wayland matches the window to `packaging/linux/ai.storyteller.filmcraft.desktop`.
             .with_app_id(APP_ID),
         event_loop_builder: agent_event_loop(control_port.is_some()),
-        wgpu_options: filmcraft_ui_egui::wgpu_configuration(),
+        // Settings ▸ Playback ▸ Graphics device (L2.6)
+        wgpu_options: filmcraft_ui_egui::wgpu_configuration_on(&prefs.playback.graphics_device),
         ..Default::default()
     };
     // Before eframe creates the wgpu instance: leave OpenGL out on Windows (see graphics.rs).
@@ -291,6 +301,20 @@ fn main() -> eframe::Result {
             app.hooks.pick_folder = Some(Box::new(|| rfd::FileDialog::new().pick_folder().map(|p| p.to_string_lossy().to_string())));
             app.hooks.pick_folder_at =
                 Some(Box::new(|dir: &str| rfd::FileDialog::new().set_directory(dir).pick_folder().map(|p| p.to_string_lossy().into_owned())));
+            // Linux: the XDG portal call blocks until the user chooses, which would stop the frame
+            // loop (GNOME offers to force-quit the window after about five seconds, #260). Show the
+            // dialog on its own thread instead; the app keeps running and acts on the answer.
+            // Fork L1.5: the dialog is a child of this window (the portal stacks it over the
+            // window and keeps it modal; on Wayland through xdg-foreign) and starts in the folder
+            // that kind of dialog was last used in.
+            #[cfg(target_os = "linux")]
+            {
+                let parent = rfd::FileDialog::new().set_parent(cc);
+                app.hooks.run_dialog_from = Some(Box::new(move |dialog, start| run_dialog_off_thread(parent.clone(), dialog, start)));
+            }
+            // listed on a thread now; Settings shows what's listed (never waits for a driver)
+            filmcraft_ui_egui::graphics_device::warm();
+            app.hooks.graphics_devices = Some(Box::new(filmcraft_ui_egui::graphics_device::listed));
             app.hooks.open_path = Some(Box::new(open_path));
             // Help menu, About and Discord links (#642): eframe is built without its `links`
             // feature, so `ctx.open_url` does nothing on the desktop. Detached, so a launcher
@@ -465,6 +489,68 @@ fn agent_event_loop(agent: bool) -> Option<eframe::EventLoopBuilderHook> {
     }
     let _ = agent;
     None
+}
+
+/// Show `dialog` with rfd on a worker thread and answer on the returned channel (#260). `parent`
+/// is an empty rfd dialog that knows the app's window (fork L1.5); `start` the folder it opens in.
+/// Filter names are translated here, on the UI thread (the interface language is per thread);
+/// extensions get their upper-case forms (`file_filters`). A dialog thread that can't start or
+/// panics drops the sender: the app takes that as cancelled.
+#[cfg(target_os = "linux")]
+fn run_dialog_off_thread(
+    parent: rfd::FileDialog,
+    dialog: filmcraft_ui_egui::native_dialogs::FileDialog,
+    start: Option<String>,
+) -> std::sync::mpsc::Receiver<Vec<String>> {
+    use filmcraft_ui_egui::native_dialogs::FileDialog;
+    let t = |s: &str| filmcraft_ui_egui::i18n::t(s).to_string();
+    let exts = |e: &[String]| file_filters::extensions(&e.iter().map(String::as_str).collect::<Vec<_>>());
+    let media = t("Media");
+    let project = t("FilmCraft Project");
+    let dialog = match dialog {
+        FileDialog::OpenFiles { exts: e } => FileDialog::OpenFiles { exts: exts(&e) },
+        FileDialog::Relink { exts: e, hint } => FileDialog::Relink { exts: exts(&e), hint },
+        FileDialog::OpenFile { filter, exts: e } => FileDialog::OpenFile { filter: t(&filter), exts: exts(&e) },
+        FileDialog::SaveAs { filter, exts: e, name } => FileDialog::SaveAs { filter: t(&filter), exts: exts(&e), name },
+        other => other,
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().name("file-dialog".into()).spawn(move || {
+        let shown = std::panic::catch_unwind(move || {
+            let path = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
+            // a remembered folder that's gone (an ejected card) or unreachable: the default place
+            let d = match start {
+                Some(dir) if !dir.is_empty() && std::path::Path::new(&dir).is_dir() => parent.set_directory(dir),
+                _ => parent,
+            };
+            let project_exts = file_filters::extensions(&["fcproj"]);
+            match dialog {
+                FileDialog::OpenFiles { exts } => d.add_filter(&media, &exts).pick_files().unwrap_or_default().into_iter().map(path).collect(),
+                FileDialog::OpenFile { filter, exts } => d.add_filter(&filter, &exts).pick_file().map(path).into_iter().collect(),
+                FileDialog::Relink { exts, .. } => d.add_filter(&media, &exts).pick_file().map(path).into_iter().collect(),
+                FileDialog::OpenProject => d.add_filter(&project, &project_exts).pick_file().map(path).into_iter().collect(),
+                FileDialog::SaveProject { name } => d.add_filter(&project, &project_exts).set_file_name(name).save_file().map(path).into_iter().collect(),
+                FileDialog::SaveAs { filter, exts, name } => d.add_filter(&filter, &exts).set_file_name(name).save_file().map(path).into_iter().collect(),
+                FileDialog::Folder { at } => {
+                    let d = match at {
+                        Some(dir) if !dir.is_empty() => d.set_directory(dir),
+                        _ => d,
+                    };
+                    d.pick_folder().map(path).into_iter().collect::<Vec<_>>()
+                }
+            }
+        });
+        match shown {
+            Ok(paths) => {
+                let _ = tx.send(paths);
+            }
+            Err(_) => log::warn!("the file dialog thread panicked; taken as cancelled"),
+        }
+    });
+    if let Err(e) = spawned {
+        log::warn!("could not start the file dialog thread: {e}");
+    }
+    rx
 }
 
 #[cfg(test)]

@@ -134,6 +134,33 @@ fn audio_source_outputs_sound_and_uses_the_device_clock() {
     h.state_mut().stop_source();
 }
 
+/// Fork A1.2b: the Source monitor's mixer stopping after repeated panics hands its playback to
+/// the wall clock and says so, like the Program monitor's.
+#[test]
+fn a_stopped_source_mixer_falls_back_to_the_wall_clock_and_says_so() {
+    let mut app = app(11);
+    app.audio = Some(Box::new(Out { frames: Arc::new(AtomicU64::new(0)), fill: Arc::new(Mutex::new(None)), stalled: false }));
+    let mut h = Harness::builder().with_step_dt(0.25).with_size(egui::vec2(1280.0, 800.0)).build_eframe(move |_cc| app);
+    h.step();
+    h.state_mut().play_source().unwrap();
+    for _ in 0..4 {
+        h.step();
+    }
+    assert!(h.state().source_playback.clock.audio_clock);
+    h.state().source_playback.clock.audio_stats.mixer_stopped.store(true, Ordering::Relaxed);
+    for _ in 0..4 {
+        h.step();
+    }
+    assert!(!h.state().source_playback.clock.audio_clock);
+    assert!(h.state().ui.status.contains("Audio mixing stopped"), "{}", h.state().ui.status);
+    let before = h.state().session.state.source_playhead;
+    for _ in 0..4 {
+        h.step();
+    }
+    assert!(h.state().session.state.source_playhead > before, "playback goes on");
+    h.state_mut().stop_source();
+}
+
 #[test]
 fn stalled_source_audio_falls_back_to_wall_clock() {
     let mut app = app(11);

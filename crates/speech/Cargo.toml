@@ -33,3 +33,7 @@ sha2 = { version = "0.10", optional = true }
 [[example]]
 name = "transcribe"
 required-features = ["whisper"]
+
+[[example]]
+name = "candle_ops_bench"
+required-features = ["whisper"]

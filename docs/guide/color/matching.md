@@ -192,7 +192,13 @@ most two short sentences. If it doesn't pass, or the model is missing or fails, 
 template sentence instead. The model gets 15 s to write; a text cut off at that point usually
 fails the check ("rejected"), while "timeout" means no answer at all within 60 s (loading the
 model included). A timeout or failure is tried again the next time you click; a rejection is
-remembered for that node until it changes. When the model was asked, a small **plain template**
+remembered for that node until it changes. While the model writes, each finished sentence that
+passes the check appears as soon as it is done (usually under half a second for the first), so
+you can read along; if a later sentence fails the check, the whole text falls back to the
+template. **[Fork]** You often won't wait at all: when you stop adjusting a node for about
+half a second (and nothing is playing), FilmCraft starts writing its explanation in the
+background, so **Explain node** is usually answered at once. Only the latest node is written
+ahead; an older background answer you never asked for is dropped. When the model was asked, a small **plain template**
 hint under the sentence says why. Most stock models fail this strict check, so with them expect
 the template often.
 
@@ -200,7 +206,7 @@ the template often.
 
 FilmCraft has its own explainer models: small models trained to describe a node in exactly the
 words the check accepts. In tests the best one passed 35 of 36 sample nodes and answered in about
-2.5 seconds. For now they are built on the owner's computer and can't be downloaded: in the
+1.6 seconds. For now they are built on the owner's computer and can't be downloaded: in the
 **Model** list they say "Built on this computer" and **Download** stays greyed out. Once they are
 published, they download like any other model. If you haven't picked a model yourself, FilmCraft
 uses the best tuned explainer that is installed, and the standard default model otherwise.
@@ -211,7 +217,7 @@ Nothing leaves your computer. The only network use is the download you start; th
 never bundled with FilmCraft and runs on the CPU. Agents can do the same with `ai.models`,
 `ai.download`, `ai.select`, `ai.setEnabled` and `grade.explainNode` with `"wait": true` (which
 blocks at most 20 s; still writing then, it returns the template with an `aiKey` to poll with
-`ai.explanation`).
+`ai.explanation`; while pending, its `partial` field holds the checked sentences so far).
 
 ## If you know Resolve
 

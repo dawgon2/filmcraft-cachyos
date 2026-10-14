@@ -1,0 +1,18 @@
+[package]
+name = "filmcraft-ml"
+description = "FilmCraft's shared on-device ML runtime layer: run-time CPU SIMD report, panic-guarded cancellable model jobs and (feature candle) candle f32 operations routed through run-time-dispatched gemm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# candle operations whose own kernels only vectorise with compile-time AVX (off in wasm builds).
+candle = ["dep:candle-core"]
+
+[dependencies]
+candle-core = { version = "0.9", default-features = false, optional = true }

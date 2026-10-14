@@ -44,11 +44,37 @@ pub struct GgufSummary {
     pub data_offset: u64,
     /// Dimensions of `token_embd.weight` (GGUF order: embedding length first, then vocabulary).
     pub token_embd: Option<Vec<u64>>,
+    /// Finite floating-point scalar metadata (`rope.freq_base`, the RMS-norm epsilon, …), by key.
+    pub floats: HashMap<String, f64>,
+    /// Every tensor, in file order; offsets are relative to [`Self::data_offset`] and proven to lie
+    /// inside the file.
+    pub tensor_infos: Vec<TensorInfo>,
+}
+
+/// One tensor's directory entry.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TensorInfo {
+    pub name: String,
+    /// GGUF order: the row length (contiguous) first.
+    pub dims: Vec<u64>,
+    /// ggml type id (see [`ggml_type_layout`]).
+    pub ty: u32,
+    pub offset: u64,
+    /// Bytes of data.
+    pub size: u64,
 }
 
 impl GgufSummary {
     pub fn get(&self, key: &str) -> Option<u64> {
         self.ints.get(key).copied()
+    }
+
+    pub fn float(&self, key: &str) -> Option<f64> {
+        self.floats.get(key).copied()
+    }
+
+    pub fn tensor(&self, name: &str) -> Option<&TensorInfo> {
+        self.tensor_infos.iter().find(|t| t.name == name)
     }
 }
 
@@ -151,10 +177,7 @@ impl<R: Read + Seek> Rd<'_, R> {
             3 => Value::from_signed(i64::from(i16::from_le_bytes(self.bytes::<2>()?))),
             4 => Value::Int(u64::from(self.u32()?)),
             5 => Value::from_signed(i64::from(i32::from_le_bytes(self.bytes::<4>()?))),
-            6 => {
-                self.skip(4)?;
-                Value::Other
-            }
+            6 => Value::from_float(f64::from(f32::from_le_bytes(self.bytes::<4>()?))),
             7 => match u8::from_le_bytes(self.bytes::<1>()?) {
                 0 | 1 => Value::Other,
                 b => return Err(bad(format!("bool value {b}"))),
@@ -193,10 +216,7 @@ impl<R: Read + Seek> Rd<'_, R> {
             }
             10 => Value::Int(self.u64()?),
             11 => Value::from_signed(i64::from_le_bytes(self.bytes::<8>()?)),
-            12 => {
-                self.skip(8)?;
-                Value::Other
-            }
+            12 => Value::from_float(f64::from_le_bytes(self.bytes::<8>()?)),
             t => return Err(bad(format!("unknown metadata type {t}"))),
         })
     }
@@ -204,11 +224,16 @@ impl<R: Read + Seek> Rd<'_, R> {
 
 enum Value {
     Int(u64),
+    Float(f64),
     Str(String),
     Other,
 }
 
 impl Value {
+    fn from_float(v: f64) -> Self {
+        if v.is_finite() { Value::Float(v) } else { Value::Other }
+    }
+
     fn from_signed(v: i64) -> Self {
         u64::try_from(v).map_or(Value::Other, Value::Int)
     }
@@ -261,6 +286,9 @@ pub fn check<R: Read + Seek>(r: &mut R, len: u64) -> Result<GgufSummary, LlmErro
             Value::Int(v) => {
                 out.ints.insert(key, v);
             }
+            Value::Float(v) => {
+                out.floats.insert(key, v);
+            }
             Value::Str(s) if keep => out.architecture = Some(s),
             _ => {}
         }
@@ -294,8 +322,9 @@ pub fn check<R: Read + Seek>(r: &mut R, len: u64) -> Result<GgufSummary, LlmErro
             ranges.push((offset, end));
         }
         if name == "token_embd.weight" {
-            out.token_embd = Some(dims);
+            out.token_embd = Some(dims.clone());
         }
+        out.tensor_infos.push(TensorInfo { name, dims, ty, offset, size });
     }
     if alignment == 0 || alignment > 65_536 {
         return Err(bad(format!("alignment {alignment}")));
@@ -379,6 +408,7 @@ pub(crate) mod tests {
         ti: Vec<u8>,
         n_t: u64,
         data: u64,
+        blobs: Vec<(u64, Vec<u8>)>,
     }
 
     impl Builder {
@@ -426,6 +456,22 @@ pub(crate) mod tests {
             self.n_t += 1;
             self
         }
+        /// A tensor of type `ty` whose data is `bytes` (padded to 32).
+        #[cfg_attr(not(feature = "infer"), allow(dead_code))]
+        pub(crate) fn tensor_data(mut self, name: &str, dims: &[u64], ty: u32, bytes: &[u8]) -> Self {
+            Self::s(&mut self.ti, name);
+            self.ti.extend_from_slice(&(dims.len() as u32).to_le_bytes());
+            for d in dims {
+                self.ti.extend_from_slice(&d.to_le_bytes());
+            }
+            self.ti.extend_from_slice(&ty.to_le_bytes());
+            self.ti.extend_from_slice(&self.data.to_le_bytes());
+            self.blobs.push((self.data, bytes.to_vec()));
+            self.data += bytes.len() as u64;
+            self.data = self.data.div_ceil(32) * 32;
+            self.n_t += 1;
+            self
+        }
         /// A tensor info with a chosen type and offset that adds no data.
         pub(crate) fn tensor_raw(mut self, name: &str, dims: &[u64], ty: u32, offset: u64) -> Self {
             Self::s(&mut self.ti, name);
@@ -449,6 +495,10 @@ pub(crate) mod tests {
             let pad = (b.len() as u64).div_ceil(32) * 32;
             b.resize(pad as usize, 0);
             b.resize((pad + self.data) as usize, 0);
+            for (at, blob) in &self.blobs {
+                let at = (pad + at) as usize;
+                b[at..at + blob.len()].copy_from_slice(blob);
+            }
             b
         }
     }

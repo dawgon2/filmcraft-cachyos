@@ -14,14 +14,16 @@ takes ~17–30 s instead of ~4 s. AI1 implements Q8 option (c) and retires the f
 1. **Own quantized forward pass** in `crates/llm` (from candle's MIT / Apache-2.0 code, ~860
    lines, attribution kept), with the heavy matrix maths through `gemm`, which picks AVX-512 /
    AVX2 / SSE / NEON at run time. No `unsafe` in our code; one binary for every CPU.
-2. **Delete the `x86-64-v3` block in `.cargo/config.toml`**, resolve Q8 in OWNER-QUESTIONS.md, rebuild.
-3. **Feels instant everywhere:** stream tokens to the UI as they're generated; pre-generate the
+2. ✓ (2026-10-13) **Delete the `x86-64-v3` block in `.cargo/config.toml`**, resolve Q8 in OWNER-QUESTIONS.md, rebuild.
+   Done: candle's f32 ops checked without the flag (`crates/speech/examples/candle_ops_bench.rs`):
+   gemm-backed ones unchanged; Kokoro's transposed conv and last-dim mean now go through gemm.
+3. ✓ (2026-10-13, AI1.3a–c) **Feels instant everywhere:** stream tokens to the UI as they're generated; pre-generate the
    node explanation in the background (cancellable, `catch_unwind`) while the user adjusts, so it
    is usually ready before it's asked for; keep the template fallback for slow machines or no model.
 4. **Smaller tune (try, keep only if it passes):** SmolLM2-135M through TRAINING.md's pipeline
    (SmolLM2 is the base, §1a.27); ship it as a "fast" option only if it matches the 360M tune's
    fact-check pass rate within a few cases.
-5. **Shared runtime for A2 / G3:** the run-time CPU dispatch and background-job plumbing are a small
+5. ✓ (2026-10-13, `crates/ml`) **Shared runtime for A2 / G3:** the run-time CPU dispatch and background-job plumbing are a small
    reusable layer that AUDIO-PLAN A2 (voice isolation) and GRADE-PLAN G3 (Magic Mask) use.
 
 6. **Retrain at the end of AI1 (owner, 2026-10-12, FORK-PLAN §1a.49):** a new SmolLM2 tune,
