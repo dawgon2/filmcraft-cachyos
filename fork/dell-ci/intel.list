@@ -1,0 +1,5 @@
+# FORK-ONLY: DC1. The Intel GPU / VA-API tests the `intel` job runs on the Dell (UHD 770).
+# One per line: <crate> [cargo test args]. The runner edits this list as phases need.
+filmcraft-platform --test vaapi
+filmcraft-platform --test va_hevc_422
+filmcraft-platform --test va_422_handoff

@@ -4,7 +4,11 @@
 //! move the window (`ViewportCommand::StartDrag`) and maximise it on a double click; every top row
 //! leaves [`reserved_width`] free at its right end for the buttons drawn here.
 //!
-//! Automation ids: `window.minimize`, `window.maximize`, `window.close`.
+//! Full screen (Settings ▸ General ▸ Full screen, on by default) has its own button left of the
+//! three, so it is always one click away; F11 and View ▸ Full Screen switch it too. In full screen
+//! and on the Project Manager only the full-screen and minimise buttons show.
+//!
+//! Automation ids: `window.fullScreen`, `window.minimize`, `window.maximize`, `window.close`.
 
 use egui::{Color32, CursorIcon, Rect, ResizeDirection, Sense, Stroke, ViewportCommand, pos2, vec2};
 
@@ -29,7 +33,104 @@ pub fn wants_own(title_bar: &str) -> bool {
 
 /// Width the top rows leave free at their right end for the window buttons.
 pub fn reserved_width(app: &FilmcraftApp) -> f32 {
-    if app.window_controls { 3.0 * BUTTON_W } else { 0.0 }
+    let full = app.shown_full_screen.unwrap_or_else(|| wanted_full_screen(app));
+    if app.window_controls { shown_buttons(app, full) as f32 * BUTTON_W } else { 0.0 }
+}
+
+/// How many of the buttons show (owner, 2026-10-13): all four in a normal window; only full
+/// screen and minimise in full screen and on the Project Manager screen (no maximise, no close:
+/// quit through FilmCraft ▸ Quit FilmCraft or Cmd+Q).
+fn shown_buttons(app: &FilmcraftApp, full_screen: bool) -> usize {
+    if full_screen || app.ui.home.open { 2 } else { BUTTONS }
+}
+
+/// Number of window buttons: full screen, minimise, maximise, close.
+const BUTTONS: usize = 4;
+
+/// Whether the window should be full screen now: the Project Manager and the editor remember their
+/// own state (owner, 2026-10-13, as in Resolve): Settings ▸ General ▸ Project Manager full screen
+/// while it is open, Settings ▸ General ▸ Full screen otherwise.
+pub fn wanted_full_screen(app: &FilmcraftApp) -> bool {
+    let g = &app.session.prefs.general;
+    if app.ui.home.open { g.project_manager_full_screen } else { g.full_screen }
+}
+
+/// Switch full screen for the current screen (the Project Manager or the editor), saved with the
+/// preferences; [`sync_full_screen`] sends it to the window. Returns the new state.
+pub fn toggle_full_screen(app: &mut FilmcraftApp) -> bool {
+    // from what the window shows when known (an agent's window opens windowed although the
+    // setting is on; a compositor may refuse full screen), else from the setting
+    let now = app.shown_full_screen.unwrap_or_else(|| wanted_full_screen(app));
+    set_full_screen(app, !now)
+}
+
+/// Set full screen for the current screen; the status line says how to switch back.
+pub fn set_full_screen(app: &mut FilmcraftApp, on: bool) -> bool {
+    store_full_screen(app, on);
+    app.ui.status =
+        if on { tl!("Full screen: F11 or the full-screen button at the top right leaves it") } else { tl!("Full screen off: F11 switches it back on") }.into();
+    on
+}
+
+/// Save `on` as the current screen's full-screen setting.
+fn store_full_screen(app: &mut FilmcraftApp, on: bool) {
+    if wanted_full_screen(app) == on {
+        return;
+    }
+    let mut p = app.session.prefs.clone();
+    if app.ui.home.open {
+        p.general.project_manager_full_screen = on;
+    } else {
+        p.general.full_screen = on;
+    }
+    if let Err(e) = app.session.set_prefs(p) {
+        log::warn!("saving preferences: {e}");
+    }
+}
+
+/// Keep the window's full-screen state and the settings in step, once per frame:
+/// - the current screen's setting changed (a button, F11, Settings, the Project Manager opening or
+///   closing): the window follows;
+/// - the desktop changed it (a KWin shortcut, the window menu): the current screen's setting
+///   takes the window's new state.
+///
+/// On the first frame the window is only told when the host asks for it
+/// ([`FilmcraftApp::full_screen_at_start`]; an agent's window stays windowed).
+pub fn sync_full_screen(app: &mut FilmcraftApp, ctx: &egui::Context) {
+    let (now, time) = ctx.input(|i| (i.viewport().fullscreen, i.time));
+    // the window answers a request a few frames later: changes seen right after one are its answer
+    // (switching screens quickly can cross two answers), not the desktop's doing
+    let settling = app.full_screen_sent_at.is_some_and(|t| time - t < FULL_SCREEN_SETTLE_S);
+    if let Some(now) = now {
+        if settling {
+            app.shown_full_screen = Some(now);
+        } else {
+            window_full_screen_is(app, now);
+        }
+    }
+    let wanted = wanted_full_screen(app);
+    let send = match app.sent_full_screen {
+        Some(sent) => sent != wanted,
+        None => app.full_screen_at_start,
+    };
+    if send {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(wanted));
+        app.full_screen_sent_at = Some(time);
+    }
+    app.sent_full_screen = Some(wanted);
+}
+
+/// How long after a full-screen request the window's changes count as its answer (seconds).
+const FULL_SCREEN_SETTLE_S: f64 = 1.5;
+
+/// [`sync_full_screen`]'s desktop half, with the window's state already read.
+fn window_full_screen_is(app: &mut FilmcraftApp, now: bool) {
+    let before = app.shown_full_screen.replace(now);
+    if before.is_some_and(|b| b != now) && now != wanted_full_screen(app) && app.sent_full_screen.is_some() {
+        store_full_screen(app, now);
+        // already applied by the desktop: don't send it back
+        app.sent_full_screen = Some(now);
+    }
 }
 
 /// Height of the topmost row of the current screen (where the buttons sit).
@@ -39,7 +140,7 @@ fn top_row_height(app: &FilmcraftApp) -> f32 {
     } else if !app.ui.show_header {
         30.0
     } else if app.resolve_workflow() {
-        if app.ui.show_menu_bar { crate::panels::page_toolbar::MENU_H } else { crate::panels::page_toolbar::height(app) }
+        if app.in_window_menu() { crate::panels::page_toolbar::MENU_H } else { crate::panels::page_toolbar::height(app) }
     } else {
         38.0
     }
@@ -57,21 +158,41 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let h = top_row_height(app);
     let p = ui.painter().clone();
-    let mut x = full.max.x - 3.0 * BUTTON_W;
-    let buttons: [(&str, &str); 3] =
-        [("window.minimize", tl!("Minimize")), ("window.maximize", if maximized { tl!("Restore") } else { tl!("Maximize") }), ("window.close", tl!("Close"))];
-    for (i, (id, label)) in buttons.into_iter().enumerate() {
+    let shown = shown_buttons(app, fullscreen);
+    let mut x = full.max.x - shown as f32 * BUTTON_W;
+    let buttons: [(&str, &str); BUTTONS] = [
+        ("window.fullScreen", if fullscreen { tl!("Exit Full Screen (F11)") } else { tl!("Full Screen (F11)") }),
+        ("window.minimize", tl!("Minimize")),
+        ("window.maximize", if maximized { tl!("Restore") } else { tl!("Maximize") }),
+        ("window.close", tl!("Close")),
+    ];
+    for (n, (id, label)) in buttons.into_iter().enumerate().take(shown) {
+        // 0 = full screen, then the usual three
+        let i = n.wrapping_sub(1);
         let r = Rect::from_min_size(pos2(x, full.min.y), vec2(BUTTON_W, h));
         x += BUTTON_W;
         let resp = ui.interact(r, egui::Id::new(id), Sense::click()).on_hover_text(label);
         app.auto.add(id, r, label);
-        let close = i == 2;
+        let close = n == 3;
         if resp.hovered() {
             p.rect_filled(r, 0.0, if close { CLOSE_HOVER } else { t.hover });
         }
         let color = if resp.hovered() { if close { Color32::WHITE } else { t.text } } else { t.text_dim };
         let stroke = Stroke::new(1.0, color);
         let c = r.center();
+        if n == 0 {
+            // four corner brackets: pointing out (enter) or in (leave)
+            let (a, b) = if fullscreen { (2.0, 6.0) } else { (6.0, 2.0) };
+            for (sx, sy) in [(-1.0f32, -1.0f32), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                let corner = pos2(c.x + sx * a, c.y + sy * a);
+                p.line_segment([corner, pos2(c.x + sx * a, c.y + sy * b)], stroke);
+                p.line_segment([corner, pos2(c.x + sx * b, c.y + sy * a)], stroke);
+            }
+            if resp.clicked() {
+                toggle_full_screen(app);
+            }
+            continue;
+        }
         match i {
             0 => {
                 p.line_segment([pos2(c.x - 5.0, c.y), pos2(c.x + 5.0, c.y)], stroke);
@@ -93,7 +214,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
         if resp.clicked() {
             match i {
                 0 => ctx.send_viewport_cmd(ViewportCommand::Minimized(true)),
-                1 if fullscreen => ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false)),
+                1 if fullscreen => {
+                    set_full_screen(app, false);
+                }
                 1 => ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized)),
                 // a close request: unsaved changes still ask first (`intercept_quit`)
                 _ => ctx.send_viewport_cmd(ViewportCommand::Close),
@@ -161,6 +284,23 @@ mod tests {
         assert_eq!(wants_own("filmcraft"), SUPPORTED);
         assert_eq!(wants_own("garbage"), SUPPORTED);
         assert!(!wants_own("system"));
+    }
+
+    #[test]
+    fn desktop_full_screen_changes_reach_the_setting() {
+        let mut app = FilmcraftApp::new(filmcraft_engine::Session::default());
+        app.sent_full_screen = Some(true);
+        assert!(app.session.prefs.general.full_screen);
+        // an agent's window opens windowed: the first state seen is only recorded
+        window_full_screen_is(&mut app, false);
+        assert!(app.session.prefs.general.full_screen);
+        window_full_screen_is(&mut app, true);
+        assert!(app.session.prefs.general.full_screen);
+        // the desktop takes the window out of full screen (KWin shortcut, window menu)
+        window_full_screen_is(&mut app, false);
+        assert!(!app.session.prefs.general.full_screen, "the setting follows the window");
+        window_full_screen_is(&mut app, true);
+        assert!(app.session.prefs.general.full_screen);
     }
 
     #[test]

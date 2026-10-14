@@ -21,6 +21,7 @@ mod essential_sound_ui;
 mod export_menu_ui;
 mod export_ui;
 mod frame_export_ui;
+mod full_screen_ui;
 mod grade_ui;
 mod graphics_handles_ui;
 mod graphics_templates_ui;

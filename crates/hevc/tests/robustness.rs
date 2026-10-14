@@ -173,3 +173,38 @@ fn truncated_422_access_units_do_not_panic() {
         }
     }
 }
+
+/// A PPS whose Exp-Golomb fields hold the largest codable values (num_tile_columns_minus1,
+/// num_tile_rows_minus1, init_qp_minus26) parses to an error or a value, never an overflow panic
+/// (fork U0.2.2: the VA-API front end parses every PPS before the driver sees its tile layout).
+#[test]
+fn hostile_pps_fields_do_not_overflow() {
+    use filmcraft_bitstream::BitWriter;
+    // (init_qp_minus26, num_tile_columns_minus1, num_tile_rows_minus1)
+    for (qp, cols, rows) in [(i32::MAX, 0, 0), (0, u32::MAX, 0), (0, 0, u32::MAX), (i32::MAX, u32::MAX, u32::MAX)] {
+        let mut w = BitWriter::new();
+        w.write_ue(0); // pps_pic_parameter_set_id
+        w.write_ue(0); // pps_seq_parameter_set_id
+        w.write_bits(0, 2); // dependent slices, output flag
+        w.write_bits(0, 3); // num_extra_slice_header_bits
+        w.write_bits(0, 2); // sign data hiding, cabac_init_present
+        w.write_ue(0);
+        w.write_ue(0); // num_ref_idx_lX_default_active_minus1
+        w.write_se(qp);
+        w.write_bits(0, 3); // constrained intra, transform skip, cu_qp_delta
+        w.write_se(0);
+        w.write_se(0); // cb / cr qp offsets
+        w.write_bits(0, 4); // slice chroma qp offsets, weighted pred / bipred, transquant bypass
+        w.write_bit(true); // tiles_enabled
+        w.write_bit(false); // entropy_coding_sync
+        w.write_ue(cols);
+        w.write_ue(rows);
+        w.write_bit(true); // uniform spacing
+        w.write_bits(0, 8);
+        w.rbsp_trailing();
+        let r = filmcraft_hevc::params::Pps::parse(&w.finish());
+        if cols == u32::MAX || rows == u32::MAX {
+            assert!(r.is_err(), "too many tiles: {qp} {cols} {rows}");
+        }
+    }
+}

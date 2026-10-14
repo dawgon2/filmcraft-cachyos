@@ -606,6 +606,10 @@ pub fn invoke(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut params:
     if let Err(e) = &r {
         app.ui.status = e.clone();
     }
+    // as in Resolve: closing the project goes back to the Project Manager
+    if r.is_ok() && id == "file.closeProject" {
+        crate::panels::home::show_home(app);
+    }
     if r.is_ok() && matches!(id, "edit.copy" | "edit.cut") {
         put_clip_names_on_system_clipboard(app, ctx);
     }
@@ -652,7 +656,7 @@ fn encode_png(width: usize, height: usize, rgba: Vec<u8>) -> Result<Vec<u8>, Str
 }
 
 /// A menu tree entry for display / `ui.menu.list`.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct MenuItem {
     pub id: String,
     pub label: String,
@@ -663,6 +667,30 @@ pub struct MenuItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checked: Option<bool>,
 }
+
+/// The interface language the menu was built in, read from its checked Language item (hosts that
+/// show the menu outside egui translate the menu titles with it).
+pub fn language_of(items: &[MenuItem]) -> crate::i18n::Language {
+    use crate::i18n::Language as L;
+    const IDS: [(&str, L); 8] = [
+        ("app.language.japanese", L::Ja),
+        ("app.language.spanish", L::Es),
+        ("app.language.portuguese", L::PtBr),
+        ("app.language.ukrainian", L::Uk),
+        ("app.language.chinese", L::ZhCn),
+        ("app.language.german", L::De),
+        ("app.language.russian", L::Ru),
+        ("app.language.french", L::Fr),
+    ];
+    IDS.iter().find(|(id, _)| items.iter().any(|it| it.id == *id && it.checked == Some(true))).map_or(L::En, |(_, l)| *l)
+}
+
+/// The application menu left of File (fork, owner 2026-10-13): Preferences…, a separator, Quit
+/// FilmCraft. Not in [`MENUS`]: macOS builds its own application menu.
+pub const APP_MENU: &str = "FilmCraft";
+
+/// Items of the application menu that get a separator above them.
+pub const APP_MENU_SEPARATOR_BEFORE: &[&str] = &["app.quit"];
 
 pub const MENUS: [&str; 9] = ["File", "Edit", "Clip", "Sequence", "Markers", "Graphics and Titles", "View", "Window", "Help"];
 
@@ -692,6 +720,9 @@ pub fn menu_items(app: &FilmcraftApp) -> Vec<MenuItem> {
             "app.language.russian" => it.checked = Some(app.ui.language == crate::i18n::Language::Ru),
             "app.language.french" => it.checked = Some(app.ui.language == crate::i18n::Language::Fr),
             _ => {}
+        }
+        if it.id == "window.toggleFullScreen" {
+            it.checked = Some(crate::window_chrome::wanted_full_screen(app));
         }
         if it.id.starts_with("view.") {
             it.checked = crate::panels::monitor_view::checked(app, &it.id).or(crate::panels::menu_dialogs::checked(app, &it.id));
@@ -859,6 +890,22 @@ pub fn menu_bar(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut clicked: Option<String> = None;
     egui::MenuBar::new().config(egui::containers::menu::MenuConfig::new().style(crate::theme::menu_style)).ui(ui, |ui| {
+        let app_items: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(APP_MENU)).collect();
+        if !app_items.is_empty() {
+            let r = ui.menu_button(APP_MENU, |ui| {
+                ui.set_min_width(220.0);
+                for it in &app_items {
+                    if APP_MENU_SEPARATOR_BEFORE.contains(&it.id.as_str()) {
+                        ui.separator();
+                    }
+                    if menu_entry(ui, it, &mut app.auto, &labels) {
+                        clicked = Some(it.id.clone());
+                        ui.close();
+                    }
+                }
+            });
+            app.auto.add(&format!("menu.{APP_MENU}"), r.response.rect, APP_MENU);
+        }
         for top in MENUS {
             let mine: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(top)).collect();
             let r = ui.menu_button(app.ui.language.tr(top), |ui| {
@@ -993,7 +1040,7 @@ mod tests {
     fn default_menu_items_are_the_shipped_menu_bar() {
         let items = default_menu_items();
         assert!(items.len() > 300, "{} items", items.len());
-        assert!(items.iter().all(|it| it.path.first().is_some_and(|top| MENUS.contains(&top.as_str()))));
+        assert!(items.iter().all(|it| it.path.first().is_some_and(|top| MENUS.contains(&top.as_str()) || top == APP_MENU)));
         let ws: Vec<&MenuItem> = items.iter().filter(|it| it.path == ["Window", "Workspaces"]).collect();
         for name in crate::dock::WORKSPACES {
             assert!(ws.iter().any(|it| it.label == name && it.checked.is_none()), "no workspace {name}");

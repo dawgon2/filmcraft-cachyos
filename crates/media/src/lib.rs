@@ -156,6 +156,10 @@ impl FrameRequest {
 
 pub trait MediaSource: Send + Sync {
     fn info(&self) -> &MediaInfo;
+    /// Fork U0.2.3b d: hardware decoders this source makes from now on may hand their pictures
+    /// to the compositing GPU scaled by `scale` ((0, 1]): only for a source no request will ask
+    /// more of (an export's own sources). Sources without such decoders ignore it (the default).
+    fn set_handoff_scale(&self, _scale: f32) {}
     /// The frame displayed at media time `req.time`.
     fn video_frame(&self, req: FrameRequest) -> Result<Arc<VideoFrame>>;
     /// `frames` audio frames starting at sample index `start` (at `sample_rate`, media time).

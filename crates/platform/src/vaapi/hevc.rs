@@ -5,8 +5,19 @@
 //! pictures of a CRA the run starts at left out as in software.
 //!
 //! What the hardware path does not take is an error, so the hybrid decoder replays the run in
-//! software: missing reference pictures (the software decoder conceals them), more than 15
-//! reference frames, stream changes the surfaces were not made for, range extensions.
+//! software: missing reference pictures (the software decoder conceals them; unless
+//! [`Front::set_conceal_missing`] is on, fork U0.2.2), more than 15 reference frames, stream
+//! changes the surfaces were not made for, range-extension tools (as in software).
+//!
+//! Fork U0.2.3: HEVC Main 4:2:2 10 ([`Front::set_chroma_format`]) takes VA's range-extension
+//! buffers (`VAPictureParameterBufferHEVCExtension`, `VASliceParameterBufferHEVCExtension`,
+//! [`Accel::decode_hevc_rext`]); range-extension-profile 4:2:0 streams take the plain ones, as
+//! the fork's own decoder did.
+//!
+//! Hostile parameters the driver would trust are refused here, before a buffer is filled (fork
+//! U0.2.2, from the fork's `va_hevc`; Intel's media engine resets on such damage): tile layouts
+//! that do not fit the picture or VA's tile arrays ([`tile_sizes`]) and slice entry points that
+//! announce substreams past the end of the slice ([`slice_params`]).
 //!
 //! Safe code; compiled on every target so its logic is tested everywhere.
 
@@ -15,13 +26,14 @@ use std::sync::Arc;
 use filmcraft_bitstream::{length_prefixed_nals, unescape_rbsp};
 use filmcraft_codecs::{CodecError, DecodedFrame, Result};
 use filmcraft_hevc::dpb::{Dpb, Marking, Output, OutputMeta, PocState, Ref, RefPicSet, build_ref_lists};
-use filmcraft_hevc::params::{Layout, Pps, ScalingList, Sps};
+use filmcraft_hevc::params::{Pps, ScalingList, Sps};
 use filmcraft_hevc::slice::{NalHeader, SliceHeader, SliceType, nal_type};
 
 use super::Accel;
 use super::ffi::{
-    self, VAIQMatrixBufferHEVC, VAPictureHEVC, VAPictureParameterBufferHEVC, VASliceParameterBufferHEVC, hevc_pic_bits, hevc_slice_bits,
-    hevc_slice_parsing_bits,
+    self, VAIQMatrixBufferHEVC, VAPictureHEVC, VAPictureParameterBufferHEVC, VAPictureParameterBufferHEVCExtension, VAPictureParameterBufferHEVCRext,
+    VAPictureParameterBufferHEVCScc, VASliceParameterBufferHEVC, VASliceParameterBufferHEVCExtension, VASliceParameterBufferHEVCRext, hevc_pic_bits,
+    hevc_rext_pic_bits, hevc_slice_bits, hevc_slice_parsing_bits,
 };
 
 /// A picture in the DPB: its surface.
@@ -51,6 +63,8 @@ struct Pending {
     slices: Vec<(VASliceParameterBufferHEVC, Vec<u8>)>,
     all_intra: bool,
     any_b: bool,
+    /// Range-extension buffers (4:2:2, fork U0.2.3): the picture's and each slice's extension.
+    rext: Option<(VAPictureParameterBufferHEVCRext, Vec<VASliceParameterBufferHEVCRext>)>,
 }
 
 /// HEVC front end of a stateless hardware decoder (see the module docs).
@@ -60,6 +74,8 @@ pub struct Front<A: Accel> {
     /// Coded size (luma samples) and bit depth the surfaces were made for.
     size: (u32, u32),
     bits: u32,
+    /// Chroma format the surfaces were made for (1: 4:2:0, the default; 2: 4:2:2, fork U0.2.3).
+    chroma_format_idc: u32,
     spss: Vec<Option<Arc<Sps>>>,
     ppss: Vec<Option<Arc<Pps>>>,
     dpb: Dpb<Surface>,
@@ -69,6 +85,9 @@ pub struct Front<A: Accel> {
     first_picture: bool,
     skip_rasl: bool,
     after_eos: bool,
+    /// Missing reference pictures get mid-grey stand-in surfaces ([`Accel::fill`]) instead of an
+    /// error (fork U0.2.2).
+    conceal_missing: bool,
 }
 
 fn decode_err(e: impl std::fmt::Display) -> CodecError {
@@ -89,6 +108,7 @@ impl<A: Accel> Front<A> {
             length_size,
             size,
             bits,
+            chroma_format_idc: 1,
             spss: vec![None; 16],
             ppss: vec![None; 64],
             dpb: Dpb::default(),
@@ -98,12 +118,34 @@ impl<A: Accel> Front<A> {
             first_picture: true,
             skip_rasl: false,
             after_eos: false,
+            conceal_missing: false,
         };
         let mut frames = Vec::new();
         for nal in parameter_sets {
             f.handle_nal(nal, 0, &mut frames)?;
         }
         Ok(f)
+    }
+
+    /// Decode pictures whose reference pictures are missing (a damaged stream, a seek into an
+    /// open GOP the RASL rule does not cover) against mid-grey stand-ins, as the software decoder
+    /// conceals them (8.3.3.2), instead of failing them (`on`; off by default: the hybrid decoder
+    /// then replays the run in software). Fork U0.2.2: the zero-copy decoder turns it on, as the
+    /// fork's own HEVC decoder did.
+    pub fn set_conceal_missing(&mut self, on: bool) {
+        self.conceal_missing = on;
+    }
+
+    /// Whether missing references get grey stand-ins ([`Front::set_conceal_missing`]).
+    pub fn conceals_missing(&self) -> bool {
+        self.conceal_missing
+    }
+
+    /// The chroma format the accelerator's surfaces were made for (1: 4:2:0, the default; 2:
+    /// 4:2:2, decoded with VA's range-extension buffers). Pictures of another format are refused
+    /// as a format change. Fork U0.2.3.
+    pub fn set_chroma_format(&mut self, chroma_format_idc: u32) {
+        self.chroma_format_idc = chroma_format_idc;
     }
 
     pub fn accel(&self) -> &A {
@@ -227,6 +269,9 @@ impl<A: Accel> Front<A> {
         }
         p.all_intra &= sh.is_intra();
         p.any_b |= sh.is_b();
+        if let Some((_, slices)) = p.rext.as_mut() {
+            slices.push(slice_params_rext(&sh));
+        }
         p.slices.push((params, nal.to_vec()));
         Ok(())
     }
@@ -235,7 +280,11 @@ impl<A: Accel> Front<A> {
         if !sh.first_slice_segment_in_pic || sh.dependent {
             return Err(decode_err("invalid first slice segment"));
         }
-        if (sps.width, sps.height) != self.size || sps.bit_depth_luma != self.bits || sps.bit_depth_chroma != self.bits || sps.chroma_format_idc != 1 {
+        if (sps.width, sps.height) != self.size
+            || sps.bit_depth_luma != self.bits
+            || sps.bit_depth_chroma != self.bits
+            || sps.chroma_format_idc != self.chroma_format_idc
+        {
             return Err(unsupported("a picture size or format change"));
         }
         if sps.max_dec_pic_buffering as usize >= self.accel.surfaces().len() {
@@ -250,7 +299,7 @@ impl<A: Accel> Front<A> {
         self.active_sps = Some(sps.clone());
         self.dpb.max_dec_pic_buffering = sps.max_dec_pic_buffering as usize;
         self.dpb.max_num_reorder = sps.max_num_reorder as usize;
-        self.dpb.max_latency = if sps.max_latency_increase_plus1 != 0 { sps.max_num_reorder + sps.max_latency_increase_plus1 - 1 } else { 0 };
+        self.dpb.max_latency = if sps.max_latency_increase_plus1 != 0 { sps.max_num_reorder.saturating_add(sps.max_latency_increase_plus1 - 1) } else { 0 };
         let irap_no_rasl = hdr.is_irap() && (hdr.is_idr() || hdr.is_bla() || self.first_picture || self.after_eos);
         if hdr.is_irap() {
             self.skip_rasl = irap_no_rasl;
@@ -258,10 +307,12 @@ impl<A: Accel> Front<A> {
         let max_lsb = sps.max_poc_lsb();
         let poc = self.poc_state.compute(sh, max_lsb, irap_no_rasl);
         let mut make_missing = |_: i32| -> filmcraft_hevc::Result<Surface> { Ok(Surface { index: MISSING }) };
-        let rps = self.dpb.apply_rps(sh, poc, max_lsb, irap_no_rasl, &mut make_missing).map_err(decode_err)?;
-        if [&rps.st_curr_before, &rps.st_curr_after, &rps.lt_curr].iter().any(|l| l.iter().any(|r| r.frame.index == MISSING)) {
+        let mut rps = self.dpb.apply_rps(sh, poc, max_lsb, irap_no_rasl, &mut make_missing).map_err(decode_err)?;
+        let missing = [&rps.st_curr_before, &rps.st_curr_after, &rps.lt_curr].iter().any(|l| l.iter().any(|r| r.frame.index == MISSING));
+        if missing && !self.conceal_missing {
             // the software decoder conceals them with mid-gray pictures
-            return Err(unsupported("missing reference pictures"));
+            // `Unsupported`: refused before the driver saw anything, not a hardware failure
+            return Err(CodecError::Unsupported("the hardware decoder does not take missing reference pictures".into()));
         }
         if irap_no_rasl && !self.first_picture {
             if sh.no_output_of_prior_pics && hdr.is_idr() {
@@ -273,7 +324,10 @@ impl<A: Accel> Front<A> {
             self.dpb.bump_before_decode(&mut outs);
         }
         self.read_out(outs, frames)?;
-        let free: Vec<usize> = (0..self.accel.surfaces().len()).filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).collect();
+        // (POC, surface, long-term) of the stand-ins for missing references
+        let stand_ins = if missing { self.stand_in_missing(&mut rps)? } else { Vec::new() };
+        let free: Vec<usize> =
+            (0..self.accel.surfaces().len()).filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i) && !stand_ins.iter().any(|s| s.1 == i)).collect();
         let target = self.accel.pick(&free).ok_or_else(|| decode_err("no free surface"))?;
         let surfaces = self.accel.surfaces();
         let target_id = surfaces.get(target).copied().ok_or_else(|| decode_err("surface out of range"))?;
@@ -292,16 +346,24 @@ impl<A: Accel> Front<A> {
                 0
             }
         };
-        let refs: Vec<_> = self.dpb.entries.iter().filter(|e| e.marking != Marking::Unused).collect();
+        // (surface, POC, long-term): the DPB's reference pictures, then the stand-ins
+        let refs: Vec<(usize, i32, bool)> = self
+            .dpb
+            .entries
+            .iter()
+            .filter(|e| e.marking != Marking::Unused)
+            .map(|e| (e.frame.index, e.poc, e.marking == Marking::Long))
+            .chain(stand_ins.iter().map(|&(poc, index, long)| (index, poc, long)))
+            .collect();
         if refs.len() > pic.ReferenceFrames.len() {
             return Err(unsupported("more than 15 reference frames"));
         }
         let mut ref_frames = Vec::with_capacity(refs.len());
-        for (slot, e) in pic.ReferenceFrames.iter_mut().zip(&refs) {
-            let long = if e.marking == Marking::Long { ffi::VA_PICTURE_HEVC_LONG_TERM_REFERENCE } else { 0 };
-            let picture_id = surfaces.get(e.frame.index).copied().ok_or_else(|| decode_err("surface out of range"))?;
-            *slot = VAPictureHEVC { picture_id, pic_order_cnt: e.poc, flags: long | rps_flag(e.frame.index), va_reserved: [0; ffi::VA_PADDING_LOW] };
-            ref_frames.push(e.frame.index);
+        for (slot, &(index, ref_poc, long)) in pic.ReferenceFrames.iter_mut().zip(&refs) {
+            let long = if long { ffi::VA_PICTURE_HEVC_LONG_TERM_REFERENCE } else { 0 };
+            let picture_id = surfaces.get(index).copied().ok_or_else(|| decode_err("surface out of range"))?;
+            *slot = VAPictureHEVC { picture_id, pic_order_cnt: ref_poc, flags: long | rps_flag(index), va_reserved: [0; ffi::VA_PADDING_LOW] };
+            ref_frames.push(index);
         }
         let output = sh.pic_output && !(hdr.is_rasl() && self.skip_rasl);
         let meta = Arc::new(output_meta(sps, pts, hdr.is_irap()));
@@ -320,10 +382,37 @@ impl<A: Accel> Front<A> {
             slices: Vec::new(),
             all_intra: true,
             any_b: false,
+            // the range-extension profile (Main 4:2:2 10) reads the extension structs
+            rext: (sps.chroma_format_idc != 1).then(|| (picture_params_rext(sps, pps), Vec::new())),
         });
         self.first_picture = false;
         self.after_eos = false;
         Ok(())
+    }
+
+    /// Give each missing reference of `rps` (one per POC) a surface the DPB does not hold, made
+    /// mid-grey ([`Accel::fill`]); the stand-ins as (POC, surface, long-term). They are not
+    /// inserted into the DPB (as in software, a later picture referring to the same missing POC
+    /// gets a fresh stand-in, also grey), so their surfaces are free again after this picture.
+    fn stand_in_missing(&mut self, rps: &mut RefPicSet<Surface>) -> Result<Vec<(i32, usize, bool)>> {
+        let mut stand_ins: Vec<(i32, usize, bool)> = Vec::new();
+        let lists = [(&mut rps.st_curr_before, false), (&mut rps.st_curr_after, false), (&mut rps.lt_curr, true)];
+        for (list, long) in lists {
+            for r in list.iter_mut().filter(|r| r.frame.index == MISSING) {
+                if let Some(&(_, index, _)) = stand_ins.iter().find(|s| s.0 == r.poc && s.2 == long) {
+                    r.frame.index = index;
+                    continue;
+                }
+                let free: Vec<usize> = (0..self.accel.surfaces().len())
+                    .filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i) && !stand_ins.iter().any(|s| s.1 == i))
+                    .collect();
+                let index = self.accel.pick_gray(&free).ok_or_else(|| decode_err("no free surface for a missing reference"))?;
+                self.accel.fill(index, None).map_err(decode_err)?;
+                stand_ins.push((r.poc, index, long));
+                r.frame.index = index;
+            }
+        }
+        Ok(stand_ins)
     }
 
     /// Decode the collected picture, then insert it into the DPB.
@@ -334,7 +423,21 @@ impl<A: Accel> Front<A> {
         p.pic.slice_parsing_fields |= u32::from(p.all_intra) << hevc_slice_parsing_bits::INTRA_PIC;
         p.pic.pic_fields |= u32::from(!p.any_b) << hevc_pic_bits::NO_BI_PRED;
         let iq = if p.sps.scaling_list_enabled { Some(iq_matrix(p.pps.scaling_list.as_ref().or(p.sps.scaling_list.as_ref()))) } else { None };
-        self.accel.decode_hevc(p.target, &p.pic, iq.as_ref(), &p.slices).map_err(decode_err)?;
+        match p.rext.take() {
+            None => self.accel.decode_hevc(p.target, &p.pic, iq.as_ref(), &p.slices).map_err(decode_err)?,
+            Some((rext, slice_rext)) => {
+                if slice_rext.len() != p.slices.len() {
+                    return Err(decode_err("range-extension slice parameters out of step"));
+                }
+                let pic = VAPictureParameterBufferHEVCExtension { base: p.pic, rext, scc: VAPictureParameterBufferHEVCScc::NONE };
+                let slices: Vec<(VASliceParameterBufferHEVCExtension, Vec<u8>)> = std::mem::take(&mut p.slices)
+                    .into_iter()
+                    .zip(slice_rext)
+                    .map(|((base, data), rext)| (VASliceParameterBufferHEVCExtension { base, rext }, data))
+                    .collect();
+                self.accel.decode_hevc_rext(p.target, &pic, iq.as_ref(), &slices).map_err(decode_err)?;
+            }
+        }
         self.poc_state.update(&p.first, p.poc);
         let mut outs = Vec::new();
         self.dpb.insert(Surface { index: p.target }, p.poc, p.output, p.meta, &mut outs);
@@ -407,23 +510,19 @@ pub fn picture_params(sps: &Sps, pps: &Pps, sh: &SliceHeader) -> Result<VAPictur
         | flag(pps.slice_header_extension_present, s::SLICE_SEGMENT_HEADER_EXTENSION_PRESENT)
         | flag(sh.nal.is_irap(), s::RAP_PIC)
         | flag(sh.nal.is_idr(), s::IDR_PIC);
-    // tile sizes in CTBs, uniform spacing resolved
-    let layout = Layout::new(sps, pps).map_err(decode_err)?;
+    // tile sizes in CTBs, uniform spacing resolved; a layout that does not fit is refused here
     let mut column_width_minus1 = [0u16; 19];
     let mut row_height_minus1 = [0u16; 21];
     if pps.tiles_enabled {
-        let sizes = |bd: &[u32], out: &mut [u16]| -> Result<()> {
-            let n = bd.len().saturating_sub(1);
-            if n > out.len() {
-                return Err(unsupported("that many tiles"));
+        let fill = |sizes: Vec<u32>, out: &mut [u16]| {
+            for (o, w) in out.iter_mut().zip(sizes) {
+                *o = u16::try_from(w.saturating_sub(1)).unwrap_or(u16::MAX);
             }
-            for (o, w) in out.iter_mut().zip(bd.windows(2)) {
-                *o = u16::try_from(w[1].saturating_sub(w[0]).saturating_sub(1)).unwrap_or(0);
-            }
-            Ok(())
         };
-        sizes(&layout.col_bd, &mut column_width_minus1)?;
-        sizes(&layout.row_bd, &mut row_height_minus1)?;
+        let cols = tile_sizes(pps.num_tile_columns, &pps.column_widths, sps.pic_width_in_ctbs(), pps.uniform_spacing, column_width_minus1.len())?;
+        let rows = tile_sizes(pps.num_tile_rows, &pps.row_heights, sps.pic_height_in_ctbs(), pps.uniform_spacing, row_height_minus1.len())?;
+        fill(cols, &mut column_width_minus1);
+        fill(rows, &mut row_height_minus1);
     }
     let narrow = |v: u32| u16::try_from(v).map_err(|_| decode_err("picture too large"));
     Ok(VAPictureParameterBufferHEVC {
@@ -445,7 +544,7 @@ pub fn picture_params(sps: &Sps, pps: &Pps, sh: &SliceHeader) -> Result<VAPictur
         log2_diff_max_min_pcm_luma_coding_block_size: u8_of(sps.log2_max_pcm.saturating_sub(sps.log2_min_pcm)),
         max_transform_hierarchy_depth_intra: u8_of(sps.max_th_depth_intra),
         max_transform_hierarchy_depth_inter: u8_of(sps.max_th_depth_inter),
-        init_qp_minus26: i8_of(pps.init_qp - 26),
+        init_qp_minus26: i8_of(pps.init_qp.saturating_sub(26)),
         diff_cu_qp_delta_depth: u8_of(pps.diff_cu_qp_delta_depth),
         pps_cb_qp_offset: i8_of(pps.cb_qp_offset),
         pps_cr_qp_offset: i8_of(pps.cr_qp_offset),
@@ -466,6 +565,94 @@ pub fn picture_params(sps: &Sps, pps: &Pps, sh: &SliceHeader) -> Result<VAPictur
         st_rps_bits: u32::try_from(sh.st_rps_bits).unwrap_or(0),
         va_reserved: [0; ffi::VA_PADDING_MEDIUM],
     })
+}
+
+/// The range-extension picture parameters (7.3.2.2.2, 7.3.2.3.2), fork U0.2.3 (from `va_hevc`).
+/// The parsers refuse streams that use the range-extension tools (`check_supported`, as the
+/// software decoder does), so these hold the defaults in practice; they are filled from the
+/// parsed sets all the same, clamped to the ranges the spec allows.
+pub fn picture_params_rext(sps: &Sps, pps: &Pps) -> VAPictureParameterBufferHEVCRext {
+    use hevc_rext_pic_bits as b;
+    let (s, p) = (&sps.range_ext, &pps.range_ext);
+    let fields = flag(s.transform_skip_rotation, b::TRANSFORM_SKIP_ROTATION_ENABLED)
+        | flag(s.transform_skip_context, b::TRANSFORM_SKIP_CONTEXT_ENABLED)
+        | flag(s.implicit_rdpcm, b::IMPLICIT_RDPCM_ENABLED)
+        | flag(s.explicit_rdpcm, b::EXPLICIT_RDPCM_ENABLED)
+        | flag(s.extended_precision_processing, b::EXTENDED_PRECISION_PROCESSING)
+        | flag(s.intra_smoothing_disabled, b::INTRA_SMOOTHING_DISABLED)
+        | flag(s.high_precision_offsets, b::HIGH_PRECISION_OFFSETS_ENABLED)
+        | flag(s.persistent_rice_adaptation, b::PERSISTENT_RICE_ADAPTATION_ENABLED)
+        | flag(s.cabac_bypass_alignment, b::CABAC_BYPASS_ALIGNMENT_ENABLED)
+        | flag(p.cross_component_prediction, b::CROSS_COMPONENT_PREDICTION_ENABLED)
+        | flag(p.chroma_qp_offset_list_enabled, b::CHROMA_QP_OFFSET_LIST_ENABLED);
+    let qp = |v: i32| i8::try_from(v.clamp(-12, 12)).unwrap_or(0);
+    let mut r = VAPictureParameterBufferHEVCRext {
+        range_extension_pic_fields: fields,
+        diff_cu_chroma_qp_offset_depth: u8_of(p.diff_cu_chroma_qp_offset_depth.min(3)),
+        chroma_qp_offset_list_len_minus1: u8_of(u32::try_from(p.cb_qp_offset_list.len().clamp(1, 6) - 1).unwrap_or(0)),
+        log2_sao_offset_scale_luma: u8_of(p.log2_sao_offset_scale_luma.min(6)),
+        log2_sao_offset_scale_chroma: u8_of(p.log2_sao_offset_scale_chroma.min(6)),
+        log2_max_transform_skip_block_size_minus2: u8_of(p.log2_max_transform_skip_size.clamp(2, 5) - 2),
+        cb_qp_offset_list: [0; 6],
+        cr_qp_offset_list: [0; 6],
+    };
+    for (d, &v) in r.cb_qp_offset_list.iter_mut().zip(&p.cb_qp_offset_list) {
+        *d = qp(v);
+    }
+    for (d, &v) in r.cr_qp_offset_list.iter_mut().zip(&p.cr_qp_offset_list) {
+        *d = qp(v);
+    }
+    r
+}
+
+/// The range-extension slice parameters of `sh` (fork U0.2.3, from `va_hevc`): the
+/// weighted-prediction offsets at full width (the driver reads them from here for
+/// range-extension profiles), no chroma QP offsets per CU, no screen-content tools.
+pub fn slice_params_rext(sh: &SliceHeader) -> VASliceParameterBufferHEVCRext {
+    let mut r = VASliceParameterBufferHEVCRext::default();
+    let i16_of = |v: i32| i16::try_from(v.clamp(i16::MIN.into(), i16::MAX.into())).unwrap_or(0);
+    if let Some(w) = &sh.pwt {
+        let lists = [(&w.l[0], &mut r.luma_offset_l0, &mut r.ChromaOffsetL0), (&w.l[1], &mut r.luma_offset_l1, &mut r.ChromaOffsetL1)];
+        for (entries, lo, co) in lists {
+            for ((e, l), c) in entries.iter().zip(lo.iter_mut()).zip(co.iter_mut()) {
+                *l = i16_of(e.luma.1);
+                for (d, ch) in c.iter_mut().zip(&e.chroma) {
+                    *d = i16_of(ch.1);
+                }
+            }
+        }
+    }
+    r
+}
+
+/// The sizes in CTBs of `n` tile columns (or rows) across `total` CTBs (6-3, 6-4): uniformly
+/// spaced, or the `n - 1` `explicit` sizes and the rest. At most `max` tiles (VA's arrays), at
+/// most one per CTB, every tile at least one CTB: the driver trusts these, so a hostile PPS is
+/// refused here (fork U0.2.2, from `va_hevc`).
+pub fn tile_sizes(n: u32, explicit: &[u32], total: u32, uniform: bool, max: usize) -> Result<Vec<u32>> {
+    let too_many = || decode_err(format!("{n} tiles in {total} CTBs (the hardware takes at most {max})"));
+    let count = usize::try_from(n).map_err(|_| too_many())?;
+    if n == 0 || count > max || n > total {
+        return Err(too_many());
+    }
+    if uniform {
+        let (n, total) = (u64::from(n), u64::from(total));
+        return (0..n)
+            .map(|i| {
+                let size = (i + 1) * total / n - i * total / n;
+                u32::try_from(size).map_err(|_| too_many())
+            })
+            .collect();
+    }
+    let misfit = || decode_err(format!("explicit tile sizes {explicit:?} do not fit {total} CTBs"));
+    if explicit.len() != count - 1 || explicit.contains(&0) {
+        return Err(misfit());
+    }
+    let used: u64 = explicit.iter().map(|&x| u64::from(x)).sum();
+    let rest = u64::from(total).checked_sub(used).filter(|&r| r > 0).ok_or_else(misfit)?;
+    let mut sizes = explicit.to_vec();
+    sizes.push(u32::try_from(rest).map_err(|_| misfit())?);
+    Ok(sizes)
 }
 
 /// The 8x8 base list `coded` (up-right diagonal order, as coded and stored) in raster order.
@@ -552,6 +739,19 @@ pub fn slice_params(sh: &SliceHeader, nal: &[u8], refs: &[Vec<Ref<Surface>>; 2],
         | flag(sh.loop_filter_across_slices, b::SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED);
     let header_bytes = sh.data_offset.checked_add(2).ok_or_else(|| decode_err("slice header too long"))?;
     let ep = emulation_bytes_before(nal.get(2..).unwrap_or_default(), sh.data_offset);
+    // the driver reads the slice data within these bounds: the data must start inside the NAL
+    // unit, and the substreams (tiles / WPP rows) the entry points announce, each at least one
+    // byte, must lie in it. A truncated slice is refused here instead of sending the engine past
+    // its end (Intel's media engine resets on such damage; fork U0.2.2, from `va_hevc`).
+    // (a valid slice has at least one data byte after its header: `end_of_slice_segment_flag`)
+    let data_start = header_bytes.saturating_add(ep);
+    if data_start >= nal.len() {
+        return Err(decode_err("slice data offset beyond the slice"));
+    }
+    let substreams: u64 = sh.entry_points.iter().map(|&o| u64::from(o)).sum();
+    if !sh.entry_points.is_empty() && (data_start as u64).saturating_add(substreams) >= nal.len() as u64 {
+        return Err(decode_err(format!("{} entry points ({substreams} bytes) past a {}-byte slice", sh.entry_points.len(), nal.len())));
+    }
     let mut s = VASliceParameterBufferHEVC {
         slice_data_size: u32::try_from(nal.len()).map_err(|_| decode_err("slice too large"))?,
         slice_data_offset: 0,

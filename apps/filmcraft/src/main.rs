@@ -37,6 +37,8 @@ mod desktop;
 mod dev_icon;
 mod file_filters;
 #[cfg(target_os = "linux")]
+mod global_menu;
+#[cfg(target_os = "linux")]
 mod global_shortcuts;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
@@ -169,7 +171,15 @@ fn main() -> eframe::Result {
     // Settings ▸ General ▸ Window title bar (fork): open without the desktop's title bar when
     // FilmCraft draws its own, so it doesn't flash up first (the app follows later changes)
     let prefs = data_dir.clone().or_else(default_data_dir).map(|d| filmcraft_engine::autosave::Preferences::load(&d.join("preferences.json")));
-    let own_title_bar = filmcraft_ui_egui::window_chrome::wants_own(&prefs.unwrap_or_default().general.title_bar);
+    let prefs = prefs.unwrap_or_default();
+    let own_title_bar = filmcraft_ui_egui::window_chrome::wants_own(&prefs.general.title_bar);
+    // Settings ▸ General ▸ Full screen / Project Manager full screen: open the way the first
+    // screen wants it (the Project Manager when no project is named and the startup setting shows
+    // it), never full screen for an agent
+    let opens_project_manager = !files.iter().any(|f| f.ends_with(".fcproj"))
+        && filmcraft_engine::projects::startup_action(&prefs, startup_flag, demo) == filmcraft_engine::projects::StartupAction::ProjectManager;
+    let wanted = if opens_project_manager { prefs.general.project_manager_full_screen } else { prefs.general.full_screen };
+    let full_screen = wanted && control_port.is_none();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("FilmCraft")
@@ -181,6 +191,7 @@ fn main() -> eframe::Result {
             .with_titlebar_shown(false)
             .with_title_shown(false)
             .with_decorations(!own_title_bar)
+            .with_fullscreen(full_screen)
             // Started for an agent (`--control`): open without taking the user's keyboard focus.
             .with_active(control_port.is_none())
             .with_icon(app_icon())
@@ -233,6 +244,8 @@ fn main() -> eframe::Result {
             }
             let mut app = FilmcraftApp::new(session);
             app.finish_launch(startup, !media.is_empty());
+            // the window opened in the first screen's full-screen state already
+            app.full_screen_at_start = control_port.is_none();
             if recover == Some(false) {
                 app.dialog = None;
             }
@@ -295,11 +308,13 @@ fn main() -> eframe::Result {
             app.hooks.system_languages = Some(Box::new(|| sys_locale::get_locales().collect()));
             // Settings ▸ Appearance ▸ Appearance Mode ▸ Sync with system on Linux desktops whose
             // compositor reports no theme to winit (no polling: see appearance.rs).
-            // ▸ Use the system accent color reads the desktop's accent colour the same way (L1.4).
+            // ▸ Use the system accent color reads the desktop's accent colour the same way (L1.4),
+            // ▸ Match the desktop's text size its font size.
             if let Some(service) = appearance::service() {
                 app.hooks.system_theme = Some(service.theme);
                 app.hooks.system_accent = Some(service.accent);
                 app.hooks.system_reduced_motion = Some(service.reduced_motion);
+                app.hooks.system_text_scale = Some(service.text_scale);
             }
             app.hooks.raise_without_focus = Some(Box::new(|| {
                 window_raise::raise_without_focus();
@@ -323,6 +338,16 @@ fn main() -> eframe::Result {
                 app.hooks.shortcuts_changed = Some(update);
                 app.ui.show_menu_bar = false;
             }
+            // Linux: the menus in Plasma's Global Menu / macOS-style top panel (Settings ▸ General ▸
+            // Menu bar); the window's own menu bar stays where there is none
+            #[cfg(target_os = "linux")]
+            if desktop_integration && let Some(g) = global_menu::install(cc) {
+                app.command_inbox = Some(g.commands);
+                app.hooks.menu_changed = Some(g.changed);
+                app.global_menu = Some(g.shown);
+                // lives as long as the process (the window closes only at exit)
+                Box::leak(Box::new(g.menu));
+            }
             if let Some(port) = control_port {
                 let rx = control_server::start(port, cc.egui_ctx.clone());
                 app = if control_input_only { app.with_control_input_only(rx) } else { app.with_control(rx) };
@@ -341,6 +366,8 @@ fn main() -> eframe::Result {
         filmcraft_ui_egui::crash::record(&msg);
         let _ = rfd::MessageDialog::new().set_title("FilmCraft").set_description(&msg).set_level(rfd::MessageLevel::Error).show();
     }
+    // background hardware probes finish before the drivers' exit handlers run (U0.2.4)
+    filmcraft_platform::quiesce();
     started
 }
 

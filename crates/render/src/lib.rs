@@ -23,6 +23,7 @@ pub mod grade_explain;
 pub mod grade_match;
 pub mod graphic_clip;
 pub mod graphics;
+pub mod handoff;
 pub mod image;
 pub mod lumetri_presets;
 pub mod luts;
@@ -61,6 +62,13 @@ pub trait SourceProvider: Sync {
     /// one GPU.
     fn lane_copy(&self) -> Option<Arc<dyn SourceProvider + Send + Sync>> {
         None
+    }
+
+    /// [`SourceProvider::lane_copy`] whose sources hand their pictures off scaled
+    /// ([`handoff::handoff_scales`], fork U0.2.3b d). The default ignores `scales`.
+    fn lane_copy_scaled(&self, scales: &[(ItemId, f32)]) -> Option<Arc<dyn SourceProvider + Send + Sync>> {
+        let _ = scales;
+        self.lane_copy()
     }
 }
 

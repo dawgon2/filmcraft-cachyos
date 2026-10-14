@@ -52,3 +52,13 @@ upstream. Rules: no history rewriting of `hevc-vaapi` or `master`, no force-push
 - A fresh clone of `origin` has no replace ref; it doesn't need one after U0 (the merge commit
   links the histories).
 - Later weekly syncs are ordinary merges of `upstream/main` (ask-first, UPSTREAM-PLAN).
+
+## Stage 2 (U0.2, 2026-10-13)
+
+The two VA-API decode stacks are now one: upstream's front ends with the fork's zero-copy / hand-off
+/ read-back accelerator on the fork's display layer (see ADR 0002, "Update: one VA-API stack"). The
+fork-only `va_hevc.rs`, `crates/hevc/src/accel.rs` (+ its test) and upstream's `vaapi/va.rs` are
+removed. The factory chain is: in-process zero-copy, then in-process read-back, then the ffmpeg pipe
+(fork-only). Bindings stay as PREP §3.2 item 5 recommendation **B**: `vaapi/ffi.rs` for the buffers
+the front ends fill, `va_sys` for everything else.
+

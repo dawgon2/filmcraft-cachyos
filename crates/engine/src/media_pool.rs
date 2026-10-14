@@ -148,6 +148,9 @@ pub struct MediaPool {
     motion: AtomicBool,
     /// Openers tried before the built-in ones (MP4/MOV + codecs register here).
     pub openers: RwLock<Vec<Opener>>,
+    /// Hand-off scales of an export's lane copy ([`MediaPool::lane_copy_scaled`]; empty: full
+    /// size), given to each source when it is opened.
+    handoff: Vec<(ItemId, f32)>,
 }
 
 impl Default for MediaPool {
@@ -160,6 +163,7 @@ impl Default for MediaPool {
             proxy_mode: AtomicU8::new(ProxyMode::default().to_u8()),
             motion: AtomicBool::new(false),
             openers: RwLock::new(filmcraft_codecs::openers()),
+            handoff: Vec::new(),
         }
     }
 }
@@ -394,6 +398,9 @@ impl MediaPool {
                 self.open_file(path, services)
             } {
                 Ok(s) => {
+                    if let Some(&(_, scale)) = self.handoff.iter().find(|h| h.0 == item) {
+                        s.set_handoff_scale(scale);
+                    }
                     self.offline.write().unwrap_or_else(|e| e.into_inner()).remove(&item);
                     self.unsupported_as_slate(item, path, s)
                 }
@@ -476,7 +483,15 @@ impl MediaPool {
             proxy_mode: AtomicU8::new(self.proxy_mode.load(std::sync::atomic::Ordering::Relaxed)),
             motion: AtomicBool::new(false),
             openers: RwLock::new(openers),
+            handoff: Vec::new(),
         }
+    }
+
+    /// [`MediaPool::lane_copy`] whose sources hand their pictures off scaled by `scales` (per
+    /// resolved media item; fork U0.2.3b d, `filmcraft_render::handoff::handoff_scales`): only
+    /// for an export, whose requests never ask more of a source than that.
+    pub fn lane_copy_scaled(&self, scales: &[(ItemId, f32)]) -> MediaPool {
+        MediaPool { handoff: scales.iter().take(4096).copied().filter(|s| s.1.is_finite() && s.1 > 0.0 && s.1 < 1.0).collect(), ..self.lane_copy() }
     }
 
     /// A provider that always reads full-resolution media (export).
@@ -503,6 +518,16 @@ impl filmcraft_render::SourceProvider for PoolProvider {
     fn lane_copy(&self) -> Option<Arc<dyn filmcraft_render::SourceProvider + Send + Sync>> {
         Some(Arc::new(PoolProvider {
             pool: Arc::new(self.pool.lane_copy()),
+            project: self.project.clone(),
+            services: self.services.clone(),
+            full_res: self.full_res,
+        }))
+    }
+
+    /// The same project snapshot over a [`MediaPool::lane_copy_scaled`] (fork U0.2.3b d).
+    fn lane_copy_scaled(&self, scales: &[(ItemId, f32)]) -> Option<Arc<dyn filmcraft_render::SourceProvider + Send + Sync>> {
+        Some(Arc::new(PoolProvider {
+            pool: Arc::new(self.pool.lane_copy_scaled(scales)),
             project: self.project.clone(),
             services: self.services.clone(),
             full_res: self.full_res,
@@ -691,6 +716,19 @@ mod tests {
             assert!(!session.is_enabled("file.mediaProperties"));
             assert!(session.execute("transcript.generate", serde_json::json!({"items":[a.0]})).is_err());
         }
+    }
+
+    /// Fork U0.2.3b d: a scaled lane copy keeps only sane scales below 1; plain copies and the
+    /// pool itself hand off at full size.
+    #[test]
+    fn scaled_lane_copies_keep_sane_scales_only() {
+        let pool = MediaPool::default();
+        let (a, b) = (ItemId(1), ItemId(2));
+        let copy = pool.lane_copy_scaled(&[(a, 0.5), (b, 1.0), (ItemId(3), f32::NAN), (ItemId(4), -1.0), (ItemId(5), 0.0)]);
+        assert_eq!(copy.handoff, vec![(a, 0.5)]);
+        assert!(pool.handoff.is_empty() && pool.lane_copy().handoff.is_empty() && copy.lane_copy().handoff.is_empty());
+        let many: Vec<(ItemId, f32)> = (0..10_000).map(|i| (ItemId(i), 0.5)).collect();
+        assert_eq!(pool.lane_copy_scaled(&many).handoff.len(), 4096, "capped");
     }
 
     /// Fork 6E.3: a lane copy is a separate pool (its own sources and decoders) with the same

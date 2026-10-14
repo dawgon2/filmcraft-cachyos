@@ -158,8 +158,9 @@ impl HevcEncoder {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ExportEngines {
-    /// Both GPUs when the export qualifies (HEVC through VA-API, 4:2:0, a second encoder, enough
-    /// memory), else one.
+    /// The primary GPU, plus the second one when the export qualifies (HEVC through VA-API, 4:2:0,
+    /// a second encoder, enough memory) and has no effect stage on its frames (FORK-PLAN §1a.63:
+    /// the second GPU joins only where it measurably helps at full precision), else one.
     #[default]
     Auto,
     /// The primary GPU only (as before 6E.3).

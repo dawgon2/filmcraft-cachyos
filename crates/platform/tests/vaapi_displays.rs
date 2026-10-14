@@ -11,7 +11,7 @@ mod common;
 
 use common::*;
 use filmcraft_codecs::VideoDecoder;
-use filmcraft_platform::vaapi::va::displays_opened;
+use filmcraft_platform::va::displays_opened;
 
 fn hardware(s: &Stream) -> Option<Box<dyn VideoDecoder>> {
     match filmcraft_platform::vaapi_factory(&s.entry) {
@@ -32,9 +32,10 @@ fn decoders_share_one_display() {
     let Some(hw) = hardware(first) else { return };
     drop(hw);
     let opened = displays_opened();
-    // (none when the fork's decoders took it: the zero-copy H.264 and HEVC decoders live on the
-    // fork's own process-wide display, `filmcraft_platform::va::Display::get`)
-    assert!(opened <= 1, "the first decoder opened at most one display ({opened})");
+    // (U0.2.4: one display layer, the fork's `filmcraft_platform::va::Display`: at most one per
+    // render node, probes at start included)
+    let nodes = std::fs::read_dir("/dev/dri").map(|d| d.flatten().filter(|e| e.file_name().to_string_lossy().starts_with("renderD")).count()).unwrap_or(0);
+    assert!(opened <= nodes.max(1), "at most one display per render node ({opened} for {nodes})");
 
     // one decoder after another, of every fixture (H.264, HEVC Main, HEVC Main 10)
     for round in 0..10 {

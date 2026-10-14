@@ -31,6 +31,13 @@ pub trait LaneDevices: Send + Sync {
     fn frames_on(&self, node: &str) -> Option<Box<dyn GpuFrames>>;
     /// Hardware decoders made on the calling thread from now on decode on `node`'s GPU.
     fn bind_thread(&self, node: Option<&str>);
+    /// Hardware decoders made on the calling thread from now on decode on `node`'s GPU and hand
+    /// their pictures to the primary GPU (fork U0.2.3b d: Intel decodes, AMD renders and
+    /// encodes). The default decodes on the primary GPU.
+    fn bind_thread_handoff(&self, node: &str) {
+        let _ = node;
+        self.bind_thread(None);
+    }
     /// Whether `node`'s GPU decodes HEVC 4:2:2 (the lane 4:2:2-source chunks prefer).
     fn decodes_422(&self, node: Option<&str>) -> bool;
     /// The encoders of lanes on `nodes` for this export; `None` when they can't take it.
@@ -78,8 +85,11 @@ pub struct LaneReport {
     pub frames: u64,
     /// Its frames per second of the lane's wall time.
     pub fps: f64,
-    /// Why it stopped early (its chunks went to the other lanes).
+    /// Why it stopped early because something went wrong (its chunks went to the other lanes).
     pub failed: Option<String>,
+    /// Why the slow-lane rule took it off the export while it still worked (its chunk went to
+    /// the other lanes). Not an error: `failed` stays `None`.
+    pub retired: Option<String>,
 }
 
 /// What the last stepped HEVC export did about lanes (`perf.stats` `export.lanes` /

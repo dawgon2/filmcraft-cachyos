@@ -745,6 +745,11 @@ fn video_section(ui: &mut egui::Ui, reg: &mut Reg, s: &mut ExportSettings, t: &T
                             {
                                 s.export_engines = *e;
                             }
+                            // (fork U0.2.3b, FORK-PLAN §1a.63: what Auto does and why)
+                            let help = ui.label(egui::RichText::new("?").color(t.text_dim).size(12.0)).on_hover_text(tl!(
+                                "Auto exports on the primary GPU, and adds the second GPU only to exports without effects or a grade, where it makes them faster. All GPUs always uses both; Primary GPU only always one."
+                            ));
+                            reg.add("export.video.exportEngines.help", help.rect, "Export engines help");
                         });
                     }
                     // fork 6E.4: 4:2:2 is Main 4:2:2 10 whatever the profile says

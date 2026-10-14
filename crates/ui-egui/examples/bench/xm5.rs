@@ -634,7 +634,7 @@ pub fn xm5(o: &Opts) -> Vec<Value> {
             play_cuts(&s, seq, o, &name, secs, &starts, &mut rows);
         }
     }
-    if ["xm5-export-4k", "xm5-export-4k graded", "xm5-export-6k"].iter().any(|n| o.wants(n)) || asks_tnr(o, "xm5-export-tnr") {
+    if ["xm5-export-4k", "xm5-export-4k graded", "xm5-export-6k", "xm5-export-6k graded"].iter().any(|n| o.wants(n)) || asks_tnr(o, "xm5-export-tnr") {
         rows.extend(export(o));
     }
     // only when asked for by name: hours long
@@ -962,7 +962,7 @@ fn scrub(o: &Opts) -> Vec<Value> {
 
 // ------------------------------------------------------------------------------------ export
 
-/// 60 s of the 6.2K clip exported to HEVC Main10: 3840×2160 ungraded and graded, 6240×4160.
+/// 60 s of the 6.2K clip exported to HEVC Main10: 3840×2160 and 6240×4160, ungraded and graded.
 fn export(o: &Opts) -> Vec<Value> {
     let mut rows = Vec::new();
     let secs = if o.quick { 5.0 } else { 60.0 };
@@ -971,10 +971,12 @@ fn export(o: &Opts) -> Vec<Value> {
         return rows;
     }
     // (the last: 4K with temporal noise reduction on the clip, fork 6.7; only when named)
-    let cases: [(&str, u32, u32, bool); 4] = [
+    let cases: [(&str, u32, u32, bool); 5] = [
         ("xm5-export-4k", 3840, 2160, false),
         ("xm5-export-4k graded", 3840, 2160, true),
         ("xm5-export-6k", 6240, 4160, false),
+        // fork U0.2.3b (FORK-PLAN §1a.58): the graded 6.2K export, reported (aim ≥ 24 fps)
+        ("xm5-export-6k graded", 6240, 4160, true),
         ("xm5-export-tnr", 3840, 2160, false),
     ];
     for (name, w, h, graded) in cases {
@@ -1028,7 +1030,7 @@ fn export(o: &Opts) -> Vec<Value> {
                 "case": name, "frames": frames, "seconds": dt, "fps": fps, "realtime": fps / FPS_29_97.as_f64(),
                 "cpu_ms_per_frame": cpu / frames.max(1) as f64, "mbytes": std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0) as f64 / 1e6,
                 "sampled": smp.json(), "load": load_avg(), "gop_seeks": g.seeks, "gop_decoded": g.decoded, "gop_evicted": g.evicted,
-                "engines": engines, "lanes": filmcraft_export::lanes::last_lanes(),
+                "engines": engines, "lanes": filmcraft_export::lanes::last_lanes(), "backends": filmcraft_codecs::hw::backend_stats(),
                 // wall seconds per export stage, summed over lanes and threads (fork 6E.3 S11)
                 "stages_s": filmcraft_export::stage_times().iter().zip(&st0).map(|((k, b), (_, a))| (k.name().to_string(), json!(b.saturating_sub(*a) as f64 / 1e9))).collect::<serde_json::Map<_, _>>(),
                 // FILMCRAFT_EXPORT_TRACE=1: render / encode breakdown in ms (lock waits, GPU record, VA encode)

@@ -305,9 +305,10 @@ counters, which the next weekly sync takes without touching this work.
 | U0.2.1 | zero-copy `Accel` + `pick` | done in Y1 |
 | U0.2.2 | HEVC 4:2:0 on upstream's front end; parity + xm5 regression gate | 3–4 h |
 | U0.2.3 | 4:2:2 port (Rext structs + ABI test, display choice, Y210 pool, hand-off, stop rule, tests); Dell run | 4–6 h |
+| U0.2.3b | speed floor (FORK-PLAN §1a.58, §1a.62–65): export ≥ 24 fps 6.2K, ≥ 30 fps 4K incl. graded (Intel and AMD faster on graded frames at f32), Auto one-GPU rule, half floats preview-only; multicut CPU / frame back to U0 | 10–14 h |
 | U0.2.4 | one display layer (fork `va::Display` under the front ends; `render_nodes` out of `ffmpeg.rs`) | 1–2 h |
 | U0.2.5 | chain cleanup, removals, docs / ADRs, `cargo xtask ci`, tag `upstream-sync-2` | 2–3 h |
-| | **Total** | **≈ 10–15 h** (+ Y1's 7) |
+| | **Total** | **≈ 14–23 h** (+ Y1's 7) |
 
 ### 3.4 Order recommendation (recommend, don't decide)
 

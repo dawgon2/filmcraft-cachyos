@@ -1,5 +1,7 @@
-//! HEVC Main 4:2:2 10 through FilmCraft's own VA-API decoder (`va_hevc`, fork Phase 6.1b) on the
-//! display whose driver has `VAProfileHEVCMain422_10` (Intel's media engine): bit-exact with the
+//! HEVC Main 4:2:2 10 through upstream's VA-API front end on the fork's zero-copy accelerator
+//! (`vaapi::VaDecoder::zero_copy`, fork U0.2.3; FilmCraft's own decoder `va_hevc` did it in
+//! Phase 6.1b) on the display whose driver has `VAProfileHEVCMain422_10` (Intel's media engine,
+//! whichever GPU is the process's device): bit-exact with the
 //! reference on the 4:2:2 conformance fixtures (`target/fixtures/hevc/*_422.hevc` + `.yuv`, the
 //! ffmpeg oracle the software decoder already matches) and with the built-in software decoder on
 //! the first pictures of the 6.2K xm5 4:2:2 clip; a mid-stream hardware failure continues in
@@ -17,7 +19,7 @@ use filmcraft_codecs::VideoDecoder;
 use filmcraft_codecs::hw::NalStreamInfo;
 use filmcraft_frame::PixelData;
 use filmcraft_platform::HybridDecoder;
-use filmcraft_platform::va_hevc::{NAME_422, NativeVaDecoder, decode_annexb};
+use filmcraft_platform::vaapi::{NAME_HEVC_422_ZERO_COPY as NAME_422, VaDecoder, decode_annexb_zero_copy as decode_annexb};
 
 /// The tests take turns on the media engine: a damaged stream can make Intel's engine reset
 /// (i915 "GPU HANG", recovered in 1–7 s), which corrupts pictures other contexts decode at that
@@ -149,7 +151,7 @@ fn bit_exact_with_the_software_decoder_on_the_xm5_422_clip() {
     let Some(s) = first_samples(&path, 10) else { panic!("unreadable {}", path.display()) };
     let info = NalStreamInfo::from_entry(&s.entry).expect("HEVC").expect("hvcC");
     assert_eq!((info.chroma_format_idc, info.bit_depth_luma), (2, 10), "a Main 4:2:2 10 clip");
-    let mut hw = NativeVaDecoder::new(info).expect("taken in hardware");
+    let mut hw = VaDecoder::zero_copy(info).expect("taken in hardware");
     assert_eq!(hw.name(), NAME_422);
     let t0 = Instant::now();
     let got = decode_all(&mut hw, &s.samples);
@@ -211,7 +213,7 @@ fn factory_parity_and_fallback_to_software() {
     let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
     let k = (1..s.samples.len()).find(|&i| s.sync[i]).unwrap();
     for fail in [3u64, k as u64 + 2] {
-        let mut native = NativeVaDecoder::new(info.clone()).unwrap();
+        let mut native = VaDecoder::zero_copy(info.clone()).unwrap();
         native.fail_after(fail);
         let mut d = HybridDecoder::new(Box::new(native), s.entry.clone(), info.clone());
         let out = decode_all(&mut d, &s.samples);
@@ -260,7 +262,7 @@ fn damaged_422_samples_and_parameter_sets_never_crash_or_hang() {
         let (samples, entry, info) = (s.samples.clone(), s.entry.clone(), info.clone());
         bounded(&format!("seed {seed}"), Duration::from_secs(60), move || {
             let mut seed = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-            let mut native = NativeVaDecoder::new(info).unwrap();
+            let mut native = VaDecoder::zero_copy(info).unwrap();
             let mut hybrid = filmcraft_platform::vaapi_factory(&entry).unwrap().unwrap();
             for (i, (smp, pts)) in samples.iter().enumerate().take(40) {
                 let mut m = smp.clone();
@@ -307,7 +309,7 @@ fn damaged_422_samples_and_parameter_sets_never_crash_or_hang() {
         let samples: Vec<_> = s.samples.iter().take(12).cloned().collect();
         bounded(&format!("record round {round}"), Duration::from_secs(60), move || {
             let Ok(info) = NalStreamInfo::from_hvcc(&r) else { return };
-            let Ok(mut d) = NativeVaDecoder::new(info) else { return };
+            let Ok(mut d) = VaDecoder::zero_copy(info) else { return };
             for (smp, pts) in &samples {
                 if d.decode(smp, *pts).is_err() {
                     break;
@@ -327,13 +329,13 @@ fn other_422_depths_are_declined() {
         let s = read_stream(&path);
         let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
         assert_eq!((info.chroma_format_idc, info.bit_depth_luma), (2, 8));
-        let e = NativeVaDecoder::new(info).err().expect("8-bit 4:2:2 declined");
-        assert!(e.contains("chroma format 2"), "{e}");
+        let e = VaDecoder::zero_copy(info).err().expect("8-bit 4:2:2 declined");
+        assert!(e.contains("chroma format 2 at 8-bit"), "{e}");
     }
     if let Some(path) = mp4_422(&ff, "hevc_422_12.mp4", "yuv422p12le", "main422-12") {
         let s = read_stream(&path);
         let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
-        assert!(NativeVaDecoder::new(info).is_err(), "12-bit 4:2:2 declined");
+        assert!(VaDecoder::zero_copy(info).is_err(), "12-bit 4:2:2 declined");
     }
     let Some(path) = mp4_422(&ff, "hevc_422_10_wp.mp4", "yuv422p10le", "main422-10") else { return };
     let s = read_stream(&path);
@@ -341,9 +343,40 @@ fn other_422_depths_are_declined() {
     for (luma, chroma) in [(10, 8), (8, 10), (0, 0), (16, 16), (u32::MAX, u32::MAX)] {
         let mut i = info.clone();
         (i.bit_depth_luma, i.bit_depth_chroma) = (luma, chroma);
-        assert!(NativeVaDecoder::new(i).is_err(), "{luma}/{chroma}-bit declined");
+        assert!(VaDecoder::zero_copy(i).is_err(), "{luma}/{chroma}-bit declined");
     }
     let mut i = info.clone();
     i.chroma_format_idc = 3;
-    assert!(NativeVaDecoder::new(i).is_err(), "4:4:4 declined");
+    assert!(VaDecoder::zero_copy(i).is_err(), "4:4:4 declined");
+}
+
+/// U0.2.3 review: on a decoder that does not conceal missing references (iHD), a 4:2:2 picture
+/// refused for them is refused before the driver sees it (`CodecError::Unsupported`): the
+/// decoder is not stopped (the next random-access picture decodes without a seek), so the
+/// refusal is not taken for a hardware failure (no "failed in hardware" 4:2:2 badge).
+#[test]
+fn a_422_picture_refused_for_missing_references_does_not_stop_the_decoder() {
+    let _engine = engine();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    if display_422().is_none() {
+        return;
+    }
+    let Some(path) = mp4_422(&ff, "hevc_422_10_wp.mp4", "yuv422p10le", "main422-10") else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    let mut d = VaDecoder::zero_copy(info).expect("taken in hardware");
+    if d.conceals_missing() {
+        return; // concealing drivers decode such pictures (covered in tests/vaapi.rs)
+    }
+    let k = (1..s.samples.len()).find(|&i| !s.sync[i]).unwrap();
+    let err = d.decode(&s.samples[k].0, s.samples[k].1).err().expect("refused");
+    assert!(matches!(err, filmcraft_codecs::CodecError::Unsupported(_)), "{err}");
+    let sync = (k..s.samples.len()).find(|&i| s.sync[i]).expect("a later sync sample");
+    let mut out = Vec::new();
+    for (smp, pts) in &s.samples[sync..] {
+        out.extend(d.decode(smp, *pts).expect("not stopped by the refusal"));
+    }
+    out.extend(d.flush());
+    // (RASL pictures after a CRA are skipped, as in the software decoder)
+    assert!(!out.is_empty(), "pictures from the sync sample on");
 }

@@ -4,10 +4,10 @@ Jobs for the cloud routine (branch `cloud-work`, only while the PC is down; FORK
 CPU-verifiable, chosen not to overlap with what the PC run is doing. Take them top to bottom; note
 each in `docs/fork/CLOUD-LOG.md` with what is UNVERIFIED ON GPU.
 
-**PC is doing now (2026-10-13 06:50, scheduled run): 6E (EXPORT-PLAN)**: 6E.3 S1–S10 and S12 in;
-next the S11 acceptance bench (`xm5-export-6k` dual vs single), then the 6E group acceptance with
-LINUX-PLAN L1 / L2 part 1 (the Dell lane works in `.claude/worktrees/titlebar` / `dell-lane`). Also **don't touch** `crates/export`, `crates/platform`,
-`crates/engine/src/export_tools.rs` or `crates/ui-egui/src/panels/export_mode.rs`. Earlier rules:
+**PC is doing now (2026-10-13 15:40, scheduled run): U0.2.3b (export speed floor; step d: Intel media
+engine sharing AMD's codec work), then the rest of U0.2 (UPSTREAM-PLAN U0 stage 2, one VA-API stack)**. Also don't touch `crates/gpu/src/{fx,colorops}*`. after the 6E group was accepted and published. **Don't touch** `crates/platform`,
+`crates/hevc`, `crates/codecs` (hybrid / hw factory), `crates/export/src/lanes/`, or the Dell lane's
+Linux desktop files (`apps/filmcraft/src/{desktop,mpris,cards,kdeconnect,portal*}.rs`). Earlier rules:
 **Don't touch** `crates/ui-egui/src/{app.rs,menus.rs,theme.rs,workspaces*,i18n/mod.rs}`,
 new `projects*` files, the autosave / project file code, `crates/platform`, `crates/hevc`, the
 grade model / compiler, `crates/llm` or `.cargo/config.toml`. New user-visible strings need es +

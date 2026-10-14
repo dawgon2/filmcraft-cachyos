@@ -29,13 +29,29 @@ struct Recorder {
     /// [`Recorder::release`]; `pick` then skips them and adds surfaces instead.
     holding: bool,
     held: BTreeSet<usize>,
+    /// Surfaces made mid-grey (`fill(_, None)`: stand-ins for missing references).
+    grey_fills: usize,
+    /// Surfaces picked for stand-ins (`pick_gray`).
+    grey_picks: usize,
+    /// Pictures decoded with the range-extension buffers (4:2:2, fork U0.2.3).
+    rext_pictures: usize,
 }
 
 impl Recorder {
     fn new(count: usize) -> Self {
         let g = Geometry { crop: (0, 0, 2, 2), bits: 8, color: Default::default(), par: (1, 1) };
         let frame = biplanar::to_frame(&Biplanar { luma: &[128; 4], chroma: &[128; 2], stride: 2, rows: 2 }, &g).unwrap();
-        Self { ids: (0..count as u32).map(|i| 0x100 + i).collect(), decoded: vec![false; count], pictures: 0, frame, holding: false, held: BTreeSet::new() }
+        Self {
+            ids: (0..count as u32).map(|i| 0x100 + i).collect(),
+            decoded: vec![false; count],
+            pictures: 0,
+            frame,
+            holding: false,
+            held: BTreeSet::new(),
+            grey_fills: 0,
+            grey_picks: 0,
+            rext_pictures: 0,
+        }
     }
 
     fn holding(count: usize) -> Self {
@@ -66,6 +82,9 @@ impl Accel for Recorder {
     ) -> Result<(), String> {
         assert_eq!(pic.CurrPic.picture_id, self.ids[target], "current picture surface");
         assert!(!self.held.contains(&target), "surface {target} is held by a frame");
+        for (sp, data) in slices {
+            assert!(data.len() > sp.slice_data_byte_offset as usize, "a slice without data after its header reached the hardware");
+        }
         let valid = |p: &ffi::VAPictureHEVC| p.flags & ffi::VA_PICTURE_HEVC_INVALID == 0;
         let n = pic.ReferenceFrames.iter().take_while(|p| valid(p)).count();
         assert!(pic.ReferenceFrames[n..].iter().all(|p| !valid(p)), "reference frames packed at the front");
@@ -100,6 +119,33 @@ impl Accel for Recorder {
         }
         self.decoded[target] = true;
         self.pictures += 1;
+        Ok(())
+    }
+
+    /// The range-extension buffers carry the base ones unchanged (checked as such), a 4:2:2
+    /// picture, no screen-content tools, and the base slices' weighted-prediction offsets at
+    /// full width.
+    fn decode_hevc_rext(
+        &mut self,
+        target: usize,
+        pic: &ffi::VAPictureParameterBufferHEVCExtension,
+        iq: Option<&ffi::VAIQMatrixBufferHEVC>,
+        slices: &[(ffi::VASliceParameterBufferHEVCExtension, Vec<u8>)],
+    ) -> Result<(), String> {
+        assert_eq!(pic.base.pic_fields >> ffi::hevc_pic_bits::CHROMA_FORMAT_IDC & 3, 2, "a 4:2:2 picture");
+        assert_eq!(pic.rext.range_extension_pic_fields, 0, "no range-extension tool");
+        assert_eq!(pic.scc, ffi::VAPictureParameterBufferHEVCScc::NONE, "no screen-content tool");
+        for (s, _) in slices {
+            let (b, r) = (&s.base, &s.rext);
+            assert!(b.luma_offset_l0.iter().zip(&r.luma_offset_l0).all(|(&a, &w)| i16::from(a) == w), "l0 luma offsets");
+            assert!(b.luma_offset_l1.iter().zip(&r.luma_offset_l1).all(|(&a, &w)| i16::from(a) == w), "l1 luma offsets");
+            let chroma = |a: &[[i8; 2]; 15], w: &[[i16; 2]; 15]| a.iter().flatten().zip(w.iter().flatten()).all(|(&a, &w)| i16::from(a) == w);
+            assert!(chroma(&b.ChromaOffsetL0, &r.ChromaOffsetL0) && chroma(&b.ChromaOffsetL1, &r.ChromaOffsetL1), "chroma offsets");
+            assert_eq!(r.slice_ext_flags, 0);
+        }
+        let base: Vec<_> = slices.iter().map(|(s, d)| (s.base, d.clone())).collect();
+        self.decode_hevc(target, &pic.base, iq, &base)?;
+        self.rext_pictures += 1;
         Ok(())
     }
 
@@ -157,7 +203,13 @@ impl Accel for Recorder {
         assert!(from.is_none_or(|f| self.decoded[f]));
         assert!(!self.held.contains(&index), "surface {index} is held by a frame");
         self.decoded[index] = true;
+        self.grey_fills += usize::from(from.is_none());
         Ok(())
+    }
+
+    fn pick_gray(&mut self, candidates: &[usize]) -> Option<usize> {
+        self.grey_picks += 1;
+        self.pick(candidates)
     }
 
     fn pick(&mut self, candidates: &[usize]) -> Option<usize> {
@@ -395,7 +447,13 @@ const HEVC_STREAMS: &[(&str, &str, &str)] = &[
 fn hevc_fixture(ff: &std::path::Path, name: &str, pix_fmt: &str, params: &str) -> Option<PathBuf> {
     let out = filmcraft_testkit::fixtures_dir("platform").join(name);
     let src = "testsrc2=s=320x184:r=24:d=2";
-    let profile = if pix_fmt.contains("10") { "main10" } else { "main" };
+    let profile = if pix_fmt.contains("422") {
+        "main422-10"
+    } else if pix_fmt.contains("10") {
+        "main10"
+    } else {
+        "main"
+    };
     filmcraft_testkit::fixtures::generate(&out, |tmp| {
         Command::new(ff)
             .args([
@@ -493,4 +551,238 @@ fn hevc_damaged_samples_are_errors() {
         }
         let _ = f.flush();
     }
+}
+
+/// Tile layouts the driver would trust are checked first (fork U0.2.2, from `va_hevc`): more
+/// tiles than VA's arrays or than CTBs, explicit sizes that overrun the picture or leave a tile
+/// empty are errors; valid layouts resolve to sizes that add up to the picture.
+#[test]
+fn hevc_hostile_tile_layouts_are_refused() {
+    use super::hevc::tile_sizes;
+    assert_eq!(tile_sizes(3, &[], 10, true, 19).unwrap(), vec![3, 3, 4]);
+    assert_eq!(tile_sizes(3, &[2, 5], 10, false, 19).unwrap(), vec![2, 5, 3]);
+    assert_eq!(tile_sizes(1, &[], 7, false, 19).unwrap(), vec![7]);
+    let hostile: [(u32, &[u32], u32, bool); 9] = [
+        (20, &[], 64, true),               // more columns than VA's 19
+        (5, &[], 4, true),                 // more tiles than CTBs
+        (0, &[], 4, true),                 // no tile
+        (u32::MAX, &[], u32::MAX, true),   // more than VA's arrays
+        (3, &[2, 8], 10, false),           // the last tile would be empty
+        (3, &[2, 9], 10, false),           // past the picture
+        (3, &[0, 5], 10, false),           // an empty tile
+        (3, &[2], 10, false),              // too few sizes
+        (2, &[u32::MAX], u32::MAX, false), // the last tile would be empty
+    ];
+    for (n, explicit, total, uniform) in hostile {
+        assert!(tile_sizes(n, explicit, total, uniform, 19).is_err(), "{n} tiles {explicit:?} in {total}");
+    }
+}
+
+/// A slice whose entry points announce WPP substreams past its end (a truncated sample) is an
+/// error before any buffer reaches the hardware (fork U0.2.2, from `va_hevc`: Intel's media
+/// engine resets on such slices).
+#[test]
+fn hevc_entry_points_past_the_slice_never_reach_the_hardware() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let params = "log-level=error:wpp=1:ctu=16:bframes=0:keyint=12:min-keyint=12:scenecut=0";
+    let Some(path) = hevc_fixture(&ff, "va_front_hevc_wpp.mp4", "yuv420p", params) else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    // the whole stream decodes
+    let mut f = hevc_front(&s);
+    assert_eq!(run_hevc(&mut f, &s.samples).len(), s.samples.len());
+    // the first picture with its slice cut in half
+    let ls = info.length_size;
+    let nals = filmcraft_bitstream::length_prefixed_nals(&s.samples[0].0, ls).unwrap();
+    let mut cut = Vec::new();
+    let mut truncated = false;
+    for nal in nals {
+        let vcl = (nal[0] >> 1) & 0x3f < 32;
+        let nal = if vcl && !truncated {
+            truncated = true;
+            &nal[..nal.len() / 2]
+        } else {
+            nal
+        };
+        cut.extend_from_slice(&(nal.len() as u32).to_be_bytes()[4 - ls..]);
+        cut.extend_from_slice(nal);
+    }
+    assert!(truncated);
+    let mut f = hevc_front(&s);
+    let Err(err) = f.decode(&cut, 0) else { panic!("refused") };
+    assert!(err.to_string().contains("entry points"), "{err}");
+    assert_eq!(f.accel().pictures, 0, "nothing was handed to the hardware");
+}
+
+/// A slice cut anywhere, including exactly at the end of its header (no data bytes left), is
+/// refused or decoded with data; it never reaches the hardware empty (the `Recorder` checks every
+/// slice). Today the slice-header parser already refuses the cut at the header's end, so
+/// `slice_params`'s `data_start >= len` (fork U0.2.2 review, as `va_hevc`) is a second guard this
+/// property test does not reach on its own.
+#[test]
+fn hevc_slice_cut_at_its_header_never_reaches_the_hardware() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let (name, pix_fmt, params) = HEVC_STREAMS[0];
+    let Some(path) = hevc_fixture(&ff, name, pix_fmt, params) else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    let ls = info.length_size;
+    let nals = filmcraft_bitstream::length_prefixed_nals(&s.samples[0].0, ls).unwrap();
+    let vcl_len = nals.iter().find(|n| (n[0] >> 1) & 0x3f < 32).unwrap().len();
+    let mut refused = 0;
+    for keep in 3..vcl_len {
+        let mut cut = Vec::new();
+        let mut done = false;
+        for nal in &nals {
+            let nal: &[u8] = if (nal[0] >> 1) & 0x3f < 32 && !done {
+                done = true;
+                &nal[..keep]
+            } else {
+                nal
+            };
+            cut.extend_from_slice(&(nal.len() as u32).to_be_bytes()[4 - ls..]);
+            cut.extend_from_slice(nal);
+        }
+        // the picture reaches the hardware at the flush (the `Recorder` checks its slices)
+        let mut f = hevc_front(&s);
+        if f.decode(&cut, 0).is_err() || f.flush().is_err() {
+            refused += 1;
+        }
+    }
+    assert!(refused > 0, "{name}: short cuts are refused");
+}
+
+/// Missing reference pictures (decoding starts at a picture that is not a random-access point)
+/// are an error by default (the hybrid decoder replays in software) and grey stand-in surfaces
+/// with [`super::hevc::Front::set_conceal_missing`] (fork U0.2.2, the zero-copy decoder: as the
+/// fork's decoder and the software decoder conceal them); every buffer stays consistent.
+#[test]
+fn hevc_missing_references_get_grey_stand_ins() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    for (name, pix_fmt, params) in HEVC_STREAMS {
+        let Some(path) = hevc_fixture(&ff, name, pix_fmt, params) else { continue };
+        let s = read_stream(&path);
+        let k = (1..s.samples.len()).find(|&i| !s.sync[i]).unwrap();
+        let mut f = hevc_front(&s);
+        let refused = s.samples[k..].iter().any(|(smp, p)| f.decode(smp, *p).is_err());
+        assert!(refused, "{name}: missing references refused by default");
+        let mut f = hevc_front(&s);
+        f.set_conceal_missing(true);
+        let out = run_hevc(&mut f, &s.samples[k..]);
+        assert!(!out.is_empty(), "{name}: pictures come out");
+        assert!(f.accel().grey_fills > 0, "{name}: stand-ins were made grey");
+        assert_eq!(f.accel().grey_picks, f.accel().grey_fills, "{name}: stand-in surfaces come from `pick_gray` (fork U0.2.3)");
+        // after a seek to a random-access point nothing is missing
+        f.reset();
+        let fills = f.accel().grey_fills;
+        let sync = (1..s.samples.len()).find(|&i| s.sync[i]).unwrap();
+        run_hevc(&mut f, &s.samples[sync..]);
+        assert_eq!(f.accel().grey_fills, fills, "{name}: no stand-ins from a sync sample on");
+    }
+}
+
+/// Fork U0.2.3: HEVC Main 4:2:2 10 through the front end set to 4:2:2 decodes every picture with
+/// the range-extension buffers, in the software decoder's order, also after seeks; surfaces made
+/// for 4:2:0 refuse it as a format change before anything reaches the hardware.
+#[test]
+fn hevc_422_takes_the_range_extension_buffers() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let params = "log-level=error:bframes=3:keyint=12:min-keyint=12:scenecut=0:weightp=1:open-gop=1";
+    let Some(path) = hevc_fixture(&ff, "va_front_hevc_422.mp4", "yuv422p10le", params) else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    assert_eq!((info.chroma_format_idc, info.bit_depth_luma), (2, 10));
+    let mut f = hevc_front(&s);
+    f.set_chroma_format(2);
+    let mut sw = filmcraft_codecs::software_video_decoder(&s.entry).unwrap();
+    assert_eq!(run_hevc(&mut f, &s.samples), run_software(sw.as_mut(), &s.samples));
+    assert!(f.accel().pictures >= s.samples.len() && f.accel().rext_pictures == f.accel().pictures, "every picture with the rext buffers");
+    for k in (1..s.samples.len()).filter(|&i| s.sync[i]) {
+        f.reset();
+        sw.reset();
+        assert_eq!(run_hevc(&mut f, &s.samples[k..]), run_software(sw.as_mut(), &s.samples[k..]), "from sample {k}");
+    }
+    let mut g = hevc_front(&s);
+    let err = s.samples.iter().find_map(|(smp, p)| g.decode(smp, *p).err()).expect("refused");
+    assert!(err.to_string().contains("format change"), "{err}");
+    assert_eq!(g.accel().pictures, 0, "nothing reached the hardware");
+}
+
+/// The PPS NAL unit `pps` with tiles enabled: `columns` x `rows` uniformly spaced (the rest of
+/// the PPS as it was). The stream must already have entry points (WPP), so its slice headers
+/// parse alike.
+fn with_tiles(pps: &[u8], columns: u32, rows: u32) -> Vec<u8> {
+    use filmcraft_bitstream::{BitReader, BitWriter, escape_rbsp, unescape_rbsp};
+    let rbsp = unescape_rbsp(&pps[2..]);
+    let mut r = BitReader::new(&rbsp);
+    r.read_ue().unwrap(); // pps_pic_parameter_set_id
+    r.read_ue().unwrap(); // pps_seq_parameter_set_id
+    r.read_bits(2 + 3 + 2).unwrap(); // dependent slices, output flag, extra bits, sign hiding, cabac init
+    r.read_ue().unwrap();
+    r.read_ue().unwrap(); // num_ref_idx defaults
+    r.read_se().unwrap(); // init_qp
+    r.read_bits(2).unwrap(); // constrained intra, transform skip
+    if r.read_flag().unwrap() {
+        r.read_ue().unwrap(); // diff_cu_qp_delta_depth
+    }
+    r.read_se().unwrap();
+    r.read_se().unwrap(); // chroma QP offsets
+    r.read_bits(4).unwrap(); // slice chroma offsets, weighted pred / bipred, transquant bypass
+    let at = r.position();
+    assert!(!r.read_flag().unwrap(), "no tiles yet");
+    assert!(r.read_flag().unwrap(), "WPP");
+    let rest = r.position();
+    let stop = rbsp.len() * 8 - 1 - rbsp.last().unwrap().trailing_zeros() as usize;
+    let mut w = BitWriter::new();
+    let bit = |i: usize| rbsp[i / 8] >> (7 - i % 8) & 1 == 1;
+    (0..at).for_each(|i| w.write_bit(bit(i)));
+    w.write_bit(true); // tiles_enabled_flag
+    w.write_bit(true); // entropy_coding_sync_enabled_flag
+    w.write_ue(columns - 1);
+    w.write_ue(rows - 1);
+    w.write_bit(true); // uniform_spacing_flag
+    w.write_bit(true); // loop_filter_across_tiles_enabled_flag
+    (rest..stop).for_each(|i| w.write_bit(bit(i)));
+    w.rbsp_trailing();
+    let mut nal = pps[..2].to_vec();
+    nal.extend(escape_rbsp(&w.finish()));
+    nal
+}
+
+/// Fork U0.2.3 (U0.2.2 review): a hostile tile layout in a PPS (more tile columns than VA's 19
+/// slots, still within the CTBs and the parser's limit) is refused through `Front::decode`
+/// before any buffer reaches the hardware, not only by `tile_sizes` on its own; a valid tile
+/// layout made the same way decodes (the buffers are consistent).
+#[test]
+fn hevc_hostile_tile_layout_is_refused_through_decode() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let params = "log-level=error:wpp=1:ctu=16:bframes=0:keyint=12:min-keyint=12:scenecut=0";
+    let Some(path) = hevc_fixture(&ff, "va_front_hevc_wpp.mp4", "yuv420p", params) else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    // 320x184 in 16x16 CTBs: 20 x 12
+    let sets = |columns: u32, rows: u32| -> Vec<Vec<u8>> {
+        info.parameter_sets.iter().map(|n| if (n[0] >> 1) & 0x3f == 34 { with_tiles(n, columns, rows) } else { n.clone() }).collect()
+    };
+    let front = |sets: &[Vec<u8>]| super::hevc::Front::new(Recorder::new(18), info.length_size, info.coded, info.bit_depth_luma, sets).unwrap();
+    // the first sample, its own parameter sets (if any) altered alike
+    let first = |columns: u32, rows: u32| -> Vec<u8> {
+        let ls = info.length_size;
+        let mut out = Vec::new();
+        for nal in filmcraft_bitstream::length_prefixed_nals(&s.samples[0].0, ls).unwrap() {
+            let nal = if (nal[0] >> 1) & 0x3f == 34 { with_tiles(nal, columns, rows) } else { nal.to_vec() };
+            out.extend_from_slice(&(nal.len() as u32).to_be_bytes()[4 - ls..]);
+            out.extend_from_slice(&nal);
+        }
+        out
+    };
+    // valid: 4 x 3 tiles
+    let mut f = front(&sets(4, 3));
+    assert!(f.decode(&first(4, 3), 0).is_ok() && f.flush().is_ok(), "a valid tile layout decodes");
+    assert_eq!(f.accel().pictures, 1);
+    // hostile: 20 columns (VA has 19 slots)
+    let mut f = front(&sets(20, 1));
+    let err = f.decode(&first(20, 1), 0).err().expect("refused");
+    assert!(err.to_string().contains("tiles"), "{err}");
+    assert_eq!(f.accel().pictures, 0, "nothing reached the hardware");
 }

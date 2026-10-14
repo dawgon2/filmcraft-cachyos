@@ -158,6 +158,13 @@ impl HybridDecoder {
         }
         let failed = hw.name().to_string();
         drop(hw);
+        // a picture refused up front (`Unsupported`: missing references on a decoder that does not
+        // conceal them, U0.2.3) would be refused by the next hardware backends too, or decoded
+        // differently (the ffmpeg pipe's ~10 s start on a non-RAP sample, a flaky test): software,
+        // whose concealment is the reference, takes it at once (U0.2.3 owed item i)
+        if matches!(err, CodecError::Unsupported(_)) {
+            self.next.clear();
+        }
         // the next hardware backends, replaying from the last restart point
         while !self.next.is_empty() {
             let make = self.next.remove(0);

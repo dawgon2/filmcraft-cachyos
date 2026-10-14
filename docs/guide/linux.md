@@ -3,6 +3,32 @@
 **[Standard] [FilmCraft]** · how FilmCraft fits into a Linux desktop (KDE Plasma, GNOME and
 others, Wayland or X11): where its files live and which desktop services it uses
 
+## Installing: a distribution package, Flatpak, or the tarball
+
+**[Standard]**
+
+Why: every way of installing gives you the same editor, but they differ in what FilmCraft can
+reach on your computer and in how it gets updated. None is the one right choice.
+
+- **Your distribution's package** (Arch / CachyOS: `packaging/linux/arch/PKGBUILD` with
+  `makepkg -si`; Debian / Ubuntu / Fedora: the release's `.deb` / `.rpm`). Runs like any other
+  program: it sees every drive and folder you can, logs go to the system journal, and it uses
+  the system's own video drivers. Good if you mostly use one machine and want it to feel native.
+  Updates come when you rebuild or install the newer package.
+- **Flatpak** (the release's `.flatpak`, `flatpak install --user <file>`). Runs in a sandbox on
+  any distribution, with its own copy of the system libraries and video drivers: hardware
+  decoding, audio, media keys, notifications and KDE Connect work inside it, and it may eject a
+  camera card. It can read and write your home folder and external drives (`/media`,
+  `/run/media`, `/mnt`); footage anywhere else on the system isn't visible. It has no network,
+  so the `--control` agent port only works after
+  `flatpak override --user --share=network ai.storyteller.filmcraft`. Logs go to the log file
+  only (no journal): `~/.var/app/ai.storyteller.filmcraft/.local/state/filmcraft/Logs/`. Good if
+  you want it isolated, or your distribution has no package. The shared runtime is a few hundred
+  MB the first time.
+- **The tarball or AppImage.** Unpack (or mark the AppImage executable) and run; nothing goes
+  system-wide (the tarball's `install.sh` needs no sudo for its default place). Good for trying
+  a release, or keeping two versions side by side.
+
 ## Where FilmCraft keeps its files
 
 **[Standard]**
@@ -47,8 +73,8 @@ Why: an editor is usually set up once for a screen; it should open the way you l
 
 Only the size and the maximised state are kept, not the position: on Wayland the compositor
 (KWin, Mutter…) decides where windows go, and KWin's own **Window Rules** (System Settings ▸
-Window Management) can pin FilmCraft to a screen or position if you want that. Full screen is not
-remembered. To go back to the default size, delete `window.json` in the state folder (see the
+Window Management) can pin FilmCraft to a screen or position if you want that. Full screen is a
+setting of its own (next section). To go back to the default size, delete `window.json` in the state folder (see the
 table above; with `--data-dir` it is in that folder) while FilmCraft is closed. Agents
 (`--control`) always start at the default size and don't change the file.
 
@@ -56,6 +82,49 @@ The title bar comes from the desktop where it offers one (KDE Plasma, most X11 w
 so it matches your theme and its buttons. GNOME on Wayland leaves title bars to the app; there
 FilmCraft draws a plain Adwaita-style frame with the window buttons (no title text; the
 window's name still shows in the overview and the dock).
+
+## Full screen
+
+**[Standard]**
+
+Why: an edit wants every pixel. Like DaVinci Resolve, FilmCraft opens **full screen** by default:
+the window covers the desktop's panels and task bar.
+
+- **Switch it** with the full-screen button at the top right (the four corners, left of the
+  minimise button), **F11**, **View ▸ Full Screen** or Ctrl+`. The choice is remembered, so the
+  next start opens the way you left it. Settings ▸ General ▸ **Full screen** is the same switch.
+- **When to leave it on:** a single screen used only for editing, or a laptop, where the panels
+  cost real space.
+- **When to turn it off:** you work next to other apps (a browser, a script, a chat), use the
+  task bar a lot, or want to see notifications. A maximised window keeps the panels.
+- **The Project Manager remembers its own state** (as in DaVinci Resolve): by default it floats in
+  a window while the editor stays full screen, so opening a project from it brings the project up
+  full screen. Switch either one while it is showing (the button or F11 act on the screen you are
+  on), or set them in Settings ▸ General ▸ **Full screen** and **Project Manager full screen**.
+  Closing a project (File ▸ Close Project) returns to the Project Manager.
+- In full screen and on the Project Manager only the full-screen and minimise buttons show; quit
+  with **FilmCraft ▸ Quit FilmCraft** (Ctrl+Q). The Project Manager's **×** (top left) goes back to
+  the open project, or into a new untitled project when none is open.
+- **FilmCraft ▸ Preferences…** opens Settings.
+- If the desktop takes the window out of full screen (a KWin shortcut, the window menu), the
+  setting of the screen you are on follows. Agents (`--control`) always start windowed.
+
+## The menu in the desktop's global menu
+
+**[Standard]**
+
+Why: with a macOS-style layout (Plasma's **Global Menu** widget in a top panel, or a title-bar
+menu button) every app's menu lives in the panel; FilmCraft's should too.
+
+- Settings ▸ General ▸ **Menu bar ▸ In the desktop's global menu when it has one** (the default):
+  when Plasma shows a global menu, FilmCraft's menus (File, Edit, Clip, …, with their shortcuts,
+  checkmarks and greyed-out items) appear there and the window's own menu bar is hidden. Add or
+  remove the Global Menu widget and FilmCraft follows at once.
+- **In full screen** the panel is covered, so the menu bar comes back inside the window.
+- **Menu bar ▸ In the window:** always keep the menu in the window (and nothing in the panel),
+  for example if you prefer the menu next to the Resolve-style page buttons.
+- Works on KDE Plasma under Wayland. Elsewhere (GNOME, Plasma on X11, no Global Menu widget) the
+  menu simply stays in the window.
 
 ## The desktop's accent colour
 
@@ -109,6 +178,40 @@ switch to turn it off in every app.
 
 Playback, scrubbing and the playhead are never affected: they show your media, not interface
 motion. Agents can read and set it as `appearance.motion` (`system` | `on` | `off`).
+
+## The desktop's text size
+
+**[Standard]**
+
+Why: many people make text bigger once for the whole desktop instead of zooming every app. KDE
+Plasma keeps it as the font size (System Settings ▸ Text & Fonts, 10 pt by default); GNOME as a
+text scaling factor (Settings ▸ Accessibility ▸ Seeing ▸ **Large Text**, or GNOME Tweaks ▸ Fonts
+▸ **Scaling Factor**). FilmCraft can follow it.
+
+1. Open **Settings ▸ Appearance**, leave **UI Scale** on **Auto (system)** and turn on **Match
+   the desktop's text size**.
+2. Click **OK**. The interface grows by the same factor (an 11 pt Plasma font gives 110 %, GNOME's
+   Large Text 125 %), and follows a change while FilmCraft runs.
+
+Options and trade-offs:
+
+- **Off (default):** UI Scale ▸ Auto uses the display scale only. FilmCraft's panels are dense;
+  this keeps the most timeline and the most monitor on screen, and matches tutorials and
+  screenshots.
+- **On:** FilmCraft matches what you set for every app. It scales the **whole interface**, not
+  only text: panels, buttons and the timeline grow too, so you see fewer tracks and a smaller
+  monitor. Good if you set larger text for comfort or eyesight and want FilmCraft to follow
+  without a second setting. The factor is held between 75 % and 200 %.
+- **A fixed UI Scale (75 % … 300 %):** one size for FilmCraft whatever the desktop says; this
+  switch is then ignored. Good if only FilmCraft needs to be bigger or smaller, or when you
+  move between machines and want the same layout on each.
+
+**Ctrl+−** / **Ctrl+=** still zoom for the session; a change of the desktop's text size (or of
+the display scale) replaces that zoom with the new size. Desktops that don't report a text size
+(other window managers; Windows and macOS for now) behave as if the switch were off. On GNOME
+under X11 the desktop already folds Large Text into the display scale, so the switch adds
+nothing there (it would otherwise count twice).
+Agents can read and set it as `appearance.matchDesktopTextSize`.
 
 ## Progress on the taskbar and a notification when a job finishes
 

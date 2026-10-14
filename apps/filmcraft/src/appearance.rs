@@ -1,7 +1,8 @@
 //! The system's light or dark appearance for Settings ▸ Appearance ▸ Appearance Mode ▸ Sync with
 //! system, on Linux desktops where winit reports none (Wayland compositors send no theme), and the
 //! desktop's accent colour for Settings ▸ Appearance ▸ Use the system accent color and its
-//! reduced-motion wish for Settings ▸ Appearance ▸ Animations ▸ Sync with system (L1.4).
+//! reduced-motion wish for Settings ▸ Appearance ▸ Animations ▸ Sync with system (L1.4), and its
+//! text size for Settings ▸ Appearance ▸ Match the desktop's text size ([`TEXT_KEYS`]).
 //!
 //! The XDG desktop portal is read once (`org.freedesktop.portal.Settings.Read` of
 //! `org.freedesktop.appearance` / `color-scheme`, `accent-color` and `reduced-motion`, and the
@@ -25,6 +26,55 @@ const ACCENT_KEY: &str = "accent-color";
 #[cfg(target_os = "linux")]
 const MOTION_KEYS: [(&str, &str); 3] =
     [(PORTAL_NAMESPACE, "reduced-motion"), ("org.kde.kdeglobals.KDE", "AnimationDurationFactor"), ("org.gnome.desktop.interface", "enable-animations")];
+
+/// The desktop's text size, in the portal's `Read` namespaces: KDE's General font (System Settings
+/// ▸ Text & Fonts; a `QFont` string whose second field is the point size, 10 pt by default; the
+/// portal has no answer while it is the default) and GNOME's `text-scaling-factor` (Settings ▸
+/// Accessibility ▸ Large Text, GNOME Tweaks ▸ Fonts ▸ Scaling Factor). KDE's answer wins when both
+/// give one ([`text_factor`]). GNOME's factor counts only on native Wayland: under X11 GNOME's
+/// settings daemon already folds it into Xft/DPI, which winit reports as the system scale, so
+/// using it again would apply it twice ([`gnome_text_counts`]).
+#[cfg(target_os = "linux")]
+const TEXT_KEYS: [(&str, &str); 2] = [("org.kde.kdeglobals.General", "font"), ("org.gnome.desktop.interface", "text-scaling-factor")];
+
+/// KDE's default General font size, in points.
+#[cfg(target_os = "linux")]
+const KDE_DEFAULT_POINTS: f64 = 10.0;
+
+/// The text factor `TEXT_KEYS[source]` reports (1.0 = the desktop's default size), or `None` for
+/// anything malformed or outside 0.5 … 4 (a broken setting, not a wish for a huge interface).
+/// Plausible factors are passed on as they are; the UI holds them to
+/// `filmcraft_engine::settings::TEXT_SCALE_RANGE` (a 6 pt font gives 75 %, a 3 pt one nothing).
+#[cfg(target_os = "linux")]
+fn text_factor(source: usize, value: zbus::zvariant::OwnedValue) -> Option<f32> {
+    use zbus::zvariant::Value;
+    let factor = match (source, unwrap_variant(value)?) {
+        (0, Value::Str(s)) => s.as_str().split(',').nth(1)?.trim().parse::<f64>().ok()? / KDE_DEFAULT_POINTS,
+        (1, Value::F64(f)) => f,
+        (1, Value::Str(s)) => s.as_str().trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    (factor.is_finite() && (0.5..=4.0).contains(&factor)).then_some(factor as f32)
+}
+
+/// A text factor packed for an `AtomicU32`: 0 = none, else the `f32` bits (never 0: factors are
+/// at least 0.5).
+#[cfg(target_os = "linux")]
+fn pack_text(f: Option<f32>) -> u32 {
+    f.map_or(0, f32::to_bits)
+}
+
+#[cfg(target_os = "linux")]
+fn unpack_text(v: u32) -> Option<f32> {
+    (v != 0).then(|| f32::from_bits(v)).filter(|f| f.is_finite())
+}
+
+/// Whether FilmCraft's window is on native Wayland (winit picks Wayland when one of these is set),
+/// where GNOME's text factor isn't already in the system scale.
+#[cfg(target_os = "linux")]
+fn gnome_text_counts() -> bool {
+    ["WAYLAND_DISPLAY", "WAYLAND_SOCKET"].iter().any(|v| std::env::var_os(v).is_some_and(|s| !s.is_empty()))
+}
 
 #[cfg(target_os = "linux")]
 fn portal_proxy() -> Option<zbus::blocking::Proxy<'static>> {
@@ -176,9 +226,9 @@ fn publish(value: &std::sync::atomic::AtomicU8, code: u8, repaint: impl FnOnce()
     }
 }
 
-/// [`publish`] for the packed accent colour.
+/// [`publish`] for a packed accent colour or text factor.
 #[cfg(target_os = "linux")]
-fn publish_accent(value: &std::sync::atomic::AtomicU32, packed: u32, repaint: impl FnOnce()) {
+fn publish_u32(value: &std::sync::atomic::AtomicU32, packed: u32, repaint: impl FnOnce()) {
     if value.swap(packed, std::sync::atomic::Ordering::Relaxed) != packed {
         repaint();
     }
@@ -190,6 +240,7 @@ pub struct Service {
     pub theme: filmcraft_ui_egui::SystemThemeFn,
     pub accent: filmcraft_ui_egui::SystemAccentFn,
     pub reduced_motion: filmcraft_ui_egui::SystemReducedMotionFn,
+    pub text_scale: filmcraft_ui_egui::SystemTextScaleFn,
 }
 
 /// The host hooks, or `None` where egui's own report is used and there is no accent colour.
@@ -201,8 +252,11 @@ pub fn service() -> Option<Service> {
         let value = Arc::new(AtomicU8::new(0));
         let accent = Arc::new(AtomicU32::new(0));
         let motion = Arc::new(AtomicU8::new(0));
+        // one packed factor per TEXT_KEYS source
+        let text: Arc<[AtomicU32; 2]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0)]);
         let wake: Arc<OnceLock<egui::Context>> = Arc::new(OnceLock::new());
         let (worker_value, worker_accent, worker_motion, worker_wake) = (Arc::clone(&value), Arc::clone(&accent), Arc::clone(&motion), Arc::clone(&wake));
+        let worker_text = Arc::clone(&text);
         let (ready, wait) = std::sync::mpsc::channel();
         let worker = move || {
             let repaint = || {
@@ -216,7 +270,7 @@ pub fn service() -> Option<Service> {
             let initial = proxy.as_ref().and_then(portal_theme).or_else(gtk_theme);
             publish(&worker_value, code_of(initial), repaint);
             let initial_accent = proxy.as_ref().and_then(portal_accent_now);
-            publish_accent(&worker_accent, pack_accent(initial_accent), repaint);
+            publish_u32(&worker_accent, pack_accent(initial_accent), repaint);
             let _ = ready.send(());
             // After `ready`: the first frame waits for the theme and accent only.
             let mut motion_now = 0u8;
@@ -231,6 +285,13 @@ pub fn service() -> Option<Service> {
                 }
             }
             publish(&worker_motion, motion_now, repaint);
+            if let Some(p) = proxy.as_ref() {
+                for (source, ((namespace, key), slot)) in TEXT_KEYS.iter().zip(worker_text.iter()).enumerate() {
+                    let read: zbus::Result<zbus::zvariant::OwnedValue> = p.call("Read", &(*namespace, *key));
+                    let factor = read.ok().and_then(|v| text_factor(source, v));
+                    publish_u32(slot, pack_text(factor), repaint);
+                }
+            }
             let Some(signals) = signals else { return };
             // Sleeps in the signal iterator: no polling.
             for message in signals {
@@ -245,13 +306,19 @@ pub fn service() -> Option<Service> {
                     publish(&worker_motion, motion_now, repaint);
                     continue;
                 }
+                if let Some(source) = TEXT_KEYS.iter().position(|(n, k)| *n == namespace && *k == key) {
+                    if let Some(slot) = worker_text.get(source) {
+                        publish_u32(slot, pack_text(text_factor(source, changed)), repaint);
+                    }
+                    continue;
+                }
                 if namespace != PORTAL_NAMESPACE {
                     continue;
                 }
                 if key == PORTAL_KEY {
                     publish(&worker_value, code_of(portal_code(changed).and_then(decode)), repaint);
                 } else if key == ACCENT_KEY {
-                    publish_accent(&worker_accent, pack_accent(portal_accent(changed)), repaint);
+                    publish_u32(&worker_accent, pack_accent(portal_accent(changed)), repaint);
                 }
             }
         };
@@ -265,7 +332,8 @@ pub fn service() -> Option<Service> {
         }
         // The first reading, so the first frame already shows the right theme (bounded wait).
         let _ = wait.recv_timeout(std::time::Duration::from_millis(250));
-        let (accent_wake, motion_wake) = (Arc::clone(&wake), Arc::clone(&wake));
+        let (accent_wake, motion_wake, text_wake) = (Arc::clone(&wake), Arc::clone(&wake), Arc::clone(&wake));
+        let text_sources = if gnome_text_counts() { TEXT_KEYS.len() } else { 1 };
         Some(Service {
             theme: Box::new(move |ctx: &egui::Context| {
                 let _ = wake.set(ctx.clone());
@@ -278,6 +346,10 @@ pub fn service() -> Option<Service> {
             reduced_motion: Box::new(move |ctx: &egui::Context| {
                 let _ = motion_wake.set(ctx.clone());
                 motion_wanted(motion.load(Ordering::Relaxed))
+            }),
+            text_scale: Box::new(move |ctx: &egui::Context| {
+                let _ = text_wake.set(ctx.clone());
+                text.iter().take(text_sources).find_map(|slot| unpack_text(slot.load(Ordering::Relaxed)))
             }),
         })
     }
@@ -394,5 +466,34 @@ mod tests {
         assert!(!super::motion_wanted(super::PORTAL_ANSWERED | 0b100));
         assert!(super::motion_wanted(super::PORTAL_ANSWERED | 0b001));
         assert!(!super::motion_wanted(0));
+    }
+
+    /// The desktop's text size as KDE (a `QFont` string) and GNOME (a factor) send it; hostile
+    /// values give no factor and never panic (L1.4, Q15 b).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn text_sizes_decode() {
+        use zbus::zvariant::{OwnedValue, Value};
+        let v = |value: Value<'static>| OwnedValue::try_from(Value::Value(Box::new(value))).unwrap();
+        assert_eq!(super::text_factor(0, v(Value::from("Noto Sans,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"))), Some(1.1));
+        assert_eq!(super::text_factor(0, v(Value::from("Noto Sans,10.5,-1,5,50,0,0,0,0,0"))), Some(1.05));
+        assert_eq!(super::text_factor(1, v(Value::F64(1.25))), Some(1.25));
+        assert_eq!(super::text_factor(1, v(Value::from("1.5"))), Some(1.5));
+        let nested = OwnedValue::try_from(Value::Value(Box::new(Value::Value(Box::new(Value::from("Inter,12")))))).unwrap();
+        assert_eq!(super::text_factor(0, nested), Some(1.2));
+        // a pixel-sized font (-1 points), garbage, out of range, the wrong type or source
+        for hostile in ["Noto Sans,-1,14,5,400", "Noto Sans", "", ",", "Noto Sans,NaN", "Noto Sans,inf", "Noto Sans,400", "Noto Sans,1"] {
+            assert_eq!(super::text_factor(0, v(Value::from(hostile))), None, "{hostile:?}");
+        }
+        for hostile in [f64::NAN, f64::INFINITY, -1.0, 0.0, 0.2, 9.0] {
+            assert_eq!(super::text_factor(1, v(Value::F64(hostile))), None, "{hostile}");
+        }
+        assert_eq!(super::text_factor(1, v(Value::U32(1))), None);
+        assert_eq!(super::text_factor(0, v(Value::F64(1.0))), None);
+        assert_eq!(super::text_factor(9, v(Value::F64(1.0))), None);
+        for f in [None, Some(0.5), Some(1.1), Some(4.0)] {
+            assert_eq!(super::unpack_text(super::pack_text(f)), f);
+        }
+        assert_eq!(super::unpack_text(f32::NAN.to_bits()), None);
     }
 }

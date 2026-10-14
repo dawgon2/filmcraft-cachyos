@@ -4,7 +4,8 @@
 //! picture renders exactly as the same picture read back to memory and uploaded; its samples are
 //! the reference decoder's; without the hand-off (turned off, a failed copy / export, a refused
 //! import) pictures are read back, never a crash. Skips (with SKIPPED) without a display with
-//! HEVC Main 4:2:2 10, a GPU device with DMA-BUF import, or the fixtures.
+//! HEVC Main 4:2:2 10, a GPU device with DMA-BUF import, or the fixtures. Since fork U0.2.3 the
+//! decoder is upstream's front end on the zero-copy accelerator (`vaapi::VaDecoder::zero_copy`).
 #![cfg(target_os = "linux")]
 
 mod common;
@@ -15,7 +16,7 @@ use common::*;
 use filmcraft_codecs::VideoDecoder;
 use filmcraft_codecs::hw::NalStreamInfo;
 use filmcraft_frame::{Chroma, GpuFormat, PixelData, VideoFrame};
-use filmcraft_platform::va_hevc::{NativeVaDecoder, decode_annexb_with};
+use filmcraft_platform::vaapi::{VaDecoder, decode_annexb_with};
 
 /// The media engine, one test at a time (as `va_hevc_422`).
 static ENGINE: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -160,7 +161,7 @@ fn xm5_422_pictures_are_handed_off_and_render_as_read_back() {
     let Some(mut c) = gpu() else { return };
     let s = first_samples(&path, 4).expect("readable clip");
     let info = NalStreamInfo::from_entry(&s.entry).expect("HEVC").expect("hvcC");
-    let mut hw = NativeVaDecoder::new(info).expect("taken in hardware");
+    let mut hw = VaDecoder::zero_copy(info).expect("taken in hardware");
     let got = decode_all(&mut hw, &s.samples);
     let reference = decode_all(filmcraft_codecs::software_video_decoder(&s.entry).expect("software").as_mut(), &s.samples);
     assert_same("xm5 4:2:2 handed off", &got, &reference);
@@ -210,18 +211,18 @@ fn without_the_handoff_pictures_are_read_back() {
     let reference = decode_all(filmcraft_codecs::software_video_decoder(&s.entry).unwrap().as_mut(), &s.samples);
     let read_back = |f: &filmcraft_codecs::DecodedFrame| matches!(f.frame.data, PixelData::Yuv16Bi { chroma: Chroma::C422, .. });
     // on (the default): GPU frames
-    let mut on = NativeVaDecoder::new(info.clone()).unwrap();
+    let mut on = VaDecoder::zero_copy(info.clone()).unwrap();
     let out = decode_all(&mut on, &s.samples);
     assert_same("hand-off on", &out, &reference);
     assert!(out.iter().all(|f| matches!(&f.frame.data, PixelData::Gpu(g) if g.format() == GpuFormat::Y210)), "handed off");
     // off
-    let mut off = NativeVaDecoder::new(info.clone()).unwrap();
+    let mut off = VaDecoder::zero_copy(info.clone()).unwrap();
     off.set_handoff(false);
     let out = decode_all(&mut off, &s.samples);
     assert_same("hand-off off", &out, &reference);
     assert!(out.iter().all(read_back), "read back");
     // failing at the first picture: read back from then on
-    let mut failing = NativeVaDecoder::new(info).unwrap();
+    let mut failing = VaDecoder::zero_copy(info).unwrap();
     failing.fail_next_handoff();
     let out = decode_all(&mut failing, &s.samples);
     assert_same("hand-off failed", &out, &reference);
@@ -280,7 +281,7 @@ fn refused_imports_fall_back_to_read_back() {
     let Some(path) = mp4_422(&ff) else { return };
     let s = read_stream(&path);
     let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
-    let mut dec = NativeVaDecoder::new(info).unwrap();
+    let mut dec = VaDecoder::zero_copy(info).unwrap();
     let frames = decode_all(&mut dec, &s.samples[..4]);
     let f = frames.first().expect("a picture").frame.clone();
     let PixelData::Gpu(real) = &f.data else { panic!("a GPU frame") };
@@ -307,7 +308,7 @@ fn refused_imports_fall_back_to_read_back() {
     // a refusal stops the hand-off for every stream (no copy only to be read back) ...
     assert!(filmcraft_frame::packed_422_refused(), "the refusal is recorded");
     let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
-    let mut after = NativeVaDecoder::new(info).unwrap();
+    let mut after = VaDecoder::zero_copy(info).unwrap();
     let out = decode_all(&mut after, &s.samples[..4]);
     assert!(out.iter().all(|f| matches!(f.frame.data, PixelData::Yuv16Bi { .. })), "read back once refused");
     // ... (tests: forget it again); the unaltered picture imports
@@ -335,7 +336,7 @@ fn pool_reuse_under_load_keeps_held_pictures_and_does_not_leak() {
     let reference = decode_all(filmcraft_codecs::software_video_decoder(&s.entry).unwrap().as_mut(), &s.samples);
     let mut live = Vec::new();
     for pass in 0..4 {
-        let mut dec = NativeVaDecoder::new(info.clone()).unwrap();
+        let mut dec = VaDecoder::zero_copy(info.clone()).unwrap();
         let mut held = Vec::new();
         for (sample, pts) in &s.samples {
             for f in dec.decode(sample, *pts).expect("decode") {

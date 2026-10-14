@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use super::blend_tests::device;
+use super::fx_tests::full_precision;
 use super::fx_tests::{compare, picture};
 use super::*;
 use filmcraft_color::Range;
@@ -184,7 +185,7 @@ fn gpu_color_ops_match_cpu() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (67u32, 41u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -214,7 +215,7 @@ fn gpu_hsl_secondary_matches_cpu() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (67u32, 41u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -282,7 +283,7 @@ fn gpu_masked_effects_match_cpu() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (67u32, 41u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -365,7 +366,7 @@ fn output_stage_converts_the_composite_like_the_cpu() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let pipe = filmcraft_color::ColorPipeline { working: filmcraft_color::WorkingSpace::DaVinciWide, ..filmcraft_color::ColorPipeline::REC709 };
     let ops = filmcraft_color::OutputTransform::display(&pipe).ops();
     assert!(!ops.is_empty());
@@ -495,7 +496,7 @@ fn gpu_compiled_grades_match_cpu() {
     qualified.nodes.push(finishing);
     let mut shown = qualified.clone();
     shown.nodes.push(qual(6, &[("qual.show", ParamValue::Float(1.0))]));
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (67u32, 41u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -533,4 +534,113 @@ fn gpu_compiled_grades_match_cpu() {
         }
     }
     assert!(failures.is_empty(), "GPU grades differ from the CPU:\n{}", failures.join("\n"));
+}
+
+/// Chains run as shaders specialised to their op codes (fork U0.2.3b) give exactly what the
+/// interpreter gives: every case alone, and all of them as one chain.
+#[test]
+fn specialised_chains_match_the_interpreter() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let (w, h) = (67u32, 41u32);
+    let frame = VideoFrame::rgba_f32(w, h, picture(w, h));
+    let mut chains = cases();
+    let all: Vec<ColorOp> = cases().into_iter().flat_map(|(_, ops)| ops).collect();
+    // (the longest chain the specialiser takes, and one past it: the interpreter)
+    let long: Vec<ColorOp> = all.iter().cycle().take(crate::colorops::MAX_SPECIALISED_OPS).cloned().collect();
+    chains.push(("every case in one chain", all));
+    chains.push(("longest specialised chain", long.clone()));
+    chains.push(("one op too long", long.into_iter().chain([lggo()]).collect()));
+    let run = |interpret_only: bool| {
+        let mut c = full_precision(&dev, &q);
+        c.fx.as_mut().expect("fx stage").set_interpret_only(interpret_only);
+        let out: Vec<Vec<f32>> = chains
+            .iter()
+            .map(|(_, ops)| {
+                let fx = LayerFx { size: (w, h), decimation: 1, ops: vec![FxOp::ColorChain(Arc::from(ops.clone()))] };
+                c.effect_image(&frame, &fx).expect("effect image").2
+            })
+            .collect();
+        (out, c.fx.as_ref().expect("fx stage").specialised_count())
+    };
+    let (interpreted, (none, _)) = run(true);
+    let (specialised, (built, failed)) = run(false);
+    assert_eq!(none, 0, "interpret-only built specialised shaders");
+    assert_eq!(failed, 0, "a specialised chain shader failed to build");
+    if std::env::var("FILMCRAFT_CHAIN_SPECIALISE").as_deref() != Ok("0") {
+        assert!(built > 20, "only {built} specialised chain shaders built");
+    }
+    let mut failures = Vec::new();
+    for (((name, _), a), b) in chains.iter().zip(&interpreted).zip(&specialised) {
+        let (worst, flips) = compare(a, b);
+        // (the compilers fold and fuse the two shaders differently: last bits, as against the CPU)
+        let tol = if name.starts_with("PQ decode") { TOL_PQ_DECODE } else { TOL };
+        if worst > tol || flips > 0.0 {
+            failures.push(format!("{name}: {worst:.2e}, flips {flips:.4}"));
+        }
+    }
+    assert!(failures.is_empty(), "specialised chains differ from the interpreter:\n{}", failures.join("\n"));
+}
+
+/// Each op's code is the first value of its part of the program, in order.
+#[test]
+fn program_codes_are_each_ops_first_value() {
+    for (name, ops) in cases() {
+        let (p, codes) = crate::colorops::program_and_codes(&ops).expect("program");
+        assert_eq!(codes.len(), ops.len(), "{name}");
+        for (op, code) in ops.iter().zip(&codes) {
+            let alone = crate::colorops::program(std::slice::from_ref(op)).expect("program");
+            assert_eq!(alone.first().map(|v| *v as u32), Some(*code), "{name}");
+        }
+        assert_eq!(crate::colorops::program(&ops), Some(p), "{name}");
+    }
+}
+
+/// The specialised source: the interpreter's loop is gone, one call per op with its literal code;
+/// nothing to specialise (no ops, too many, no markers) gives None.
+#[test]
+fn specialised_source_calls_each_op_in_order() {
+    let src = include_str!("colorops.wgsl");
+    let s = crate::colorops::specialise(src, &[5, 11, 5, 26]).expect("specialised");
+    assert!(!s.contains("chain_op(u32(at(pc))"), "interpreter loop left in");
+    let calls: Vec<&str> = s.lines().filter(|l| l.trim_start().starts_with("c = chain_op_")).collect();
+    assert_eq!(
+        calls,
+        [
+            "    c = chain_op_5(c, xy, &pc, len);",
+            "    c = chain_op_11(c, xy, &pc, len);",
+            "    c = chain_op_5(c, xy, &pc, len);",
+            "    c = chain_op_26(c, xy, &pc, len);"
+        ]
+    );
+    // one function per distinct code, holding that case's body
+    assert_eq!(s.matches("fn chain_op_5(").count(), 1);
+    assert_eq!(s.matches("fn chain_op_").count(), 3);
+    assert!(s.contains("lggo_channel(c.x"));
+    assert_eq!(s.matches("fn run_chain(").count(), 1);
+    // an unknown code, or a code without its case, is not specialised
+    assert!(crate::colorops::specialise(src, &[5, 999]).is_none());
+    assert!(crate::colorops::specialise(&src.replace("case CO_CLAMP: {", "case CO_CLAMPED: {"), &[11]).is_none());
+    assert!(crate::colorops::specialise(src, &[]).is_none());
+    assert!(crate::colorops::specialise(src, &vec![5; crate::colorops::MAX_SPECIALISED_OPS + 1]).is_none());
+    assert!(crate::colorops::specialise("fn run_chain() {}", &[5]).is_none());
+    assert!(crate::colorops::specialise("// RUN_CHAIN_END x // RUN_CHAIN_BEGIN", &[5]).is_none());
+}
+
+/// Every op code specialises to WGSL that parses and validates (no GPU needed), alone and with
+/// all codes in one chain.
+#[test]
+fn every_specialised_op_validates() {
+    use wgpu::naga;
+    let src = include_str!("colorops.wgsl");
+    let all: Vec<u32> = (1..=26).collect();
+    for codes in all.iter().map(|c| vec![*c]).chain([all.clone()]) {
+        let s = crate::colorops::specialise(src, &codes).unwrap_or_else(|| panic!("code {codes:?} not specialised"));
+        let module = naga::front::wgsl::parse_str(&s).unwrap_or_else(|e| panic!("{codes:?}: {}", e.emit_to_string(&s)));
+        naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
+            .validate(&module)
+            .unwrap_or_else(|e| panic!("{codes:?}: {e:?}"));
+    }
 }

@@ -69,6 +69,8 @@ Most YouTube compositing is green screen, screen replacement, tracked text / blu
 motion graphics. Those come first. A full Fusion-style node compositor and native plugins are
 bigger and partly conflict with the fork's rules, so they're scoped separately (Y3.6, deferred).
 
+0. **Graded export speed: moved into U0.2.3b (owner, FORK-PLAN §1a.65),** so it is in place before
+   the upstream contributions. Y3 starts at Y3.1; the keys there benefit from the faster effect stage.
 1. **Keys on the GPU:** Ultra Key / chroma key and luma key as GPU ops (they're CPU-only today,
    FORK-PLAN §7 Phase 4.3d), spill suppression, matte cleanup (choke / soften), "show matte".
    Oracle: the existing CPU key implementations.

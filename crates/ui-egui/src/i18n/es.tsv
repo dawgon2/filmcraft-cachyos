@@ -3867,6 +3867,7 @@
 	Balanced	Equilibrado
 # Fork 6E.3: Export ▸ Export engines (one GPU or every GPU that can encode).
 	Export engines	Motores de exportación
+	Auto exports on the primary GPU, and adds the second GPU only to exports without effects or a grade, where it makes them faster. All GPUs always uses both; Primary GPU only always one.	Auto exporta con la GPU principal y añade la segunda GPU solo a las exportaciones sin efectos ni gradación, donde las acelera. Todas las GPU usa siempre las dos; Solo la GPU principal, siempre una.
 	Primary GPU only	Solo la GPU principal
 	All GPUs	Todas las GPU
 	HEVC 4:2:2 10-bit master	Máster HEVC 4:2:2 10 bits
@@ -3930,3 +3931,17 @@
 	Camera Card Ejected	Tarjeta de cámara expulsada
 	Dismiss Camera Card	Descartar tarjeta de cámara
 	Card	Tarjeta
+	Match the desktop's text size	Ajustar al tamaño de texto del escritorio
+	Full Screen	Pantalla completa
+	Full screen (covers the desktop's panels)	Pantalla completa (cubre los paneles del escritorio)
+	Full Screen (F11)	Pantalla completa (F11)
+	Exit Full Screen (F11)	Salir de pantalla completa (F11)
+	Full screen: F11 or the full-screen button at the top right leaves it	Pantalla completa: F11 o el botón de pantalla completa arriba a la derecha la desactiva
+	Full screen off: F11 switches it back on	Pantalla completa desactivada: F11 la vuelve a activar
+	Menu bar	Barra de menús
+	In the desktop's global menu when it has one	En el menú global del escritorio cuando lo tiene
+	In the window	En la ventana
+	Preferences…	Preferencias…
+	Untitled project: File ▸ Save As keeps it	Proyecto sin título: Archivo ▸ Guardar como lo conserva
+	FilmCraft	FilmCraft
+	Project Manager full screen	Gestor de proyectos en pantalla completa

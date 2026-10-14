@@ -44,7 +44,7 @@ fn imported_frames_draw_exactly_as_read_back_frames() {
         let track = &file.tracks[t];
         let entry = track.entries[0].clone();
         let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(&entry).expect("hvcC").expect("info");
-        let mut dec = match filmcraft_platform::va_hevc::NativeVaDecoder::new(info) {
+        let mut dec = match filmcraft_platform::vaapi::VaDecoder::zero_copy(info) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("{name}: no in-process VA-API ({e}); skipped");
@@ -134,7 +134,7 @@ fn hostile_dmabuf_descriptions_are_refused() {
     let t = file.track_of_kind(filmcraft_isobmff::TrackKind::Video).expect("video");
     let track = &file.tracks[t];
     let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(&track.entries[0]).expect("hvcC").expect("info");
-    let Ok(mut dec) = filmcraft_platform::va_hevc::NativeVaDecoder::new(info) else {
+    let Ok(mut dec) = filmcraft_platform::vaapi::VaDecoder::zero_copy(info) else {
         eprintln!("no in-process VA-API; skipped");
         return;
     };

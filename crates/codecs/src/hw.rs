@@ -32,18 +32,70 @@ pub fn hardware_decoding() -> bool {
 
 thread_local! {
     static DECODE_NODE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    static HANDOFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static HANDOFF_SCALE: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Fork U0.2.3b d: hardware decoders made on this thread from now on hand their pictures off
+/// scaled by `scale` (of the visible size; (0, 1], anything else is 1.0): for a source whose every
+/// use asks for at most that much of its size ([`crate::VideoDecoder`] frames may be larger than
+/// asked, never smaller). `None`: the default ([`handoff_scale`]).
+pub fn set_thread_handoff_scale(scale: Option<f32>) {
+    HANDOFF_SCALE.with(|h| h.set(scale));
+}
+
+/// `f` with this thread's hand-off scale set to `scale` ([`set_thread_handoff_scale`]), the
+/// previous one restored after.
+pub fn with_handoff_scale<R>(scale: Option<f32>, f: impl FnOnce() -> R) -> R {
+    let before = HANDOFF_SCALE.with(|h| h.replace(scale));
+    let r = f();
+    HANDOFF_SCALE.with(|h| h.set(before));
+    r
+}
+
+/// The scale hand-off copies are made at: this thread's ([`set_thread_handoff_scale`]), else the
+/// diagnostic `FILMCRAFT_HANDOFF_SCALE` (for one export of plain fit-to-frame clips only: preview
+/// would get pictures too small), else 1.0. At least 1/16.
+pub fn handoff_scale() -> f32 {
+    static ENV: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    let env = || *ENV.get_or_init(|| std::env::var("FILMCRAFT_HANDOFF_SCALE").ok().and_then(|v| v.trim().parse().ok()));
+    let s = HANDOFF_SCALE.with(std::cell::Cell::get).or_else(env).unwrap_or(1.0);
+    if s.is_finite() && s > 0.0 && s <= 1.0 { s.max(1.0 / 16.0) } else { 1.0 }
 }
 
 /// The render node (e.g. `/dev/dri/renderD128`) hardware decoders made on this thread decode on
 /// (fork 6E.3: each lane of a two-GPU export decodes on its own GPU); `None`, the default: the
 /// process's decode device. A decoder keeps the node it was made with.
 pub fn set_thread_decode_node(node: Option<String>) {
+    HANDOFF.with(|h| h.set(false));
     DECODE_NODE.with(|n| *n.borrow_mut() = node);
 }
 
-/// This thread's decode node ([`set_thread_decode_node`]).
+/// This thread's decode node ([`set_thread_decode_node`] / [`set_thread_decode_handoff`]), else
+/// the environment's handing-off node ([`decode_hands_off`]).
 pub fn decode_node() -> Option<String> {
-    DECODE_NODE.with(|n| n.borrow().clone())
+    DECODE_NODE.with(|n| n.borrow().clone()).or_else(env_handoff_node)
+}
+
+/// Fork U0.2.3b d: hardware decoders made on this thread from now on decode on `node`'s GPU and
+/// hand their pictures to the compositing GPU as linear copies (Intel's media engine decodes, AMD
+/// composites and encodes); `None`: back to the default ([`set_thread_decode_node`]).
+pub fn set_thread_decode_handoff(node: Option<String>) {
+    let on = node.is_some();
+    set_thread_decode_node(node);
+    HANDOFF.with(|h| h.set(on));
+}
+
+/// Whether decoders made on this thread hand their pictures to another GPU: set for the thread
+/// ([`set_thread_decode_handoff`]), or, on a thread without a node of its own, the diagnostic
+/// `FILMCRAFT_DECODE_NODE=/dev/dri/renderD…`.
+pub fn decode_hands_off() -> bool {
+    HANDOFF.with(std::cell::Cell::get) || (DECODE_NODE.with(|n| n.borrow().is_none()) && env_handoff_node().is_some())
+}
+
+fn env_handoff_node() -> Option<String> {
+    static NODE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    NODE.get_or_init(|| std::env::var("FILMCRAFT_DECODE_NODE").ok().filter(|n| n.starts_with("/dev/dri/renderD"))).clone()
 }
 
 static BACKEND: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
@@ -459,6 +511,17 @@ impl NalStreamInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn handoff_scale_is_scoped_and_sane() {
+        assert_eq!(handoff_scale(), 1.0, "unset");
+        let inside = with_handoff_scale(Some(0.5), || (handoff_scale(), with_handoff_scale(Some(f32::NAN), handoff_scale), handoff_scale()));
+        assert_eq!(inside, (0.5, 1.0, 0.5), "set, nested, restored");
+        assert_eq!(handoff_scale(), 1.0, "restored");
+        for (s, want) in [(1e-9, 1.0 / 16.0), (2.0, 1.0), (-0.5, 1.0), (f32::INFINITY, 1.0)] {
+            assert_eq!(with_handoff_scale(Some(s), handoff_scale), want, "{s}");
+        }
+    }
 
     #[test]
     fn decode_node_is_per_thread() {

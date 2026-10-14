@@ -212,3 +212,16 @@ nothing critical, no reachable memory-safety bug. Fixed with tests where testabl
 
 Accepted: `va_sys.rs` has no bindgen layout tests (generated from the system headers by
 `gen-va-sys.sh` for this ABI; the structs passed by size are the generated ones).
+
+## Update: one VA-API stack (fork U0.2, 2026-10-13)
+
+The fork's own in-process HEVC decoder (`va_hevc.rs`, with `crates/hevc/src/accel.rs` driving it)
+is gone. Every in-process H.264 / HEVC decode now runs through upstream's front ends
+(`vaapi/h264.rs`, `vaapi/hevc.rs`) on the fork's display layer (`crate::va::Display`). Pictures are
+either left on the GPU and imported as described above (`va_accel::ZeroCopyAccel`), handed to the
+compositing GPU as linear copies (4:2:2, or decoded on the second GPU, optionally scaled to the size
+drawn), or read back (`ZeroCopyAccel::new_read_back`). Upstream's own libva loader, `Display` and
+`Session` (`vaapi/va.rs`) are removed, so the process opens one VA display per render node. The
+hostile-input checks of the old decoder (tile sizes, entry points, zero-data slices) live in the
+front end (`vaapi/tests.rs`).
+

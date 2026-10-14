@@ -7,6 +7,13 @@
 #   flatpak-builder --user --install --force-clean build-flatpak packaging/linux/flatpak/ai.storyteller.filmcraft.yml
 #   flatpak run ai.storyteller.filmcraft
 #
+# For a local test build without the generator script, `cargo vendor --locked <dir>` works too:
+# in a copy of this file, replace the `cargo-sources.json` source with a `dir` source of <dir>
+# (`dest: vendor`) and a `file` source (`dest: cargo`, `dest-filename: config.toml`) holding the
+# config `cargo vendor` prints, its `directory` changed to /run/build/filmcraft/vendor. Needs
+# org.freedesktop.Sdk//25.08, org.freedesktop.Sdk.Extension.rust-stable//25.08 and
+# org.flatpak.Builder (`flatpak run org.flatpak.Builder …`); about 7 minutes on an i5-13500T.
+#
 # The command-line tool and its MCP server run in the same sandbox, without opening a window:
 #
 #   flatpak run --command=filmcraft-cli ai.storyteller.filmcraft --version

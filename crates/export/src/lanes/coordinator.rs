@@ -107,6 +107,8 @@ struct LaneState {
     chunks: u64,
     frames: u64,
     failed: Option<String>,
+    /// Set instead of `failed` when the slow-lane rule gave up on it.
+    retired: Option<String>,
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -210,6 +212,7 @@ impl Coordinator {
                 chunks: 0,
                 frames: 0,
                 failed,
+                retired: None,
                 handle,
             });
         }
@@ -400,12 +403,22 @@ impl Coordinator {
         self.lanes.get(lane).map(|l| l.name.clone()).unwrap_or_default()
     }
 
-    /// Give up on a lane: its chunk goes back to the front of the queue for the others.
+    /// Give up on a lane that went wrong: its chunk goes back to the front of the queue for the
+    /// others.
     fn kill(&mut self, lane: usize, why: String) {
+        self.stop_lane(lane, why, false);
+    }
+
+    /// Stop a lane (`retired`: the slow-lane rule, reported apart from failures).
+    fn stop_lane(&mut self, lane: usize, why: String, retired: bool) {
         let Some(l) = self.lanes.get_mut(lane).filter(|l| l.alive) else { return };
         l.alive = false;
         l.killed.store(true, Ordering::Relaxed);
-        l.failed = Some(why);
+        if retired {
+            l.retired = Some(why);
+        } else {
+            l.failed = Some(why);
+        }
         l.held_frames = 0;
         l.held_since = None;
         if l.decodes_422 {
@@ -467,12 +480,12 @@ impl Coordinator {
                 }
             }
             if let Some(why) = why {
-                self.kill(i, why);
+                self.stop_lane(i, why, true);
             }
         }
     }
 
-    /// Per lane: name, node, chunks, frames, fps, why it failed.
+    /// Per lane: name, node, chunks, frames, fps, why it failed or was retired.
     pub fn report(&self) -> Vec<LaneReport> {
         let secs = self.t0.elapsed().as_secs_f64().max(1e-6);
         self.lanes
@@ -484,6 +497,7 @@ impl Coordinator {
                 frames: l.frames,
                 fps: l.frames as f64 / secs,
                 failed: l.failed.clone(),
+                retired: l.retired.clone(),
             })
             .collect()
     }
@@ -717,7 +731,8 @@ mod tests {
         within(30, || {
             let r = run_pair("slow-ratio", chunker::plan(0, 400, 10, 40, 2, &[], &[]), fake(1), fake(20), Duration::from_millis(200), "ratio");
             let slow = r.get(1).expect("slow lane");
-            assert!(slow.failed.as_deref().is_some_and(|f| f.contains("too slow")), "{r:?}");
+            assert!(slow.retired.as_deref().is_some_and(|f| f.contains("too slow")), "{r:?}");
+            assert!(slow.failed.is_none(), "retiring a working lane is not a failure: {r:?}");
             assert!(r.first().is_some_and(|l| l.failed.is_none()), "{r:?}");
         });
     }
@@ -736,7 +751,8 @@ mod tests {
                 "tail",
             );
             let slow = r.get(1).expect("slow lane");
-            assert!(slow.failed.as_deref().is_some_and(|f| f.contains("last chunk")), "{r:?}");
+            assert!(slow.retired.as_deref().is_some_and(|f| f.contains("last chunk")), "{r:?}");
+            assert!(slow.failed.is_none(), "{r:?}");
             assert_eq!(r.first().map(|l| l.chunks), Some(2), "{r:?}");
         });
     }
@@ -763,7 +779,7 @@ mod tests {
             let r = c.report();
             // far below the ratio, but the 4:2:2 chunk is still open and only it can encode it (the
             // fast lane fails it): retired early, nobody would be left for that chunk
-            assert!(r.get(1).is_some_and(|l| l.failed.is_none() && l.chunks >= 1), "{r:?}");
+            assert!(r.get(1).is_some_and(|l| l.failed.is_none() && l.retired.is_none() && l.chunks >= 1), "{r:?}");
         });
     }
 
@@ -771,7 +787,7 @@ mod tests {
     fn lanes_of_equal_speed_are_never_given_up_on() {
         within(30, || {
             let r = run_pair("slow-equal", chunker::plan(0, 300, 10, 30, 2, &[], &[]), fake(3), fake(3), Duration::from_millis(50), "both");
-            assert!(r.iter().all(|l| l.failed.is_none()), "{r:?}");
+            assert!(r.iter().all(|l| l.failed.is_none() && l.retired.is_none()), "{r:?}");
         });
     }
 

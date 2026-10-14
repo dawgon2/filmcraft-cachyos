@@ -34,6 +34,17 @@ fn version_after_global_options() {
     }
 }
 
+/// U0.2.4 regression: a short command exited while the 4:2:2 hardware probe was inside Intel's
+/// driver initialisation and the driver's exit handlers corrupted the heap (`help` aborted in
+/// about one run in four on a machine with an Intel GPU). Exits now wait for the probes.
+#[test]
+fn short_commands_exit_cleanly_while_hardware_probes_run() {
+    for run in 0..40 {
+        let o = cli(&["help"]);
+        assert!(o.status.success(), "run {run}: {:?}: {}", o.status, String::from_utf8_lossy(&o.stderr));
+    }
+}
+
 #[test]
 fn long_help_matches_help_command() {
     let reference = cli(&["help"]);

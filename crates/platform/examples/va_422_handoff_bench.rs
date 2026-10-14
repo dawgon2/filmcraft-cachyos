@@ -38,7 +38,7 @@ fn main() -> Result<(), String> {
     for (label, handoff, to_gpu) in
         [("read-back", false, false), ("hand-off decode", true, false), ("read-back → GPU", false, true), ("hand-off → GPU", true, true)]
     {
-        let mut dec = filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone())?;
+        let mut dec = filmcraft_platform::vaapi::VaDecoder::zero_copy(info.clone())?;
         dec.set_handoff(handoff);
         let (in_place, read_back) = (comp.gpu_frames_in_place, comp.gpu_frames_read_back);
         let mut per = Vec::new();

@@ -20,7 +20,15 @@ use filmcraft_render::gpufx::FxOp;
 use filmcraft_render::plan::{LayerFx, execute_cpu};
 use filmcraft_time::Tick;
 
+/// A compositor with full-precision (`Rgba32Float`) working textures on every adapter: the exact
+/// parity checks are about that stage; integrated GPUs' default half-float stage has its own
+/// tests (`half_float_*`).
+pub(super) fn full_precision(dev: &wgpu::Device, q: &wgpu::Queue) -> GpuCompositor {
+    GpuCompositor::with_fx_format(dev, q, fx::FX_FORMAT)
+}
+
 const EXACT: f32 = 1e-4;
+const HALF_EXACT: f32 = 2e-3;
 const FLIPS: f64 = 0.01;
 
 fn cx(t: Tick, px_scale: f32) -> FxCtx<'static> {
@@ -303,11 +311,26 @@ fn cases() -> Vec<(&'static str, Vec<(&'static str, ParamValue)>, bool)> {
 /// Every effect case on the GPU against its CPU reference, on the working image read back as f32.
 #[test]
 fn gpu_effects_match_cpu_exactly() {
+    effects_match_cpu(None, EXACT);
+}
+
+/// The same through the half-float working textures of integrated GPUs (fork U0.2.3b): every
+/// pass rounds to 11 significant bits, so the bound is [`HALF_EXACT`] (about two 10-bit code
+/// values at 1.0) instead of [`EXACT`].
+#[test]
+fn half_float_effects_match_cpu() {
+    effects_match_cpu(Some(fx::FX_FORMAT_HALF), HALF_EXACT);
+}
+
+fn effects_match_cpu(format: Option<wgpu::TextureFormat>, exact: f32) {
     let Some((dev, q)) = device() else {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = match format {
+        Some(f) => GpuCompositor::with_fx_format(&dev, &q, f),
+        None => full_precision(&dev, &q),
+    };
     let (w, h) = (67u32, 41u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -325,7 +348,13 @@ fn gpu_effects_match_cpu_exactly() {
         let (_, _, gpu) = c.effect_image(&frame, &fx).expect("effect image");
         let (worst, flips) = compare(&cpu.px, &gpu);
         eprintln!("{id} {params:?}: max rel diff {worst:.2e}, {:.3}% flipped", flips * 100.0);
-        if worst > EXACT || flips > if steps { FLIPS } else { 0.0 } {
+        // half floats: a 40× sharpen amplifies the blur's rounding 40×, and Unsharp's threshold
+        // is a step function on that difference; both get the step functions' allowance
+        let amplified = format.is_some()
+            && (matches!(params.first(), Some((_, ParamValue::Float(a)))if id == "sharpen" && *a > 1000.0)
+                || (id == "unsharp_mask" && params.iter().any(|(k, _)| *k == "threshold")));
+        let (exact, steps) = if amplified { (0.02, true) } else { (exact, steps) };
+        if worst > exact || flips > if steps { FLIPS } else { 0.0 } {
             failures.push(format!("{id} {params:?}: {worst:.2e}, flips {flips:.4}"));
         }
     }
@@ -339,7 +368,7 @@ fn gpu_effect_chains_match_cpu() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (96u32, 54u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -387,7 +416,7 @@ fn keyframed_effects_follow_time() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (48u32, 32u32);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -484,7 +513,7 @@ fn hostile_parameters_are_bounded() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let frame = VideoFrame::rgba_f32(w as u32, h as u32, picture(w as u32, h as u32));
     let ops = vec![
         FxOp::eval(&effect("gaussian_blur", &[("blurriness", fl(1e30))]), &cx(Tick::ZERO, 1.0), w, h).expect("op"),
@@ -533,11 +562,39 @@ fn every_lumetri_section_has_a_gpu_form() {
 /// executor.
 #[test]
 fn gpu_effect_layers_match_cpu_plan() {
+    effect_layers_match_cpu_plan(None);
+}
+
+/// Export compositors keep full precision on every adapter, preview ones follow the device rule
+/// (FORK-PLAN §1a.64).
+#[test]
+fn export_compositors_never_use_half_floats() {
     let Some((dev, q)) = device() else {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    assert!(!GpuCompositor::for_export(&dev, &q).effects_half_precision());
+    let preview = GpuCompositor::new(&dev, &q);
+    let want = fx::fx_format_for(dev.adapter_info().device_type) == fx::FX_FORMAT_HALF;
+    assert_eq!(preview.effects_half_precision(), want);
+}
+
+/// The same plans through the half-float working textures integrated GPUs use (fork U0.2.3b), on
+/// whatever adapter the tests get: the same criterion holds.
+#[test]
+fn half_float_effect_layers_match_cpu_plan() {
+    effect_layers_match_cpu_plan(Some(fx::FX_FORMAT_HALF));
+}
+
+fn effect_layers_match_cpu_plan(format: Option<wgpu::TextureFormat>) {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = match format {
+        Some(f) => GpuCompositor::with_fx_format(&dev, &q, f),
+        None => full_precision(&dev, &q),
+    };
     let (w, h) = (320usize, 180usize);
     let ops = |list: &[EffectInstance], lw: u32, lh: u32, px_scale: f32| -> Vec<FxOp> {
         list.iter().filter_map(|e| FxOp::eval(e, &cx(Tick::ZERO, px_scale), lw as usize, lh as usize)).collect()
@@ -603,7 +660,7 @@ fn plain_layers_skip_the_effect_stage() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let plan = FramePlan::Layers { output: None, width: 64, height: 36, layers: vec![PlanLayer::new(yuv_frame(64, 36), Affine::IDENTITY, 1.0, Blend::Normal)] };
     c.composite(&plan);
     assert!(c.fx.as_ref().is_some_and(fx::FxStage::is_idle));
@@ -652,7 +709,7 @@ fn layers_with_effects_fall_back_to_the_cpu_without_a_stage() {
     };
     let cpu = execute_cpu(&plan).over_black_rgba8();
     for stage in [true, false] {
-        let mut c = GpuCompositor::new(&dev, &q);
+        let mut c = full_precision(&dev, &q);
         if !stage {
             c.fx = None;
         }
@@ -672,7 +729,7 @@ fn working_image_smaller_than_the_frame_matches_cpu() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (160u32, 96u32);
     // smooth content: the GPU supersamples where the CPU filters bilinearly, which differ only
     // on detail finer than the working image
@@ -707,7 +764,7 @@ fn effect_source_identity_preserves_odd_sized_half_float_texels() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     for (w, h) in [(67u32, 41u32), (96, 54), (64, 32)] {
         let px = picture(w, h);
         let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -727,7 +784,7 @@ fn alpha_invert_does_not_amplify_invented_opacity_at_odd_source_pixels() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (67, 41);
     let px = picture(w, h);
     let frame = VideoFrame::rgba_f32(w, h, px.clone());
@@ -756,7 +813,7 @@ fn effect_source_integer_decimation_preserves_cpu_box_oracle() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     for (w, h) in [(67u32, 41u32), (96, 54)] {
         let frame = VideoFrame::rgba_f32(w, h, picture(w, h));
         for n in [2, 4, 8] {
@@ -784,7 +841,7 @@ fn gpu_denoise_matches_cpu() {
     if let Ok(a) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) {
         eprintln!("adapter: {}", a.get_info().name);
     }
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (67u32, 41u32);
     // the test picture plus deterministic, half-float-representable noise
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
@@ -861,7 +918,7 @@ fn gpu_denoise_timing() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (1920u32, 1080u32);
     let px: Vec<f32> = (0..w * h).flat_map(|i| [(i % 251) as f32 / 251.0, (i % 241) as f32 / 241.0, (i % 239) as f32 / 239.0, 1.0]).collect();
     let frame = VideoFrame::rgba_f32(w, h, px);
@@ -899,7 +956,7 @@ fn temporal_denoise() {
     if let Ok(a) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) {
         eprintln!("adapter: {}", a.get_info().name);
     }
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let imgs: Vec<filmcraft_render::Image> = frames(NOISE, 0x7e57)
         .into_iter()
         .map(|mut im| {
@@ -1027,7 +1084,7 @@ fn effect_image_reads_back_a_6k_working_image() {
         eprintln!("no GPU adapter; skipping");
         return;
     };
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (6224u32, 4152u32);
     let px: Vec<u8> = (0..w * h).flat_map(|i| [(i % w % 256) as u8, (i / w % 256) as u8, 128, 255]).collect();
     let frame = VideoFrame::rgba8(w, h, px);
@@ -1058,7 +1115,7 @@ fn temporal_denoise_timing_6k() {
     if let Ok(a) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) {
         eprintln!("adapter: {}", a.get_info().name);
     }
-    let mut c = GpuCompositor::new(&dev, &q);
+    let mut c = full_precision(&dev, &q);
     let (w, h) = (6224u32, 4152u32);
     let frame = |k: i32| {
         let px: Vec<u8> = (0..w * h)
@@ -1112,4 +1169,155 @@ fn stage_ms(c: &mut GpuCompositor, frame: &VideoFrame, fx: &LayerFx) -> Option<f
     let ms = t.elapsed().as_secs_f64() * 1000.0;
     stage.end_frame();
     Some(ms)
+}
+
+/// The xm5 bench's grade (Lumetri: temperature, exposure, contrast, saturation, a luma curve, HSL
+/// Secondary, vignette; then Sharpen) as ops on a `w`×`h` image.
+fn bench_grade_ops(w: u32, h: u32) -> Vec<FxOp> {
+    let lumetri = effect(
+        "lumetri",
+        &[
+            ("temperature", fl(12.0)),
+            ("exposure", fl(0.3)),
+            ("contrast", fl(20.0)),
+            ("saturation", fl(115.0)),
+            ("curve_luma", ParamValue::Curve(vec![[0.0, 0.0], [0.25, 0.2], [0.75, 0.82], [1.0, 1.0]])),
+            ("hsl_on", ParamValue::Bool(true)),
+            ("hsl_hue", fl(30.0)),
+            ("hsl_sat", fl(130.0)),
+            ("vignette_amount", fl(-1.5)),
+        ],
+    );
+    let sharpen = effect("sharpen", &[("amount", fl(40.0))]);
+    let ctx = cx(Tick::ZERO, 1.0);
+    let mut ops = FxOp::eval_all(&lumetri, &ctx, w as usize, h as usize).unwrap_or_default();
+    ops.extend(FxOp::eval_all(&sharpen, &ctx, w as usize, h as usize).unwrap_or_default());
+    ops
+}
+
+/// Half-float preview stays within one 10-bit code value of the f32 path (FORK-PLAN §1a.62 /
+/// §1a.64), compared after the sRGB-style display encode, on a typical grade and on single
+/// colour / blur ops.
+#[test]
+fn half_float_preview_is_within_one_10_bit_code_of_f32() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let (w, h) = (160u32, 90u32);
+    let px = picture(w, h);
+    let frame = VideoFrame::rgba_f32(w, h, px);
+    let mut full = full_precision(&dev, &q);
+    let mut half = GpuCompositor::with_fx_format(&dev, &q, fx::FX_FORMAT_HALF);
+    // the grade's colour ops (Sharpen is checked below)
+    let colour: Vec<FxOp> = bench_grade_ops(w, h).into_iter().filter(|o| !matches!(o, FxOp::Unsharp { .. })).collect();
+    let lists = [
+        colour,
+        ops_of(&effect("gaussian_blur", &[("blurriness", fl(12.0))]), w, h),
+        ops_of(&effect("brightness_contrast", &[("brightness", fl(15.0)), ("contrast", fl(25.0))]), w, h),
+    ];
+    let mut worst_of = |ops: Vec<FxOp>| {
+        let fx = LayerFx { size: (w, h), decimation: 1, ops };
+        let (_, _, a) = full.effect_image(&frame, &fx).expect("f32 image");
+        let (_, _, b) = half.effect_image(&frame, &fx).expect("f16 image");
+        assert_eq!(a.len(), b.len());
+        let code = |v: f32| filmcraft_color::linear_to_srgb(v.clamp(0.0, 1.0)) * 1023.0;
+        let worst = a.chunks(4).zip(b.chunks(4)).flat_map(|(x, y)| (0..3).map(move |i| (code(x[i]) - code(y[i])).abs())).fold(0f32, f32::max);
+        eprintln!("{:?}…: worst {worst:.3} 10-bit codes", fx.ops.first().map(|o| format!("{o:?}").chars().take(30).collect::<String>()));
+        worst
+    };
+    for ops in lists {
+        let worst = worst_of(ops);
+        assert!(worst < 1.0, "half-float preview {worst:.3} 10-bit codes from f32");
+    }
+    // Known gap (owner question 18): Sharpen / Unsharp round six box passes to half floats and
+    // land up to ~4 codes away, which is why half floats are opt-in only (`FILMCRAFT_FX_FORMAT=f16`).
+    // When this drops below one code, `HALF_ON_INTEGRATED` may be turned on.
+    let sharpen = worst_of(bench_grade_ops(w, h).into_iter().filter(|o| matches!(o, FxOp::Unsharp { .. })).collect());
+    assert!(sharpen < 8.0, "half-float Sharpen {sharpen:.3} codes (was ~4)");
+}
+
+fn ops_of(e: &EffectInstance, w: u32, h: u32) -> Vec<FxOp> {
+    FxOp::eval_all(e, &cx(Tick::ZERO, 1.0), w as usize, h as usize).unwrap_or_default()
+}
+
+/// Time per op of the xm5 bench's graded export (Lumetri + Sharpen) on a 6.2K working image, in
+/// both working formats (fork U0.2.3b: the Intel lane renders graded exports at ~2 fps); GPU time
+/// per op with the source draw subtracted. Run with
+/// `--ignored --nocapture`; pick the GPU with `MESA_VK_DEVICE_SELECT`.
+#[test]
+#[ignore = "timing, not a check"]
+fn graded_export_ops_timing_6k() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    eprintln!("adapter: {:?}", dev.adapter_info().name);
+    let (w, h) = (6240u32, 4160u32);
+    let px: Vec<f32> = (0..w * h).flat_map(|i| [(i % 251) as f32 / 251.0, (i % 241) as f32 / 241.0, (i % 239) as f32 / 239.0, 1.0]).collect();
+    let frame = VideoFrame::rgba_f32(w, h, px);
+    let ops = bench_grade_ops(w, h);
+    for format in [fx::FX_FORMAT, fx::FX_FORMAT_HALF] {
+        let mut c = GpuCompositor::with_fx_format(&dev, &q, format);
+        // GPU time from submit to idle (no upload or read-back: those dominate at 6.2K and made
+        // the per-op differences noise), median of 5 after a warm-up that uploads and compiles
+        let mut time = |ops: Vec<FxOp>| {
+            let fx = LayerFx { size: (w, h), decimation: 1, ops };
+            let _ = c.effect_image(&frame, &fx);
+            let mut v: Vec<f64> = (0..5).filter_map(|_| stage_ms(&mut c, &frame, &fx)).collect();
+            v.sort_by(f64::total_cmp);
+            v.get(v.len() / 2).copied().unwrap_or(f64::NAN)
+        };
+        let base = time(vec![]);
+        eprintln!("{format:?}: source draw {base:.1} ms");
+        for op in &ops {
+            let name = format!("{op:?}").chars().take(if std::env::var_os("FX_TIMING_FULL").is_some() { 4000 } else { 60 }).collect::<String>();
+            eprintln!("{format:?}: {:.1} ms  {name}", time(vec![op.clone()]) - base);
+        }
+        eprintln!("{format:?}: all {:.1} ms", time(ops.clone()) - base);
+        // the chain interpreter's fixed cost: one cheap op
+        let one = FxOp::ColorChain(std::sync::Arc::from(vec![filmcraft_color::ops::ColorOp::Clamp { lo: 0.0, hi: 1.0 }]));
+        eprintln!("{format:?}: one-op chain (Clamp) {:.1} ms", time(vec![one]) - base);
+    }
+}
+
+/// Passes run on pipelines built for their one op (fork U0.2.3b, `PX_OP`) give what the generic
+/// pass gives, for every effect case; every per-op pipeline builds.
+#[test]
+fn per_op_pipelines_match_the_generic_pass() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let (w, h) = (67u32, 41u32);
+    let frame = VideoFrame::rgba_f32(w, h, picture(w, h));
+    let run = |generic: bool| {
+        let mut c = full_precision(&dev, &q);
+        c.fx.as_mut().expect("fx stage").set_interpret_only(generic);
+        let out: Vec<(String, bool, Vec<f32>)> = cases()
+            .into_iter()
+            .map(|(id, params, steps)| {
+                let e = effect(id, &params);
+                let ops = FxOp::eval_all(&e, &cx(Tick::ZERO, 1.0), w as usize, h as usize).unwrap_or_default();
+                let fx = LayerFx { size: (w, h), decimation: 1, ops };
+                (format!("{id} {params:?}"), steps, c.effect_image(&frame, &fx).expect("effect image").2)
+            })
+            .collect();
+        (out, c.fx.as_ref().expect("fx stage").px_specialised_count())
+    };
+    let (generic, (none, _)) = run(true);
+    let (special, (built, failed)) = run(false);
+    assert_eq!(none, 0, "generic run built per-op pipelines");
+    assert_eq!(failed, 0, "a per-op pipeline failed to build");
+    if std::env::var("FILMCRAFT_CHAIN_SPECIALISE").as_deref() != Ok("0") {
+        assert!(built > 10, "only {built} per-op pipelines built");
+    }
+    let mut failures = Vec::new();
+    for ((name, steps, a), (_, _, b)) in generic.iter().zip(&special) {
+        let (worst, flips) = compare(a, b);
+        if worst > 2e-4 || flips > if *steps { FLIPS } else { 0.0 } {
+            failures.push(format!("{name}: {worst:.2e}, flips {flips:.4}"));
+        }
+    }
+    assert!(failures.is_empty(), "per-op pipelines differ from the generic pass:\n{}", failures.join("\n"));
 }

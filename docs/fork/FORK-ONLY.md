@@ -10,6 +10,7 @@ module, one `#[cfg(feature = "fork-ffmpeg")]` hook marked `// FORK-ONLY`, commit
 | ProRes RAW via system ffmpeg (planned, RAW-PLAN R2) | `crates/fork-prores-raw` | one line in the app crate, feature `fork-ffmpeg` | — |
 | Resolve as the default workflow + one-time prefs migration (RESOLVE-UI-PLAN RS1) | `crates/engine/src/fork_resolve.rs` (+ `fork_resolve_tests.rs`); `Workflow` default in `crates/engine/src/settings.rs` | `cfg_attr` lines on `Workflow` and `cfg(feature = "fork-resolve-default")` hooks in `autosave.rs` (`Preferences::load` / `from_value`) and `lib.rs` (`start_autosave`), all marked `// FORK-ONLY`; engine feature `fork-resolve-default` enabled by `apps/filmcraft` and `apps/filmcraft-cli`; one `fork_resolve::without_data_dir` call each in `apps/filmcraft/src/main.rs` and `apps/filmcraft-cli/src/main.rs` (`Backend::open`) plus its CLI test, marked `// FORK-ONLY` | RS1 |
 | Dolphin / KIO thumbnails of `.fcproj` (FORK-PLAN §1a.46, LINUX-PLAN L2.2): a thin C++ KF6 `ThumbnailCreator` running `filmcraft-cli thumbnail` | `fork/kde-thumbnailer/` (own CMake project, not in the Cargo workspace) | none: nothing outside the folder refers to it; the L2 `PKGBUILD` builds it as the split package `filmcraft-kde-thumbnailer` (remove that `package_` function with it). The `thumbnail` CLI command, MIME type and `.thumbnailer` file it relies on are generic (upstream-safe) | L2.2 |
+| Dell build-and-test service DC1 (FORK-PLAN §1a.56): a systemd user timer on the Dell runs job branches `dell-ci/<kind>-<id>` (ci, test-<crate>, intel, soak-<name>) and writes 3-line results | `fork/dell-ci/` (bash + systemd units, not in the Cargo workspace) | none: nothing outside the folder refers to it | DC1 |
 
 The RS1 commit also adds generic, upstream-safe pieces (not behind the feature): `PREFS_VERSION` 3,
 the `workflowReturnTheme` preference, the `resolve` dark theme (`ThemeKind::Resolve`, View ▸
@@ -21,3 +22,9 @@ The pipeline's existing "remove fork-only parts" step still applies to these by 
 fallbacks in `crates/platform/src/ffmpeg.rs`, `vaapi_pipe.rs`, `hevc_export.rs`,
 `crates/engine/src/media_pool.rs`; FORK-PLAN / HANDOFF / `*-PLAN.md` / `docs/fork/`; the X-M5
 benches in `crates/ui-egui/examples/bench/`.
+
+Removed in U0.2 (2026-10-13, one VA-API stack): `crates/platform/src/va_hevc.rs` and
+`crates/hevc/src/accel.rs` (+ `crates/hevc/tests/accel.rs`), both fork-only. Upstream's
+`crates/platform/src/vaapi/va.rs` is removed too, so a contribution touching the VA-API decoder must
+bring the fork's `va.rs` display layer with it, or adapt to upstream's.
+

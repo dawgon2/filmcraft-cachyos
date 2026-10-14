@@ -363,3 +363,160 @@ fn bit_fields_match_the_header() {
     assert_eq!(1u32 << hevc_slice_bits::COLLOCATED_FROM_L0, 0x1000, "LongSliceFlags.collocated_from_l0_flag");
     assert_eq!(1u32 << hevc_slice_bits::SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED, 0x2000, "LongSliceFlags.slice_loop_filter_across_slices_enabled_flag");
 }
+
+/// Fork U0.2.3: the range-extension structs (Main 4:2:2 10) against the C compiler's view of
+/// libva 2.24's `va_dec_hevc.h` (the numbers the fork's 6.1b decoder checked its bindgen structs
+/// against, GCC, x86-64 Linux), and the constants. The driver reads base + rext from one buffer,
+/// so a wrong offset would hand it garbage.
+#[test]
+fn range_extension_layouts_match_the_header() {
+    assert_eq!((size_of::<VAPictureParameterBufferHEVCRext>(), align_of::<VAPictureParameterBufferHEVCRext>()), (24, 4));
+    assert_eq!((size_of::<VAPictureParameterBufferHEVCScc>(), align_of::<VAPictureParameterBufferHEVCScc>()), (780, 4));
+    assert_eq!((size_of::<VAPictureParameterBufferHEVCExtension>(), align_of::<VAPictureParameterBufferHEVCExtension>()), (1408, 4));
+    assert_eq!((size_of::<VASliceParameterBufferHEVCRext>(), align_of::<VASliceParameterBufferHEVCRext>()), (188, 4));
+    assert_eq!((size_of::<VASliceParameterBufferHEVCExtension>(), align_of::<VASliceParameterBufferHEVCExtension>()), (452, 4));
+    let rext = [
+        offset_of!(VAPictureParameterBufferHEVCRext, range_extension_pic_fields),
+        offset_of!(VAPictureParameterBufferHEVCRext, diff_cu_chroma_qp_offset_depth),
+        offset_of!(VAPictureParameterBufferHEVCRext, chroma_qp_offset_list_len_minus1),
+        offset_of!(VAPictureParameterBufferHEVCRext, log2_sao_offset_scale_luma),
+        offset_of!(VAPictureParameterBufferHEVCRext, log2_sao_offset_scale_chroma),
+        offset_of!(VAPictureParameterBufferHEVCRext, log2_max_transform_skip_block_size_minus2),
+        offset_of!(VAPictureParameterBufferHEVCRext, cb_qp_offset_list),
+        offset_of!(VAPictureParameterBufferHEVCRext, cr_qp_offset_list),
+    ];
+    assert_eq!(rext, [0, 4, 5, 6, 7, 8, 9, 15]);
+    let scc = [
+        offset_of!(VAPictureParameterBufferHEVCScc, screen_content_pic_fields),
+        offset_of!(VAPictureParameterBufferHEVCScc, palette_max_size),
+        offset_of!(VAPictureParameterBufferHEVCScc, delta_palette_max_predictor_size),
+        offset_of!(VAPictureParameterBufferHEVCScc, predictor_palette_size),
+        offset_of!(VAPictureParameterBufferHEVCScc, predictor_palette_entries),
+        offset_of!(VAPictureParameterBufferHEVCScc, pps_act_y_qp_offset_plus5),
+        offset_of!(VAPictureParameterBufferHEVCScc, pps_act_cb_qp_offset_plus5),
+        offset_of!(VAPictureParameterBufferHEVCScc, pps_act_cr_qp_offset_plus3),
+    ];
+    assert_eq!(scc, [0, 4, 5, 6, 8, 776, 777, 778]);
+    let ext = [
+        offset_of!(VAPictureParameterBufferHEVCExtension, base),
+        offset_of!(VAPictureParameterBufferHEVCExtension, rext),
+        offset_of!(VAPictureParameterBufferHEVCExtension, scc),
+    ];
+    assert_eq!(ext, [0, 604, 628]);
+    let slice = [
+        offset_of!(VASliceParameterBufferHEVCRext, luma_offset_l0),
+        offset_of!(VASliceParameterBufferHEVCRext, ChromaOffsetL0),
+        offset_of!(VASliceParameterBufferHEVCRext, luma_offset_l1),
+        offset_of!(VASliceParameterBufferHEVCRext, ChromaOffsetL1),
+        offset_of!(VASliceParameterBufferHEVCRext, slice_ext_flags),
+        offset_of!(VASliceParameterBufferHEVCRext, slice_act_y_qp_offset),
+        offset_of!(VASliceParameterBufferHEVCRext, slice_act_cb_qp_offset),
+        offset_of!(VASliceParameterBufferHEVCRext, slice_act_cr_qp_offset),
+    ];
+    assert_eq!(slice, [0, 30, 90, 120, 180, 184, 185, 186]);
+    assert_eq!([offset_of!(VASliceParameterBufferHEVCExtension, base), offset_of!(VASliceParameterBufferHEVCExtension, rext)], [0, 264]);
+    assert_eq!((VA_RT_FORMAT_YUV422_10, VA_FOURCC_Y210, VAProfileHEVCMain422_10), (512, 808530521, 24));
+    // bit i of the rext flag word is the i-th field of the header's bit-field struct
+    use hevc_rext_pic_bits as b;
+    let bits = [
+        b::TRANSFORM_SKIP_ROTATION_ENABLED,
+        b::TRANSFORM_SKIP_CONTEXT_ENABLED,
+        b::IMPLICIT_RDPCM_ENABLED,
+        b::EXPLICIT_RDPCM_ENABLED,
+        b::EXTENDED_PRECISION_PROCESSING,
+        b::INTRA_SMOOTHING_DISABLED,
+        b::HIGH_PRECISION_OFFSETS_ENABLED,
+        b::PERSISTENT_RICE_ADAPTATION_ENABLED,
+        b::CABAC_BYPASS_ALIGNMENT_ENABLED,
+        b::CROSS_COMPONENT_PREDICTION_ENABLED,
+        b::CHROMA_QP_OFFSET_LIST_ENABLED,
+    ];
+    assert_eq!(bits, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+}
+
+/// Fork U0.2.3: the hand-written range-extension structs agree with the fork's bindgen binding
+/// (`va_sys`, generated from the installed header) field by field: sizes, alignments, every
+/// offset, the flag word's bit positions (each bindgen setter alone) and the constants.
+#[cfg(target_os = "linux")]
+#[test]
+fn range_extension_structs_match_the_bindgen_binding() {
+    use crate::va_sys as sys;
+    macro_rules! same {
+        ($ours:ty, $theirs:ty, [$($f:ident),* $(,)?]) => {
+            assert_eq!((size_of::<$ours>(), align_of::<$ours>()), (size_of::<$theirs>(), align_of::<$theirs>()), stringify!($ours));
+            $(assert_eq!(offset_of!($ours, $f), offset_of!($theirs, $f), concat!(stringify!($ours), ".", stringify!($f)));)*
+        };
+    }
+    same!(
+        VAPictureParameterBufferHEVCRext,
+        sys::VAPictureParameterBufferHEVCRext,
+        [
+            range_extension_pic_fields,
+            diff_cu_chroma_qp_offset_depth,
+            chroma_qp_offset_list_len_minus1,
+            log2_sao_offset_scale_luma,
+            log2_sao_offset_scale_chroma,
+            log2_max_transform_skip_block_size_minus2,
+            cb_qp_offset_list,
+            cr_qp_offset_list
+        ]
+    );
+    same!(
+        VAPictureParameterBufferHEVCScc,
+        sys::VAPictureParameterBufferHEVCScc,
+        [
+            screen_content_pic_fields,
+            palette_max_size,
+            delta_palette_max_predictor_size,
+            predictor_palette_size,
+            predictor_palette_entries,
+            pps_act_y_qp_offset_plus5,
+            pps_act_cb_qp_offset_plus5,
+            pps_act_cr_qp_offset_plus3
+        ]
+    );
+    same!(VAPictureParameterBufferHEVCExtension, sys::VAPictureParameterBufferHEVCExtension, [base, rext, scc]);
+    same!(
+        VASliceParameterBufferHEVCRext,
+        sys::VASliceParameterBufferHEVCRext,
+        [
+            luma_offset_l0,
+            ChromaOffsetL0,
+            luma_offset_l1,
+            ChromaOffsetL1,
+            slice_ext_flags,
+            slice_act_y_qp_offset,
+            slice_act_cb_qp_offset,
+            slice_act_cr_qp_offset
+        ]
+    );
+    same!(VASliceParameterBufferHEVCExtension, sys::VASliceParameterBufferHEVCExtension, [base, rext]);
+    assert_eq!(
+        (VA_RT_FORMAT_YUV422_10, VA_FOURCC_Y210, VAProfileHEVCMain422_10),
+        (sys::VA_RT_FORMAT_YUV422_10, sys::VA_FOURCC_Y210, sys::VAProfile_VAProfileHEVCMain422_10)
+    );
+    // the flag word: bindgen's setter for field i sets bit i (our constant) and no other
+    type Bits = sys::_VAPictureParameterBufferHEVCRext__bindgen_ty_1__bindgen_ty_1;
+    use hevc_rext_pic_bits as b;
+    let setters: [(u32, fn(&mut Bits)); 11] = [
+        (b::TRANSFORM_SKIP_ROTATION_ENABLED, |x| x.set_transform_skip_rotation_enabled_flag(1)),
+        (b::TRANSFORM_SKIP_CONTEXT_ENABLED, |x| x.set_transform_skip_context_enabled_flag(1)),
+        (b::IMPLICIT_RDPCM_ENABLED, |x| x.set_implicit_rdpcm_enabled_flag(1)),
+        (b::EXPLICIT_RDPCM_ENABLED, |x| x.set_explicit_rdpcm_enabled_flag(1)),
+        (b::EXTENDED_PRECISION_PROCESSING, |x| x.set_extended_precision_processing_flag(1)),
+        (b::INTRA_SMOOTHING_DISABLED, |x| x.set_intra_smoothing_disabled_flag(1)),
+        (b::HIGH_PRECISION_OFFSETS_ENABLED, |x| x.set_high_precision_offsets_enabled_flag(1)),
+        (b::PERSISTENT_RICE_ADAPTATION_ENABLED, |x| x.set_persistent_rice_adaptation_enabled_flag(1)),
+        (b::CABAC_BYPASS_ALIGNMENT_ENABLED, |x| x.set_cabac_bypass_alignment_enabled_flag(1)),
+        (b::CROSS_COMPONENT_PREDICTION_ENABLED, |x| x.set_cross_component_prediction_enabled_flag(1)),
+        (b::CHROMA_QP_OFFSET_LIST_ENABLED, |x| x.set_chroma_qp_offset_list_enabled_flag(1)),
+    ];
+    for (bit, set) in setters {
+        let mut x = Bits::default();
+        set(&mut x);
+        assert!((0..32).all(|k| x._bitfield_1.get_bit(k) == (k == bit as usize)), "rext pic flag {bit}");
+    }
+    let mut sl = sys::_VASliceParameterBufferHEVCRext__bindgen_ty_1__bindgen_ty_1::default();
+    sl.set_cu_chroma_qp_offset_enabled_flag(1);
+    assert!((0..32).all(|k| sl._bitfield_1.get_bit(k) == (k == 0)), "cu_chroma_qp_offset_enabled_flag");
+}

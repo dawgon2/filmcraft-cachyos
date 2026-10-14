@@ -57,6 +57,10 @@ windows = { version = "0.62", features = [
 # wgpu), so building needs no libva headers and a system without libva simply decodes in software.
 [target.'cfg(target_os = "linux")'.dependencies]
 libloading = "0.8"
+# the window's menu in Plasma's Global Menu (kde_appmenu; all already in the lockfile through winit)
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 # CPU read-back of linear DMA-BUFs (mmap + DMA_BUF_IOCTL_SYNC, fork 6.1b; already in the lockfile)
 libc = "0.2"
 # P010 from the ffmpeg pipe read straight into u16 planes (safe casts)

@@ -92,6 +92,18 @@ pub struct GeneralPrefs {
     /// buttons and resize edges, like DaVinci Resolve) on Linux and Windows; `system` = the
     /// desktop's title bar (KWin, Mutter, Windows). macOS always keeps its own traffic lights.
     pub title_bar: String,
+    /// "Full screen" (fork, owner 2026-10-13): the window covers the whole screen, the desktop's
+    /// panels and task bar included, like DaVinci Resolve. On by default; the window's full-screen
+    /// button, View ▸ Full Screen, F11 and `window.toggleFullScreen` switch it and are remembered.
+    pub full_screen: bool,
+    /// "Project Manager full screen" (fork, owner 2026-10-13): the Project Manager remembers its own
+    /// full-screen state, as in Resolve. Off by default: it floats in a window, and opening a
+    /// project switches to the editor's state ([`Self::full_screen`]).
+    pub project_manager_full_screen: bool,
+    /// "Menu bar" (fork, owner 2026-10-13): `auto` = in the desktop's global menu when it shows one
+    /// (Plasma's Global Menu, the macOS-style top panel) and in the window otherwise, and always in
+    /// the window in full screen (the panel is covered); `window` = always in the window.
+    pub menu_bar: String,
 }
 
 impl Default for GeneralPrefs {
@@ -117,6 +129,9 @@ impl Default for GeneralPrefs {
             startup_show: None,
             projects_folder: None,
             title_bar: "filmcraft".into(),
+            full_screen: true,
+            project_manager_full_screen: false,
+            menu_bar: "auto".into(),
         }
     }
 }
@@ -152,6 +167,11 @@ pub struct AppearancePrefs {
     /// "UI Scale": `auto` (default: the scale the operating system reports) or a fixed
     /// percentage of [`UI_SCALES`] (`100` = one point per physical pixel).
     pub ui_scale: String,
+    /// "Match the desktop's text size" (L1.4, owner question Q15 option b): UI Scale ▸ Auto is
+    /// multiplied by the desktop's text size (KDE's General font against its 10 pt default,
+    /// GNOME's `text-scaling-factor`). The whole interface scales, not only text. Off by default;
+    /// a fixed UI Scale ignores it.
+    pub match_desktop_text_size: bool,
 }
 
 impl Default for AppearancePrefs {
@@ -166,6 +186,7 @@ impl Default for AppearancePrefs {
             follow_system_accent: false,
             motion: "system".into(),
             ui_scale: "auto".into(),
+            match_desktop_text_size: false,
         }
     }
 }
@@ -176,6 +197,18 @@ impl AppearancePrefs {
     pub fn ui_scale_factor(&self) -> Option<f32> {
         // `auto` doesn't parse; every other listed value is a positive whole percentage
         UI_SCALES.iter().any(|(k, _)| *k == self.ui_scale).then(|| self.ui_scale.parse::<f32>().ok()).flatten().map(|pct| pct / 100.0)
+    }
+
+    /// The zoom "Match the desktop's text size" adds on top of the system's scale: the desktop's
+    /// text factor (`system_text`, already validated by the host) while UI Scale is Auto and the
+    /// switch is on, else `None`. Hostile factors are kept inside [`TEXT_SCALE_RANGE`].
+    pub fn text_scale_zoom(&self, system_text: Option<f32>) -> Option<f32> {
+        if !self.match_desktop_text_size || self.ui_scale_factor().is_some() {
+            return None;
+        }
+        let f = system_text.filter(|f| f.is_finite() && *f > 0.0)?;
+        let f = f.clamp(*TEXT_SCALE_RANGE.start(), *TEXT_SCALE_RANGE.end());
+        ((f - 1.0).abs() >= 0.01).then_some(f)
     }
 
     /// Whether animations are off: "Animations" `off`, or `system` (and any unknown value) while the
@@ -758,6 +791,7 @@ const fn float(min: f64, max: f64, decimals: usize, unit: &'static str) -> Kind 
 const STARTUP: &[(&str, &str)] = &[("showHome", "Show Home"), ("openMostRecent", "Open Most Recent"), ("emptyProject", "Start with an Empty Project")];
 const STARTUP_SHOW: &[(&str, &str)] =
     &[("workflowDefault", "Workflow default"), ("projectManager", "Project Manager"), ("lastProject", "Last project"), ("newEmpty", "New empty project")];
+const MENU_BAR: &[(&str, &str)] = &[("auto", "In the desktop's global menu when it has one"), ("window", "In the window")];
 const TITLE_BAR: &[(&str, &str)] = &[("filmcraft", "FilmCraft (like DaVinci Resolve)"), ("system", "System (desktop title bar)")];
 const OPENING: &[(&str, &str)] = &[("showOpenDialog", "Show Open Dialog"), ("showHome", "Show Home")];
 const BIN_OPEN: &[(&str, &str)] = &[("openInPlace", "Open in place"), ("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
@@ -765,6 +799,9 @@ const PROJECT_OPEN: &[(&str, &str)] = &[("openNewTab", "Open new tab"), ("openNe
 const THEMES: &[(&str, &str)] = &[("darkest", "Darkest"), ("dark", "Dark"), ("light", "Light"), ("resolve", "Resolve")];
 pub const APPEARANCE_MODES: &[(&str, &str)] = &[("auto", "Sync with system"), ("dark", "Dark"), ("light", "Light")];
 pub const MOTION: &[(&str, &str)] = &[("system", "Sync with system"), ("on", "On"), ("off", "Off (reduce motion)")];
+/// The text factors "Match the desktop's text size" applies; a larger or smaller desktop factor
+/// is held at the nearest end.
+pub const TEXT_SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.75..=2.0;
 pub const UI_SCALES: &[(&str, &str)] = &[
     ("auto", "Auto (system)"),
     ("75", "75%"),
@@ -900,6 +937,11 @@ static CATEGORIES: &[Category] = &[
             b("general.showCompatibilityIssues", "Show system compatibility issues at startup", false),
             b("general.showProjectBinInTab", "Show \"Project:\" and \"Bin:\" in Project panel tab", false),
             b("general.showMaskTrackerPreview", "Show Mask Tracker Preview", false),
+            // fork (owner 2026-10-13): cover the desktop's panels (on by default, like Resolve), and
+            // where the menu lives (the desktop's global menu or the window)
+            f("general.fullScreen", "Full screen (covers the desktop's panels)", Kind::Bool, true),
+            f("general.projectManagerFullScreen", "Project Manager full screen", Kind::Bool, true),
+            f("general.menuBar", "Menu bar", Kind::Choice(MENU_BAR), true),
         ],
     },
     Category {
@@ -918,6 +960,7 @@ static CATEGORIES: &[Category] = &[
             b("appearance.followSystemAccent", "Use the system accent color", true),
             f("appearance.motion", "Animations", Kind::Choice(MOTION), true),
             f("appearance.uiScale", "UI Scale", Kind::Choice(UI_SCALES), true),
+            b("appearance.matchDesktopTextSize", "Match the desktop's text size", true),
         ],
     },
     Category {

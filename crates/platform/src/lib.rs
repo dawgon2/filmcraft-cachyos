@@ -4,11 +4,12 @@
 //! [`register`] puts the platform's hardware decoder factory in front of FilmCraft's own decoders
 //! (`filmcraft_codecs::register_video_decoder`). Today that is VideoToolbox on macOS for H.264
 //! (`avcC`) and HEVC (`hvcC`) streams, 8- and 10-bit, 4:2:0 and 4:2:2; Media Foundation / DXVA on
-//! Windows; NVDEC ([`nvdec`], NVIDIA's driver) and VA-API on Linux for H.264 and HEVC: the fork's
-//! in-process HEVC decoder ([`va_hevc`], frames left on the GPU for zero-copy display), upstream's
-//! in-process H.264 / HEVC decoder ([`vaapi`]; H.264 with the fork's zero-copy output first,
-//! [`va_accel`], then reading pictures back) and the system ffmpeg run as a child process
-//! ([`vaapi_pipe`]) behind them; on other systems (and on Linux with none of these) registration
+//! Windows; NVDEC ([`nvdec`], NVIDIA's driver) and VA-API on Linux for H.264 and HEVC:
+//! upstream's in-process H.264 / HEVC decoder ([`vaapi`]; with the fork's zero-copy output first,
+//! [`va_accel`]: frames left on the GPU, HEVC 4:2:2 handed from the decoding GPU to the
+//! compositing one; then reading pictures back) and the system ffmpeg run as a child process
+//! ([`vaapi_pipe`]) behind it (the fork's own HEVC decoder, `va_hevc`, left the chain in U0.2.3
+//! and the code in U0.2.5); on other systems (and on Linux with none of these) registration
 //! does nothing and reports [`Availability::Unavailable`]. It also registers a hardware H.264
 //! encoder factory (`filmcraft_export::register_encoder`) that only acts when an export asks for
 //! it (`ExportSettings::hardware_encoding` = `Auto`), see [`hardware_encode`]; on macOS, on Windows
@@ -39,6 +40,15 @@ mod annexb;
 #[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 mod biplanar;
 pub mod cursor;
+/// Call before the process exits early (a short CLI command): background hardware probes started
+/// by [`register`] finish (bounded) instead of running into the drivers' exit handlers (U0.2.4: a
+/// probe inside Intel's driver initialisation at exit corrupted the heap). Nothing to do on
+/// systems without such probes.
+pub fn quiesce() {
+    #[cfg(target_os = "linux")]
+    va::quiesce();
+}
+
 #[cfg(target_os = "linux")]
 pub mod export_lanes;
 #[cfg(target_os = "linux")]
@@ -53,6 +63,9 @@ pub mod hardware_encode;
 #[cfg(target_os = "linux")]
 pub mod hevc_export;
 pub mod hybrid;
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+pub mod kde_appmenu;
 #[cfg(target_os = "windows")]
 pub mod media_foundation;
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
@@ -66,8 +79,6 @@ pub mod va;
 pub mod va_accel;
 #[cfg(target_os = "linux")]
 pub mod va_enc;
-#[cfg(target_os = "linux")]
-pub mod va_hevc;
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
 mod va_sys;
@@ -140,33 +151,28 @@ pub fn register() -> Availability {
         gpu_export::register();
         // two-GPU export (fork 6E.3): the second GPU's lane, when there is one
         export_lanes::register();
-        // Three VA-API decode paths share one factory (`vaapi_factory`): the fork's in-process
-        // HEVC decoder (frames left on the GPU), upstream's in-process H.264 / HEVC decoder, and
-        // the ffmpeg pipe (H.264 / HEVC) behind them.
+        // The VA-API decode paths share one factory (`vaapi_factory`): upstream's in-process
+        // H.264 / HEVC front ends on the fork's display (frames left on the GPU, or read back),
+        // and the ffmpeg pipe (H.264 / HEVC) behind them (U0.2.4: one display layer).
         static ONCE: std::sync::Once = std::sync::Once::new();
         let native = va::Display::get();
-        let upstream = vaapi::va::probe();
         let pipe = ffmpeg::ffmpeg().is_some() && ffmpeg::vaapi_device().is_some();
         ONCE.call_once(|| {
             match &native {
-                Ok(_) => log::info!("hardware decoding through in-process VA-API (HEVC)"),
-                Err(e) => log::info!("in-process VA-API (HEVC) unavailable: {e}"),
-            }
-            match upstream {
-                Ok(driver) => log::info!("hardware decoding through VA-API: {driver}"),
-                Err(why) => log::info!("no VA-API hardware decoding: {why}"),
+                Ok(d) => log::info!("hardware decoding through in-process VA-API: {} on {}", d.vendor, d.node),
+                Err(e) => log::info!("no in-process VA-API hardware decoding: {e}"),
             }
             if pipe {
                 log::info!("hardware decoding through VA-API (ffmpeg pipe) available");
             }
         });
-        let mut available = if native.is_ok() || upstream.is_ok() || pipe {
+        let mut available = if native.is_ok() || pipe {
             filmcraft_codecs::register_video_decoder(vaapi_factory);
             filmcraft_codecs::hw::set_hw_backend("VA-API");
             // 4:2:2 HEVC on a display with Main 4:2:2 10 (fork 6.1b): the clip badges ask this,
             // without waiting for the display search, which starts now in the background
-            va_hevc::warm_422_probe();
-            filmcraft_codecs::hw::set_hevc_422_probe(va_hevc::hardware_422_ready);
+            va_accel::warm_422_probe();
+            filmcraft_codecs::hw::set_hevc_422_probe(va_accel::hardware_422_ready);
             Availability::Available("VA-API")
         } else {
             Availability::Unavailable("no VA-API driver (libva and a DRM render node), no ffmpeg with a VA-API device and no NVIDIA driver (NVDEC)")
@@ -234,7 +240,7 @@ pub fn hardware_decoder_for(entry: &filmcraft_isobmff::SampleEntry) -> bool {
             if nvdec::NvDecoder::new(info.clone()).is_ok() {
                 return true;
             }
-            va_hevc::NativeVaDecoder::new(info.clone()).is_ok() || vaapi::VaDecoder::new(info.clone()).is_ok() || vaapi_pipe::VaapiDecoder::new(info).is_ok()
+            vaapi::VaDecoder::zero_copy(info.clone()).is_ok() || vaapi::VaDecoder::new(info.clone()).is_ok() || vaapi_pipe::VaapiDecoder::new(info).is_ok()
         })
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -251,7 +257,7 @@ pub fn hevc_422_in_hardware() -> bool {
     // (the UI asks the non-blocking `filmcraft_codecs::hw::hevc_422_in_hardware`)
     #[cfg(target_os = "linux")]
     {
-        va_hevc::hardware_422()
+        va_accel::hardware_422()
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -299,13 +305,16 @@ pub fn media_foundation_factory(entry: &filmcraft_isobmff::SampleEntry) -> Optio
 /// The VA-API factory: a [`HybridDecoder`] around the first of the VA-API decoders that takes the
 /// stream, with the next ones as its fallbacks (ADR 0002's chain) before software:
 ///
-/// 1. the fork's in-process HEVC decoder ([`va_hevc::NativeVaDecoder`], frames left on the GPU
-///    for zero-copy display);
-/// 2. upstream's in-process H.264 decoder with the fork's zero-copy output
-///    ([`VaDecoder::zero_copy`](vaapi::VaDecoder::zero_copy), Y1; declines when the surfaces
-///    cannot be exported or `FILMCRAFT_NO_GPU_IMPORT` is set);
-/// 3. upstream's in-process decoder, pictures read back ([`vaapi::VaDecoder`], H.264 and HEVC);
-/// 4. the ffmpeg pipe ([`vaapi_pipe::VaapiDecoder`], H.264 and HEVC).
+/// 1. upstream's in-process decoder with the fork's zero-copy output
+///    ([`VaDecoder::zero_copy`](vaapi::VaDecoder::zero_copy): H.264 since Y1, HEVC 4:2:0 since
+///    U0.2.2, HEVC Main 4:2:2 10 since U0.2.3 on the display that has it, handed to the
+///    compositing GPU or read back; 4:2:0 declines when the surfaces cannot be exported or
+///    `FILMCRAFT_NO_GPU_IMPORT` is set). Every HEVC stream VA-API decodes in process goes
+///    through upstream's front end since U0.2.3 (the fork's own decoder, `va_hevc`, was
+///    removed in U0.2.5);
+/// 2. the same front ends with pictures read back ([`vaapi::VaDecoder::new`], H.264 and HEVC
+///    4:2:0; `ZeroCopyAccel::new_read_back` since U0.2.4);
+/// 3. the ffmpeg pipe ([`vaapi_pipe::VaapiDecoder`], H.264 and HEVC).
 ///
 /// `None` when none takes the stream (other codecs keep the software decoders, and every stream
 /// while Hardware decoding is Off).
@@ -330,14 +339,7 @@ pub fn vaapi_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft
     // the chain, first taker first; the ones after it become the hybrid's fallbacks
     let mut chain: Vec<Box<dyn FnOnce(filmcraft_codecs::hw::NalStreamInfo) -> Hw + Send>> = vec![Box::new(zero_copy), Box::new(upstream), Box::new(pipe)];
     let mut whys = Vec::new();
-    let mut primary: Option<Box<dyn filmcraft_codecs::VideoDecoder>> = match va_hevc::NativeVaDecoder::new(info.clone()) {
-        Ok(d) => Some(Box::new(d)),
-        Err(why) => {
-            log::info!("in-process VA-API (HEVC) declined {codec} video: {why}");
-            whys.push(why);
-            None
-        }
-    };
+    let mut primary: Option<Box<dyn filmcraft_codecs::VideoDecoder>> = None;
     while primary.is_none() && !chain.is_empty() {
         match chain.remove(0)(info.clone()) {
             Ok(d) => primary = Some(d),

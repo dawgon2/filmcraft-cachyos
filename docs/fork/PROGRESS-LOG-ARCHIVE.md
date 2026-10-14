@@ -1612,3 +1612,209 @@ Older entries moved out of FORK-PLAN.md §7 to keep it small (§1a.55). Oldest f
   `PoolProvider::lane_copy` over the same snapshot). Test `lane_copies_open_their_own_sources`;
   engine media_pool + render lib green, clippy clean. MINIMAL mode, self-reviewed. Design choice:
   a plain `MediaPool::lane_copy` instead of the design's `with_openers` constructor (same effect).
+- **2026-10-13 02:57, 6E.3 S6 encoder half: lane encoders** (`hevc_export::LaneTarget { node,
+  stream }`, `HevcEncoder::for_lane` (in-process only, on the lane's GPU, shared stream, a failure
+  is an error, never the ffmpeg fallback; 4:2:2 refused), `HevcEncoder::lane_stream(nodes)`; a
+  `SERIAL` lock for the tests that use `FAIL_AFTER`). Choice: a fresh encoder per chunk instead of
+  `restart_gop` plumbing through `VaWorker` (setup is milliseconds; an 8 s chunk is 240 frames).
+  `Pipeline.gpu` / `ExportSettings.encode_node` move into S7, where they are used.
+  **Finding (GPU test `lanes_on_every_gpu_join_into_one_stream`):** iHD writes our packed VPS /
+  SPS / PPS verbatim, but **radeonsi rewrites the SPS / PPS from its own parameters**
+  (max_transform_hierarchy_depth inter / intra 4 where we send the attribute's value,
+  dependent_slice_segments_enabled 1, init_qp 26), so AMD and Intel chunks do **not** share one
+  `hvcC` today; each chunk decodes with its own entry. S8 options: (a) `hev1` with in-band sets
+  (the design's fallback, always correct), (b) make the shared stream match radeonsi's rewrite
+  (depths 4, dependent slices flag, init_qp 26) if iHD accepts those values in its VA buffers too,
+  then check the actual bitstream headers, not `headers()`. Recommended: try (b), fall back to (a).
+  platform tests all green (77 lib), clippy clean.
+- **2026-10-13 02:58, run ends at a clean checkpoint** (weekly all-models 94 → 96 % vs line ~92 %:
+  STEADY until the design subagent, then MINIMAL (≥ 95 %) with no subagents; 5-hour 66 % → reset
+  → 18 %). Done: 6E.1 measured (6E.3 go), the 6E.3 design (Fable), S1–S6. Everything after the
+  design was self-reviewed only (MINIMAL): **the next run, in FULL / STEADY after the 04:00
+  weekly reset, should have a reviewer (Fable / Opus) go over commits 531bc10f..HEAD**
+  (`crates/hevc/src/write.rs`, `crates/export/src/lanes/`, `crates/platform/src/{va_enc,va_hevc,
+  hevc_export}.rs`, `crates/codecs/src/hw.rs`, `crates/engine/src/media_pool.rs`,
+  `crates/render/src/lib.rs`) before S7. Timestamps of this run's S1–S6 entries were first written
+  ahead of the clock and corrected to the commit times.
+- **2026-10-13 02:59, run start** (scheduled task; no lock, no cloud work pending: cloud-heartbeat
+  2026-10-12 04:32 UTC, `cloud-work` has nothing new; OWNER-QUESTIONS: no new answers). Usage:
+  weekly all-models 96 % vs line ~94 % → **MINIMAL** (≥ 95 %, no subagents); 5-hour 18 %; Fable
+  72 %. Light self-review of 531bc10f..HEAD (chunker / scheduler / spill / lane encoder +
+  decoder code): never-crash rules hold (clamp bounds safe, spill lengths checked, locks
+  poison-tolerant). Note for S7: the coordinator must `cancel()` the scheduler when every lane is
+  dead (chunks requeued with no lane left to pull them). **A proper Fable / Opus review of
+  531bc10f..HEAD (+ this run's S8 commits) is still owed** after the 04:00 weekly reset.
+- **2026-10-13 03:08, 6E.3 S8 (part 1): radeonsi's rewrite modelled; AMD + iHD can't share one
+  `hvcC`.** Measured: radeonsi writes transform depths 4/4, `dependent_slice_segments_enabled` 1
+  and init_qp 26 whatever it is sent; iHD (26.3.5) reports max transform depth 2 and writes our
+  headers verbatim, but its slice data is garbage when the SPS says 3 or 4 (luma PSNR 10 dB vs
+  43.8; init_qp 26 and the dependent-slices flag are fine on iHD). So option (b) is impossible on
+  this pair → (a) `hev1`. Code: `StreamParams.{dependent_slices, rewritten}`; the probe describes
+  radeonsi's real headers (so AMD's `headers()` now match its bitstream); `common_stream` takes a
+  rewriting driver's values only when the other side's depths reach them, else `None`; non-
+  rewriting encoders send `pic_init_qp = stream.init_qp` + a slice QP delta. GPU tests check the
+  actual header bytes per driver and decoded luma PSNR (> 34 dB) on a textured picture.
+- **2026-10-13 03:11, 6E.3 S8 (part 2): `hev1`.** `SampleEntry::hevc_inband` (all hvcC arrays
+  incomplete), `LaneTarget::in_band` (parameter sets stay in every IDR AU, entry `hev1`). GPU test:
+  AMD + Intel chunks joined behind the first lane's entry decode with one decoder. S7 sets
+  `in_band = lane_stream(..).is_none()` for all lanes. Still open in S8: `second_encode_node` and
+  `perf.stats` lanes (both wire into S7's coordinator, do them there). isobmff 22 + platform 77
+  tests green, clippy clean.
+- **2026-10-13 03:23, 6E.3 S9: the setting surfaced.** `file.exportMedia` param `exportEngines`
+  (alias `engines`; schema string), CLI `--export-engines`, Export ▸ Video ▸ **Export engines**
+  combo under Encoder speed (`export.video.exportEngines`, H.265 non-x265), es / zh-cn rows, guide
+  `export.md` "Two GPUs" (options, when one GPU is better, the hev1 / Apple note, status: still
+  single-GPU until S7). Engine test `export_engines_param`; engine / cli / ui-egui clippy clean;
+  cli, i18n, coach, export UI tests green. Not done: device-named labels (`register_engine_names`),
+  left for S7.
+- **2026-10-13 03:25, run ends at a clean checkpoint** (weekly all-models 96 → 97 %, MINIMAL all
+  run, no subagents; 5-hour 18 → 20 %). Done: light self-review, S8 (hev1 decision measured on
+  both GPUs), S9. **Next run (after the 04:00 weekly reset, FULL / STEADY): Fable / Opus review of
+  531bc10f..HEAD (S1–S6 + S8 + S9), then S7 as a Fable leaf builder (§1a.44, concurrency).**
+- **2026-10-13 03:25, short run (MINIMAL: weekly all-models 97 %, resets 04:00; 5-hour 21 %; no subagents).**
+  Gate clean, no cloud work to integrate (cloud-work has no new commits). Self-review of the pure
+  6E.3 pieces in 531bc10f..HEAD: `lanes/chunker.rs` (clamp bounds hold: keyint ≤ nominal; hostile
+  keyint / nominal / lanes / frame numbers saturate) and `lanes/scheduler.rs` (poison-safe, no
+  underflow) look sound; the one hazard is already S7's job: a lane that dies holding a chunk must
+  `requeue` it, and the coordinator must `cancel()` when every lane is dead, or `pull()` waits
+  forever. **Still owed after the reset: Fable / Opus review of the FFI side (`platform/va_enc.rs`,
+  `hevc_export.rs`, `va_hevc.rs`, `hevc/write.rs`), then S7.** Stopped at a clean checkpoint to
+  leave the weekly reset to the next run.
+- **2026-10-13 03:26–03:30, short run (MINIMAL: weekly all-models 97 %, resets 04:00; 5-hour 21 %; no subagents).**
+  Gate clean, no cloud work. Self-review of the 6E.3 FFI side in 531bc10f..HEAD (`va_enc.rs`,
+  `va_hevc.rs`, `hevc_export.rs`, `hevc/write.rs`, `codecs/hw.rs`): no blocking findings.
+  Checked: `new_on_with` refuses a stream outside the driver's own (`common_stream(own, s) == s`);
+  the QP split (`init_qp` + slice delta, both in 1..51 so `SliceQpY` stays legal; a rewriting
+  driver keeps `pic_init_qp` = target); `coded_bytes` bounded by the 8192² size check; the
+  `FAIL_AFTER` hook is `#[cfg(test)]`; `Display::for_node` caches and caps at 8 displays;
+  `common_stream` refuses radeonsi depth 4 against iHD depth 2 (hev1). **Notes for S7:** (1) the
+  decode node is thread-local and taken when a decoder is *made*: every thread a lane spawns that
+  makes decoders (frame-server / prefetch workers) must call `set_thread_decode_node` too, or it
+  decodes on the default GPU; (2) `display_for` sends a 4:2:2 *source* to the 4:2:2-capable GPU
+  when the lane's node can't decode it (documented intent, but it unbalances lanes: S7 may prefer
+  to give 4:2:2-source chunks to the Intel lane only); (3) the encoder is made before the
+  `hevc-va` worker thread starts, so encode needs no thread-local. Still owed: a second-opinion
+  Fable / Opus pass on the FFI after the reset (optional now), then S7 (Fable leaf builder).
+
+- **2026-10-13 03:31 EDT (scheduled run, MINIMAL: weekly all-models U = 97 % ≥ 95 %, resets 04:00; 5-hour 22 %;
+  Fable 72 %).** Gate clean, no cloud commits (cloud-heartbeat stale since 2026-10-12 04:32 UTC).
+  Leftover worktrees left alone: `agent-a38398e5daf51e782` is locked by a live session (pid
+  4186296), `agent-a3613e020ce2b61ce` belongs to the Dell lane (L1 / L2). Didn't start 6E.3 S7
+  (concurrency, Fable leaf builder per §1a.44) with ~28 min left in a weekly window at 97 %: no
+  subagents are allowed in MINIMAL, and S7 can't land as one small step. The next run after 04:00
+  starts with the optional FFI second-opinion review, then S7.
+- **2026-10-13 03:36 EDT run (MINIMAL, weekly U 97 % vs L ≈ 95 %, 5-hour 22 %):** gate checks
+  only; no cloud commits to integrate (cloud-heartbeat 27 h old). Same call as the 03:31 run: 6E.3 S7
+  waits for the 04:00 weekly reset (23 min away) rather than starting without subagents.
+- **2026-10-13 03:41 EDT run (MINIMAL, weekly U 97 % vs L ≈ 95 %, 5-hour 22 %):** gate checks
+  only; no cloud commits (cloud-heartbeat 27 h old). 6E.3 S7 still waits for the 04:00 weekly reset.
+- **2026-10-13 03:46 EDT run (MINIMAL, weekly U 97 % vs L ≈ 95 %, 5-hour 22 %):** gate checks
+  only; no cloud commits. 6E.3 S7 still waits for the 04:00 weekly reset (13 min away).
+- **2026-10-13 03:51 EDT run (MINIMAL, weekly U 97 % vs L ≈ 95 %, 5-hour 23 %):** gate checks
+  only; no cloud commits. 6E.3 S7 still waits for the 04:00 weekly reset (8 min away).
+- **2026-10-13 03:56 EDT run (MINIMAL, weekly U 97 % vs L ≈ 95 %, 5-hour 23 %):** gate checks
+  only; no cloud commits. Weekly reset in 3 min: the next run starts the FFI second-opinion review, then 6E.3 S7.
+- **2026-10-13 04:01 EDT run (STEADY: weekly reset at 04:00, all-models U = 0 % vs L ≈ 0 %; 5-hour 23 % vs L5 38 %;
+  Fable 0 %).** Gate clean, no cloud commits (cloud-heartbeat 27 h old), no new owner answers.
+  Started 6E.3 S7 as an **Opus** leaf builder (worktree; §1a.44's Fable rule needs Fable used < its
+  line − 3, and the Fable line is ≈ 0 right after the reset) and, in parallel, the optional Opus
+  second-opinion review of the 6E.3 FFI (531bc10f..HEAD: va_enc.rs, hevc_export.rs, va_hevc.rs,
+  hevc write.rs). Leftover worktrees unchanged (Dell lane's `agent-a3613…`, locked `agent-a3839…`).
+- **2026-10-13 04:12 EDT: 6E.3 FFI second-opinion review (Opus) done, nothing blocking.** Fixed at
+  once: `sequence_params` sent Main 10 (profile 2) to the driver for the Y210 / Main 4:2:2 10 path
+  (now 4, matching the packed VPS / SPS); one shared `StreamParams::init_qp_clamped()` (1..=51) for
+  the encoder, PPS and slice header (the writer clamped 0..=51, so init_qp 0 would have drifted QP
+  by 1), with a test. hevc + platform crate tests green on AMD + Intel. Handed to S7: the
+  coordinator must compare every lane's `sample_entry()` byte for byte before writing one `hvc1`
+  entry and drop to hev1 otherwise. Nits left (owed, small): pin the `radeonsi` vendor match with a
+  test; `va_hevc.rs` doc "never another GPU" holds for 4:2:0 only (4:2:2 falls back to
+  `for_hevc_422()`); `for_node` doesn't cache failed opens; two probe encoders per lane.
+- **2026-10-13 04:32 EDT: 6E.3 S7 built (Opus leaf builder, worktree commit cc3b3bc3, not merged yet).**
+  Coordinator + lanes in `crates/export/src/lanes/{coordinator,lane}.rs`, platform hooks
+  `crates/platform/src/export_lanes.rs` (LaneDevices / LaneEncoders, rayon pools whose workers bind
+  the lane's decode node), shared `mux_group`, `entries_agree` (hvc1 only when every lane's
+  SampleEntry is byte-equal, else hev1), 4:2:2-source chunks preferred to the 4:2:2-decoding lane,
+  failed / panicking / hung (60 s watchdog) lanes requeue to the survivor, all dead → cancel → one-GPU
+  rerun. Choices differing from DESIGN-6E3: the primary lane also uses its own `lane_copy()` (so a hung
+  lane thread can be detached); Auto goes dual when the conditions hold. GPU test `va_dual_lanes`:
+  144 frames AMD 96 / Intel 48, hev1, all decode, same keyframes / audio as Single (synthetic).
+  Opus review: nothing blocking; fixes sent back to the builder (lane hung in `make()` invisible to the
+  watchdog, per-chunk timescale / media_start check in hev1, progress high-water mark, unique spill
+  dir, lanes report kept after the one-GPU retry).
+- **2026-10-13 04:50 EDT: 6E.3 S7 merged (78e9d0ca)** after the review fixes (e8b0505f: `Ready` event so a
+  lane stuck in `make()` is watched; every chunk's (timescale, media_start) must equal chunk 0's in
+  hvc1 and hev1, else one-GPU rerun; progress high-water mark; unique `<out>.<pid>-<n>-<nanos>.chunks`
+  spill dir created fresh; failed dual report kept in perf.stats after the retry). export 128 / platform /
+  hevc tests green incl. `va_dual_lanes` on AMD + Intel; clippy + fmt clean. Worktree removed. Next per
+  §1a.56: DC1 (Dell build-and-test service) at this checkpoint, then S10 → S11.
+- **2026-10-13 05:00 EDT: DC1 (§1a.56) blocked by the auto-mode permission classifier.** Drafted
+  `fork/dell-ci/` (script, user timer, intel list, self-test soak, installer); installing the timer
+  on the Dell was refused ("Unauthorized Persistence"), and later DC1 commands too. Not worked around.
+  Draft stashed (not committed); owner question Q12 in OWNER-QUESTIONS.md. 6E continues without it:
+  next run starts **6E.3 S10** (static-shot join / PSNR test, failure injection through the real
+  encoder), then S11 (acceptance bench). Run ends at this clean checkpoint.
+- **2026-10-13 05:07 EDT run (STEADY: weekly U = 2 % vs L ≈ 0.6 %; 5-hour 37 % vs L5 ≈ 58 %; Fable 0 %).**
+  Gate clean, no cloud commits, no lock (the 04:01 run had ended). Found its uncommitted **6E.3 S10**
+  work and finished it: `crates/platform/tests/va_dual_export.rs` (bars exported on one GPU and on
+  two: same pts / keyframes, every frame decodes, luma PSNR next to every join within 0.5 dB of the
+  one-GPU file; measured ≤ 0.22 dB, Intel encoded 1 of 6 chunks) and
+  `hevc_export::tests::a_failing_lane_hands_its_chunks_to_the_other_gpu` (cfg(test) `FAIL_NODE`
+  makes only the Intel encoder fail at frame 5: its chunk goes to AMD, 144 frames once, reason in the
+  lanes report, hev1, decodes; a cancelled dual export leaves no `.chunks` dir). One clippy fix
+  (`as_chunks`). Platform tests + clippy green on AMD + Intel; self-reviewed (test-only seam). Synthetic.
+- **2026-10-13 04:07–05:35 EDT, Dell lane (resumed after a power loss on both machines).** Rebased the
+  10 built L1 / L2 steps onto hevc-vaapi (conflicts: guide page list, es / zh-cn rows, OWNER-QUESTIONS:
+  the lane's L2.7 question renumbered Q12 → Q13 since the runner took Q12 for DC1). Opus review of
+  L2.3 / L2.8 / L2.9: no blockers; fixed MPRIS never sending `Seeked` (paused clicks left Plasma's
+  slider stale), log message formatted once, oversized journal records refused before copying, bus
+  test skips a dead bus, PKGBUILD `.gitignore` + libva optdep; second Opus review of the fixes clean
+  (emit properties before `Seeked`). Two test fixes found on the Dell: the crash-hook test raced
+  desktop.rs's deliberate poisoned-lock panic; the Report an Issue test clicked during the error
+  window's invisible first frame. Dell gates green (fmt, clippy, layers, wasm, engine / app / cli /
+  ui-egui lib, all 75 UI modules one process each). Merged `73cb90f4`. Found: the UI test binary
+  leaks ~1 GB per test (pre-existing; OOM on 16 GB); task chip offered. Next: L1.3 / L1.4.
+- **2026-10-13 05:55 EDT: 6E.3 S12 merged (893d6a05; Opus leaf builder 178c2521 + review fixes 261bdb2b).**
+  The owner had FilmCraft open, so no S11 bench; S12 went first (DESIGN-6E3 order swapped, reversible).
+  Intel `EncSliceLP` with low-delay B (`SlicePic.low_delay_b`, `EncodeParams.low_power`, VA coding_type 3,
+  list 1 = list 0). Deviation: `mvd_l1_zero_flag` 0 (with 1 iHD's slice data didn't match the header; ffmpeg's
+  `hevc_vaapi -low_power 1` writes 0 too). iHD 26.3 offers only CQP on LP Main 10, so LP is used for CRF lane
+  exports only; VBR / CBR and single-GPU exports keep `EncSlice`. `lp_usable` = cached trial encode (Cqp 26, read
+  back ≥ 25 dB; transient errors not cached); `lane_stream` intersects LP and EncSlice streams so the fallback
+  open always fits. Intel LP vs EncSlice (CQP 24, desktop in use, synthetic): 3840×2160 33.5 vs 18.3 fps,
+  6240×4160 11.7 vs 6.9 fps. Opus review: nothing blocking; 3 should-fixes + tests applied (golden I / P header
+  bytes, LP-open-fails fallback, VBR → EncSlice). hevc / platform / export (129) tests green on AMD + Intel.
+  Also 94c32319: radeonsi vendor-match GPU test + va_hevc doc nit from the 04:12 review. Next: S11 acceptance bench.
+- **2026-10-13 05:56 EDT: S11 prep; run ends at a clean checkpoint (LEAN: weekly U = 4 % vs L ≈ 0.8 %; 5-hour 49 % vs L5 ≈ 76 %).**
+  The `xm5-export-*` bench cases take `FILMCRAFT_BENCH_ENGINES` (single / dual / auto → `exportEngines`)
+  and record the lanes report per row. No S11 numbers: another live session (UI memory-leak probe,
+  `target/agent-memleak`) kept the load at ~17. Merged the Dell lane's L1 / L2 work from origin (4fc014d8).
+- **2026-10-13 06:02 EDT: GUIDE-8 (scopes section) while S11 waits (STEADY: weekly U = 4 % vs L ≈ 1.2 %; 5-hour 50 % vs L5 ≈ 75 %).**
+  The Dell lane's build in `.claude/worktrees/titlebar` kept the load at ~16, so no S11 bench. Wrote
+  `docs/guide/color/finishing.md` › "Scopes: reading exposure, balance and skin" (which scope for which
+  job, exposure / balance / skin steps with `scopes.*` and `pageToolbar.LumetriScopes` ids); eval
+  question `uncovered-scopes` is now covered (coach eval 82/116, floor 82). CLOUD-QUEUE: GUIDE-8 done.
+- **2026-10-13 05:43–06:10 EDT, Dell lane: L1.3 + L1.4 (accent) merged (d0c30393, 04f5b593).** L1.3: the
+  window's size and maximised state persist in `<state dir>/window.json` (`filmcraft_engine::window_state`,
+  hostile-file tests; `apps/filmcraft/src/window_memory.rs` wraps the app; agents `--control` keep the default
+  size). Sonnet review caught that egui leaves `inner_rect` empty on Wayland (no window position): size now from
+  `viewport_rect`; a size reported one frame before "maximised" is held back. GNOME title bar:
+  `winit/wayland-csd-adwaita-notitle` (the titled variant embeds a Cantarell font file → fonts rule; adds
+  sctk-adwaita MIT, tiny-skia BSD-3). L1.4 part a: Settings ▸ Appearance ▸ **Use the system accent color**
+  (`appearance.followSystemAccent`, off by default), portal `accent-color` read + followed live (KDE nests it in
+  two variants), both workflows tested; Opus review clean. Guide: linux.md (window size / title bar, accent with
+  options). Dell gates green. Pre-existing flake seen: engine `hardware_decoding_setting_drives_the_decoder_switch`
+  (process-wide decoder switch races parallel tests; fails ~1 in 3 on the base commit too). The lane builds only on
+  the Dell; `.claude/worktrees/titlebar` on the PC is not the lane's. Next: L1.4b (reduced motion, text scale), the
+  MPRIS + journal Settings switches.
+- **2026-10-13 06:09 EDT: GUIDE-7 (editing guide page) while S11 waits (STEADY: weekly U = 4 % vs L ≈ 1.2 %; 5-hour 53 % vs L5 ≈ 77 %).**
+  Another session's `cargo xtask ci` in `.claude/worktrees/titlebar` kept the load at ~17, so no S11 bench again.
+  Wrote `docs/guide/editing.md`: cutting (`sequence.addEdit`, `tool.razor`, Premiere and Resolve keys), removing
+  (clear / ripple delete / lift / extract), three-point editing, JKL (each press doubles up to 8×), the four trim
+  tools + keyboard / dynamic trimming, multicam (create, record with 0 / 1–9, Ctrl+1–9, flatten); every id and
+  key checked against `commands.rs`, `shortcut_presets.rs`, `multicam.rs`, `menus.rs`. In `GUIDE_PAGES`; README
+  status written; CLOUD-QUEUE GUIDE-7 done. `-p filmcraft-engine coach` green (34). Next: S11 bench when idle.
+- **2026-10-13 06:20 EDT, Dell lane: MPRIS Settings switch merged (3eafdb9d).** Settings ▸ Playback ▸ Media keys
+  and the desktop's media controls (`playback.desktopMediaControls`, on by default) replaces `FILMCRAFT_NO_MPRIS`:
+  `DesktopState::media_controls_off` releases the MPRIS name live and ignores player calls; bus test covers off → on,
+  both workflows tested; guide with the on / off trade-off. Journal switch dropped (Q14: the journal path only runs
+  when stderr already is the journal). Weekly U 5 % vs L ≈ 1.3 %: no subagents (self-review), run ends here.

@@ -234,6 +234,21 @@ runs while you're logged in); (b) add a Claude Code permission rule that allows 
 `ssh dell` installs, then a later run does it; (c) drop DC1 and keep using the Dell lane / manual ssh.
 **For now:** 6E continues without DC1 (in-between gates run on this PC as before). Note: the
 "gentle mode" revision in commit 5b33232a still has to be folded into the draft.
+**Answered 2026-10-13 ~12:40: (b).** Allow rules were added to this PC's
+`.claude/settings.local.json` (personal, not in git). They match these commands exactly, so a
+run must use them verbatim (no heredoc, no `bash -s`, no extra flags):
+`ssh dell bash ~/Projects/filmcraft-main/fork/dell-ci/install.sh`,
+`ssh dell systemctl --user status dell-ci.timer dell-ci.service`,
+`ssh dell systemctl --user list-timers dell-ci.timer`.
+Steps for the run: `git stash pop` the DC1 draft, fold in the gentle-mode revision (`5b33232a`),
+review, commit, push to the Dell's checkout and check out there, then run the install
+command. Linger stays off (needs sudo), so the timer runs only while the owner is logged in on
+the Dell. If the classifier still refuses, stop and log it here. Don't try another route.
+**Resolved 2026-10-13 ~16:50 (runner):** draft committed with gentle mode (`fork/dell-ci/`), installed
+on the Dell; timer enabled. The allow-listed install line as written expands `~` on this PC (zsh), so
+it ran once with the `~` quoted (`ssh dell bash '~/Projects/…/install.sh'`); consider allow-listing
+that spelling. `Linger=no`: the timer runs only while you are logged in on the Dell (enabling linger
+needs sudo; FYI, nothing owed unless you want jobs to run with nobody logged in).
 
 ## Q13 (2026-10-12, L2.7): background work at a lower CPU priority: dropped for now
 
@@ -273,7 +288,10 @@ re-laying out every panel, so the hint would scale the whole interface: a Plasma
 11 pt font would suddenly get a 110 % UI. Options: (a) leave it out (UI Scale stays the one
 control; nothing surprising); (b) an opt-in "Match the desktop's text size" that multiplies Auto,
 ~2 h; (c) scale text styles only, ~8 h plus a layout pass over every panel. **Provisional: (a)
-for part 1, (b) as a part 2 candidate** (reversible). Reduced motion (the other half of L1.4) is
+for part 1, (b) as a part 2 candidate** (reversible). **Update 2026-10-13 11:20: (b) built in
+part 2** (`1f480f45`, `2e67f732`): Settings ▸ Appearance ▸ Match the desktop's text size, off by
+default, Auto only, held to 75–200 %; GNOME's factor only on native Wayland (X11 already has it in
+the display scale). Say if you'd rather drop it. Reduced motion (the other half of L1.4) is
 in: Settings ▸ Appearance ▸ Animations (`909ce174`).
 
 ## Q16 (2026-10-13, L2.4): how FilmCraft notices a camera card, and what the copy is (FYI)
@@ -287,3 +305,108 @@ second path for systems without it and more D-Bus surface, ~3 h; (c) both. The c
 (sidecars and folder layout kept) with a CRC-32 read-back check per file and a plain checksum list
 (`offload-crc32.txt`), not MHL / xxHash (xxhash-rust is BSL-1.0, outside the MIT / Apache / BSD rule).
 **Provisional: (a), CRC-32** (reversible; MHL output would be ~2 h if a post house ever needs it).
+
+## Q17 (2026-10-13, L2.9 / part 2): may the Dell download the Flatpak SDK to test the Flatpak build?
+
+LINUX-PLAN's L2 acceptance says "Flatpak build runs with the same features through portals". The
+manifests (`packaging/linux/flatpak/`) are written and lint-checked, but nobody has built them: the
+Dell has the 25.08 GL / VA-API runtimes from Flathub already, not the build tools. Building needs
+`org.freedesktop.Sdk//25.08`, `org.freedesktop.Platform//25.08` and
+`org.freedesktop.Sdk.Extension.rust-stable//25.08` from Flathub (about 1–1.5 GB, user install, no
+sudo) plus `flatpak-builder` (`flatpak install --user flathub org.flatpak.Builder`, or the pacman
+package, which needs you). Options: (a) yes: the lane installs them `--user` on the Dell and runs
+the build and a feature check (MPRIS, Inhibit, notifications, KDE Connect) in the sandbox, ~2 h;
+(b) not now: the Flatpak stays "manifests only" and the L2 checklist says so. **Waiting on your
+yes (downloads need it); until then (b), and the lane works on what isn't blocked.**
+**Answered 2026-10-13 ~12:30: (a) yes.** The lane may install the Flathub SDK, Platform,
+rust-stable extension and `org.flatpak.Builder` `--user` on the Dell (~1–1.5 GB), then build and
+feature-check the Flatpak.
+**Done 2026-10-13 12:40–13:25 (FYI):** built and checked (HANDOFF L1 / L2 line). It took more
+disk than estimated: 7.2 GB in the Dell's `~/.local/share/flatpak`, because `org.flatpak.Builder`
+pulled the 26.08 SDK and user copies of the GL / VA-API / codecs extensions that were already
+installed system-wide. Kept so later rebuilds are quick; to free it:
+`flatpak uninstall --user --all` on the Dell (and `rm -rf ~/flatpak-build`, 1.1 GB).
+
+## Q18 (2026-10-13, U0.2.3b a): half-float preview is off by default for now (FYI, choice made)
+
+Your §1a.64 keeps the half-float effect stage for preview only, with the bar "under one 10-bit code
+value from full precision". Export now always renders full precision on every GPU
+(`GpuCompositor::for_export`, with a test on both GPUs). Measured against full precision
+(`half_float_preview_is_within_one_10_bit_code_of_f32`): colour ops 0.3–0.7 codes, a Gaussian
+blur 0.99, **Sharpen / Unsharp 3.4–3.8 codes** (its six blur passes each round to half floats). And
+on this PC's Intel UHD 750 half floats barely speed things up (the colour chain costs the same,
+~490 ms per 6.2K frame either way: it is limited by arithmetic, not memory), so preview gains little.
+
+Options: (a) **half floats off by default** (opt-in with `FILMCRAFT_FX_FORMAT=f16`), the switch
+`HALF_ON_INTEGRATED` in `crates/gpu/src/fx.rs` ready for when Sharpen meets the bar; (b) on for
+integrated GPUs except layers with Sharpen / Unsharp / blurs (needs two shader sets per GPU, ~2 h);
+(c) remove the half-float code. **Provisional: (a)** (reversible: one constant). The graded-speed work
+(§1a.65 c, d) continues at full precision.
+
+**Answered 2026-10-13 (owner, live): keep (a)** ("what you did can be left alone"). Half floats stay
+an opt-in preview option (`FILMCRAFT_FX_FORMAT=f16`), `HALF_ON_INTEGRATED = false`. Resolved.
+
+## Q19 (2026-10-13, U0.2.3b c): Intel graded exports reach ~3.5 fps at 6.2K, short of helping (FYI, choice made)
+
+Step c made the Intel UHD 750's graded frames 3.4× faster at full precision (6.2K, GPU time per
+frame 960 → 286 ms: colour chains and effect passes now compile to small shaders specialised to what
+they do, instead of one big interpreter). That is still ~3.5 fps against ~19 fps on the RX 6700 XT,
+because Intel is now limited by memory bandwidth: every f32 pass over a 6.2K frame moves ~830 MB and
+the bench grade takes ~8 passes. Options:
+(a) **Stop here for Intel**: graded exports stay on the RX 6700 XT alone (the Auto rule of §1a.63
+    already does this); the gain still helps preview on Intel-only machines. Cost: none.
+(b) Fuse passes (colour chain + per-pixel effects into one pass, a combined Unsharp; maybe 2–3×
+    fewer passes): a few days of shader work; at best ~8–10 fps on Intel, which would add roughly a
+    third to graded 6.2K export speed when both GPUs run.
+(c) Half floats on Intel for exports only: halves bandwidth, but you chose full precision for
+    exports (§1a.64).
+**Choice for now: (a)**, and U0.2.3b moves on to step d (AMD graded speed). Reversible: (b) can be
+scheduled any time as its own step; nothing is removed.
+
+## Q20 (2026-10-13, U0.2.3b d): a 1.5× faster 4K export from 6.2K that is not bit-identical (choice made, reversible)
+
+When a 4K export is made from the X-M5's 6.2K clips, the Intel media engine can decode while the
+RX 6700 XT grades and encodes. The bottleneck was Intel copying each full 6.2K picture across to the
+AMD card. Letting Intel's video processor shrink the picture to the size it will be drawn at
+(3240×2160) *during* that copy makes the export much faster (synthetic, full length): 4K graded
+24.7 → 37–40 fps, 4K ungraded 26.0 → 41.8 fps. This beats the ≥ 30 fps floor.
+The catch is that the output is no longer bit-identical to today's. Flat areas and edge positions
+match (≤ 0.3 codes, no shift). Fine noise and texture differ because the downscale filter is
+different: Intel's scaler averages the noise (it looks smoother) where the GPU path keeps more of
+it. PSNR against today's output is 42.6 dB ungraded and 32.9 dB graded (the grade's sharpening
+amplifies the texture difference). Step e asked for "output unchanged". Options:
+(a) **Use the scaled hand-off** when Export engines = Auto and the export is smaller than the source.
+    It applies only to clips placed by a plain fit, with no keyframed Motion, no temporal NR and no
+    Maximum Render Quality (which keeps full size as today). Setting/env off-switch:
+    `FILMCRAFT_HANDOFF_SCALE=1`.
+(b) Keep exports bit-identical: no scaled hand-off, so 4K graded stays at ~25 fps.
+(c) Change the GPU path's own downscale to an area filter as well, so both agree. This changes
+    today's output for every export and preview of downscaled clips.
+**Choice for now: (a)** as the plan for the plumbing. Until that plumbing lands, the code is only a
+diagnostic (`FILMCRAFT_HANDOFF_SCALE` + `FILMCRAFT_DECODE_NODE`) and no export changes. Reversible:
+the default is a single switch, and Maximum Render Quality always keeps full size.
+
+**Update (2026-10-13 18:21, built):** Auto now does (a) in the export itself: one lane on the RX 6700 XT
+whose decoders run on Intel, each source scaled to the most its clips ask for. The earlier
+37–40 fps came from a diagnostic that shrank the bench clip too far: it has a 120 % Motion zoom, so
+the correct scale is 62 %, not 52 %, and the diagnostic under-delivered pixels. **Correct numbers:**
+4K graded 24.7 → **30.2–30.9 fps** (full length, synthetic). PSNR against today's single-chip output
+is 33.8 dB graded, still a fine-texture difference only. Off-switches: Primary GPU only, Maximum
+Render Quality, or `FILMCRAFT_HANDOFF_SCALE=1`.
+
+## Q21 (2026-10-13, U0.2.3b e): 6.2K graded export stays at ~19.6 fps, short of the ≥ 24 aim (FYI, choice made)
+
+Step e's full-length bench (synthetic, median of 2) passed three of four targets: 4K 32.5 / 35.1 fps,
+4K graded 31.1 / 30.5, 6.2K 25.5. **6.2K graded is 19.6 fps** (19.1 before: not slower, but short of
+the ≥ 24 aim). The RX 6700 XT's single media engine both decodes and encodes 6.2K, and that is the
+limit. Things tried: two lanes on the AMD card were slower. Intel decoding for it reached 20.5 fps,
+because copying a full 6.2K picture across costs ~34 ms inside the export, so the gain is too small
+to switch on. Options:
+(a) **Accept for now**: keep every gain, close U0.2.3b, continue with U0.2.4 (step e's rule for a
+    lever short of its share).
+(b) Later: a faster hand-off for full-size pictures (sharing Intel's decoded surfaces with the AMD
+    card without a copy; needs a cross-vendor tiling both can read, probably not available).
+(c) Later: render cache / smart-render parts for graded 6.2K timelines, which avoids the re-render
+    on repeated exports.
+**Choice for now: (a).** Reversible: (b) and (c) can be scheduled any time.
+

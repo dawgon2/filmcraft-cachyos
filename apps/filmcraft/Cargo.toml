@@ -59,6 +59,8 @@ winit = { version = "0.30", default-features = false }
 # Settings ▸ Appearance ▸ Sync with system: the XDG desktop portal's colour scheme. The zbus the
 # portal file dialogs (rfd) and accesskit already use.
 zbus = "5.19"
+# the window's Wayland surface for the global menu (global_menu.rs; same as eframe's)
+raw-window-handle = "0.6"
 # Title bar and borders drawn by the app where the compositor draws none (GNOME's Mutter has no
 # xdg-decoration; KWin and most others decorate the window themselves, #433). Same winit as
 # eframe; sctk-adwaita is MIT. `notitle`: frame and buttons without title text, because the

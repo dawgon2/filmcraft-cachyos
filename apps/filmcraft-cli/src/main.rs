@@ -137,12 +137,19 @@ fn diag(msg: std::fmt::Arguments) {
 
 fn usage(msg: impl std::fmt::Display) -> ! {
     diag(format_args!("filmcraft-cli: {msg}\nRun `filmcraft-cli help` for usage."));
-    std::process::exit(2)
+    exit(2)
 }
 
 fn fail(msg: impl std::fmt::Display) -> ! {
     diag(format_args!("filmcraft-cli: {msg}"));
-    std::process::exit(1)
+    exit(1)
+}
+
+/// Exit with `code` once the hardware probes started at registration have finished
+/// ([`filmcraft_platform::quiesce`]).
+fn exit(code: i32) -> ! {
+    filmcraft_platform::quiesce();
+    std::process::exit(code)
 }
 
 /// Where commands go: an in-process session, or the desktop app's control channel.
@@ -259,8 +266,9 @@ fn register_hardware_decoders() -> filmcraft_platform::Availability {
 async fn main() {
     cli().await;
     if STDOUT_ERROR.load(Ordering::Relaxed) {
-        std::process::exit(1);
+        exit(1);
     }
+    filmcraft_platform::quiesce();
 }
 
 async fn cli() {
@@ -361,14 +369,14 @@ async fn cli() {
                         outln!("{}", json!({"line": n + 1, "id": id, "ok": false, "error": e}));
                         failed += 1;
                         if !a.flag("--keep-going") {
-                            std::process::exit(1);
+                            exit(1);
                         }
                     }
                 }
             }
             b.finish(&a).await;
             if failed > 0 {
-                std::process::exit(1);
+                exit(1);
             }
         }
         "inspect" => {

@@ -343,6 +343,26 @@ fn prepare_layers(layers: &[PlanLayer]) -> PreparedPlan {
 
 impl GpuCompositor {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        Self::with_fx_format(device, queue, fx::fx_format_for(device.adapter_info().device_type))
+    }
+
+    /// A compositor for export frames: the effect stage always works in full precision
+    /// (`Rgba32Float`) on every GPU, whatever the device rule or `FILMCRAFT_FX_FORMAT` would pick
+    /// for preview (owner, FORK-PLAN §1a.64: half floats are for preview / playback only, so an
+    /// export never mixes precisions between chunks rendered on different GPUs).
+    pub fn for_export(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        Self::with_fx_format(device, queue, fx::FX_FORMAT)
+    }
+
+    /// Whether the effect stage works in half floats (preview on integrated GPUs; never for
+    /// [`for_export`](Self::for_export)).
+    pub fn effects_half_precision(&self) -> bool {
+        self.fx.as_ref().is_some_and(|f| f.format() == fx::FX_FORMAT_HALF)
+    }
+
+    /// [`new`](Self::new) with the effect stage's working textures in `fx_format` (tests: the
+    /// half-float stage integrated GPUs get, on any adapter).
+    pub(crate) fn with_fx_format(device: &wgpu::Device, queue: &wgpu::Queue, fx_format: wgpu::TextureFormat) -> Self {
         let unorm16 = device.features().contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
         UNORM16.store(unorm16, std::sync::atomic::Ordering::Relaxed);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -456,7 +476,7 @@ impl GpuCompositor {
             view_formats: &[],
         });
         let dummy = dummy_tex.create_view(&Default::default());
-        let fx = fx::FxStage::supported(device).then(|| fx::FxStage::new(device, &shader, &layer_bgl));
+        let fx = fx::FxStage::supported(device).then(|| fx::FxStage::with_format(device, &shader, &layer_bgl, fx_format));
         let out_pass = fx.is_some().then(|| colorops::OutputPass::new(device));
         let scope_sampler = fx.is_some().then(|| scopes::ScopeSampler::new(device));
         let yuv = fx.is_some().then(|| yuv::YuvPass::new(device));
@@ -1276,13 +1296,19 @@ impl GpuCompositor {
         let stage = self.fx.as_mut()?;
         stage.begin_frame();
         let job = stage.job(&self.device, &self.queue, fx, sbg, &nbrs, &self.dummy)?;
+        let half = stage.format() == fx::FX_FORMAT_HALF;
+        let bpp = if half { 8 } else { 16 };
         let mut enc = self.device.create_command_encoder(&Default::default());
         stage.record(&mut enc, &job);
-        let bands = record_readback(&self.device, &mut enc, &job.result_texture, (w, h), 16);
+        let bands = record_readback(&self.device, &mut enc, &job.result_texture, (w, h), bpp);
         self.queue.submit([enc.finish()]);
         stage.end_frame();
-        let bytes = map_readback(&self.device, &bands?, (w, h), 16)?;
-        let out = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+        let bytes = map_readback(&self.device, &bands?, (w, h), bpp)?;
+        let out = if half {
+            bytes.as_chunks::<2>().0.iter().map(|b| f16_to_f32(u16::from_le_bytes(*b))).collect()
+        } else {
+            bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect()
+        };
         Some((w, h, out))
     }
 

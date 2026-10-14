@@ -6,7 +6,7 @@
 //!
 //! Its state is [`HomeState`] (`UiState::home`, serde: `ui.inspect` / `ui.set {"home": …}`).
 //! Automation ids:
-//! - title row: `projects.close.x`, `projects.tab.local`;
+//! - title row: `projects.close.x` (with no project open: into a new untitled project), `projects.tab.local`;
 //! - row 2: `projects.sidebar`, `projects.crumb.root`, `projects.crumb.<n>`, `projects.newFolder`,
 //!   `projects.thumbSize`, `projects.sort` (`projects.sort.<name|modified|created>`,
 //!   `projects.sort.descending`), `projects.info`, `projects.view.grid`, `projects.view.list`,
@@ -195,6 +195,15 @@ pub fn close(app: &mut FilmcraftApp) -> bool {
     true
 }
 
+/// Close the screen into the empty project the session already holds (an untitled project, as
+/// Resolve does), when there is nothing to return to.
+fn close_untitled(app: &mut FilmcraftApp) -> bool {
+    app.ui.home.open = false;
+    app.ui.home.dialog = None;
+    app.ui.status = tl!("Untitled project: File ▸ Save As keeps it").into();
+    true
+}
+
 /// After opening or creating a project: close the screen and show the page it was saved on (Edit
 /// when unknown).
 fn land(app: &mut FilmcraftApp, page: Option<&str>) {
@@ -248,7 +257,12 @@ pub fn route(app: &mut FilmcraftApp, id: &str, params: &Value) -> Option<Result<
             show_home(app);
             Ok(json!({"open": true}))
         }
-        "projects.close" => Ok(json!({"open": !close(app)})),
+        "projects.close" => {
+            // `untitled`: with no project open, close into a new untitled project (the title
+            // row's ×, owner 2026-10-13) instead of staying
+            let closed = close(app) || (params.get("untitled").and_then(Value::as_bool) == Some(true) && close_untitled(app));
+            Ok(json!({"open": !closed}))
+        }
         "projects.open" => {
             let path = param(params, "path").map(str::to_string).or_else(|| selected_summary(app).map(|s| s.path));
             let Some(path) = path else {
@@ -613,7 +627,8 @@ pub fn draw(app: &mut FilmcraftApp, ui: &mut egui::Ui, full: Rect) {
     let x_left = title.min.x + if app.integrated_titlebar { 84.0 } else { 8.0 };
     let xr = Rect::from_min_size(pos2(x_left, title.min.y + 6.0), vec2(24.0, 24.0));
     if icon_button(ui, &mut app.auto, xr, "projects.close.x", Icon::Close, false, &t, tl!("Close")) {
-        acts.push(Act::Cmd("projects.close".into(), json!({})));
+        // like Resolve's: with no project open it closes into a new untitled project
+        acts.push(Act::Cmd("projects.close".into(), json!({"untitled": true})));
     }
     let local = Rect::from_min_size(pos2(xr.max.x + 14.0, title.min.y + 4.0), vec2(70.0, TITLE_H - 4.0));
     p.text(local.center(), Align2::CENTER_CENTER, tl!("Local"), Tokens::ui(13.0), t.text);

@@ -112,6 +112,9 @@ pub struct AudioDevices {
     pub output_channels: u16,
 }
 
+/// How often the menu is compared with what the host's global menu shows ([`HostHooks::menu_changed`]).
+pub const MENU_PUBLISH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(300);
+
 /// Host hooks for native file dialogs etc.
 #[derive(Default)]
 pub struct HostHooks {
@@ -124,6 +127,10 @@ pub struct HostHooks {
     pub pick_save_as: Option<Box<dyn FnMut(&str, &[&str], &str) -> Option<String>>>,
     /// The active keyboard shortcuts changed: update native menu key equivalents.
     pub shortcuts_changed: Option<Box<dyn FnMut(&[menus::MenuItem])>>,
+    /// The menu changed (labels, shortcuts, enabled or checked items): the host's global menu
+    /// (Plasma, `com.canonical.dbusmenu`) shows the new state. Called at most every
+    /// [`MENU_PUBLISH_INTERVAL`], only when something changed.
+    pub menu_changed: Option<Box<dyn FnMut(&[menus::MenuItem])>>,
     /// The user's preferred languages (locale tags, most preferred first) for Interface Language ▸
     /// System Language. Without it, System Language is English.
     pub system_languages: Option<Box<dyn Fn() -> Vec<String>>>,
@@ -161,6 +168,11 @@ pub struct HostHooks {
     /// speed, GNOME's Animations switch), for Settings ▸ Appearance ▸ Animations ▸ Follow the
     /// system. Without it animations stay on.
     pub system_reduced_motion: Option<SystemReducedMotionFn>,
+    /// The desktop's text size as a factor of its default (Linux: KDE's General font, GNOME's
+    /// `text-scaling-factor`, through the XDG desktop portal), for Settings ▸ Appearance ▸ Match
+    /// the desktop's text size. Without it, or without an answer, UI Scale ▸ Auto is the system's
+    /// scale alone.
+    pub system_text_scale: Option<SystemTextScaleFn>,
     /// Files or an image on the system clipboard, for Paste in the Timeline and the Project panel
     /// (#611). Without it Paste only pastes clips copied in FilmCraft.
     pub clipboard_media: Option<Box<dyn FnMut() -> Option<ClipboardMedia>>>,
@@ -186,6 +198,10 @@ pub type SystemAccentFn = Box<dyn Fn(&egui::Context) -> Option<[u8; 3]>>;
 
 /// Reads whether the desktop asks for reduced motion (Settings ▸ Appearance ▸ Animations).
 pub type SystemReducedMotionFn = Box<dyn Fn(&egui::Context) -> bool>;
+
+/// Reads the desktop's text size as a factor of its default size (Settings ▸ Appearance ▸ Match
+/// the desktop's text size).
+pub type SystemTextScaleFn = Box<dyn Fn(&egui::Context) -> Option<f32>>;
 
 /// The command a [`HostHooks::pick_file_for_relink`] caller runs with the chosen file, for hosts
 /// that can only run it later.
@@ -336,6 +352,23 @@ pub struct FilmcraftApp {
     /// bar): window buttons and resize edges ([`window_chrome`]), no desktop decorations. Follows
     /// the preference in [`Self::apply_prefs`]; the host opens the window to match.
     pub window_controls: bool,
+    /// The window's full-screen state as last seen ([`window_chrome::sync_full_screen`]): a change
+    /// the desktop made (a KWin shortcut, leaving through the window menu) updates Settings ▸
+    /// General ▸ Full screen, so the setting always says what the window does.
+    pub shown_full_screen: Option<bool>,
+    /// The full-screen state last sent to the window ([`window_chrome::sync_full_screen`]).
+    pub sent_full_screen: Option<bool>,
+    /// When (egui time) the last full-screen request went to the window.
+    pub full_screen_sent_at: Option<f64>,
+    /// Tell the window on the first frame whether to be full screen (the desktop app opens it
+    /// right already; an agent's window stays windowed: `false`).
+    pub full_screen_at_start: bool,
+    /// Set by the host while the desktop shows this window's menu in its global menu (Plasma's
+    /// Global Menu); with Settings ▸ General ▸ Menu bar ▸ Auto the window then hides its own
+    /// menu bar, except in full screen ([`Self::in_window_menu`]).
+    pub global_menu: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// The menu last given to [`HostHooks::menu_changed`] and when it was checked.
+    published_menu: (Vec<menus::MenuItem>, Option<web_time::Instant>),
     pub last_timeline_width: f32,
     /// The sequence whose view `ui.timeline` holds, and that view as it was last exchanged with
     /// `session.state.timeline_views` (see `sync_timeline_view`).
@@ -366,8 +399,9 @@ pub struct FilmcraftApp {
     desktop_jobs: desktop::JobWatch,
     /// Settings last applied to the UI (theme, tooltips, frame cache, audio device).
     applied_prefs: Option<filmcraft_engine::autosave::Preferences>,
-    /// Settings ▸ Appearance ▸ UI Scale last applied, with the system scale it was applied for.
-    applied_ui_scale: Option<(Option<f32>, f32)>,
+    /// Settings ▸ Appearance ▸ UI Scale last applied, with the system scale it was applied for
+    /// and the zoom Match the desktop's text size added.
+    applied_ui_scale: Option<(Option<f32>, f32, Option<f32>)>,
     /// The system accent colour the theme was last set with (`None` while it isn't followed).
     shown_system_accent: Option<[u8; 3]>,
     /// Whether the style was last set with animations off (Settings ▸ Appearance ▸ Animations).
@@ -692,6 +726,12 @@ impl FilmcraftApp {
             fonts_ready: false,
             integrated_titlebar: false,
             window_controls: false,
+            shown_full_screen: None,
+            sent_full_screen: None,
+            full_screen_sent_at: None,
+            full_screen_at_start: true,
+            global_menu: None,
+            published_menu: (Vec::new(), None),
             last_timeline_width: 1000.0,
             timeline_view_of: None,
             pending_timeline_drop: None,
@@ -835,18 +875,22 @@ impl FilmcraftApp {
     /// Settings ▸ Appearance ▸ UI Scale: a fixed scale makes a point that many physical pixels,
     /// whatever scale the system reports. It is applied only when the setting or the system scale
     /// changes, so Ctrl+- / Ctrl++ still zoom the interface for the session; going back to Auto
-    /// restores the system's scale.
+    /// restores the system's scale. With Match the desktop's text size, Auto is the system's
+    /// scale times the desktop's text factor, followed while it changes.
     fn apply_ui_scale(&mut self, ctx: &egui::Context) {
-        let want = self.session.prefs.appearance.ui_scale_factor();
+        let appearance = &self.session.prefs.appearance;
+        let want = appearance.ui_scale_factor();
+        let text = appearance.text_scale_zoom(self.hooks.system_text_scale.as_ref().and_then(|read| read(ctx)));
         let native = ctx.native_pixels_per_point().filter(|v| v.is_finite() && *v > 0.0).unwrap_or(1.0);
-        if self.applied_ui_scale == Some((want, native)) {
+        if self.applied_ui_scale == Some((want, native, text)) {
             return;
         }
-        let prev = self.applied_ui_scale.replace((want, native));
-        match want {
-            Some(scale) => ctx.set_zoom_factor(scale / native),
-            None if prev.is_some_and(|(p, _)| p.is_some()) => ctx.set_zoom_factor(1.0),
-            None => {}
+        let prev = self.applied_ui_scale.replace((want, native, text));
+        match (want, text) {
+            (Some(scale), _) => ctx.set_zoom_factor(scale / native),
+            (None, Some(factor)) => ctx.set_zoom_factor(factor),
+            (None, None) if prev.is_some_and(|(p, _, t)| p.is_some() || t.is_some()) => ctx.set_zoom_factor(1.0),
+            (None, None) => {}
         }
     }
 
@@ -865,6 +909,7 @@ impl FilmcraftApp {
                 self.set_theme(ctx, k);
             }
         }
+        window_chrome::sync_full_screen(self, ctx);
         if self.applied_prefs.as_ref() == Some(&self.session.prefs) {
             return;
         }
@@ -1015,6 +1060,42 @@ impl FilmcraftApp {
 
     pub fn resolve_workflow(&self) -> bool {
         self.session.prefs.workflow == filmcraft_engine::settings::Workflow::Resolve
+    }
+
+    /// Whether the window draws its own menu bar: not while the desktop's global menu shows it
+    /// (Settings ▸ General ▸ Menu bar ▸ Auto), except in full screen, which covers that panel.
+    pub fn in_window_menu(&self) -> bool {
+        let global = self.session.prefs.general.menu_bar != "window"
+            && !window_chrome::wanted_full_screen(self)
+            && self.global_menu.as_ref().is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed));
+        self.ui.show_menu_bar && !global
+    }
+
+    /// Give the host's global menu the current menu when it changed (checked at most every
+    /// [`MENU_PUBLISH_INTERVAL`]; a skipped check asks for a frame when the interval is over).
+    fn publish_menu(&mut self, ctx: &egui::Context) {
+        if self.hooks.menu_changed.is_none() {
+            return;
+        }
+        let now = web_time::Instant::now();
+        if let Some(t) = self.published_menu.1 {
+            let since = now.duration_since(t);
+            if since < MENU_PUBLISH_INTERVAL {
+                // check again once the interval is over, even if nothing else wakes the UI
+                // (the pointer is on the desktop's panel after a click there)
+                ctx.request_repaint_after(MENU_PUBLISH_INTERVAL.saturating_sub(since));
+                return;
+            }
+        }
+        self.published_menu.1 = Some(now);
+        // Menu bar ▸ In the window: the global menu stays empty
+        let items = if self.session.prefs.general.menu_bar == "window" { Vec::new() } else { menus::menu_items(self) };
+        if items != self.published_menu.0 {
+            if let Some(hook) = self.hooks.menu_changed.as_mut() {
+                hook(&items);
+            }
+            self.published_menu.0 = items;
+        }
     }
 
     pub fn set_workspace(&mut self, name: &str) {
@@ -1907,6 +1988,8 @@ impl FilmcraftApp {
         if !home {
             self.handle_shortcuts(&ctx);
         }
+        // after the commands of this frame, so a click in the global menu shows its effect there
+        self.publish_menu(&ctx);
         self.advance_playback(&ctx);
         self.advance_source_playback(&ctx);
         self.scrub_audio(&ctx);

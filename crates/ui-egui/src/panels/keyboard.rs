@@ -6,7 +6,7 @@
 //! | Id | Premiere command | Default key (scope) |
 //! |---|---|---|
 //! | `window.maximizeFrame` / `window.maximizeFrameUnderCursor` | Maximize or Restore Active Frame / Frame Under Cursor | Shift+` / ` |
-//! | `window.toggleFullScreen` | Toggle Full Screen | Ctrl+` |
+//! | `window.toggleFullScreen` | Full Screen (View menu; also F11) | Ctrl+` |
 //! | `window.nextPanel` / `window.prevPanel` | Select Next / Previous Panel | Ctrl+Shift+. / Ctrl+Shift+, |
 //! | `window.toggleMonitorFocus` | Toggle Source/Program Monitor Focus | |
 //! | `window.openSearch` / `panel.selectFindBox` | Open Search / Select Find Box | Cmd+Shift+F / Shift+F |
@@ -20,6 +20,7 @@
 //! | `textPanel.*` | Text panel transcript: word / line / segment navigation and selection, Delete, Ripple Delete, Show Program Transcript | (Text) |
 //! | `graphics.beginTextEditing` | Begin Text Editing for a Graphic Layer | Cmd+Alt+' |
 //! | `help.filmcraftHelp` | Help (Premiere Help…) | F1 |
+//! | `app.preferences` | Preferences… (FilmCraft menu: Settings ▸ General) | |
 //! | `app.quit` | Quit | Cmd+Q |
 
 use serde::{Deserialize, Serialize};
@@ -59,7 +60,7 @@ macro_rules! uic {
 pub const COMMANDS: &[UiCommand] = &[
     uic!("window.maximizeFrame", "Maximize or Restore Active Frame", [], Some("Shift+`")),
     uic!("window.maximizeFrameUnderCursor", "Maximize or Restore Frame Under Cursor", [], Some("`")),
-    uic!("window.toggleFullScreen", "Toggle Full Screen", [], Some("Ctrl+`")),
+    uic!("window.toggleFullScreen", "Full Screen", ["View"], Some("Ctrl+`")),
     uic!("window.nextPanel", "Select Next Panel", [], Some("Ctrl+Shift+.")),
     uic!("window.prevPanel", "Select Previous Panel", [], Some("Ctrl+Shift+,")),
     uic!("window.toggleMonitorFocus", "Toggle Source/Program Monitor Focus", [], None),
@@ -129,7 +130,9 @@ pub const COMMANDS: &[UiCommand] = &[
     uic!("textPanel.showProgramTranscript", "Show Program Transcript", [], None),
     uic!("graphics.beginTextEditing", "Begin Text Editing for a Graphic Layer", [], Some("Cmd+Alt+'")),
     uic!("help.filmcraftHelp", "FilmCraft Help…", ["Help"], Some("F1")),
-    uic!("app.quit", "Quit FilmCraft", [], Some("Cmd+Q")),
+    // fork (owner 2026-10-13): the FilmCraft menu left of File, as on macOS
+    uic!("app.preferences", "Preferences…", ["FilmCraft"], None),
+    uic!("app.quit", "Quit FilmCraft", ["FilmCraft"], Some("Cmd+Q")),
 ];
 
 /// FilmCraft's documentation (Help ▸ FilmCraft Help…, F1).
@@ -152,8 +155,11 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
             Ok(toggle_maximize(app, p))
         }
         "window.toggleFullScreen" => {
-            let fs = !ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(fs));
+            // Settings ▸ General ▸ Full screen; `on` sets it instead of switching
+            let fs = match params.get("on").and_then(Value::as_bool) {
+                Some(on) => crate::window_chrome::set_full_screen(app, on),
+                None => crate::window_chrome::toggle_full_screen(app),
+            };
             Ok(json!({"fullScreen": fs}))
         }
         "window.nextPanel" | "window.prevPanel" => Ok(cycle_panel(app, id == "window.nextPanel")),
@@ -213,6 +219,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
             crate::links::open(app, ctx, HELP_URL);
             Ok(json!({"url": HELP_URL}))
         }
+        "app.preferences" => crate::menus::invoke(app, ctx, "app.settings.general", json!({})),
         "app.quit" => {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             Ok(Value::Null)

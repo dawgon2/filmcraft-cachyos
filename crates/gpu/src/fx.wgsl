@@ -786,13 +786,18 @@ fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
     }
 }
 
+// The op of a pipeline built for one op (`fx.rs` `px_pipeline`; 0: the op in the uniforms). A
+// constant op lets the compiler drop the other cases of `pixel` (fork U0.2.3b: the whole switch
+// costs Intel's iGPU ~50 ms per pass at 6.2K).
+override PX_OP: u32 = 0u;
+
 @compute @workgroup_size(16, 16)
 fn fx_px(@builtin(global_invocation_id) id: vec3<u32>) {
     if id.x >= u.i0.y || id.y >= u.i0.z {
         return;
     }
     let p = vec2<i32>(id.xy);
-    textureStore(dst, p, pixel(u.i0.x, p));
+    textureStore(dst, p, pixel(select(u.i0.x, PX_OP, PX_OP != 0u), p));
 }
 
 // A box pass as a running sum along one row (i1.z = 0) or column (1) per invocation: O(1) per

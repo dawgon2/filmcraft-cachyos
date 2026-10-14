@@ -832,8 +832,26 @@ pub mod trace {
     pub const ENC_GPU_WAIT: usize = 3;
     pub const ENC_VA: usize = 4;
     pub const ENC_QUEUE: usize = 5;
-    const NAMES: [&str; 6] = ["plan+decode", "gpu lock wait", "gpu record", "encoder gpu wait", "va encode", "encoder queue full"];
-    static NS: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+    /// Waiting for a hardware-decoded picture (`vaSyncSurface` before it is handed out).
+    pub const DEC_SYNC: usize = 6;
+    /// Copying a decoded picture for another GPU (the linear-copy hand-off, fork U0.2.3b d).
+    pub const DEC_COPY: usize = 7;
+    /// Of [`DEC_COPY`]: waiting for the display's one video-processing context, and the copy's sync.
+    pub const DEC_COPY_LOCK: usize = 8;
+    pub const DEC_COPY_SYNC: usize = 9;
+    const NAMES: [&str; 10] = [
+        "plan+decode",
+        "gpu lock wait",
+        "gpu record",
+        "encoder gpu wait",
+        "va encode",
+        "encoder queue full",
+        "va decode sync",
+        "va hand-off copy",
+        "copy lock wait",
+        "copy sync",
+    ];
+    static NS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
 
     pub fn on() -> bool {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

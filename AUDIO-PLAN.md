@@ -39,7 +39,7 @@ Order: FORK-PLAN §1a.6 (A1 after U0.2; A2 after C2 / AI2 and before STORAGE-PLA
 
 **Accept:** a 30-minute playback soak of a 20-track timeline with overlapping clips, shuttles and
 seeks has **zero underruns** and drift ≤ 1 frame (synthetic, §1a.3); every reproducible report
-above has a regression test; unplug / replug a USB device recovers without a restart. Tag
+above has a regression test; device loss recovers without a restart, simulated in software (owner can't unplug hardware, 2026-10-13, FORK-PLAN §1a.59): a PipeWire null sink removed mid-playback (`pactl unload-module`) and the real card's profile switched off and back on (`pactl set-card-profile`), both automated in the soak harness; playback falls back to the default device, the UI says so, and it returns when the device does. Tag
 `audio-1`.
 
 ## Phase A2: voice isolation and one-click voice clean-up (≈ 35–70 h)

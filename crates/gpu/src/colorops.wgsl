@@ -479,6 +479,326 @@ fn grain_noise(xy: vec2<f32>, inv_size: f32, softness: f32, seed: u32) -> f32 {
     return v / norm;
 }
 
+// One op of a chain: `code` at `*pcp` on `c_in`; moves `*pcp` past the op (to `len` on an
+// unknown code). A literal `code` (the specialised chains below) lets the compiler drop every
+// other case.
+fn chain_op(code: u32, c_in: vec3<f32>, xy: vec2<f32>, pcp: ptr<function, u32>, len: u32) -> vec3<f32> {
+    var c = c_in;
+    var pc = *pcp;
+    switch code {
+        case CO_MATRIX: {
+            let b = pc + 1u;
+            let r = at(b) * c.x + at(b + 1u) * c.y + at(b + 2u) * c.z;
+            let g = at(b + 3u) * c.x + at(b + 4u) * c.y + at(b + 5u) * c.z;
+            let bl = at(b + 6u) * c.x + at(b + 7u) * c.y + at(b + 8u) * c.z;
+            c = vec3(r + at(b + 9u), g + at(b + 10u), bl + at(b + 11u));
+            pc = pc + 13u;
+        }
+        case CO_DECODE: {
+            let t = u32(at(pc + 1u));
+            c = vec3(tf_decode(t, c.x), tf_decode(t, c.y), tf_decode(t, c.z));
+            pc = pc + 2u;
+        }
+        case CO_ENCODE: {
+            let t = u32(at(pc + 1u));
+            c = vec3(tf_encode(t, c.x), tf_encode(t, c.y), tf_encode(t, c.z));
+            pc = pc + 2u;
+        }
+        case CO_TABLE: {
+            let lo = at(pc + 1u);
+            let hi = at(pc + 2u);
+            let n = u32(at(pc + 3u));
+            let base = pc + 4u;
+            c = vec3(table(base, n, lo, hi, c.x), table(base, n, lo, hi, c.y), table(base, n, lo, hi, c.z));
+            pc = base + n;
+        }
+        case CO_LGGO: {
+            let b = pc + 1u;
+            c = vec3(
+                lggo_channel(c.x, at(b), at(b + 3u), at(b + 6u), at(b + 9u)),
+                lggo_channel(c.y, at(b + 1u), at(b + 4u), at(b + 7u), at(b + 10u)),
+                lggo_channel(c.z, at(b + 2u), at(b + 5u), at(b + 8u), at(b + 11u)),
+            );
+            pc = pc + 13u;
+        }
+        case CO_SATURATION: {
+            let l = at(pc + 3u) * c.x + at(pc + 4u) * c.y + at(pc + 5u) * c.z;
+            let spread = max(c.x, max(c.y, c.z)) - min(c.x, min(c.y, c.z));
+            let s = at(pc + 1u) * (1.0 + at(pc + 2u) * (1.0 - clamp(spread, 0.0, 1.0)));
+            c = vec3(l) + (c - vec3(l)) * s;
+            pc = pc + 6u;
+        }
+        case CO_HLG_OOTF: {
+            let ys = at(pc + 1u) * c.x + at(pc + 2u) * c.y + at(pc + 3u) * c.z;
+            if (ys > 0.0) {
+                c = c * (at(pc + 4u) * pow(ys, at(pc + 5u)));
+            } else {
+                c = vec3(0.0);
+            }
+            pc = pc + 6u;
+        }
+        case CO_TONE_MAP: {
+            let src_peak = at(pc + 1u);
+            let dst_peak = at(pc + 2u);
+            let lo = at(pc + 3u);
+            let hi = at(pc + 4u);
+            let n = u32(at(pc + 5u));
+            let base = pc + 6u;
+            let m = max(c.x, max(c.y, c.z));
+            if (m > 0.0) {
+                let nits = m * 203.0;
+                var k: f32;
+                if (nits >= src_peak) {
+                    k = dst_peak / 203.0 / m;
+                } else {
+                    k = table(base, n, lo, hi, pq_inverse_eotf(nits / 10000.0));
+                }
+                c = c * k;
+            }
+            pc = base + n;
+        }
+        case CO_GAMUT_COMPRESS: {
+            c = gamut_compress(c);
+            pc = pc + 1u;
+        }
+        case CO_DESATURATE: {
+            c = desaturate_into_gamut(c, vec3(at(pc + 1u), at(pc + 2u), at(pc + 3u)));
+            pc = pc + 4u;
+        }
+        case CO_CLAMP: {
+            c = min(max(c, vec3(at(pc + 1u))), vec3(at(pc + 2u)));
+            pc = pc + 3u;
+        }
+        case CO_TONE_REGIONS: {
+            let l = at(pc + 3u) * c.x + at(pc + 4u) * c.y + at(pc + 5u) * c.z;
+            let s = clamp(1.0 - l, 0.0, 1.0);
+            let h = clamp(l, 0.0, 1.0);
+            let nl = max(l + at(pc + 1u) * (s * s * s) + at(pc + 2u) * (h * h * h), 0.0);
+            if (l > 1e-5) {
+                c = c * (nl / l);
+            }
+            pc = pc + 6u;
+        }
+        case CO_CONTRAST: {
+            let k = 1.0 + at(pc + 1u);
+            let keep = at(pc + 2u) != 0.0;
+            c = vec3(contrast(c.x, k, keep), contrast(c.y, k, keep), contrast(c.z, k, keep));
+            pc = pc + 3u;
+        }
+        case CO_SPECULAR: {
+            let g = at(pc + 1u);
+            c = vec3(specular(c.x, g), specular(c.y, g), specular(c.z, g));
+            pc = pc + 2u;
+        }
+        case CO_SPLIT_TONE: {
+            let b = pc + 1u;
+            let sh = vec3(at(b), at(b + 1u), at(b + 2u));
+            let hi = vec3(at(b + 3u), at(b + 4u), at(b + 5u));
+            let l = clamp(at(b + 6u) * c.x + at(b + 7u) * c.y + at(b + 8u) * c.z, 0.0, 1.0);
+            c = c + (sh * (1.0 - l) + hi * l);
+            pc = pc + 10u;
+        }
+        case CO_VIGNETTE: {
+            let amount = at(pc + 1u);
+            let nx = (xy.x / at(pc + 5u) - 0.5) * 2.0 * at(pc + 4u);
+            let ny = (xy.y / at(pc + 6u) - 0.5) * 2.0;
+            let d = sqrt(nx * nx + ny * ny) / 1.4142135;
+            let edge = clamp((d - at(pc + 2u)) / max(at(pc + 3u), 1e-6), 0.0, 1.0);
+            let e2 = edge * edge * (3.0 - 2.0 * edge);
+            let k = 1.0 + amount * 0.2 * e2;
+            if (amount < 0.0) {
+                c = c * max(k, 0.0);
+            } else {
+                c = c + (vec3(1.0) - c) * (k - 1.0);
+            }
+            pc = pc + 7u;
+        }
+        case CO_CURVE: {
+            let hdr = at(pc + 1u) != 0.0;
+            let base = pc + 5u;
+            var o = c;
+            for (var k = 0u; k < 3u; k++) {
+                if (at(pc + 2u + k) != 0.0) {
+                    o[k] = curve_at(base, c[k], hdr);
+                }
+            }
+            c = o;
+            pc = table_end(base);
+        }
+        case CO_WHEELS: {
+            let b = pc + 1u;
+            let sh = vec3(at(b), at(b + 1u), at(b + 2u));
+            let md = vec3(at(b + 3u), at(b + 4u), at(b + 5u));
+            let hi = vec3(at(b + 6u), at(b + 7u), at(b + 8u));
+            let l = clamp(at(b + 9u) * c.x + at(b + 10u) * c.y + at(b + 11u) * c.z, 0.0, 1.0);
+            let wsh = (1.0 - l) * (1.0 - l);
+            let whi = l * l;
+            let wmid = max(1.0 - wsh - whi, 0.0);
+            let v = c + sh * wsh;
+            let v2 = v + md * wmid;
+            c = v2 * (vec3(1.0) + hi * whi);
+            pc = pc + 13u;
+        }
+        case CO_HSL_CURVES: {
+            let hdr = at(pc + 1u) != 0.0;
+            let t_hh = pc + 2u;
+            let t_hs = table_end(t_hh);
+            let t_hl = table_end(t_hs);
+            let t_ls = table_end(t_hl);
+            let t_ss = table_end(t_ls);
+            let m = unit_scale(c, hdr);
+            let u0 = to_unit(c, hdr, m);
+            var h = rgb_to_hsl(u0);
+            let h0 = h.x;
+            let s0 = h.y;
+            let l0 = h.z;
+            if (at(t_hh + 2u) != 0.0) {
+                h.x = fract_euclid(h.x + (curve_at(t_hh, h0, false) - 0.5));
+            }
+            var sm = 1.0;
+            if (at(t_hs + 2u) != 0.0) {
+                sm = sm * (curve_at(t_hs, h0, false) * 2.0);
+            }
+            if (at(t_ls + 2u) != 0.0) {
+                sm = sm * (curve_at(t_ls, l0, false) * 2.0);
+            }
+            if (at(t_ss + 2u) != 0.0) {
+                sm = sm * (curve_at(t_ss, s0, false) * 2.0);
+            }
+            h.y = clamp(h.y * sm, 0.0, 1.0);
+            if (at(t_hl + 2u) != 0.0) {
+                h.z = clamp(h.z + (curve_at(t_hl, h0, false) - 0.5) * 0.5, 0.0, 1.0);
+            }
+            var o = hsl_to_rgb(h.x, h.y, h.z);
+            if (hdr) {
+                o = o * m;
+            }
+            c = o;
+            pc = table_end(t_ss);
+        }
+        case CO_LUT: {
+            let k = at(pc + 1u);
+            let hdr = at(pc + 2u) != 0.0;
+            let sh = pc + 3u;
+            let n1 = u32(at(sh));
+            let cube = sh + 7u + n1 * 3u;
+            let n3 = u32(at(cube));
+            let m = unit_scale(c, hdr);
+            var u = to_unit(c, hdr, m);
+            if (n1 >= 2u) {
+                u = lut1d(sh, u);
+            }
+            if (n3 >= 2u) {
+                u = lut3d(cube, u);
+            }
+            if (hdr) {
+                u = u * m;
+            }
+            c = c + (u - c) * k;
+            pc = cube + 7u + n3 * n3 * n3 * 3u;
+        }
+        case CO_LOOK: {
+            let n = u32(at(pc + 1u));
+            let k = at(pc + 2u);
+            let hdr = at(pc + 3u) != 0.0;
+            var lk: vec3<f32>;
+            if (hdr) {
+                let m = unit_scale(c, true);
+                lk = look(n, to_unit(c, true, m)) * m;
+            } else {
+                lk = look(n, c);
+            }
+            c = c + (lk - c) * k;
+            pc = pc + 4u;
+        }
+        case CO_HSL_KEY: {
+            let hdr = at(pc + 8u) != 0.0;
+            let u0 = to_unit(c, hdr, unit_scale(c, hdr));
+            let h = rgb_to_hsl(u0);
+            let hue = at(pc + 1u);
+            let soft = at(pc + 7u);
+            let dh = min(abs(h.x - hue), 1.0 - abs(h.x - hue));
+            let mh = 1.0 - clamp((dh - at(pc + 2u) / 2.0) / soft, 0.0, 1.0);
+            var ms = clamp((h.y - at(pc + 3u)) / soft, 0.0, 1.0);
+            let sat_max = at(pc + 4u);
+            if (sat_max < 1.0) {
+                ms = min(ms, clamp((sat_max - h.y) / soft, 0.0, 1.0));
+            }
+            let ml = min(clamp((h.z - at(pc + 5u)) / soft, 0.0, 1.0), clamp((at(pc + 6u) - h.z) / soft, 0.0, 1.0));
+            mask_reg = mh * ms * ml;
+            pc = pc + 9u;
+        }
+        case CO_STASH: {
+            stash_reg = c;
+            pc = pc + 1u;
+        }
+        case CO_MIX_STASH: {
+            var m = mask_reg;
+            if (at(pc + 1u) != 0.0) {
+                m = 1.0 - m;
+            }
+            mask_reg = m;
+            c = stash_reg + (c - stash_reg) * m;
+            pc = pc + 2u;
+        }
+        case CO_HSL_CORRECT: {
+            let shift = at(pc + 1u);
+            let sat = at(pc + 2u);
+            let temp = at(pc + 3u);
+            let tint = at(pc + 4u);
+            let show = u32(at(pc + 5u));
+            let hdr = at(pc + 6u) != 0.0;
+            let m = mask_reg;
+            let scale = unit_scale(c, hdr);
+            let u0 = to_unit(c, hdr, scale);
+            var o: vec3<f32>;
+            switch show {
+                case 1u: {
+                    let g = rgb_to_hsl(u0).z;
+                    o = vec3(g) + (u0 - vec3(g)) * m;
+                }
+                case 2u: {
+                    o = u0 * m;
+                }
+                case 3u: {
+                    o = vec3(m);
+                }
+                default: {
+                    var hh = rgb_to_hsl(u0);
+                    hh.x = fract_euclid(hh.x + shift);
+                    hh.y = clamp(hh.y * sat, 0.0, 1.0);
+                    var c2 = hsl_to_rgb(hh.x, hh.y, hh.z);
+                    c2.x = c2.x * (1.0 + 0.25 * temp);
+                    c2.z = c2.z * (1.0 - 0.25 * temp);
+                    c2.y = c2.y * (1.0 - 0.2 * tint);
+                    o = (u0 + (c2 - u0) * m) * scale;
+                }
+            }
+            c = o;
+            pc = pc + 7u;
+        }
+        case CO_GRAIN: {
+            let seed = u32(at(pc + 4u)) | (u32(at(pc + 5u)) << 16u);
+            let l = clamp(at(pc + 6u) * c.x + at(pc + 7u) * c.y + at(pc + 8u) * c.z, 0.0, 1.0);
+            // GRAIN_FLOOR 0.1, GRAIN_AMPLITUDE 0.15 (`filmcraft_color::ops`)
+            let wl = 0.1 + 0.9 * 4.0 * l * (1.0 - l);
+            let d = at(pc + 1u) * 0.15 * wl * grain_noise(xy, at(pc + 2u), at(pc + 3u), seed);
+            c = c + vec3(d);
+            pc = pc + 9u;
+        }
+        default: {
+            // unknown code: stop (the encoder never writes one)
+            pc = len;
+        }
+    }
+    *pcp = pc;
+    return c;
+}
+
+// The chain interpreter: the program's codes read per pixel. `colorops.rs` `specialise` replaces
+// this function (between the markers) with one call per op whose code is a literal (fork
+// U0.2.3b: the interpreter's switch costs Intel's iGPU ~50 ms per op at 6.2K).
+// RUN_CHAIN_BEGIN
 fn run_chain(c0: vec3<f32>, xy: vec2<f32>) -> vec3<f32> {
     var c = c0;
     stash_reg = c0;
@@ -488,316 +808,11 @@ fn run_chain(c0: vec3<f32>, xy: vec2<f32>) -> vec3<f32> {
         if (pc >= len) {
             break;
         }
-        let code = u32(at(pc));
-        switch code {
-            case CO_MATRIX: {
-                let b = pc + 1u;
-                let r = at(b) * c.x + at(b + 1u) * c.y + at(b + 2u) * c.z;
-                let g = at(b + 3u) * c.x + at(b + 4u) * c.y + at(b + 5u) * c.z;
-                let bl = at(b + 6u) * c.x + at(b + 7u) * c.y + at(b + 8u) * c.z;
-                c = vec3(r + at(b + 9u), g + at(b + 10u), bl + at(b + 11u));
-                pc = pc + 13u;
-            }
-            case CO_DECODE: {
-                let t = u32(at(pc + 1u));
-                c = vec3(tf_decode(t, c.x), tf_decode(t, c.y), tf_decode(t, c.z));
-                pc = pc + 2u;
-            }
-            case CO_ENCODE: {
-                let t = u32(at(pc + 1u));
-                c = vec3(tf_encode(t, c.x), tf_encode(t, c.y), tf_encode(t, c.z));
-                pc = pc + 2u;
-            }
-            case CO_TABLE: {
-                let lo = at(pc + 1u);
-                let hi = at(pc + 2u);
-                let n = u32(at(pc + 3u));
-                let base = pc + 4u;
-                c = vec3(table(base, n, lo, hi, c.x), table(base, n, lo, hi, c.y), table(base, n, lo, hi, c.z));
-                pc = base + n;
-            }
-            case CO_LGGO: {
-                let b = pc + 1u;
-                c = vec3(
-                    lggo_channel(c.x, at(b), at(b + 3u), at(b + 6u), at(b + 9u)),
-                    lggo_channel(c.y, at(b + 1u), at(b + 4u), at(b + 7u), at(b + 10u)),
-                    lggo_channel(c.z, at(b + 2u), at(b + 5u), at(b + 8u), at(b + 11u)),
-                );
-                pc = pc + 13u;
-            }
-            case CO_SATURATION: {
-                let l = at(pc + 3u) * c.x + at(pc + 4u) * c.y + at(pc + 5u) * c.z;
-                let spread = max(c.x, max(c.y, c.z)) - min(c.x, min(c.y, c.z));
-                let s = at(pc + 1u) * (1.0 + at(pc + 2u) * (1.0 - clamp(spread, 0.0, 1.0)));
-                c = vec3(l) + (c - vec3(l)) * s;
-                pc = pc + 6u;
-            }
-            case CO_HLG_OOTF: {
-                let ys = at(pc + 1u) * c.x + at(pc + 2u) * c.y + at(pc + 3u) * c.z;
-                if (ys > 0.0) {
-                    c = c * (at(pc + 4u) * pow(ys, at(pc + 5u)));
-                } else {
-                    c = vec3(0.0);
-                }
-                pc = pc + 6u;
-            }
-            case CO_TONE_MAP: {
-                let src_peak = at(pc + 1u);
-                let dst_peak = at(pc + 2u);
-                let lo = at(pc + 3u);
-                let hi = at(pc + 4u);
-                let n = u32(at(pc + 5u));
-                let base = pc + 6u;
-                let m = max(c.x, max(c.y, c.z));
-                if (m > 0.0) {
-                    let nits = m * 203.0;
-                    var k: f32;
-                    if (nits >= src_peak) {
-                        k = dst_peak / 203.0 / m;
-                    } else {
-                        k = table(base, n, lo, hi, pq_inverse_eotf(nits / 10000.0));
-                    }
-                    c = c * k;
-                }
-                pc = base + n;
-            }
-            case CO_GAMUT_COMPRESS: {
-                c = gamut_compress(c);
-                pc = pc + 1u;
-            }
-            case CO_DESATURATE: {
-                c = desaturate_into_gamut(c, vec3(at(pc + 1u), at(pc + 2u), at(pc + 3u)));
-                pc = pc + 4u;
-            }
-            case CO_CLAMP: {
-                c = min(max(c, vec3(at(pc + 1u))), vec3(at(pc + 2u)));
-                pc = pc + 3u;
-            }
-            case CO_TONE_REGIONS: {
-                let l = at(pc + 3u) * c.x + at(pc + 4u) * c.y + at(pc + 5u) * c.z;
-                let s = clamp(1.0 - l, 0.0, 1.0);
-                let h = clamp(l, 0.0, 1.0);
-                let nl = max(l + at(pc + 1u) * (s * s * s) + at(pc + 2u) * (h * h * h), 0.0);
-                if (l > 1e-5) {
-                    c = c * (nl / l);
-                }
-                pc = pc + 6u;
-            }
-            case CO_CONTRAST: {
-                let k = 1.0 + at(pc + 1u);
-                let keep = at(pc + 2u) != 0.0;
-                c = vec3(contrast(c.x, k, keep), contrast(c.y, k, keep), contrast(c.z, k, keep));
-                pc = pc + 3u;
-            }
-            case CO_SPECULAR: {
-                let g = at(pc + 1u);
-                c = vec3(specular(c.x, g), specular(c.y, g), specular(c.z, g));
-                pc = pc + 2u;
-            }
-            case CO_SPLIT_TONE: {
-                let b = pc + 1u;
-                let sh = vec3(at(b), at(b + 1u), at(b + 2u));
-                let hi = vec3(at(b + 3u), at(b + 4u), at(b + 5u));
-                let l = clamp(at(b + 6u) * c.x + at(b + 7u) * c.y + at(b + 8u) * c.z, 0.0, 1.0);
-                c = c + (sh * (1.0 - l) + hi * l);
-                pc = pc + 10u;
-            }
-            case CO_VIGNETTE: {
-                let amount = at(pc + 1u);
-                let nx = (xy.x / at(pc + 5u) - 0.5) * 2.0 * at(pc + 4u);
-                let ny = (xy.y / at(pc + 6u) - 0.5) * 2.0;
-                let d = sqrt(nx * nx + ny * ny) / 1.4142135;
-                let edge = clamp((d - at(pc + 2u)) / max(at(pc + 3u), 1e-6), 0.0, 1.0);
-                let e2 = edge * edge * (3.0 - 2.0 * edge);
-                let k = 1.0 + amount * 0.2 * e2;
-                if (amount < 0.0) {
-                    c = c * max(k, 0.0);
-                } else {
-                    c = c + (vec3(1.0) - c) * (k - 1.0);
-                }
-                pc = pc + 7u;
-            }
-            case CO_CURVE: {
-                let hdr = at(pc + 1u) != 0.0;
-                let base = pc + 5u;
-                var o = c;
-                for (var k = 0u; k < 3u; k++) {
-                    if (at(pc + 2u + k) != 0.0) {
-                        o[k] = curve_at(base, c[k], hdr);
-                    }
-                }
-                c = o;
-                pc = table_end(base);
-            }
-            case CO_WHEELS: {
-                let b = pc + 1u;
-                let sh = vec3(at(b), at(b + 1u), at(b + 2u));
-                let md = vec3(at(b + 3u), at(b + 4u), at(b + 5u));
-                let hi = vec3(at(b + 6u), at(b + 7u), at(b + 8u));
-                let l = clamp(at(b + 9u) * c.x + at(b + 10u) * c.y + at(b + 11u) * c.z, 0.0, 1.0);
-                let wsh = (1.0 - l) * (1.0 - l);
-                let whi = l * l;
-                let wmid = max(1.0 - wsh - whi, 0.0);
-                let v = c + sh * wsh;
-                let v2 = v + md * wmid;
-                c = v2 * (vec3(1.0) + hi * whi);
-                pc = pc + 13u;
-            }
-            case CO_HSL_CURVES: {
-                let hdr = at(pc + 1u) != 0.0;
-                let t_hh = pc + 2u;
-                let t_hs = table_end(t_hh);
-                let t_hl = table_end(t_hs);
-                let t_ls = table_end(t_hl);
-                let t_ss = table_end(t_ls);
-                let m = unit_scale(c, hdr);
-                let u0 = to_unit(c, hdr, m);
-                var h = rgb_to_hsl(u0);
-                let h0 = h.x;
-                let s0 = h.y;
-                let l0 = h.z;
-                if (at(t_hh + 2u) != 0.0) {
-                    h.x = fract_euclid(h.x + (curve_at(t_hh, h0, false) - 0.5));
-                }
-                var sm = 1.0;
-                if (at(t_hs + 2u) != 0.0) {
-                    sm = sm * (curve_at(t_hs, h0, false) * 2.0);
-                }
-                if (at(t_ls + 2u) != 0.0) {
-                    sm = sm * (curve_at(t_ls, l0, false) * 2.0);
-                }
-                if (at(t_ss + 2u) != 0.0) {
-                    sm = sm * (curve_at(t_ss, s0, false) * 2.0);
-                }
-                h.y = clamp(h.y * sm, 0.0, 1.0);
-                if (at(t_hl + 2u) != 0.0) {
-                    h.z = clamp(h.z + (curve_at(t_hl, h0, false) - 0.5) * 0.5, 0.0, 1.0);
-                }
-                var o = hsl_to_rgb(h.x, h.y, h.z);
-                if (hdr) {
-                    o = o * m;
-                }
-                c = o;
-                pc = table_end(t_ss);
-            }
-            case CO_LUT: {
-                let k = at(pc + 1u);
-                let hdr = at(pc + 2u) != 0.0;
-                let sh = pc + 3u;
-                let n1 = u32(at(sh));
-                let cube = sh + 7u + n1 * 3u;
-                let n3 = u32(at(cube));
-                let m = unit_scale(c, hdr);
-                var u = to_unit(c, hdr, m);
-                if (n1 >= 2u) {
-                    u = lut1d(sh, u);
-                }
-                if (n3 >= 2u) {
-                    u = lut3d(cube, u);
-                }
-                if (hdr) {
-                    u = u * m;
-                }
-                c = c + (u - c) * k;
-                pc = cube + 7u + n3 * n3 * n3 * 3u;
-            }
-            case CO_LOOK: {
-                let n = u32(at(pc + 1u));
-                let k = at(pc + 2u);
-                let hdr = at(pc + 3u) != 0.0;
-                var lk: vec3<f32>;
-                if (hdr) {
-                    let m = unit_scale(c, true);
-                    lk = look(n, to_unit(c, true, m)) * m;
-                } else {
-                    lk = look(n, c);
-                }
-                c = c + (lk - c) * k;
-                pc = pc + 4u;
-            }
-            case CO_HSL_KEY: {
-                let hdr = at(pc + 8u) != 0.0;
-                let u0 = to_unit(c, hdr, unit_scale(c, hdr));
-                let h = rgb_to_hsl(u0);
-                let hue = at(pc + 1u);
-                let soft = at(pc + 7u);
-                let dh = min(abs(h.x - hue), 1.0 - abs(h.x - hue));
-                let mh = 1.0 - clamp((dh - at(pc + 2u) / 2.0) / soft, 0.0, 1.0);
-                var ms = clamp((h.y - at(pc + 3u)) / soft, 0.0, 1.0);
-                let sat_max = at(pc + 4u);
-                if (sat_max < 1.0) {
-                    ms = min(ms, clamp((sat_max - h.y) / soft, 0.0, 1.0));
-                }
-                let ml = min(clamp((h.z - at(pc + 5u)) / soft, 0.0, 1.0), clamp((at(pc + 6u) - h.z) / soft, 0.0, 1.0));
-                mask_reg = mh * ms * ml;
-                pc = pc + 9u;
-            }
-            case CO_STASH: {
-                stash_reg = c;
-                pc = pc + 1u;
-            }
-            case CO_MIX_STASH: {
-                var m = mask_reg;
-                if (at(pc + 1u) != 0.0) {
-                    m = 1.0 - m;
-                }
-                mask_reg = m;
-                c = stash_reg + (c - stash_reg) * m;
-                pc = pc + 2u;
-            }
-            case CO_HSL_CORRECT: {
-                let shift = at(pc + 1u);
-                let sat = at(pc + 2u);
-                let temp = at(pc + 3u);
-                let tint = at(pc + 4u);
-                let show = u32(at(pc + 5u));
-                let hdr = at(pc + 6u) != 0.0;
-                let m = mask_reg;
-                let scale = unit_scale(c, hdr);
-                let u0 = to_unit(c, hdr, scale);
-                var o: vec3<f32>;
-                switch show {
-                    case 1u: {
-                        let g = rgb_to_hsl(u0).z;
-                        o = vec3(g) + (u0 - vec3(g)) * m;
-                    }
-                    case 2u: {
-                        o = u0 * m;
-                    }
-                    case 3u: {
-                        o = vec3(m);
-                    }
-                    default: {
-                        var hh = rgb_to_hsl(u0);
-                        hh.x = fract_euclid(hh.x + shift);
-                        hh.y = clamp(hh.y * sat, 0.0, 1.0);
-                        var c2 = hsl_to_rgb(hh.x, hh.y, hh.z);
-                        c2.x = c2.x * (1.0 + 0.25 * temp);
-                        c2.z = c2.z * (1.0 - 0.25 * temp);
-                        c2.y = c2.y * (1.0 - 0.2 * tint);
-                        o = (u0 + (c2 - u0) * m) * scale;
-                    }
-                }
-                c = o;
-                pc = pc + 7u;
-            }
-            case CO_GRAIN: {
-                let seed = u32(at(pc + 4u)) | (u32(at(pc + 5u)) << 16u);
-                let l = clamp(at(pc + 6u) * c.x + at(pc + 7u) * c.y + at(pc + 8u) * c.z, 0.0, 1.0);
-                // GRAIN_FLOOR 0.1, GRAIN_AMPLITUDE 0.15 (`filmcraft_color::ops`)
-                let wl = 0.1 + 0.9 * 4.0 * l * (1.0 - l);
-                let d = at(pc + 1u) * 0.15 * wl * grain_noise(xy, at(pc + 2u), at(pc + 3u), seed);
-                c = c + vec3(d);
-                pc = pc + 9u;
-            }
-            default: {
-                // unknown code: stop (the encoder never writes one)
-                pc = len;
-            }
-        }
+        c = chain_op(u32(at(pc)), c, xy, &pc, len);
     }
     return c;
 }
+// RUN_CHAIN_END
 
 @compute @workgroup_size(16, 16)
 fn chain_px(@builtin(global_invocation_id) id: vec3<u32>) {

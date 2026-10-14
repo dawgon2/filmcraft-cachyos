@@ -100,14 +100,14 @@ impl Display {
             let lib = lib()?;
             let nodes = match std::env::var("FILMCRAFT_VAAPI_DEVICE").ok().filter(|v| !v.is_empty()) {
                 Some(n) => vec![n],
-                None => crate::ffmpeg::render_nodes(),
+                None => render_nodes(),
             };
             let mut why = Vec::new();
             for node in nodes {
                 match Display::open(lib, &node) {
                     Ok(d) => {
                         log::info!("VA-API: {} on {}", d.vendor, d.node);
-                        return Ok(Arc::new(d));
+                        return Ok(d);
                     }
                     Err(e) => why.push(format!("{node}: {e}")),
                 }
@@ -124,9 +124,8 @@ impl Display {
         static E: OnceLock<Option<Result<Arc<Display>, String>>> = OnceLock::new();
         let chosen = E.get_or_init(|| {
             let node = std::env::var("FILMCRAFT_VAAPI_ENCODE_DEVICE").ok().filter(|v| !v.is_empty())?;
-            Some(lib().and_then(|lib| Display::open(lib, &node)).map(|d| {
+            Some(lib().and_then(|lib| Display::open(lib, &node)).inspect(|d| {
                 log::info!("VA-API encode: {} on {}", d.vendor, d.node);
-                Arc::new(d)
             }))
         });
         match chosen {
@@ -152,7 +151,7 @@ impl Display {
         if open.len() >= 8 {
             return Err("too many VA-API displays".into());
         }
-        let d = Arc::new(Display::open(lib()?, node).map_err(|e| format!("{node}: {e}"))?);
+        let d = Display::open(lib()?, node).map_err(|e| format!("{node}: {e}"))?;
         log::info!("VA-API: {} on {}", d.vendor, d.node);
         open.push(d.clone());
         Ok(d)
@@ -177,14 +176,14 @@ impl Display {
                 seen.push(d.node.clone());
             }
             let lib = lib()?;
-            for node in crate::ffmpeg::render_nodes() {
+            for node in render_nodes() {
                 if seen.contains(&node) {
                     continue;
                 }
                 match Display::open(lib, &node) {
                     Ok(d) if d.supports(profile, enc) => {
                         log::info!("VA-API HEVC 4:2:2 encode: {} on {}", d.vendor, d.node);
-                        return Ok(Arc::new(d));
+                        return Ok(d);
                     }
                     Ok(d) => why.push(format!("{node}: no HEVC Main 4:2:2 10 encoder ({})", d.vendor)),
                     Err(e) => why.push(format!("{node}: {e}")),
@@ -211,7 +210,7 @@ impl Display {
                         return Err(format!("{node} ({}) has no HEVC Main 4:2:2 10 decoder", d.vendor));
                     }
                     log::info!("VA-API HEVC 4:2:2: {} on {}", d.vendor, d.node);
-                    return Ok(Arc::new(d));
+                    return Ok(d);
                 }
                 let mut why = Vec::new();
                 if let Ok(d) = Display::get() {
@@ -222,14 +221,14 @@ impl Display {
                     why.push(format!("{}: no HEVC Main 4:2:2 10 decoder", d.node));
                 }
                 let skip = Display::get().ok().map(|d| d.node.clone());
-                for node in crate::ffmpeg::render_nodes() {
+                for node in render_nodes() {
                     if skip.as_deref() == Some(node.as_str()) {
                         continue;
                     }
                     match Display::open(lib, &node) {
                         Ok(d) if d.supports(profile, vld) => {
                             log::info!("VA-API HEVC 4:2:2: {} on {}", d.vendor, d.node);
-                            return Ok(Arc::new(d));
+                            return Ok(d);
                         }
                         Ok(d) => why.push(format!("{node}: no HEVC Main 4:2:2 10 decoder ({})", d.vendor)),
                         Err(e) => why.push(format!("{node}: {e}")),
@@ -246,7 +245,29 @@ impl Display {
         HEVC_422.get().map(Result::is_ok)
     }
 
-    fn open(lib: &'static sys::Va, node: &str) -> Result<Display, String> {
+    /// The display on `node`, kept open for the life of the process (U0.2.4): libva unloads a
+    /// driver when its last display is terminated, and terminating one Intel (iHD) display while
+    /// another thread initialised one corrupted the heap (`filmcraft-cli help` aborted in about
+    /// one run in four once upstream's always-open display was gone). A handful at most: one per
+    /// render node per kind of use.
+    fn open(lib: &'static sys::Va, node: &str) -> Result<Arc<Display>, String> {
+        static KEPT: Mutex<Vec<Arc<Display>>> = Mutex::new(Vec::new());
+        // one at a time: drivers load and initialise their global state in vaInitialize, and the
+        // start-up probes open displays on several threads at once
+        static OPENING: Mutex<()> = Mutex::new(());
+        let busy = Busy::enter().ok_or("the process is exiting")?;
+        let opening = OPENING.lock().unwrap_or_else(PoisonError::into_inner);
+        let d = Arc::new(Display::open_raw(lib, node)?);
+        drop((opening, busy));
+        let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.len() < 64 {
+            kept.push(d.clone());
+        }
+        Ok(d)
+    }
+
+    fn open_raw(lib: &'static sys::Va, node: &str) -> Result<Display, String> {
+        OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let file = std::fs::OpenOptions::new().read(true).write(true).open(node).map_err(|e| e.to_string())?;
         // SAFETY: the fd is a valid open DRM node, kept open by `file` for the display's lifetime.
         let dpy = unsafe { lib.vaGetDisplayDRM(file.as_raw_fd()) };
@@ -255,7 +276,7 @@ impl Display {
         }
         // libva prints driver-loading failures ("iHD_drv_video.so init failed" while probing a node
         // for the 4:2:2 display) to stderr unless callbacks are set: route errors to the log and
-        // turn info messages off, as upstream's `vaapi::va` does (CLI stderr stays clean).
+        // turn info messages off, as upstream's display layer did before U0.2.4 (CLI stderr stays clean).
         // SAFETY: `dpy` is a display from vaGetDisplayDRM; a null info callback turns libva's info
         // messages off, and `on_va_error` matches `VAMessageCallback` and never unwinds.
         unsafe {
@@ -430,14 +451,22 @@ param_buffer! {
     crate::vaapi::ffi::VAPictureParameterBufferHEVC => sys::VABufferType_VAPictureParameterBufferType,
     crate::vaapi::ffi::VAIQMatrixBufferHEVC => sys::VABufferType_VAIQMatrixBufferType,
     crate::vaapi::ffi::VASliceParameterBufferHEVC => sys::VABufferType_VASliceParameterBufferType,
+    // range-extension profiles through upstream's front end (fork U0.2.3)
+    crate::vaapi::ffi::VAPictureParameterBufferHEVCExtension => sys::VABufferType_VAPictureParameterBufferType,
+    crate::vaapi::ffi::VASliceParameterBufferHEVCExtension => sys::VABufferType_VASliceParameterBufferType,
 }
 
-// the two bindings agree on the HEVC decode structs they both have (the H.264 ones exist only in
+// the two bindings agree on the HEVC decode structs they both have (field offsets of the
+// range-extension ones: `vaapi/abi_tests.rs`) (the H.264 ones exist only in
 // `vaapi/ffi.rs`, header-checked there)
 const _: () = {
     assert!(std::mem::size_of::<crate::vaapi::ffi::VAPictureParameterBufferHEVC>() == std::mem::size_of::<sys::VAPictureParameterBufferHEVC>());
     assert!(std::mem::size_of::<crate::vaapi::ffi::VAIQMatrixBufferHEVC>() == std::mem::size_of::<sys::VAIQMatrixBufferHEVC>());
     assert!(std::mem::size_of::<crate::vaapi::ffi::VASliceParameterBufferHEVC>() == std::mem::size_of::<sys::VASliceParameterBufferHEVC>());
+    assert!(
+        std::mem::size_of::<crate::vaapi::ffi::VAPictureParameterBufferHEVCExtension>() == std::mem::size_of::<sys::VAPictureParameterBufferHEVCExtension>()
+    );
+    assert!(std::mem::size_of::<crate::vaapi::ffi::VASliceParameterBufferHEVCExtension>() == std::mem::size_of::<sys::VASliceParameterBufferHEVCExtension>());
 };
 
 /// `VAEncMiscParameterBuffer` followed by its payload, as libva lays it out (a `type` word, then
@@ -575,6 +604,12 @@ impl Context {
     /// colour standard on both sides). Fork 6.1b: a decoded (tiled) 4:2:2 picture into a linear
     /// surface another GPU can read. Not waited for: sync `target` before reading it.
     pub fn process_copy(&self, src: &Surface, region: (u32, u32, u32, u32), target: &Surface) -> Result<(), String> {
+        self.process_scaled(src, region, target, (region.2, region.3))
+    }
+
+    /// [`Context::process_copy`] that scales the rectangle `region` of `src` to `out` (w, h)
+    /// at the top-left of `target` (U0.2.3b d: a hand-off copy at the export size).
+    pub fn process_scaled(&self, src: &Surface, region: (u32, u32, u32, u32), target: &Surface, out: (u32, u32)) -> Result<(), String> {
         let d = &self.display;
         if !Arc::ptr_eq(&src.pool.display, d) || !Arc::ptr_eq(&target.pool.display, d) {
             return Err("a surface of another display".into());
@@ -584,13 +619,14 @@ impl Context {
         }
         let (x, y, w, h) = region;
         let (tw, th) = target.pool.size;
-        if !rect_fits(region, src.pool.size) || w > tw || h > th {
-            return Err(format!("a {w}x{h} copy at ({x}, {y}) from {:?} into {tw}x{th}", src.pool.size));
+        let (ow, oh) = out;
+        if !rect_fits(region, src.pool.size) || ow == 0 || oh == 0 || ow > tw || oh > th {
+            return Err(format!("a {w}x{h} copy at ({x}, {y}) from {:?} to {ow}x{oh} into {tw}x{th}", src.pool.size));
         }
         let small = |v: u32| i16::try_from(v).map_err(|_| format!("{v} does not fit a VA rectangle"));
         let size = |v: u32| u16::try_from(v).map_err(|_| format!("{v} does not fit a VA rectangle"));
         let from = sys::VARectangle { x: small(x)?, y: small(y)?, width: size(w)?, height: size(h)? };
-        let to = sys::VARectangle { x: 0, y: 0, width: size(w)?, height: size(h)? };
+        let to = sys::VARectangle { x: 0, y: 0, width: size(ow)?, height: size(oh)? };
         let bt709 = sys::_VAProcColorStandardType_VAProcColorStandardBT709;
         let pp = sys::VAProcPipelineParameterBuffer {
             surface: src.id,
@@ -598,7 +634,7 @@ impl Context {
             output_region: &to,
             surface_color_standard: bt709,
             output_color_standard: bt709,
-            filter_flags: sys::VA_FILTER_SCALING_FAST,
+            filter_flags: if (ow, oh) == (w, h) { sys::VA_FILTER_SCALING_FAST } else { scaling_filter() },
             ..Default::default()
         };
         // SAFETY: `pp` is a live VAProcPipelineParameterBuffer that libva copies; its region
@@ -899,16 +935,41 @@ impl Drop for Mapping<'_> {
     }
 }
 
-/// Bytes per pixel of a packed fourcc linear surfaces can be imported in (Y210: 16-bit Y Cb Y Cr
-/// per two pixels).
-fn packed_bytes_per_pixel(fourcc: u32) -> Option<u32> {
-    (fourcc == sys::VA_FOURCC_Y210).then_some(4)
+/// Bytes per pixel of the first plane of a fourcc linear surfaces can be imported in: Y210
+/// (packed 16-bit Y Cb Y Cr per two pixels: 4), P010 (2) and NV12 (1), whose interleaved chroma
+/// plane at half height has rows of the same length (U0.2.3b d: 4:2:0 hand-off).
+fn linear_bytes_per_pixel(fourcc: u32) -> Option<u32> {
+    match fourcc {
+        sys::VA_FOURCC_Y210 => Some(4),
+        sys::VA_FOURCC_P010 => Some(2),
+        sys::VA_FOURCC_NV12 => Some(1),
+        _ => None,
+    }
 }
 
-/// Linear surfaces are this many pixels wide (a multiple): with 16-bit 4:2:2 (4 bytes per pixel)
-/// their rows are then a multiple of 256 bytes, the row alignment AMD's GPUs require of linear
-/// images they import.
-const LINEAR_WIDTH_ALIGN: u32 = 64;
+/// Rows of linear surfaces are a multiple of this many bytes, the row alignment AMD's GPUs
+/// require of linear images they import.
+const LINEAR_ROW_ALIGN: u32 = 256;
+
+/// The width linear surfaces of `fourcc` are made at for `width`-pixel pictures: rows of a
+/// [`LINEAR_ROW_ALIGN`] multiple (Y210: 64 pixels, P010: 128, NV12: 256).
+fn linear_width(fourcc: u32, width: u32) -> Option<u32> {
+    let align = LINEAR_ROW_ALIGN / linear_bytes_per_pixel(fourcc)?;
+    width.div_ceil(align).checked_mul(align)
+}
+
+/// (bytes per row, planes, plane offsets, total bytes) of an imported linear `w`×`h` surface of
+/// `fourcc` in one buffer object: Y210 one plane; NV12 / P010 the luma plane, then the
+/// interleaved chroma plane at half height (rows of the same length).
+fn linear_layout(fourcc: u32, w: u32, h: u32) -> Option<(u32, u32, [u32; 4], u32)> {
+    let pitch = w.checked_mul(linear_bytes_per_pixel(fourcc)?)?;
+    let luma = pitch.checked_mul(h)?;
+    if fourcc == sys::VA_FOURCC_Y210 {
+        return Some((pitch, 1, [0; 4], luma));
+    }
+    let chroma = pitch.checked_mul(h.div_ceil(2))?;
+    Some((pitch, 2, [0, luma, 0, 0], luma.checked_add(chroma)?))
+}
 
 /// The video-processing context of `display`, made once and kept for the process: iHD keeps a
 /// pointer to the last context that rendered into a surface, and syncing a pooled surface after
@@ -939,7 +1000,7 @@ fn vpp_context(display: &Arc<Display>) -> Result<&'static Mutex<Context>, String
 pub struct LinearCopy {
     context: &'static Mutex<Context>,
     pool: Arc<SurfacePool>,
-    /// The visible size copied (the surfaces may be wider, [`LINEAR_WIDTH_ALIGN`]).
+    /// The visible size copied (the surfaces may be wider, [`linear_width`]).
     pub size: (u32, u32),
 }
 
@@ -956,7 +1017,7 @@ impl LinearCopy {
             return Err(format!("picture size {width}x{height}"));
         }
         let context = vpp_context(display)?;
-        let padded = width.div_ceil(LINEAR_WIDTH_ALIGN).saturating_mul(LINEAR_WIDTH_ALIGN);
+        let padded = linear_width(fourcc, width).ok_or_else(|| format!("linear surfaces of fourcc {fourcc:#x}"))?;
         // the first way of asking that gives an exportable linear surface (probed on a surface of
         // a private pool, freed after; remembered per display, format and size)
         static FOUND: Mutex<Vec<(String, u32, (u32, u32), bool)>> = Mutex::new(Vec::new());
@@ -997,18 +1058,37 @@ impl LinearCopy {
         Err(format!("no linear surfaces on {} ({})", display.node, tried.join("; ")))
     }
 
+    /// Whether the copies land in imported memory ([`LinearAlloc::Imported`]) rather than the
+    /// driver's own linear surfaces.
+    pub fn imported(&self) -> bool {
+        self.pool.linear.as_ref().is_some_and(LinearAlloc::is_imported)
+    }
+
     /// The rectangle `region` (x, y, w, h; at most [`LinearCopy::size`]) of `src` copied to the
     /// top-left of a linear surface, finished (synced) and exported: the result is ready for
     /// another device to read. An error leaves nothing pending (the surface goes back synced).
     pub fn copy(&self, src: &Surface, region: (u32, u32, u32, u32)) -> Result<Surface, String> {
-        if region.2 > self.size.0 || region.3 > self.size.1 {
-            return Err(format!("a {}x{} region for a {}x{} copier", region.2, region.3, self.size.0, self.size.1));
+        self.copy_scaled(src, region, (region.2, region.3))
+    }
+
+    /// [`LinearCopy::copy`] scaled to `out` (w, h; at most [`LinearCopy::size`]): the copier is
+    /// made at the output size, `region` may be larger (U0.2.3b d: fewer bytes to hand off when
+    /// the export frame is smaller than the source).
+    pub fn copy_scaled(&self, src: &Surface, region: (u32, u32, u32, u32), out: (u32, u32)) -> Result<Surface, String> {
+        if out.0 > self.size.0 || out.1 > self.size.1 {
+            return Err(format!("a {}x{} copy for a {}x{} copier", out.0, out.1, self.size.0, self.size.1));
         }
         let target = self.pool.get()?;
-        let done = self.context.lock().unwrap_or_else(PoisonError::into_inner).process_copy(src, region, &target);
+        let clock = filmcraft_export::trace::start();
+        let context = self.context.lock().unwrap_or_else(PoisonError::into_inner);
+        filmcraft_export::trace::add(filmcraft_export::trace::DEC_COPY_LOCK, clock);
+        let done = context.process_scaled(src, region, &target, out);
+        drop(context);
         // whatever happened, nothing may still write into the surface once it is handed out or
         // returns to the pool
+        let clock = filmcraft_export::trace::start();
         let synced = target.sync();
+        filmcraft_export::trace::add(filmcraft_export::trace::DEC_COPY_SYNC, clock);
         done?;
         synced?;
         let e = target.export()?;
@@ -1099,6 +1179,118 @@ fn plane_rows(fourcc: u32, w: u32, h: u32) -> Result<Vec<(usize, usize)>, String
 }
 
 /// Whether the rectangle (x, y, w, h) is non-empty and lies inside a surface of `size`.
+/// The VPP filter scaled copies use (U0.2.3b d): high quality unless the diagnostic
+/// `FILMCRAFT_HANDOFF_FILTER=fast|default` says otherwise.
+fn scaling_filter() -> u32 {
+    static F: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *F.get_or_init(|| match std::env::var("FILMCRAFT_HANDOFF_FILTER").as_deref() {
+        Ok("fast") => sys::VA_FILTER_SCALING_FAST,
+        Ok("default") => sys::VA_FILTER_SCALING_DEFAULT,
+        _ => sys::VA_FILTER_SCALING_HQ,
+    })
+}
+
+/// Threads inside VA-API set-up work the process must not exit in the middle of ([`Busy`]).
+static BUSY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Set by [`wait_for_va_work`] when the process exits: no new display opens after it.
+static EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// VA-API work the process must not exit in the middle of (U0.2.4): opening a display, the
+/// start-up probes. Exiting while a thread was inside Intel's driver initialisation ran the
+/// driver's destructors under it and corrupted the heap (`filmcraft-cli help` aborted in a few
+/// percent of runs); exit now waits for such work (up to 3 s, [`wait_for_va_work`]).
+pub(crate) struct Busy(());
+
+impl Busy {
+    /// `None` once the process is exiting: start no new VA-API work then.
+    pub(crate) fn enter() -> Option<Busy> {
+        install_exit_wait();
+        BUSY.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if EXITING.load(std::sync::atomic::Ordering::SeqCst) {
+            BUSY.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            return None;
+        }
+        Some(Busy(()))
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        BUSY.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Run by `exit()` before the shared libraries' destructors: no new VA-API work, and the work in
+/// flight finishes first (bounded: a hung driver can't keep the process alive).
+extern "C" fn wait_for_va_work() {
+    EXITING.store(true, std::sync::atomic::Ordering::SeqCst);
+    let start = std::time::Instant::now();
+    while BUSY.load(std::sync::atomic::Ordering::SeqCst) > 0 && start.elapsed() < std::time::Duration::from_secs(3) {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+/// Before the process exits: no new VA-API work, and the work in flight finishes first (up to
+/// 3 s). Callers that exit early (a short CLI command) call it themselves, since libraries loaded
+/// after the `atexit` hook was installed run their exit handlers before it.
+pub fn quiesce() {
+    wait_for_va_work();
+}
+
+fn install_exit_wait() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: registers a function without arguments that touches only atomics and sleeps;
+        // `exit()` runs it once on the exiting thread.
+        if unsafe { libc::atexit(wait_for_va_work) } != 0 {
+            log::warn!("VA-API: no exit hook; exiting during driver set-up may crash");
+        }
+    });
+}
+
+/// Displays opened so far (diagnostics and tests): one per render node used, as `Display::get`,
+/// `Display::for_node` and friends keep them for the life of the process.
+static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The number of VA displays this process has opened.
+pub fn displays_opened() -> usize {
+    OPENED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// PCI vendor ids of DRM render nodes.
+const VENDOR_AMD: u32 = 0x1002;
+const VENDOR_NVIDIA: u32 = 0x10de;
+const VENDOR_INTEL: u32 = 0x8086;
+
+/// The PCI vendor of a render node (`/sys/class/drm/renderD128/device/vendor`).
+fn vendor(node: &str) -> Option<u32> {
+    let name = std::path::Path::new(node).file_name()?.to_str()?;
+    let s = std::fs::read_to_string(format!("/sys/class/drm/{name}/device/vendor")).ok()?;
+    u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok()
+}
+
+/// Render nodes in preference order (U0.2.4: here, not in the fork-only `ffmpeg.rs`): discrete GPUs first (AMD, NVIDIA, others), Intel last.
+pub(crate) fn render_nodes() -> Vec<String> {
+    let mut nodes: Vec<String> = std::fs::read_dir("/dev/dri")
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.starts_with("renderD"))
+                .map(|n| format!("/dev/dri/{n}"))
+                .collect()
+        })
+        .unwrap_or_default();
+    nodes.sort();
+    let rank = |n: &String| match vendor(n) {
+        Some(VENDOR_AMD) => 0,
+        Some(VENDOR_NVIDIA) => 1,
+        Some(VENDOR_INTEL) => 3,
+        _ => 2,
+    };
+    nodes.sort_by_key(rank);
+    nodes
+}
+
 fn rect_fits((x, y, w, h): (u32, u32, u32, u32), size: (u32, u32)) -> bool {
     w > 0 && h > 0 && x.checked_add(w).is_some_and(|r| r <= size.0) && y.checked_add(h).is_some_and(|b| b <= size.1)
 }
@@ -1208,14 +1400,14 @@ impl SurfacePool {
         let mut linear_modifier: u64 = 0;
         let mut modifiers = sys::VADRMFormatModifierList { num_modifiers: 1, modifiers: &mut linear_modifier };
         let mut attrs = vec![int(sys::VASurfaceAttribType_VASurfaceAttribPixelFormat, self.fourcc as i32)];
-        // imported linear memory: one object, one packed layer, rows of the (256-byte multiple)
-        // width; our descriptor is closed once the driver has imported it
+        // imported linear memory: one object, one layer (Y210 packed; NV12 / P010 luma then
+        // chroma), rows of the (256-byte multiple) width; our descriptor is closed once the driver
+        // has imported it
         let mut external = sys::VADRMPRIMESurfaceDescriptor::default();
         let mut _memory: Option<std::os::fd::OwnedFd> = None;
         if let Some(LinearAlloc::Imported(alloc)) = &self.linear {
-            let bpp = packed_bytes_per_pixel(self.fourcc).ok_or_else(|| format!("importing surfaces of fourcc {:#x}", self.fourcc))?;
-            let pitch = self.size.0.checked_mul(bpp).ok_or("pitch overflows")?;
-            let bytes = pitch.checked_mul(self.size.1).ok_or("surface size overflows")?;
+            let (pitch, num_planes, offset, bytes) = linear_layout(self.fourcc, self.size.0, self.size.1)
+                .ok_or_else(|| format!("importing {}x{} surfaces of fourcc {:#x}", self.size.0, self.size.1, self.fourcc))?;
             let fd = alloc(u64::from(bytes))?;
             let raw = std::os::fd::AsRawFd::as_raw_fd(&fd);
             _memory = Some(fd);
@@ -1225,14 +1417,10 @@ impl SurfacePool {
             external.num_objects = 1;
             external.objects[0] = sys::_VADRMPRIMESurfaceDescriptor__bindgen_ty_1 { fd: raw, size: bytes, drm_format_modifier: 0 };
             external.num_layers = 1;
-            // the DRM fourcc of packed Y210 is the VA one ('Y210')
-            external.layers[0] = sys::_VADRMPRIMESurfaceDescriptor__bindgen_ty_2 {
-                drm_format: self.fourcc,
-                num_planes: 1,
-                object_index: [0; 4],
-                offset: [0; 4],
-                pitch: [pitch, 0, 0, 0],
-            };
+            // the DRM fourccs of Y210, P010 and NV12 are the VA ones
+            let pitches = if num_planes == 2 { [pitch, pitch, 0, 0] } else { [pitch, 0, 0, 0] };
+            external.layers[0] =
+                sys::_VADRMPRIMESurfaceDescriptor__bindgen_ty_2 { drm_format: self.fourcc, num_planes, object_index: [0; 4], offset, pitch: pitches };
             attrs.push(int(sys::VASurfaceAttribType_VASurfaceAttribMemoryType, sys::VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2 as i32));
             attrs.push(sys::VASurfaceAttrib {
                 type_: sys::VASurfaceAttribType_VASurfaceAttribExternalBufferDescriptor,
@@ -1449,31 +1637,47 @@ impl Surface {
         formats.into_iter().find(|f| f.fourcc == self.pool.fourcc).ok_or_else(|| "the driver has no image format for the surface".to_string())
     }
 
-    /// [`Surface::read`] of a linear surface over imported memory (packed formats: one plane): its
-    /// DMA-BUF mapped for reading between `DMA_BUF_IOCTL_SYNC` start / end, each row of the
-    /// rectangle copied out of the mapping (bounds-checked against the buffer's real size).
+    /// [`Surface::read`] of a linear surface over imported memory: its DMA-BUF mapped for reading
+    /// between `DMA_BUF_IOCTL_SYNC` start / end, each row of the rectangle copied out of the
+    /// mapping (bounds-checked against the buffer's real size), plane by plane as
+    /// [`Surface::read`] (Y210 one packed plane; NV12 / P010 luma, then chroma at half height).
     fn read_mapped(&self, (x, y, w, h): (u32, u32, u32, u32), mut f: impl FnMut(usize, usize, &[u8])) -> Result<(), String> {
-        let bpp = u64::from(packed_bytes_per_pixel(self.pool.fourcc).ok_or("mapped reads of planar surfaces")?);
+        let fourcc = self.pool.fourcc;
+        let bpp = u64::from(linear_bytes_per_pixel(fourcc).ok_or("mapped reads of this format")?);
+        let rows = plane_rows(fourcc, w, h)?;
+        // 4:2:0 chroma rows and pairs start on even luma coordinates
+        if rows.len() > 1 && (x % 2 != 0 || y % 2 != 0) {
+            return Err(format!("a 4:2:0 rectangle at odd ({x}, {y})"));
+        }
         let e = self.export()?;
         let d = &e.dmabuf;
         if d.modifier != 0 {
             return Err(format!("mapping tiled memory (modifier {:#x})", d.modifier));
         }
-        let [plane] = d.layers[0].as_slice() else { return Err("a packed layer of several planes".into()) };
-        let object = d.objects.get(plane.object).ok_or("plane of a missing buffer object")?;
+        let planes: Vec<_> = d.layers.iter().flatten().collect();
+        if planes.len() != rows.len() {
+            return Err(format!("an export of {} planes ({} expected)", planes.len(), rows.len()));
+        }
+        let object = planes.first().and_then(|p| d.objects.get(p.object)).ok_or("plane of a missing buffer object")?;
+        if planes.iter().any(|p| d.objects.get(p.object).is_none_or(|o| !std::ptr::eq(o, object))) {
+            return Err("planes in several buffer objects".into());
+        }
         let map = Mapping::new(object)?;
-        let (pitch, offset) = (u64::from(plane.pitch), u64::from(plane.offset));
-        let row_bytes = u64::from(w).checked_mul(bpp).ok_or("row size overflows")?;
-        let row_len = usize::try_from(row_bytes).map_err(|_| "row size")?;
-        let mut row = vec![0u8; row_len];
-        for r in 0..h {
-            let start = u64::from(y + r)
-                .checked_mul(pitch)
-                .and_then(|o| o.checked_add(offset))
-                .and_then(|o| o.checked_add(u64::from(x).checked_mul(bpp)?))
-                .ok_or("row offset overflows")?;
-            map.copy_out(start, &mut row)?;
-            f(0, r as usize, &row);
+        for (i, (plane, &(count, len))) in planes.iter().zip(&rows).enumerate() {
+            let (pitch, offset) = (u64::from(plane.pitch), u64::from(plane.offset));
+            // chroma: half the rows, the same byte column (interleaved pairs at half width)
+            let first = if i == 0 { u64::from(y) } else { u64::from(y / 2) };
+            let mut row = vec![0u8; len];
+            for r in 0..count {
+                let start = first
+                    .checked_add(r as u64)
+                    .and_then(|o| o.checked_mul(pitch))
+                    .and_then(|o| o.checked_add(offset))
+                    .and_then(|o| o.checked_add(u64::from(x).checked_mul(bpp)?))
+                    .ok_or("row offset overflows")?;
+                map.copy_out(start, &mut row)?;
+                f(i, r, &row);
+            }
         }
         Ok(())
     }

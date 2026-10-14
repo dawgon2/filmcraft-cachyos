@@ -1125,7 +1125,7 @@ mod tests {
         let rate = FrameRate::new(24, 1);
         let mut nodes: Vec<Option<String>> = vec![None];
         nodes.extend(
-            crate::ffmpeg::render_nodes()
+            crate::va::render_nodes()
                 .into_iter()
                 .filter(|n| {
                     crate::va::Display::for_node(n)

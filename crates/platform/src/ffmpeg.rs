@@ -16,6 +16,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
+use crate::va::render_nodes;
+
 /// Bytes of ffmpeg's stderr kept for error messages.
 const STDERR_KEEP: usize = 4096;
 
@@ -34,40 +36,6 @@ pub fn ffmpeg() -> Option<&'static PathBuf> {
         }
     })
     .as_ref()
-}
-
-/// PCI vendor ids of DRM render nodes.
-const VENDOR_AMD: u32 = 0x1002;
-const VENDOR_NVIDIA: u32 = 0x10de;
-const VENDOR_INTEL: u32 = 0x8086;
-
-/// The PCI vendor of a render node (`/sys/class/drm/renderD128/device/vendor`).
-fn vendor(node: &str) -> Option<u32> {
-    let name = std::path::Path::new(node).file_name()?.to_str()?;
-    let s = std::fs::read_to_string(format!("/sys/class/drm/{name}/device/vendor")).ok()?;
-    u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok()
-}
-
-/// Render nodes in preference order: discrete GPUs first (AMD, NVIDIA, others), Intel last.
-pub(crate) fn render_nodes() -> Vec<String> {
-    let mut nodes: Vec<String> = std::fs::read_dir("/dev/dri")
-        .map(|d| {
-            d.filter_map(|e| e.ok())
-                .filter_map(|e| e.file_name().into_string().ok())
-                .filter(|n| n.starts_with("renderD"))
-                .map(|n| format!("/dev/dri/{n}"))
-                .collect()
-        })
-        .unwrap_or_default();
-    nodes.sort();
-    let rank = |n: &String| match vendor(n) {
-        Some(VENDOR_AMD) => 0,
-        Some(VENDOR_NVIDIA) => 1,
-        Some(VENDOR_INTEL) => 3,
-        _ => 2,
-    };
-    nodes.sort_by_key(rank);
-    nodes
 }
 
 /// Whether ffmpeg can open a VA-API device on `node` and upload a picture to it.

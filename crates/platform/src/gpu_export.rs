@@ -131,7 +131,7 @@ impl GpuExport {
             log::error!("export GPU error, rendering export frames on the CPU from now on: {e}");
             flag.store(true, Ordering::Relaxed);
         }));
-        let c = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| GpuCompositor::new(&device, &queue))).ok()?;
+        let c = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| GpuCompositor::for_export(&device, &queue))).ok()?;
         log::info!("export frames render on the GPU");
         Some(c)
     }
@@ -316,7 +316,7 @@ mod tests {
         assert!(frames_on("/dev/dri/../../etc/passwd").is_none() && frames_on("renderD999").is_none() && pci_ids("").is_none());
         let p = plan(320, 176);
         let mut frames = Vec::new();
-        for node in crate::ffmpeg::render_nodes() {
+        for node in crate::va::render_nodes() {
             let Some(g) = frames_on(&node) else { continue };
             match g.yuv420(&p, 0.2126, 0.0722, true, false) {
                 Some(f) => frames.push((node, f)),
@@ -332,6 +332,21 @@ mod tests {
                 assert!(worst <= 4, "{node}: up to {worst} codes from the first GPU");
             }
         }
+    }
+
+    /// Export frames render effects in full precision on every GPU, the integrated one too
+    /// (FORK-PLAN §1a.64: half floats are preview-only).
+    #[test]
+    fn export_compositors_never_use_half_floats() {
+        let mut made = 0;
+        for node in crate::va::render_nodes() {
+            let Some(pci) = pci_ids(&node) else { continue };
+            let g = GpuExport { pci: Some(pci), ..Default::default() };
+            let Some(c) = g.create() else { continue };
+            assert!(!c.effects_half_precision(), "{node}: export compositor with half-float effects");
+            made += 1;
+        }
+        eprintln!("checked {made} export compositors");
     }
 
     #[test]

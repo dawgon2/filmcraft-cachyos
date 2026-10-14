@@ -29,7 +29,7 @@
 //! are checked against a C compiler's by `abi_tests.rs`.
 //!
 //! The structures are plain data and compile on every target, so the code that fills them in
-//! (`vaapi::h264`) is tested everywhere; only `vaapi::va` loads the library (Linux).
+//! (`vaapi::h264`) is tested everywhere; the fork's `crate::va` loads the library (Linux, U0.2.4).
 //!
 //! FFI module (docs/adr/0001-platform-ffi.md): plain `repr(C)` data, no logic.
 
@@ -70,11 +70,15 @@ pub const VAProfileH264High: VAProfile = 7;
 pub const VAProfileH264ConstrainedBaseline: VAProfile = 13;
 pub const VAProfileHEVCMain: VAProfile = 17;
 pub const VAProfileHEVCMain10: VAProfile = 18;
+/// HEVC Main 4:2:2 10, a range-extension profile: its buffers are the `*Extension` structs
+/// (fork U0.2.3, from the fork's 6.1b decoder).
+pub const VAProfileHEVCMain422_10: VAProfile = 24;
 pub const VAEntrypointVLD: VAEntrypoint = 1;
 
 pub const VAConfigAttribRTFormat: VAConfigAttribType = 0;
 pub const VA_RT_FORMAT_YUV420: c_uint = 0x0000_0001;
 pub const VA_RT_FORMAT_YUV420_10: c_uint = 0x0000_0100;
+pub const VA_RT_FORMAT_YUV422_10: c_uint = 0x0000_0200;
 
 /// `vaCreateContext` flag: progressive pictures only.
 pub const VA_PROGRESSIVE: c_int = 0x1;
@@ -93,6 +97,8 @@ pub const VA_PICTURE_H264_LONG_TERM_REFERENCE: u32 = 0x0000_0010;
 
 pub const VA_FOURCC_NV12: u32 = 0x3231_564E;
 pub const VA_FOURCC_P010: u32 = 0x3031_3050;
+/// Packed 4:2:2, 16-bit samples (10 significant, MSB-aligned): Y0 Cb Y1 Cr.
+pub const VA_FOURCC_Y210: u32 = 0x3031_3259;
 
 pub const VA_PICTURE_HEVC_INVALID: u32 = 0x0000_0001;
 pub const VA_PICTURE_HEVC_LONG_TERM_REFERENCE: u32 = 0x0000_0008;
@@ -393,6 +399,100 @@ pub mod hevc_slice_bits {
     pub const SLICE_DEBLOCKING_FILTER_DISABLED: u32 = 11;
     pub const COLLOCATED_FROM_L0: u32 = 12;
     pub const SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED: u32 = 13;
+}
+
+/// `VAPictureParameterBufferHEVCRext` (range-extension picture parameters, 7.3.2.2.2 /
+/// 7.3.2.3.2); `range_extension_pic_fields` is a C bit-field union stored as its `value` word
+/// ([`hevc_rext_pic_bits`]). Fork U0.2.3.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VAPictureParameterBufferHEVCRext {
+    pub range_extension_pic_fields: u32,
+    pub diff_cu_chroma_qp_offset_depth: u8,
+    pub chroma_qp_offset_list_len_minus1: u8,
+    pub log2_sao_offset_scale_luma: u8,
+    pub log2_sao_offset_scale_chroma: u8,
+    pub log2_max_transform_skip_block_size_minus2: u8,
+    pub cb_qp_offset_list: [i8; 6],
+    pub cr_qp_offset_list: [i8; 6],
+}
+
+/// `VAPictureParameterBufferHEVCRext::range_extension_pic_fields` bit positions.
+pub mod hevc_rext_pic_bits {
+    pub const TRANSFORM_SKIP_ROTATION_ENABLED: u32 = 0;
+    pub const TRANSFORM_SKIP_CONTEXT_ENABLED: u32 = 1;
+    pub const IMPLICIT_RDPCM_ENABLED: u32 = 2;
+    pub const EXPLICIT_RDPCM_ENABLED: u32 = 3;
+    pub const EXTENDED_PRECISION_PROCESSING: u32 = 4;
+    pub const INTRA_SMOOTHING_DISABLED: u32 = 5;
+    pub const HIGH_PRECISION_OFFSETS_ENABLED: u32 = 6;
+    pub const PERSISTENT_RICE_ADAPTATION_ENABLED: u32 = 7;
+    pub const CABAC_BYPASS_ALIGNMENT_ENABLED: u32 = 8;
+    pub const CROSS_COMPONENT_PREDICTION_ENABLED: u32 = 9;
+    pub const CHROMA_QP_OFFSET_LIST_ENABLED: u32 = 10;
+}
+
+/// `VAPictureParameterBufferHEVCScc` (screen-content picture parameters): never used, but part
+/// of [`VAPictureParameterBufferHEVCExtension`]'s layout (sent zeroed).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VAPictureParameterBufferHEVCScc {
+    pub screen_content_pic_fields: u32,
+    pub palette_max_size: u8,
+    pub delta_palette_max_predictor_size: u8,
+    pub predictor_palette_size: u8,
+    pub predictor_palette_entries: [[u16; 128]; 3],
+    pub pps_act_y_qp_offset_plus5: i8,
+    pub pps_act_cb_qp_offset_plus5: i8,
+    pub pps_act_cr_qp_offset_plus3: i8,
+}
+
+impl VAPictureParameterBufferHEVCScc {
+    /// No screen-content tool.
+    pub const NONE: Self = Self {
+        screen_content_pic_fields: 0,
+        palette_max_size: 0,
+        delta_palette_max_predictor_size: 0,
+        predictor_palette_size: 0,
+        predictor_palette_entries: [[0; 128]; 3],
+        pps_act_y_qp_offset_plus5: 0,
+        pps_act_cb_qp_offset_plus5: 0,
+        pps_act_cr_qp_offset_plus3: 0,
+    };
+}
+
+/// `VAPictureParameterBufferHEVCExtension`: what a range-extension profile (Main 4:2:2 10) reads
+/// from its picture-parameter buffer, base + rext (+ scc) in one struct.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VAPictureParameterBufferHEVCExtension {
+    pub base: VAPictureParameterBufferHEVC,
+    pub rext: VAPictureParameterBufferHEVCRext,
+    pub scc: VAPictureParameterBufferHEVCScc,
+}
+
+/// `VASliceParameterBufferHEVCRext`: the weighted-prediction offsets at full width (the driver
+/// reads them from here for range-extension profiles); `slice_ext_flags` is a C bit-field union
+/// stored as its `value` word (bit 0 `cu_chroma_qp_offset_enabled_flag`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VASliceParameterBufferHEVCRext {
+    pub luma_offset_l0: [i16; 15],
+    pub ChromaOffsetL0: [[i16; 2]; 15],
+    pub luma_offset_l1: [i16; 15],
+    pub ChromaOffsetL1: [[i16; 2]; 15],
+    pub slice_ext_flags: u32,
+    pub slice_act_y_qp_offset: i8,
+    pub slice_act_cb_qp_offset: i8,
+    pub slice_act_cr_qp_offset: i8,
+}
+
+/// `VASliceParameterBufferHEVCExtension`: base + rext in one slice-parameter buffer.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VASliceParameterBufferHEVCExtension {
+    pub base: VASliceParameterBufferHEVC,
+    pub rext: VASliceParameterBufferHEVCRext,
 }
 
 #[repr(C)]

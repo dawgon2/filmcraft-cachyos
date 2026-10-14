@@ -101,7 +101,7 @@ pub fn all_keys() -> Vec<String> {
 
 /// Height of the whole header in the Resolve workflow.
 pub fn height(app: &FilmcraftApp) -> f32 {
-    if app.ui.show_menu_bar { MENU_H + TOOLBAR_H } else { TOOLBAR_H }
+    if app.in_window_menu() { MENU_H + TOOLBAR_H } else { TOOLBAR_H }
 }
 
 /// Whether a panel is on screen (the active tab of a docked or floating group).
@@ -141,7 +141,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let inset = if app.integrated_titlebar { 104.0 } else { 6.0 };
     let mut bar = rect;
     // the menus on a row of their own, as in Resolve
-    if app.ui.show_menu_bar {
+    if app.in_window_menu() {
         let row = Rect::from_min_size(rect.min, vec2(rect.width(), MENU_H));
         let menu_rect = Rect::from_min_max(pos2(row.min.x + inset, row.min.y + 2.0), pos2(row.max.x - 8.0, row.max.y - 2.0));
         let mut mu = ui.new_child(egui::UiBuilder::new().max_rect(menu_rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
@@ -155,7 +155,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     p.line_segment([bar.left_bottom(), bar.right_bottom()], Stroke::new(1.0, Color32::BLACK));
     let page = crate::panels::pages::current(app);
     let (left, right) = toggles(page);
-    let bar_inset = if app.ui.show_menu_bar { 6.0 } else { inset };
+    let bar_inset = if app.in_window_menu() { 6.0 } else { inset };
     // left toggles, then right toggles from the right edge
     let mut x = bar.min.x + bar_inset;
     let mut clicked: Option<(Toggle, bool)> = None;
@@ -173,7 +173,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         left_end = x;
     }
     // the window buttons sit in the menu row when it shows, else at the end of this one
-    let mut rx = bar.max.x - 8.0 - if app.ui.show_menu_bar { 0.0 } else { crate::window_chrome::reserved_width(app) };
+    let mut rx = bar.max.x - 8.0 - if app.in_window_menu() { 0.0 } else { crate::window_chrome::reserved_width(app) };
     let mut right_start = rx;
     for (i, tg) in right.iter().rev().enumerate() {
         let w = button_width(&p, *tg);

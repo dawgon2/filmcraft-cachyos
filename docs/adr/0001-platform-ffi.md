@@ -157,3 +157,13 @@ VA-API's. The rules above hold: `libnvcuvid.so.1` and `libcuda.so.1` are loaded 
 the one `nvenc::device` already retains for encoding. Unlike VA-API, NVDEC parses the stream
 itself; its callbacks run inside our parse call and never unwind into C (they record the first
 error and return 0, and the decoder then fails over to software like any other backend).
+
+## Addendum (fork, 2026-10-13): `kde_appmenu` on Linux
+
+`kde_appmenu` carries `#[allow(unsafe_code)]` for two calls only: adopting winit's `wl_display`
+(`wayland_backend::client::Backend::from_foreign_display`) and wrapping its `wl_surface`
+(`ObjectId::from_ptr`, which checks the interface), both from the window's `raw-window-handle`.
+They let the app send one `org_kde_kwin_appmenu.set_address` so KWin shows the window's
+`com.canonical.dbusmenu` menu in Plasma's Global Menu. The crates (`wayland-client`,
+`wayland-backend`, `wayland-protocols-plasma`, MIT) were already in the lockfile through winit. A
+compositor without the protocol makes `register` return an error and nothing else changes.

@@ -24,7 +24,7 @@ pub fn second_encode_node() -> Option<String> {
     let primary = Display::for_encode().ok()?.node.clone();
     let candidates = match std::env::var("FILMCRAFT_EXPORT_SECOND_DEVICE").ok().filter(|v| !v.is_empty()) {
         Some(n) => vec![n],
-        None => crate::ffmpeg::render_nodes(),
+        None => crate::va::render_nodes(),
     };
     candidates.into_iter().filter(|n| *n != primary).find(|n| {
         Display::for_node(n).is_ok_and(|d| {
@@ -45,6 +45,11 @@ struct VaLanes;
 
 impl LaneDevices for VaLanes {
     fn second_node(&self) -> Option<String> {
+        // diagnostic (fork U0.2.3b d): the second lane on a chosen render node, e.g. the primary
+        // GPU's own (two decode / encode sessions on one GPU)
+        if let Some(n) = std::env::var("FILMCRAFT_EXPORT_SECOND_NODE").ok().filter(|n| n.starts_with("/dev/dri/renderD")) {
+            return Some(n);
+        }
         second_encode_node()
     }
 
@@ -70,6 +75,10 @@ impl LaneDevices for VaLanes {
 
     fn bind_thread(&self, node: Option<&str>) {
         filmcraft_codecs::hw::set_thread_decode_node(node.map(str::to_string));
+    }
+
+    fn bind_thread_handoff(&self, node: &str) {
+        filmcraft_codecs::hw::set_thread_decode_handoff(Some(node.to_string()));
     }
 
     fn decodes_422(&self, node: Option<&str>) -> bool {

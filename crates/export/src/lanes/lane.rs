@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use filmcraft_project::{ItemId, Project};
+use filmcraft_project::{ItemId, ItemKind, Project};
 use filmcraft_render::SourceProvider;
 use filmcraft_time::{FrameRate, Tick};
 
@@ -48,6 +48,9 @@ pub(crate) struct Dual {
     pub coord: Coordinator,
     /// Parameter sets travel in band (`hev1`).
     pub in_band: bool,
+    /// One lane on the primary GPU whose pictures the second GPU decodes ([`decode_only_plan`]):
+    /// the sources it hands off scaled, and at what scale.
+    pub decode_only: Option<Vec<(ItemId, f32)>>,
 }
 
 /// What [`start`] needs of the exporter.
@@ -62,6 +65,8 @@ pub(crate) struct DualInputs<'a> {
     pub f0: i64,
     pub f1: i64,
     pub two_pass: bool,
+    /// How the export renders (what its frames ask of their sources).
+    pub opts: filmcraft_render::RenderOptions,
 }
 
 /// Start two lanes for this export when [`ExportSettings::export_engines`] and the machine allow
@@ -71,6 +76,12 @@ pub(crate) fn start(i: &DualInputs<'_>, sources: &dyn SourceProvider) -> std::re
     if s.export_engines == ExportEngines::Single {
         return Err("Export engines: one GPU".into());
     }
+    // Auto with an effect stage: one GPU renders, but the second may still decode for it
+    let scales = match auto_keeps_one_gpu(s.export_engines, i.project, i.seq) {
+        Some(why) => Some(decode_only_plan(i).ok_or(why)?),
+        None => None,
+    };
+    let decode_only = scales.is_some();
     if s.video_format() != Format::Hevc || s.hevc_encoder == HevcEncoder::X265 {
         return Err("two GPUs encode HEVC through VA-API only".into());
     }
@@ -93,11 +104,11 @@ pub(crate) fn start(i: &DualInputs<'_>, sources: &dyn SourceProvider) -> std::re
     let keyint = i64::from(s.keyframe_distance.unwrap_or(0).max(1));
     let nominal = CHUNK_SECONDS.saturating_mul(i.rate.num) / i.rate.den.max(1);
     let (cuts, transitions) = cut_points(i.project, i.seq, i.rate);
-    let chunks = chunker::plan(i.f0, i.f1, keyint, nominal, 2, &cuts, &transitions);
-    if chunks.len() < 2 {
+    let nodes = if decode_only { vec![None] } else { vec![None, Some(second.clone())] };
+    let chunks = chunker::plan(i.f0, i.f1, keyint, nominal, nodes.len(), &cuts, &transitions);
+    if chunks.len() < nodes.len() {
         return Err("one chunk: nothing to share".into());
     }
-    let nodes = vec![None, Some(second)];
     let encs = devices.encoders(i.w, i.h, i.rate, s, &nodes).ok_or("the GPUs can't encode this export")?;
     let in_band = !encs.shared_stream() || {
         // FFI review (S7): one hvc1 entry only when every lane's encoder writes the very same one
@@ -116,8 +127,18 @@ pub(crate) fn start(i: &DualInputs<'_>, sources: &dyn SourceProvider) -> std::re
     let total = rayon::current_num_threads();
     let mut specs = Vec::with_capacity(nodes.len());
     for (lane, node) in nodes.iter().enumerate() {
-        let src = sources.lane_copy().ok_or("the sources can't be opened twice")?;
-        let threads = if lane == 0 { total.saturating_sub(4).max(2) } else { 4 };
+        let src = match &scales {
+            Some(sc) => sources.lane_copy_scaled(sc),
+            None => sources.lane_copy(),
+        }
+        .ok_or("the sources can't be opened twice")?;
+        let threads = if decode_only {
+            total
+        } else if lane == 0 {
+            total.saturating_sub(4).max(2)
+        } else {
+            4
+        };
         let budget = if lane == 0 { IN_FLIGHT_BUDGET } else { IN_FLIGHT_BUDGET / 2 };
         let ctx = LaneCtx {
             devices,
@@ -132,6 +153,7 @@ pub(crate) fn start(i: &DualInputs<'_>, sources: &dyn SourceProvider) -> std::re
             seq: i.seq,
             hdr_out: i.hdr_out,
             sources: src,
+            decode_on: decode_only.then(|| second.clone()),
         };
         specs.push(LaneSpec {
             name: devices.name(node.as_deref()),
@@ -141,12 +163,56 @@ pub(crate) fn start(i: &DualInputs<'_>, sources: &dyn SourceProvider) -> std::re
         });
     }
     let coord = Coordinator::start(chunks, specs, &chunk_dir(&s.path), needs_422, !in_band, WATCHDOG).map_err(|e| e.to_string())?;
-    Ok(Dual { coord, in_band })
+    Ok(Dual { coord, in_band, decode_only: scales })
+}
+
+/// Fork U0.2.3b d (owner question Q20): an export Auto keeps on the primary GPU can still have
+/// the second GPU's media engine decode for it, handing each picture over already scaled to the
+/// size it is drawn at (Intel decodes, AMD renders and encodes: 4K graded from 6.2K 24.7 → 37–40
+/// fps). Only when some source is drawn smaller than its size ([`handoff_scales`] not empty), and
+/// not with `FILMCRAFT_HANDOFF_SCALE=1` (or more), which keeps exports as before. Returns the
+/// scales for the lane's sources.
+///
+/// [`handoff_scales`]: filmcraft_render::handoff::handoff_scales
+fn decode_only_plan(i: &DualInputs<'_>) -> Option<Vec<(ItemId, f32)>> {
+    let off = std::env::var("FILMCRAFT_HANDOFF_SCALE").ok().and_then(|v| v.trim().parse::<f32>().ok()).is_some_and(|v| v >= 1.0);
+    let scales = filmcraft_render::handoff::handoff_scales(i.project, i.seq, i.opts);
+    (!off && !scales.is_empty()).then_some(scales)
 }
 
 /// The spill directory of an export to `path`: next to it (same filesystem, DESIGN-6E3 Q5), with
 /// a name of this run's own (process id and a counter), so it is never a directory the user owns
 /// nor one a lane abandoned by an earlier run still writes into. Removed on every exit path.
+/// Why Export engines = Auto keeps an export on the primary GPU although a second one could join
+/// (owner, FORK-PLAN §1a.63): the second GPU joins only where it measurably helps at full
+/// precision, which today means frames without an effect stage (ungraded 4K 24.6 → 34–38 fps,
+/// 6.2K 19.4 → 24–26; graded, the Intel UHD 750 renders 2–4 fps against 15–19 on the RX 6700 XT
+/// and only costs a chunk before the slow-lane rule retires it). Dual forces both.
+/// (The 4:2:2 master's own reason for the Intel GPU is its encoder, chosen elsewhere.)
+fn auto_keeps_one_gpu(engines: ExportEngines, project: &Project, seq: ItemId) -> Option<&'static str> {
+    (engines == ExportEngines::Auto && uses_effect_stage(project, seq, 0))
+        .then_some("Export engines Auto: effects or a grade render on the primary GPU alone (the second GPU is slower than it helps); All GPUs forces both")
+}
+
+/// Whether any video clip of `seq` (or of a sequence nested in it, at most 8 deep) has an effect
+/// stage on the GPU: standard effects, a grade, temporal noise reduction, opacity masks, or an
+/// input colour transform from its interpretation. Conservative (disabled effects count): a wrong
+/// "yes" only keeps an export on one GPU.
+fn uses_effect_stage(project: &Project, seq: ItemId, depth: u8) -> bool {
+    let Some(q) = project.sequence(seq).filter(|_| depth < 8) else { return false };
+    q.video_tracks.iter().flat_map(|t| &t.items).any(|it| {
+        it.has_standard_effects()
+            || it.has_opacity_masks()
+            || it.grade.as_ref().is_some_and(|g| !g.bypass && !g.nodes.is_empty())
+            || it.temporal_nr.is_some()
+            || match project.item(it.item).map(|p| &p.kind) {
+                Some(ItemKind::Media(m)) => m.interpret.color_space.is_some(),
+                Some(ItemKind::Sequence(_)) => uses_effect_stage(project, it.item, depth.saturating_add(1)),
+                _ => false,
+            }
+    })
+}
+
 pub(crate) fn chunk_dir(path: &str) -> PathBuf {
     static RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let run = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -203,19 +269,25 @@ struct LaneCtx {
     seq: ItemId,
     hdr_out: bool,
     sources: Arc<dyn SourceProvider + Send + Sync>,
+    /// The second GPU decodes for this lane ([`decode_only_plan`]).
+    decode_on: Option<String>,
 }
 
 impl LaneCtx {
     /// On the lane thread: bind its decoders, build its pool and pipeline.
     fn build(self) -> std::result::Result<Box<dyn LaneWork>, String> {
         let devices = self.devices;
-        devices.bind_thread(self.node.as_deref());
-        let (lane, node) = (self.lane, self.node.clone());
+        let (lane, node, decode_on) = (self.lane, self.node.clone(), self.decode_on.clone());
+        let bind = move || match &decode_on {
+            Some(n) => devices.bind_thread_handoff(n),
+            None => devices.bind_thread(node.as_deref()),
+        };
+        bind();
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.threads.max(1))
             .thread_name(move |k| format!("export-lane{lane}-{k}"))
             // every worker makes decoders (frames decode lazily where they are drawn)
-            .start_handler(move |_| devices.bind_thread(node.as_deref()))
+            .start_handler(move |_| bind())
             .build()
             .map_err(|e| format!("thread pool: {e}"))?;
         let gpu: Option<Arc<dyn GpuFrames>> = match &self.node {
@@ -315,6 +387,87 @@ fn encode_into(enc: &mut dyn VideoEncoder, w: &mut SpillWriter, pipe: &Pipeline,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// U0.2.3b d (Q20): under Auto, an export kept on one GPU has the second decode for it only
+    /// when a source is drawn smaller than its size, never under Maximum Render Quality.
+    #[test]
+    fn the_second_gpu_decodes_only_for_sources_drawn_smaller() {
+        let (p, seq, _) = crate::tests::project();
+        let settings = ExportSettings::default();
+        fn inputs<'a>(settings: &'a ExportSettings, project: &'a Arc<Project>, seq: ItemId, opts: filmcraft_render::RenderOptions) -> DualInputs<'a> {
+            DualInputs { settings, project, seq, hdr_out: false, w: 64, h: 64, rate: FrameRate::FPS_24, f0: 0, f1: 10, two_pass: false, opts }
+        }
+        let opts = filmcraft_render::RenderOptions::default();
+        assert!(decode_only_plan(&inputs(&settings, &p, seq, opts)).is_none(), "drawn at full size");
+        let mut half = Arc::unwrap_or_clone(p);
+        let clip = half.sequence_mut(seq).and_then(|q| q.video_tracks.get_mut(0)).and_then(|t| t.items.get_mut(0)).expect("clip");
+        let scale = clip.effect_mut("motion").and_then(|m| m.params.get_mut("scale")).expect("Motion scale");
+        scale.value = filmcraft_project::ParamValue::Float(50.0);
+        let half = Arc::new(half);
+        let plan = decode_only_plan(&inputs(&settings, &half, seq, opts)).expect("drawn at half size");
+        assert_eq!(plan.len(), 1);
+        assert!((plan[0].1 - 0.5).abs() < 1e-3, "{plan:?}");
+        let hq = filmcraft_render::RenderOptions { high_quality: true, ..opts };
+        assert!(decode_only_plan(&inputs(&settings, &half, seq, hq)).is_none(), "Maximum Render Quality");
+    }
+
+    /// FORK-PLAN §1a.63: Auto adds the second GPU only to effect-free exports; Dual always may.
+    #[test]
+    fn auto_keeps_graded_and_effect_exports_on_one_gpu() {
+        let (p, seq, _) = crate::tests::project();
+        let base = Arc::unwrap_or_clone(p);
+        let with = |f: &dyn Fn(&mut Project)| {
+            let mut p = base.clone();
+            f(&mut p);
+            p
+        };
+        fn first(p: &mut Project, seq: ItemId) -> &mut filmcraft_project::TrackItem {
+            p.sequence_mut(seq).and_then(|q| q.video_tracks.get_mut(0)).and_then(|t| t.items.get_mut(0)).expect("clip")
+        }
+        // ungraded: both GPUs under Auto
+        assert_eq!(auto_keeps_one_gpu(ExportEngines::Auto, &base, seq), None);
+        let cases: Vec<(&str, Project)> = vec![
+            ("effect", with(&|p| first(p, seq).effects.push(filmcraft_project::find_effect("gaussian_blur").expect("blur").instance()))),
+            (
+                "grade",
+                with(&|p| {
+                    first(p, seq).grade = Some(filmcraft_project::grade::Grade { nodes: vec![filmcraft_project::grade::GradeNode::new(1)], bypass: false })
+                }),
+            ),
+            ("tnr", with(&|p| first(p, seq).temporal_nr = Some(Default::default()))),
+            (
+                "input transform",
+                with(&|p| {
+                    let id = first(p, seq).item;
+                    if let Some(ItemKind::Media(m)) = p.item_mut(id).map(|i| &mut i.kind) {
+                        m.interpret.color_space = Some(filmcraft_color::ColorSpace::FLog2FGamut);
+                    }
+                }),
+            ),
+        ];
+        for (name, p) in &cases {
+            assert!(auto_keeps_one_gpu(ExportEngines::Auto, p, seq).is_some(), "{name}: Auto must stay on one GPU");
+            assert_eq!(auto_keeps_one_gpu(ExportEngines::Dual, p, seq), None, "{name}: Dual forces both");
+        }
+        // a bypassed or empty grade changes nothing
+        let bypassed =
+            with(&|p| first(p, seq).grade = Some(filmcraft_project::grade::Grade { nodes: vec![filmcraft_project::grade::GradeNode::new(1)], bypass: true }));
+        assert_eq!(auto_keeps_one_gpu(ExportEngines::Auto, &bypassed, seq), None);
+        // nested: an effect inside a nested sequence counts; a self-nesting loop ends
+        let mut nested = cases[0].1.clone();
+        let outer = nested.new_sequence("outer", Default::default(), 1, 0, None);
+        let r = filmcraft_time::FrameRate::FPS_24;
+        let it = nested.make_track_item(
+            seq,
+            filmcraft_project::TrackKind::Video,
+            filmcraft_time::Tick::ZERO,
+            filmcraft_time::TimeRange::new(filmcraft_time::Tick::ZERO, r.tick_of(24)),
+            r,
+        );
+        nested.sequence_mut(outer).expect("outer").video_tracks[0].items.push(it.expect("nest item"));
+        assert!(auto_keeps_one_gpu(ExportEngines::Auto, &nested, outer).is_some(), "nested effect");
+        assert!(!uses_effect_stage(&base, seq, 8), "depth bound");
+    }
 
     #[test]
     fn the_chunk_directory_sits_next_to_the_output() {

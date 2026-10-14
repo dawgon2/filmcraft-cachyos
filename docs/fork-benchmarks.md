@@ -487,3 +487,213 @@ exports instead of being retired.
 **Acceptance suite after the review fixes (10:20, fefc140f, synthetic, full length, dual):** 4K
 33.9 fps, 4K graded 24.2, 6.2K **25.8**; every output HEVC Main 10, `yuv420p10le`, `hev1`, 1798
 frames, mpv exit 0, `ffmpeg -f null` without errors. One-GPU baselines as above (24.6 / 22.3 / 19.4).
+
+## U0.2.3b speed floor (FORK-PLAN §1a.58), 2026-10-13 (synthetic)
+
+`bench --section xm5 --only export --repeat 2` (60 s timelines, Export engines = Auto, both GPUs), and
+`--only multicut --quick` ×2; this PC, otherwise idle except where noted. Floor: 6.2K ≥ 24, 4K ≥ 30,
+4K graded ≥ 30 fps; 6.2K graded reported (aim ≥ 24); multicut CPU / frame back to 2.2–2.5 ms.
+
+| Case | phase-6e binary | U0.2.3 (before) | U0.2.3b fix | Floor |
+|---|---|---|---|---|
+| xm5-export-4k | 34.4 | 12.1 / 14.0 (A/B run: 7.7) | 34.2 / 37.6 | ≥ 30 ✓ |
+| xm5-export-4k graded | 22.7 | 10.8 / 13.1 (A/B: 12.5) | 21.1 / 21.4 | ≥ 30 ✗ |
+| xm5-export-6k | 25.8 (6E) | 25.5 / 25.5 | 24.4 / 24.2 * | ≥ 24 ✓ (thin) |
+| xm5-export-6k graded | – | 19.2 / 19.1 | 19.1 / 19.2 | aim 24 ✗ |
+| multicut quick (due / drops, CPU ms/frame) | 357/60 2.46, 357/22 2.24 | 334/44 3.52, 333/40 2.46 | 324/49 2.68, 325/43 2.49 | 2.2–2.5 ~ |
+
+\* A cargo build from another session overlapped the "fix" export run for ~20 min.
+
+**Cause of the U0.2.2/U0.2.3 export regression:** `ZeroCopyAccel` stopped adding surfaces at the GOP
+cache's VRAM budget, but an export also holds frames in its lanes and encoder queue, so decoding failed
+with "no free surface" and the hybrid continued on upstream's read-back decoder (`Session::get_image`,
+99 ms CPU per frame, RSS 5.6 GB; found by sampling stacks with `eu-stack`). The budget is now a soft
+bound (as the fork's own decoder had none); the bench's export rows carry `backends` (decoder names and
+the fallback reason) so a fallback shows up in the JSON. Graded exports: the Intel lane is retired as
+too slow (2–4 fps vs 15–19 on AMD), so they run on AMD alone; that is the remaining U0.2.3b work.
+
+### U0.2.3b part 2: graded exports (2026-10-13, synthetic)
+
+Binary `target/fork-bench/bench-u023b-f16`; `bench --section xm5 --only graded` (60 s timelines, Auto
+engines), one run per format via `FILMCRAFT_FX_FORMAT` (forces the effect stage's working textures on
+both GPUs); another session's test app was open (load 3–8).
+
+| Case | f32 working textures | f16 | AMD stages (render / encode / wait, s) |
+|---|---|---|---|
+| xm5-export-4k graded | 21.0 | 22.3 | f32 92 / 32 / 84, f16 77 / 26 / 79 |
+| xm5-export-6k graded | 19.1 | 19.2 | 67 / 80 / 92 (both) |
+
+Per-op GPU time on a 6.2K working image (`fx_tests::graded_export_ops_timing_6k`, ignored test, ms,
+read-back subtracted):
+
+| Op (the bench's Lumetri + Sharpen) | AMD f32 | AMD f16 | Intel UHD 750 f32 | Intel f16 |
+|---|---|---|---|---|
+| Colour chain (9 ops) | 22.6 | 13.2 | 498 | 493 |
+| HSL Secondary | 18.8 | 7.3 | 308 | 262 |
+| Unsharp (Sharpen) | 11.1 | 3.6 | 279 | 114 |
+| All | 40.9 | 19.0 | 920 | 887 |
+| One-op chain (Clamp) | – | – | 56 | 50 |
+
+`FILMCRAFT_EXPORT_GPU_PROBE=1` on a quick graded 4K export: AMD 12.0 ms (f32) / 8.7 ms (f16) of GPU work
+per frame, Intel ~490 ms either way.
+
+**Reading:** the AMD lane is not GPU-bound (≤ 12 ms of GPU work per frame at 21 fps; 6.2K graded is
+held by VCN encode, 44 ms per frame), so the graded floor needs the Intel lane. Intel's colour-chain
+interpreter (`colorops.wgsl` `run_chain`, one big `switch` per op) costs ~50 ms per op at 6.2K whatever
+the format, so Intel stays ~10× too slow for graded frames. Per the owner (FORK-PLAN §1a.64)
+export always renders f32 (`GpuCompositor::for_export`); half floats are a preview option, off by
+default because Sharpen misses the one-code bar (owner question Q18). The graded speed work continues at
+f32 (§1a.65 c, d).
+
+### U0.2.3b step c, part 1: colour chains specialised to their op codes (2026-10-13, synthetic)
+
+`colorops.wgsl`'s interpreter (one big `switch` per op, per pixel) is replaced per chain by generated
+straight-line WGSL (`colorops::specialise`: one function per distinct op code, cut from that code's
+`case`, called in order); pipelines cached per op sequence in `FxStage`; chains over 64 ops, wasm and
+`FILMCRAFT_CHAIN_SPECIALISE=0` keep the interpreter. `fx_tests::graded_export_ops_timing_6k`
+(`--release`, 6.2K working image, f32, ms, read-back subtracted; interpreter → specialised):
+
+| Op | Intel UHD 750 | RX 6700 XT |
+|---|---|---|
+| Colour chain (9 ops) | 473 → 82 | 11.3 → 7.6 |
+| HSL Secondary | 315 → 53 | 8.2 → 4.8 |
+| Unsharp (Sharpen, not a chain) | 205 → 166 (noise) | 12.3 → 8.8 (noise) |
+| All | 980 → 332 | 34.3 → 23.1 |
+| One-op chain (Clamp) | 70.5 → 3.9 | 3.3 → 3.1 |
+
+Cold compile (no Mesa shader cache) per specialised chain: 19 ops 43 ms AMD / 108 ms Intel, 64-op cap
+≈ 0.2 / 0.6 s; warm ≈ 5–12 ms. A first version that called one generic `chain_op` per op (whole switch
+inlined each time) compiled cold in 1.1 s (19 ops) to 32 s (128 ops): dropped. Output: within the CPU
+parity tolerance of the interpreter (max 8.7e-5 relative, PQ decode on Intel; test
+`specialised_chains_match_the_interpreter`, both GPUs). (The table above subtracts a ~200–350 ms
+upload + read-back and swings by ±30 ms between runs; the part 2 table times the GPU only.)
+
+### U0.2.3b step c, part 2: per-op effect pipelines, GPU-only timing (2026-10-13, synthetic)
+
+`fx_px` gets `override PX_OP` (`fx.rs` `px_pipeline`: one pipeline per op code, cached), so each plain
+effect pass compiles only its own case of `pixel`; the colour-managed output pass
+(`colorops.rs::OutputPass`) uses specialised chains too. The timing test now measures GPU time from
+submit to idle (`stage_ms`, median of 5, source draw subtracted; no upload / read-back). Load ≈ 3–5.
+
+| Op (6.2K, f32, ms) | Intel generic | Intel specialised | AMD generic | AMD specialised |
+|---|---|---|---|---|
+| Source draw | 27.2 | 27.6 | 1.8 | 1.8 |
+| Colour chain (9 ops) | 470 | 97 | 6.5 | 3.0 |
+| HSL Secondary | 298 | 71 | 6.4 | 6.4 |
+| Unsharp (3 passes) | 190 | 122 | 9.6 | 10.0 |
+| All | 960 | 286 | 23.9 | 20.8 |
+| One-op chain (Clamp) | 43.5 | 33.6 | 3.0 | 2.9 |
+
+**Reading:** Intel is now near its bandwidth floor: one f32 pass over 6.2K reads and writes ~830 MB,
+~30–40 ms on the UHD 750's shared memory, and the graded bench runs ~8 passes. ~286 ms per frame is
+~3.5 fps for an Intel lane against ~19 fps on AMD, so graded exports stay on the RX 6700 XT (§1a.63
+Auto rule). The next Intel lever is fewer passes (fusing chain + per-pixel ops, a combined Unsharp),
+not shader code; logged as a gap (owner question Q19).
+
+### U0.2.3b step d: one AMD lane, graded vs ungraded (2026-10-13, synthetic, full length)
+
+`FILMCRAFT_BENCH_ENGINES=single FILMCRAFT_EXPORT_TRACE=1 target/fork-bench/bench-u023b-d --section xm5
+--only xm5-export-4k` (load 4–5; another session's tests ran before). Trace in ms summed over threads.
+
+| Case | fps | decoded / frames | va decode sync | plan+decode | va encode |
+|---|---|---|---|---|---|
+| xm5-export-4k (single) | 23.3 | 2400 / 1798 | 70 200 | 409 233 | 51 218 |
+| xm5-export-4k graded (single) | 23.1 (22.0 in a second run) | 2201 / 1798 | 72 236 | 450 097 | 57 284 |
+
+Grading adds nothing measurable on one lane: the lane is held by serial hardware decode (the clip's
+decoder under its `GopCache` lock, waiting in `vaSyncSurface`), and ~25–33 % of pictures are decoded
+twice after evictions. Quick (5 s) runs of the same cases swung 18–29 fps: not usable for this.
+
+Two chunk lanes on the RX 6700 XT alone (diagnostic `FILMCRAFT_EXPORT_SECOND_NODE=/dev/dri/renderD129`,
+`FILMCRAFT_BENCH_ENGINES=dual`, `bench-u023b-d2`): 4K 22.3 fps (lane 2 took no chunks), 4K graded 18.5 fps
+(8.6 + 9.9). AMD's one VCN does decode (~29 ms per picture waited) and encode (~28 ms per frame): that
+engine, not the shaders, holds AMD at ~23 fps at 4K. The graded floor needs Intel's media engine for part
+of the codec work (HANDOFF 4d).
+
+### U0.2.3b step d: Intel decodes, AMD renders and encodes (2026-10-13, synthetic, full length)
+
+Which split: from the 6E.1 table above, Intel decodes 6.2K at 69.7 fps (AMD 35.4) but encodes at only
+18.2 fps (AMD 33.3), so the split worth building is **Intel decodes, AMD composites and encodes**
+(the reverse would put the slow encoder on the critical path). Built as a 4:2:0 hand-off: Intel's video
+processor copies each decoded picture into linear NV12 / P010 memory the compositor imports (the 6.1b
+4:2:2 path generalised; diagnostic `FILMCRAFT_DECODE_NODE=/dev/dri/renderD128`). Bench `bench-u023b-d3`,
+`FILMCRAFT_BENCH_ENGINES=single FILMCRAFT_EXPORT_TRACE=1 … --section xm5 --only "xm5-export-4k graded"`,
+load ~5 (another session idle). Trace in ms summed over threads.
+
+| Decode on | fps | decoded / frames | va decode sync | va hand-off copy | va encode | encoder queue full |
+|---|---|---|---|---|---|---|
+| AMD (as before) | 24.9 | 2118 / 1798 | 62 853 | – | 61 828 | 32 415 |
+| Intel → AMD | 24.7, 25.0 | 2134 / 1798 | 25 241 | 42 359 | 13 591 | 2 046 |
+
+AMD's VCN is relieved (encode 62 → 13.6 s, the encoder queue no longer fills) but the export is no
+faster: the serial decode chain now spends ~12 ms per picture waiting for Intel's decode and **~20 ms
+per picture in the hand-off copy** (sync included), ≈ the whole 72 s. In isolation the same 4K P010 copy
+takes 4.3 ms (ignored test `va_accel::tests::handoff_copy_time`, imported memory), so in the export it
+is slowed or serialised by something else (memory traffic while AMD reads the copies, the one
+video-processing context per display, waiting behind queued decode work). Next: take the copy off the
+serial chain (copy without the CPU sync, or on a second thread, so the next decode overlaps it), then
+re-measure.
+
+Follow-ups the same day (same bench and case, synthetic): the copy's time is its **sync** (26.5 s; lock
+wait 0, so not the one video-processing context; ~8 ms per picture more in submit / pool / export), and
+held copies (fresh memory each time) cost 5.4 ms alone (not allocation). In a plain decode of
+`bench_4k.hevc` on Intel (ignored test `handed_off_4k_decode_time`) a picture takes 9.7 ms *including*
+the copy (sync 2.7, copy 6.4). **Tried and reverted: handing the copy out unsynced** (the first reader
+waits, `GpuSurface::ready`): 22.7 fps; the copy left the chain (43 → 12 s) but the wait moved into the
+compositor's GPU lock (56 s) and Intel's decode slowed (sync 25 → 41 s) because decode and copy then
+overlap on the same GPU. So inside the export Intel's decode + copy run at ~30 pictures/s at 4K against
+~100 alone: the iGPU itself is slower there. Unchecked suspect: the UHD 750 shares the package power
+budget with the CPU, and the export keeps 6+ cores busy (iGPU clocks drop). The memory is host memory
+(`interop::alloc_dmabuf` never takes VRAM).
+
+**Explained (16:45):** `xm5-export-4k` is the 6.2K clip scaled to 4K, so every picture Intel decodes and
+copies is 6240×4160 P010 (78 MB, 3.1× the 4K copy timed above: ~13 ms alone), and Intel's decode of it
+takes ~12 ms. Decode + copy on one serial chain ≈ 25–34 ms per picture ≈ the ~30 pictures/s measured;
+with ~27 % pictures decoded twice that is the ~24 fps the export reaches. iGPU clock during the export:
+median 1100 of 1300 MHz (`gt_act_freq_mhz`), not a factor. So the Intel-decode split cannot beat one AMD
+lane on 6.2K sources as built; overlapping decode and copy didn't help either (they share the iGPU).
+Remaining levers: let the copy **scale** to the export size when it is smaller (VPP does scaling: 2.6× fewer
+bytes for a 4K export, and less for AMD to read), or fewer re-decodes (cut entries mid-GOP).
+
+### U0.2.3b step d (1): scaling hand-off copy, platform half (2026-10-13, synthetic)
+Ignored test `va_accel::tests::handoff_scaled_copy_time` (`--release`, run alone), 20 held copies of
+one 6240×4160 P010 surface, median: Intel UHD 750 (renderD128) 14.5 ms unscaled, 7.6 ms scaled to
+3240×2160 (the 4K fit); RX 6700 XT 1.1 / 0.4 ms. The scaling copy roughly halves Intel's hand-off cost
+per picture at 4K export; export plumbing still to do.
+
+### U0.2.3b step d (1): scaled hand-off in the export (2026-10-13, synthetic, full length)
+`FILMCRAFT_BENCH_ENGINES=single FILMCRAFT_DECODE_NODE=/dev/dri/renderD128 FILMCRAFT_HANDOFF_SCALE=0.5192308`,
+binaries `bench-u023b-d4` / `-d5`, load ~4 (other sessions idle). Outputs kept in
+`target/fork-bench/keep-d4/` (not committed).
+
+| Case | AMD decode | Intel decode, unscaled | Intel decode, scaled to 3240×2160 |
+|---|---|---|---|
+| 4K graded | 24.7, 25.5 | 24.7, 22.1 | 37.3, 39.6, 37.8, 37.1, 38.7 |
+| 4K ungraded | 26.0 | – | 41.8 |
+
+Output: unscaled hand-off = AMD decode bit for bit (PSNR inf). Scaled vs AMD: ungraded Y 42.6 / U 39.7 /
+V 36.7 dB, graded Y 32.9 / U 37.2 / V 30.1 dB; flat areas ≤ 0.3 codes apart, no sub-pixel shift, the
+difference is in fine noise (Intel's scaler averages it: cyan patch std 4.5 vs 8.4). VPP filter flag
+(fast / default / HQ) changes nothing on iHD. Owner question Q20.
+
+**Correction, same day (18:21), the built Auto plan:** the bench's graded clip has a 120 % Motion zoom,
+so `handoff_scales` gives 62 % (the diagnostic's 52 % handed over too few pixels). Plain Auto
+(`bench-u023b-d7`, one lane on AMD, Intel decoding, scaled 62 %): **30.2 / 30.6 / 30.8 fps** (13 chunks;
+64 s chunks 30.9, no gain). Trace: hand-off copy 30.3 s over ~1930 pictures (15.7 ms each incl. sync).
+PSNR vs AMD single-chip: Y 33.8 / U 39.0 / V 33.1 dB.
+
+### U0.2.3b step e: before / after, full length (2026-10-13, synthetic, idle machine)
+Before `bench-u023` (U0.2.3), after `bench-u023b-d7` (U0.2.3b a–d, plain Auto), two runs each,
+interleaved, load 0.9–5.1 (another session idle). fps:
+
+| Case | Before r1 / r2 | After r1 / r2 | Target |
+|---|---|---|---|
+| xm5-export-4k | 8.7 / 14.5 | **32.5 / 35.1** | ≥ 30 ✓ |
+| xm5-export-4k graded | 13.3 / 12.2 | **31.1 / 30.5** | ≥ 30 ✓ |
+| xm5-export-6k | 25.5 / 25.5 | **25.5 / 25.5** | ≥ 24 ✓ |
+| xm5-export-6k graded | 19.1 / 19.2 | **19.6 / 19.6** | aim ≥ 24 ✗ (not slower; Q21) |
+
+6.2K graded with Intel decoding unscaled (diagnostic `FILMCRAFT_DECODE_NODE`, single): 20.5 fps; hand-off
+copy 61.6 s over 1798 pictures (34 ms each) and encoder GPU wait 44.8 s. Not switched on.
+Output: bit-exact except the Auto decode-only plan's scaled hand-off (Q20, fine texture, 33.8 dB).
+

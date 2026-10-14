@@ -1,0 +1,10 @@
+# FORK-ONLY: DC1 (FORK-PLAN §1a.56)
+[Unit]
+Description=FilmCraft fork Dell build-and-test service (one job)
+
+[Service]
+Type=oneshot
+ExecStart=%h/filmcraft-ci/bin/dell-ci.sh
+Nice=19
+IOSchedulingClass=idle
+MemoryMax=12G

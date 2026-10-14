@@ -125,7 +125,7 @@ impl ExportRenderer {
         if device_failed() {
             return None;
         }
-        let compositor = GpuCompositor::new(&device, &queue);
+        let compositor = GpuCompositor::for_export(&device, &queue);
         Some(Self { _instance: instance, device, queue, compositor })
     }
 

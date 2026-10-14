@@ -887,7 +887,7 @@ mod tests {
 
     /// The render nodes whose driver offers `EncSliceLP` for Main 10.
     fn lp_displays() -> Vec<Arc<Display>> {
-        crate::ffmpeg::render_nodes()
+        crate::va::render_nodes()
             .iter()
             .filter_map(|n| Display::for_node(n).ok())
             .filter(|d| d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP))
@@ -1105,7 +1105,7 @@ mod tests {
     fn an_encoder_on_each_gpu() {
         assert!(Display::for_node("/dev/dri/no-such-node").is_err());
         let mut encoded = Vec::new();
-        for node in crate::ffmpeg::render_nodes() {
+        for node in crate::va::render_nodes() {
             let Ok(d) = Display::for_node(&node) else { continue };
             if !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice) {
                 continue;
@@ -1161,7 +1161,7 @@ mod tests {
             low_power: false,
         };
         let mut seen = false;
-        for d in crate::ffmpeg::render_nodes().iter().filter_map(|n| Display::for_node(n).ok()) {
+        for d in crate::va::render_nodes().iter().filter_map(|n| Display::for_node(n).ok()) {
             let amd = d.vendor.contains("Mesa") && d.vendor.contains("AMD");
             if !amd || !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice) {
                 continue;
@@ -1196,7 +1196,7 @@ mod tests {
             chroma_422: false,
             low_power: false,
         };
-        let displays: Vec<Arc<Display>> = crate::ffmpeg::render_nodes()
+        let displays: Vec<Arc<Display>> = crate::va::render_nodes()
             .iter()
             .filter_map(|n| Display::for_node(n).ok())
             .filter(|d| d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice))
@@ -1295,7 +1295,7 @@ mod tests {
         };
         let luma = |x: u32, y: u32, i: u32| 64 + ((x + y + i * 5) % 256) as u16 * 3 + ((x.wrapping_mul(31) ^ y.wrapping_mul(17)) % 32) as u16;
         let mut seen = false;
-        for node in crate::ffmpeg::render_nodes() {
+        for node in crate::va::render_nodes() {
             let Ok(d) = Display::for_node(&node) else { continue };
             if !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP) {
                 continue;
@@ -1361,7 +1361,7 @@ mod tests {
             }
             eprintln!("{node} ({}): LP low-delay B, {} bytes, worst luma PSNR {worst:.1} dB", d.vendor, stream.len());
             // asked for LP where there is none: EncSlice as before
-            if let Some(amd) = crate::ffmpeg::render_nodes().iter().filter_map(|n| Display::for_node(n).ok()).find(|d| {
+            if let Some(amd) = crate::va::render_nodes().iter().filter_map(|n| Display::for_node(n).ok()).find(|d| {
                 d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSlice) && !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP)
             }) {
                 let enc = VaHevcEncoder::new_on(params.clone(), amd.clone()).expect("encoder");
@@ -1532,7 +1532,7 @@ mod speed {
                     .collect()
             })
             .collect();
-        for node in crate::ffmpeg::render_nodes() {
+        for node in crate::va::render_nodes() {
             let Ok(d) = Display::for_node(&node) else { continue };
             if !d.supports(profile(true), sys::VAEntrypoint_VAEntrypointEncSliceLP) {
                 continue;

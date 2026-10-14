@@ -3861,6 +3861,7 @@
 	Balanced	平衡
 # Fork 6E.3: Export ▸ Export engines (one GPU or every GPU that can encode).
 	Export engines	导出引擎
+	Auto exports on the primary GPU, and adds the second GPU only to exports without effects or a grade, where it makes them faster. All GPUs always uses both; Primary GPU only always one.	“自动”使用主 GPU 导出，仅在没有效果或调色的导出中加入第二块 GPU（此时能加快导出）。“所有 GPU”始终同时使用两块；“仅主 GPU”始终只用一块。
 	Primary GPU only	仅主 GPU
 	All GPUs	所有 GPU
 	HEVC 4:2:2 10-bit master	HEVC 4:2:2 10 位母版
@@ -3924,3 +3925,17 @@
 	Camera Card Ejected	相机存储卡已弹出
 	Dismiss Camera Card	关闭相机存储卡提示
 	Card	存储卡
+	Match the desktop's text size	跟随桌面文字大小
+	Full Screen	全屏
+	Full screen (covers the desktop's panels)	全屏（覆盖桌面面板）
+	Full Screen (F11)	全屏 (F11)
+	Exit Full Screen (F11)	退出全屏 (F11)
+	Full screen: F11 or the full-screen button at the top right leaves it	全屏：按 F11 或右上角的全屏按钮退出
+	Full screen off: F11 switches it back on	已退出全屏：按 F11 重新进入
+	Menu bar	菜单栏
+	In the desktop's global menu when it has one	桌面有全局菜单时显示在全局菜单中
+	In the window	在窗口中
+	Preferences…	首选项…
+	Untitled project: File ▸ Save As keeps it	未命名项目：文件 ▸ 另存为可保留它
+	FilmCraft	FilmCraft
+	Project Manager full screen	项目管理器全屏

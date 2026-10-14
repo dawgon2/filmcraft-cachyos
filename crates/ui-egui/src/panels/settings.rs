@@ -1082,6 +1082,54 @@ mod tests {
         assert_eq!(pass(&mut app), 1.0);
     }
 
+    /// Match the desktop's text size (L1.4, Q15 b): off by default; on, UI Scale ▸ Auto is the
+    /// system's scale times the desktop's text factor, followed live; a fixed UI Scale wins;
+    /// hostile factors are held in range and never panic. Both workflows.
+    #[test]
+    fn auto_ui_scale_follows_the_desktops_text_size_when_asked() {
+        use filmcraft_engine::settings::Workflow;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        for workflow in [Workflow::Premiere, Workflow::Resolve] {
+            let ctx = egui::Context::default();
+            let mut session = filmcraft_engine::Session::default();
+            session.prefs.workflow = workflow;
+            let mut app = FilmcraftApp::new(session);
+            // f32 bits; 0 = the desktop gives no answer
+            let system = Arc::new(AtomicU32::new(1.1f32.to_bits()));
+            let read = system.clone();
+            app.hooks.system_text_scale = Some(Box::new(move |_| {
+                let v = read.load(Ordering::Relaxed);
+                (v != 0).then(|| f32::from_bits(v))
+            }));
+            let pass = |app: &mut FilmcraftApp| {
+                let mut input = egui::RawInput::default();
+                input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(1.25);
+                ctx.run_ui(input.clone(), |ui| app.apply_prefs(ui.ctx())).textures_delta.clear();
+                ctx.run_ui(input, |_| {}).textures_delta.clear();
+                ctx.zoom_factor()
+            };
+            assert_eq!(pass(&mut app), 1.0, "{workflow:?}: off by default");
+            app.session.execute("prefs.set", json!({"key": "appearance.matchDesktopTextSize", "value": true})).unwrap();
+            assert_eq!(pass(&mut app), 1.1, "{workflow:?}: an 11 pt desktop font");
+            system.store(1.5f32.to_bits(), Ordering::Relaxed);
+            assert_eq!(pass(&mut app), 1.5, "{workflow:?}: followed while running");
+            app.session.execute("prefs.set", json!({"key": "appearance.uiScale", "value": "100"})).unwrap();
+            assert_eq!(pass(&mut app), 1.0 / 1.25, "{workflow:?}: a fixed UI Scale ignores it");
+            app.session.execute("prefs.set", json!({"key": "appearance.uiScale", "value": "auto"})).unwrap();
+            assert_eq!(pass(&mut app), 1.5, "{workflow:?}");
+            for (hostile, zoom) in [(f32::NAN, 1.0), (f32::INFINITY, 1.0), (-2.0, 1.0), (0.0, 1.0), (40.0, 2.0), (0.1, 0.75)] {
+                system.store(hostile.to_bits(), Ordering::Relaxed);
+                assert_eq!(pass(&mut app), zoom, "{workflow:?}: {hostile}");
+            }
+            system.store(0, Ordering::Relaxed);
+            assert_eq!(pass(&mut app), 1.0, "{workflow:?}: no answer gives the system's scale back");
+            system.store(1.2f32.to_bits(), Ordering::Relaxed);
+            app.session.execute("prefs.set", json!({"key": "appearance.matchDesktopTextSize", "value": false})).unwrap();
+            assert_eq!(pass(&mut app), 1.0, "{workflow:?}: switched off");
+        }
+    }
+
     #[test]
     fn appearance_button_cycles_modes_without_losing_theme_choices() {
         let ctx = egui::Context::default();

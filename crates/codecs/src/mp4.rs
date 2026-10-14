@@ -50,6 +50,8 @@ pub struct Mp4Source {
     video: GopCache,
     /// The playable audio tracks in file order: `info.audio_streams[k]` describes `audios[k]`.
     audios: Vec<Mp4Audio>,
+    /// [`MediaSource::set_handoff_scale`] (f32 bits; 1.0: unscaled).
+    handoff_scale: std::sync::atomic::AtomicU32,
 }
 
 pub fn sniff(b: &[u8]) -> bool {
@@ -348,7 +350,15 @@ impl Mp4Source {
             })
             .collect();
         rebase_unedited_video(&mut file, vtrack, &mut audios);
-        Ok(Self { info, bytes, file, vtrack, video: GopCache::new(explicit_color).with_rotation(rotation).with_crop(aperture), audios })
+        Ok(Self {
+            info,
+            bytes,
+            file,
+            vtrack,
+            video: GopCache::new(explicit_color).with_rotation(rotation).with_crop(aperture),
+            audios,
+            handoff_scale: 1.0f32.to_bits().into(),
+        })
     }
 
     fn read(&self, track: usize, i: usize) -> crate::Result<Vec<u8>> {
@@ -440,13 +450,19 @@ impl VideoSamples for Mp4Video<'_> {
         self.src.read(self.track, i)
     }
     fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>> {
-        make_video_decoder(&self.src.file.tracks[self.track].entries[0])
+        let s = f32::from_bits(self.src.handoff_scale.load(std::sync::atomic::Ordering::Relaxed));
+        let make = || make_video_decoder(&self.src.file.tracks[self.track].entries[0]);
+        if s < 1.0 { crate::hw::with_handoff_scale(Some(s), make) } else { make() }
     }
 }
 
 impl MediaSource for Mp4Source {
     fn info(&self) -> &MediaInfo {
         &self.info
+    }
+    fn set_handoff_scale(&self, scale: f32) {
+        let s = if scale.is_finite() && scale > 0.0 && scale < 1.0 { scale } else { 1.0 };
+        self.handoff_scale.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
     }
 
     fn video_frame(&self, req: FrameRequest) -> Result<Arc<VideoFrame>, MediaError> {

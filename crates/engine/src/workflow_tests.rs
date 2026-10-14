@@ -204,7 +204,7 @@ fn resolve_preset_maps_editing_and_grade_commands() {
     // every id the table lists is a real command, except the frontend's and the stills / compare
     // commands that ship separately (unknown ids are skipped when the preset is built)
     for (c, _, _) in crate::shortcut_presets::RESOLVE {
-        let ui = ["playback.", "window.workspace.", "mode.", "tool.", "view."].iter().any(|p| c.starts_with(p));
+        let ui = ["playback.", "window.workspace.", "window.toggleFullScreen", "mode.", "tool.", "view."].iter().any(|p| c.starts_with(p));
         let later = ["stills.grab", "compare.set"].contains(c);
         assert!(ui || later || crate::commands::find(c).is_some(), "unknown command {c}");
     }

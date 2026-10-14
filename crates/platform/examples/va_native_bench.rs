@@ -1,5 +1,6 @@
-//! In-process VA-API HEVC decode of an MP4 / MOV video track: throughput (pictures read back to
-//! memory) and bit-exactness against FilmCraft's software decoder on the first pictures.
+//! In-process VA-API HEVC decode (upstream's front end, zero-copy, since fork U0.2.3) of an MP4 /
+//! MOV video track: throughput (pictures read back to memory) and bit-exactness against
+//! FilmCraft's software decoder on the first pictures.
 //!
 //! `cargo run --release -p filmcraft-platform --example va_native_bench -- <file> [frames] [compare]`
 
@@ -29,11 +30,11 @@ fn main() -> Result<(), String> {
         .collect::<Result<_, String>>()?;
     let info = filmcraft_codecs::hw::NalStreamInfo::from_entry(&entry).ok_or("not an avcC / hvcC stream")?.map_err(|e| e.to_string())?;
     let tn = Instant::now();
-    let mut hw = filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone())?;
+    let mut hw = filmcraft_platform::vaapi::VaDecoder::zero_copy(info.clone())?;
     println!("decoder made in {:.1} ms", tn.elapsed().as_secs_f64() * 1e3);
     for k in 0..3 {
         let t = Instant::now();
-        let mut d = filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone())?;
+        let mut d = filmcraft_platform::vaapi::VaDecoder::zero_copy(info.clone())?;
         let mut first = None;
         for (i, (s, p)) in samples.iter().enumerate().take(8) {
             let out = d.decode(s, *p).map_err(|e| e.to_string())?;

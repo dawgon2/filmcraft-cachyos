@@ -20,7 +20,7 @@ use filmcraft_codecs::VideoDecoder;
 use filmcraft_codecs::hw::NalStreamInfo;
 use filmcraft_frame::PixelData;
 use filmcraft_platform::HybridDecoder;
-use filmcraft_platform::vaapi::{NAME_H264_ZERO_COPY, VaDecoder};
+use filmcraft_platform::vaapi::{NAME_H264_ZERO_COPY, NAME_HEVC_422_ZERO_COPY, NAME_HEVC_ZERO_COPY, VaDecoder};
 
 /// The hardware decoder for a stream, or `None` (skip) when this machine has none for it.
 fn hardware(s: &Stream) -> Option<Box<dyn VideoDecoder>> {
@@ -346,9 +346,10 @@ fn declines_what_the_hardware_path_does_not_take() {
     let args = ["-f", "lavfi", "-i", src, "-c:v", "libx265", "-tag:v", "hvc1", "-x265-params", "log-level=error:keyint=12", "-pix_fmt", "yuv422p10le"];
     if let Some(path) = fixture(&ff, "va_hevc_422.mp4", &args) {
         let s = read_stream(&path);
-        // taken only where a display has HEVC Main 4:2:2 10 (fork 6.1b, tests/va_hevc_422.rs)
+        // taken only where a display has HEVC Main 4:2:2 10 (fork 6.1b, tests/va_hevc_422.rs;
+        // upstream's front end since U0.2.3)
         let taken = filmcraft_platform::vaapi_factory(&s.entry).and_then(Result::ok).map(|d| d.name().to_string());
-        let want = filmcraft_platform::hevc_422_in_hardware().then(|| filmcraft_platform::va_hevc::NAME_422.to_string());
+        let want = filmcraft_platform::hevc_422_in_hardware().then(|| NAME_HEVC_422_ZERO_COPY.to_string());
         assert_eq!(taken, want, "HEVC 4:2:2: declined without a 4:2:2 display");
     }
     // Settings ▸ Playback ▸ Hardware decoding Off
@@ -861,9 +862,10 @@ mod pipe {
         let Some(path) = fixture(&ff, "hevc_422_10.mp4", &args) else { return };
         let s = read_stream(&path);
         if filmcraft_platform::hevc_422_in_hardware() {
-            // a display with HEVC Main 4:2:2 10 (fork 6.1b, tests/va_hevc_422.rs): the in-process decoder takes it
+            // a display with HEVC Main 4:2:2 10 (fork 6.1b, tests/va_hevc_422.rs): upstream's
+            // front end on the zero-copy accelerator takes it (U0.2.3)
             let d = filmcraft_platform::vaapi_factory(&s.entry).expect("taken").expect("decoder");
-            assert_eq!(d.name(), filmcraft_platform::va_hevc::NAME_422);
+            assert_eq!(d.name(), filmcraft_platform::vaapi::NAME_HEVC_422_ZERO_COPY);
         } else {
             assert!(filmcraft_platform::vaapi_factory(&s.entry).is_none(), "4:2:2 declined");
         }
@@ -904,7 +906,9 @@ mod pipe {
 
     /// The fallback chain (ADR 0002): the in-process VA-API decoder failing mid-stream hands the
     /// stream to the ffmpeg pipe (still hardware), and when that fails too, to software; the output
-    /// is the software decoder's sequence either way.
+    /// is the software decoder's sequence either way. Since U0.2.3 the in-process decoder is
+    /// upstream's front end with zero-copy output (the factory's first for every HEVC stream):
+    /// a hybrid mid-stream failure of zero-copy HEVC.
     #[test]
     fn in_process_failure_continues_on_the_pipe_then_in_software() {
         let _engine = engine_shared();
@@ -913,14 +917,14 @@ mod pipe {
             let Some(path) = named(&ff, name) else { continue };
             let s = read_stream(&path);
             let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
-            if filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone()).is_err() || VaapiDecoder::new(info.clone()).is_err() {
+            if filmcraft_platform::vaapi::VaDecoder::zero_copy(info.clone()).is_err() || VaapiDecoder::new(info.clone()).is_err() {
                 eprintln!("SKIPPED: {name} needs both VA-API paths");
                 continue;
             }
             let reference = decode_all(software(&s).as_mut(), &s.samples);
             let k = (1..s.samples.len()).find(|&i| s.sync[i]).unwrap();
             for (fail_native, fail_pipe) in [(5u64, None), (k as u64 + 2, None), (3, Some(4u64))] {
-                let mut native = filmcraft_platform::va_hevc::NativeVaDecoder::new(info.clone()).unwrap();
+                let mut native = filmcraft_platform::vaapi::VaDecoder::zero_copy(info.clone()).unwrap();
                 native.fail_after(fail_native);
                 let pipe_info = info.clone();
                 let mut d = HybridDecoder::new(Box::new(native), s.entry.clone(), info.clone()).with_fallback(Box::new(move || {
@@ -937,7 +941,7 @@ mod pipe {
                     Some(_) => assert!(!d.is_hardware(), "{name}: ended in software ({})", d.name()),
                 }
                 let (backends, why) = filmcraft_codecs::hw::backend_stats();
-                assert!(backends.iter().any(|(b, _)| b == filmcraft_platform::va_hevc::NAME), "{backends:?}");
+                assert!(backends.iter().any(|(b, _)| b == filmcraft_platform::vaapi::NAME_HEVC_ZERO_COPY), "{backends:?}");
                 assert!(why.is_some_and(|w| w.contains("failed")), "the fallback reason is reported");
             }
         }
@@ -963,4 +967,205 @@ fn h264_zero_copy_frames_outlive_their_decoder() {
     let held = decode_all(&mut zc, &s.samples);
     drop(zc);
     assert_same(&format!("{name}, after the decoder was dropped"), &held, &reference);
+}
+
+/// Fork U0.2.2: HEVC 4:2:0 streams go to upstream's front end with zero-copy output (the
+/// factory's first decoder for them, `perf.stats` naming it), its pictures stay on the GPU and
+/// read back bit-exact with the software decoder's, a second pass with every frame held grows the
+/// surface set, and the frames outlive their decoder.
+#[test]
+fn hevc_4_2_0_takes_the_zero_copy_front_end() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let mut checked = 0;
+    for (name, s) in small_streams(&ff) {
+        let Some(Ok(info)) = NalStreamInfo::from_entry(&s.entry) else { continue };
+        if info.codec != filmcraft_codecs::hw::NalCodec::Hevc {
+            continue;
+        }
+        let name = name.as_str();
+        let mut zc = match VaDecoder::zero_copy(info.clone()) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("SKIPPED {name}: no zero-copy HEVC decoder: {e}");
+                continue;
+            }
+        };
+        assert_eq!(zc.name(), NAME_HEVC_ZERO_COPY, "{name}");
+        let factory = filmcraft_platform::vaapi_factory(&s.entry).expect("taken").expect("decoder");
+        assert_eq!(factory.name(), NAME_HEVC_ZERO_COPY, "{name}: the factory's first decoder");
+        drop(factory);
+        let reference = decode_all(software(&s).as_mut(), &s.samples);
+        let held = decode_all(&mut zc, &s.samples);
+        assert!(held.iter().all(|f| matches!(f.frame.data, PixelData::Gpu(_))), "{name}: GPU frames");
+        assert_same(name, &held, &reference);
+        let before = zc.surface_count();
+        zc.reset();
+        let again = decode_all(&mut zc, &s.samples);
+        assert!(zc.surface_count() > before, "{name}: {} surfaces while {} frames were held", zc.surface_count(), held.len());
+        assert_same(&format!("{name}, decoded again with every frame held"), &again, &reference);
+        drop(zc);
+        assert_same(&format!("{name}, after the decoder was dropped"), &held, &reference);
+        checked += 1;
+    }
+    eprintln!("{checked} HEVC streams checked zero-copy");
+}
+
+/// Fork U0.2.3: the factory routes every HEVC stream VA-API decodes in process to upstream's
+/// front end: 4:2:0 and (where a display has Main 4:2:2 10, whichever GPU is the process's
+/// device) 4:2:2, each named in `perf.stats`' backend list; the 4:2:2 decoder comes out of the
+/// same factory and matches the software decoder.
+#[test]
+fn factory_routes_4_2_0_and_4_2_2_hevc_to_the_front_end() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let Some(path) = named(&ff, "hevc_main.mp4") else { return };
+    let s = read_stream(&path);
+    let Some(d) = hardware(&s) else { return };
+    assert_eq!(d.name(), NAME_HEVC_ZERO_COPY, "4:2:0");
+    drop(d);
+    let (backends, _) = filmcraft_codecs::hw::backend_stats();
+    assert!(backends.iter().any(|(b, n)| b == NAME_HEVC_ZERO_COPY && *n > 0), "{backends:?}");
+    let src = "testsrc2=s=640x360:r=24:d=1";
+    let args = ["-f", "lavfi", "-i", src, "-c:v", "libx265", "-tag:v", "hvc1", "-x265-params", "log-level=error:keyint=12", "-pix_fmt", "yuv422p10le"];
+    let Some(path) = fixture(&ff, "va_hevc_422.mp4", &args) else { return };
+    let s = read_stream(&path);
+    if !filmcraft_platform::hevc_422_in_hardware() {
+        eprintln!("SKIPPED 4:2:2: no display with HEVC Main 4:2:2 10");
+        return;
+    }
+    let mut d = filmcraft_platform::vaapi_factory(&s.entry).expect("taken").expect("decoder");
+    assert_eq!(d.name(), NAME_HEVC_422_ZERO_COPY, "4:2:2");
+    let (backends, _) = filmcraft_codecs::hw::backend_stats();
+    assert!(backends.iter().any(|(b, n)| b == NAME_HEVC_422_ZERO_COPY && *n > 0), "{backends:?}");
+    let out = decode_all(d.as_mut(), &s.samples);
+    assert_same("4:2:2 through the factory", &out, &decode_all(software(&s).as_mut(), &s.samples));
+    assert_eq!(d.name(), NAME_HEVC_422_ZERO_COPY, "stayed in hardware");
+}
+
+/// Fork U0.2.3 (U0.2.2 review): frames outlive their decoder across threads. Several zero-copy
+/// HEVC decoders, each on its own thread, decode, are dropped, and their frames are then read
+/// back on other threads at once (the GOP cache keeps frames after a clip's decoder is closed,
+/// and frame workers read them): every frame still reads back the software decoder's picture
+/// (iHD crashed in `vaSyncSurface` when a frame's decoding context was gone).
+#[test]
+fn hevc_zero_copy_frames_outlive_their_decoders_across_threads() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let Some(path) = named(&ff, "hevc_main.mp4") else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    if let Err(e) = VaDecoder::zero_copy(info.clone()) {
+        eprintln!("SKIPPED: no zero-copy HEVC decoder: {e}");
+        return;
+    }
+    let reference = std::sync::Arc::new(decode_all(software(&s).as_mut(), &s.samples));
+    let samples = std::sync::Arc::new(s.samples.clone());
+    for round in 0..3 {
+        // decode on 3 threads, dropping each decoder on its thread before handing the frames on
+        let decoders: Vec<_> = (0..3)
+            .map(|_| {
+                let (info, samples) = (info.clone(), samples.clone());
+                std::thread::spawn(move || {
+                    let mut d = VaDecoder::zero_copy(info).expect("decoder");
+                    let frames = decode_all(&mut d, &samples);
+                    drop(d);
+                    frames
+                })
+            })
+            .collect();
+        let all: Vec<_> = decoders.into_iter().map(|t| t.join().expect("decoding thread")).collect();
+        // read every set back on 3 other threads at once
+        let readers: Vec<_> = all
+            .into_iter()
+            .enumerate()
+            .map(|(i, frames)| {
+                let reference = reference.clone();
+                std::thread::spawn(move || {
+                    assert!(frames.iter().all(|f| matches!(f.frame.data, PixelData::Gpu(_))), "GPU frames");
+                    assert_same(&format!("round {round}, decoder {i}, read on another thread after it was dropped"), &frames, &reference);
+                })
+            })
+            .collect();
+        for r in readers {
+            r.join().expect("reading thread");
+        }
+    }
+}
+
+/// Fork U0.2.3 (U0.2.2 review): a hardware run of the missing-reference path, decoding from a
+/// picture that is not a random-access point. Where the driver decodes pictures predicted from
+/// grey stand-ins (Mesa / AMD) they are concealed: the software decoder's pictures come out (their
+/// samples are the driver's: VA cannot say a reference was generated, so its collocated motion is
+/// not the software decoder's intra stand-in), and a stand-in reuses a surface still grey from an
+/// earlier one instead of writing the grey again (78 MB of CPU writes per stand-in at 6.2K
+/// 10-bit). Where it does not (Intel's iHD fails the picture: "internal decoding error") the front
+/// end refuses such a picture before the driver sees it, and the hybrid's chain takes over: the
+/// software decoder's exact output, at once (an up-front refusal skips the ffmpeg pipe, which
+/// took ~10 s here and once in three decoded differently). From a
+/// sync sample on nothing is concealed either way.
+#[test]
+fn hevc_missing_references_on_the_hardware() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let Some(path) = named(&ff, "hevc_main.mp4") else { return };
+    let s = read_stream(&path);
+    let info = NalStreamInfo::from_entry(&s.entry).unwrap().unwrap();
+    let mut zc = match VaDecoder::zero_copy(info) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("SKIPPED: no zero-copy HEVC decoder: {e}");
+            return;
+        }
+    };
+    // a P / B picture a few pictures into a GOP: its references were never decoded
+    let k = (2..s.samples.len()).find(|&i| !s.sync[i] && !s.sync[i - 1]).expect("a picture inside a GOP");
+    let reference = decode_all(software(&s).as_mut(), &s.samples[k..]);
+    let pts = |f: &[filmcraft_codecs::DecodedFrame]| f.iter().map(|f| f.pts).collect::<Vec<_>>();
+    // through the factory (the hybrid)
+    let mut h = hardware(&s).expect("the factory takes it");
+    let t0 = std::time::Instant::now();
+    let through = decode_all(h.as_mut(), &s.samples[k..]);
+    let secs = t0.elapsed().as_secs_f64();
+    assert_eq!(pts(&through), pts(&reference), "through the factory: the software decoder's pictures");
+    let run = |zc: &mut VaDecoder| -> Result<Vec<filmcraft_codecs::DecodedFrame>, String> {
+        let mut out = Vec::new();
+        for (smp, pts) in &s.samples[k..] {
+            out.extend(zc.decode(smp, *pts).map_err(|e| e.to_string())?);
+        }
+        out.extend(zc.flush());
+        Ok(out)
+    };
+    if zc.conceals_missing() {
+        let a = run(&mut zc).expect("concealed pictures decode");
+        let (fills, writes) = zc.gray_stats();
+        eprintln!("from sample {k}: {fills} stand-ins, {writes} grey writes, {} pictures", a.len());
+        assert!(fills > 0 && writes > 0, "stand-ins were made grey");
+        assert!(writes <= fills, "never more grey writes than stand-ins");
+        assert_eq!(pts(&a), pts(&reference), "the software decoder's pictures");
+        // the same run again: stand-ins land on surfaces still grey from the first run
+        zc.reset();
+        let again = run(&mut zc).expect("decoded again");
+        let (fills2, writes2) = (zc.gray_stats().0 - fills, zc.gray_stats().1 - writes);
+        eprintln!("again: {fills2} stand-ins, {writes2} grey writes");
+        assert_eq!(fills2, fills, "the same stand-ins");
+        assert!(writes2 < fills2, "stand-ins reuse grey surfaces ({writes2} writes for {fills2} stand-ins)");
+        assert_same("from a non-sync picture, decoded again", &again, &a);
+    } else {
+        // refused before the driver: the chain ends in the software decoder's exact output
+        eprintln!("from sample {k}: refused up front, through the factory in {secs:.2} s");
+        assert_same("from a non-sync picture, through the factory", &through, &reference);
+        assert!(secs < 5.0, "straight to software, not through the ffmpeg pipe ({secs:.1} s)");
+        let err = run(&mut zc).err().expect("refused");
+        assert!(err.contains("missing reference"), "{err}");
+        assert_eq!(zc.gray_stats(), (0, 0), "no stand-in made");
+    }
+    // from a sync sample: nothing concealed
+    let sync = (1..s.samples.len()).find(|&i| s.sync[i]).unwrap();
+    zc.reset();
+    let before = zc.gray_stats();
+    let mut sw = software(&s);
+    sw.reset();
+    assert_same("from a sync sample", &decode_all(&mut zc, &s.samples[sync..]), &decode_all(sw.as_mut(), &s.samples[sync..]));
+    assert_eq!(zc.gray_stats(), before, "no stand-ins from a sync sample on");
 }

@@ -757,6 +757,7 @@ impl Exporter {
             f0: self.f0,
             f1: self.f1,
             two_pass: self.first_pass || !matches!(self.settings.h264_pass, H264Pass::Single),
+            opts: self.pipe.opts,
         };
         match crate::lanes::lane::start(&inputs, sources) {
             Ok(dual) => {
@@ -764,8 +765,13 @@ impl Exporter {
                 // the lanes encode: the exporter's own encoder only held a session
                 let size = (u16::try_from(self.pipe.w).unwrap_or(u16::MAX), u16::try_from(self.pipe.h).unwrap_or(u16::MAX));
                 self.venc = Box::new(JoinedVideo { entry: None, timescale: self.venc.timescale(), media_start: None, size });
+                if let Some(scales) = &dual.decode_only {
+                    let pct: Vec<String> = scales.iter().take(8).map(|s| format!("{:.0} %", s.1 * 100.0)).collect();
+                    self.lanes_report.note = Some(format!("one GPU renders and encodes, the other decodes (hand-off at {})", pct.join(", ")));
+                }
                 if !self.settings.part_of_batch {
-                    progress.set_status(format!("Exporting {} frames ({}) on two GPUs", self.frames(), self.settings.format.label()));
+                    let how = if dual.decode_only.is_some() { "one GPU decoding for the other" } else { "two GPUs" };
+                    progress.set_status(format!("Exporting {} frames ({}) on {how}", self.frames(), self.settings.format.label()));
                 }
                 self.dual = Some(dual);
             }

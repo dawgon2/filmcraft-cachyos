@@ -6,7 +6,9 @@
 //! ping-pong between two working textures (three for Unsharp Mask, which keeps the original);
 //! the last one is drawn into the accumulator with the layer's matrix, opacity and blend mode
 //! like any RGBA layer. Working textures are `Rgba32Float` (the CPU reference's precision) and
-//! pooled per size; layers without effects never touch any of this.
+//! pooled per size; layers without effects never touch any of this. Preview may use `Rgba16Float`
+//! instead ([`fx_format_for`], fork U0.2.3b: half the bandwidth; opt-in for now, owner question 18);
+//! export always works in `Rgba32Float` (`GpuCompositor::for_export`, FORK-PLAN §1a.64).
 //!
 //! Box blurs (Gaussian Blur, Camera Blur, the blur inside Unsharp / Sharpen) run per pixel for
 //! radii up to [`BOX_PER_PIXEL_MAX`] and as a running sum per row / column above, so a huge
@@ -20,12 +22,47 @@
 //! two weights are five values, more than one storage texture holds).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, PoisonError};
 
 use filmcraft_render::gpufx::FxOp;
 use filmcraft_render::plan::LayerFx;
 
-/// Working texture format.
+/// Working texture format (full precision; [`FX_FORMAT_HALF`] on integrated GPUs).
 pub(crate) const FX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+/// Working texture format on integrated GPUs ([`fx_format_for`]).
+pub(crate) const FX_FORMAT_HALF: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Whether preview on integrated GPUs uses [`FX_FORMAT_HALF`]. Off, provisional (owner question 18):
+/// the owner's bar for half floats is under one 10-bit code value from f32 (FORK-PLAN §1a.62 /
+/// §1a.64); colour ops meet it (~0.3), Sharpen / Unsharp don't (~4, `fx_tests::half_float_preview_*`),
+/// and on the Intel UHD 750 the colour chain is ALU-bound, so half floats barely speed preview there.
+const HALF_ON_INTEGRATED: bool = false;
+
+/// The working texture format for preview on a device: [`FX_FORMAT_HALF`] on integrated GPUs when
+/// [`HALF_ON_INTEGRATED`], [`FX_FORMAT`] otherwise. `FILMCRAFT_FX_FORMAT=f16` / `f32` overrides it
+/// (A/B runs). Export never comes here (`GpuCompositor::for_export` is always f32).
+pub(crate) fn fx_format_for(device_type: wgpu::DeviceType) -> wgpu::TextureFormat {
+    fx_format_pick(device_type, std::env::var("FILMCRAFT_FX_FORMAT").ok().as_deref())
+}
+
+fn fx_format_pick(device_type: wgpu::DeviceType, forced: Option<&str>) -> wgpu::TextureFormat {
+    match forced.map(str::trim) {
+        Some("f16") => FX_FORMAT_HALF,
+        Some("f32") => FX_FORMAT,
+        _ if HALF_ON_INTEGRATED && device_type == wgpu::DeviceType::IntegratedGpu => FX_FORMAT_HALF,
+        _ => FX_FORMAT,
+    }
+}
+
+/// `src` (a WGSL source writing `rgba32float` storage textures) for working textures of `format`.
+fn wgsl_for(src: &str, format: wgpu::TextureFormat) -> String {
+    if format == FX_FORMAT_HALF { src.replace("texture_storage_2d<rgba32float, write>", "texture_storage_2d<rgba16float, write>") } else { src.to_string() }
+}
+
+/// Bytes per working-texture texel.
+fn texel_bytes(format: wgpu::TextureFormat) -> u64 {
+    if format == FX_FORMAT_HALF { 8 } else { 16 }
+}
 /// Box radii up to this many pixels are summed per output pixel; larger ones as a running sum.
 pub const BOX_PER_PIXEL_MAX: u32 = 32;
 
@@ -96,10 +133,33 @@ pub(crate) struct FxStage {
     used: HashSet<(u32, u32)>,
     /// GPU memory one layer's working textures may take ([`FX_VRAM_BUDGET`]).
     budget: u64,
+    /// Working texture format ([`fx_format_for`]).
+    format: wgpu::TextureFormat,
+    /// The chain shader's source for `format` and its pipeline layout, for chains specialised to
+    /// their op codes ([`colorops::specialise`](crate::colorops::specialise)).
+    chain_src: String,
+    pl: wgpu::PipelineLayout,
+    /// Specialised chain pipelines by entry and op codes (None: failed to build; the interpreter
+    /// runs that chain).
+    special: Mutex<HashMap<(Pipe, Vec<u32>), Option<wgpu::ComputePipeline>>>,
+    /// The effect shader and per-op `fx_px` pipelines (`PX_OP` set; None: failed to build).
+    shader: wgpu::ShaderModule,
+    px_special: Mutex<HashMap<u32, Option<wgpu::ComputePipeline>>>,
+    /// Run every pass on the generic shaders (tests compare the two).
+    interpret_only: bool,
+}
+
+/// Specialised chain pipelines kept at most (the cache is cleared when full).
+const MAX_SPECIAL_PIPELINES: usize = 48;
+
+/// Whether colour chains run as shaders specialised to their op codes (`FILMCRAFT_CHAIN_SPECIALISE=0`
+/// turns it off: the interpreter, for A/B checks).
+pub(crate) fn specialise_chains() -> bool {
+    !cfg!(target_arch = "wasm32") && std::env::var("FILMCRAFT_CHAIN_SPECIALISE").map_or(true, |v| v != "0")
 }
 
 /// Which compute pipeline a pass runs.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Pipe {
     Px,
     Run,
@@ -117,6 +177,8 @@ struct Dispatch {
     /// Group 1 (the temporal pass only).
     bg1: Option<wgpu::BindGroup>,
     groups: (u32, u32),
+    /// A chain pipeline specialised to the step's op codes, run instead of `pipe`'s.
+    special: Option<wgpu::ComputePipeline>,
 }
 
 /// One recorded piece of a job, in order.
@@ -159,6 +221,8 @@ struct Step {
     unsharp_blur: bool,
     /// A colour-operation chain's program (`colorops.rs`); the pass runs `colorops.wgsl`.
     program: Option<Vec<f32>>,
+    /// The chain's op codes (empty: not a chain, or run it on the interpreter).
+    codes: Vec<u32>,
     /// No pass: remember the current image for a masked effect's mix.
     save: bool,
     /// The mask mix: reads the saved image.
@@ -172,7 +236,7 @@ fn step(code: u32, i1: [u32; 4], p: &[f32]) -> Step {
     for (d, s) in q.iter_mut().zip(p) {
         *d = *s;
     }
-    Step { run: false, code, i1, p: q, combine: false, unsharp_blur: false, program: None, save: false, restore: false, temporal: None }
+    Step { run: false, code, i1, p: q, combine: false, unsharp_blur: false, program: None, codes: Vec::new(), save: false, restore: false, temporal: None }
 }
 
 /// Box passes along x (vertical = false) or y for the radii (radius 0 is a no-op on the CPU).
@@ -282,12 +346,13 @@ fn steps(op: &FxOp) -> Vec<Step> {
             out.push(s);
         }
         FxOp::HslSecondary { key, median_r, denoise, blur, correct } => {
-            let (Some(kp), Some(cp)) = (crate::colorops::program(key), crate::colorops::program(correct)) else {
+            let (Some((kp, kc)), Some((cp, cc))) = (crate::colorops::program_and_codes(key), crate::colorops::program_and_codes(correct)) else {
                 log::warn!("HSL Secondary chains too large for the GPU program; skipped");
                 return out;
             };
             let mut k = step(CHAIN_KEY, [kp.len() as u32, 0, 0, 0], &[]);
             k.program = Some(kp);
+            k.codes = kc;
             out.push(k);
             if *denoise > 0.0 && *median_r > 0 {
                 out.push(step(OP_MEDIAN_MASK, [*median_r, 0, 0, 0], &[*denoise]));
@@ -299,13 +364,15 @@ fn steps(op: &FxOp) -> Vec<Step> {
             }
             let mut c = step(CHAIN_MASKED, [cp.len() as u32, 0, 0, 0], &[]);
             c.program = Some(cp);
+            c.codes = cc;
             c.combine = true;
             out.push(c);
         }
-        FxOp::ColorChain(ops) => match crate::colorops::program(ops) {
-            Some(p) if !p.is_empty() => {
+        FxOp::ColorChain(ops) => match crate::colorops::program_and_codes(ops) {
+            Some((p, codes)) if !p.is_empty() => {
                 let mut s = step(0, [p.len() as u32, 0, 0, 0], &[]);
                 s.program = Some(p);
+                s.codes = codes;
                 out.push(s);
             }
             Some(_) => {}
@@ -340,9 +407,6 @@ fn steps(op: &FxOp) -> Vec<Step> {
     }
     out
 }
-
-/// Bytes per working-texture texel (`FX_FORMAT`).
-const FX_TEXEL_BYTES: u64 = 16;
 
 /// Default GPU memory the effect stage's working textures of one layer may take (bytes): above
 /// it, temporal noise reduction degrades to ±1 frame, then is skipped. 4 GiB fits ±2 at 6.2K
@@ -415,10 +479,10 @@ impl FxStage {
             && l.max_compute_workgroups_per_dimension >= 1
     }
 
-    pub(crate) fn new(device: &wgpu::Device, composite: &wgpu::ShaderModule, layer_bgl: &wgpu::BindGroupLayout) -> Self {
+    pub(crate) fn with_format(device: &wgpu::Device, composite: &wgpu::ShaderModule, layer_bgl: &wgpu::BindGroupLayout, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("filmcraft-fx"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("fx.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(wgsl_for(include_str!("fx.wgsl"), format).into()),
         });
         let tex = |binding| wgpu::BindGroupLayoutEntry {
             binding,
@@ -445,7 +509,7 @@ impl FxStage {
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
                         access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: FX_FORMAT,
+                        format,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
@@ -464,9 +528,10 @@ impl FxStage {
             ],
         });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("fx"), bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
+        let chain_src = wgsl_for(include_str!("colorops.wgsl"), format);
         let chain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("filmcraft-colorops"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("colorops.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(chain_src.as_str().into()),
         });
         let compute_in = |module: &wgpu::ShaderModule, entry: &str| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -501,7 +566,7 @@ impl FxStage {
                 module: composite,
                 entry_point: Some("fs_fx_source"),
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState { format: FX_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
             }),
             multiview_mask: None,
             cache: None,
@@ -544,7 +609,19 @@ impl FxStage {
             pool: HashMap::new(),
             budget: fx_vram_budget_default(),
             used: HashSet::new(),
+            format,
+            chain_src,
+            pl,
+            special: Mutex::new(HashMap::new()),
+            shader,
+            px_special: Mutex::new(HashMap::new()),
+            interpret_only: false,
         }
+    }
+
+    /// The working texture format.
+    pub(crate) fn format(&self) -> wgpu::TextureFormat {
+        self.format
     }
 
     /// Set the working-texture budget (bytes; see [`FX_VRAM_BUDGET`]).
@@ -563,6 +640,28 @@ impl FxStage {
         self.pool.retain(|k, _| used.contains(k));
     }
 
+    /// Run colour chains on the interpreter only (false: specialised shaders where they build).
+    #[cfg(test)]
+    pub(crate) fn set_interpret_only(&mut self, on: bool) {
+        self.interpret_only = on;
+    }
+
+    /// Specialised chain pipelines built so far, and builds that failed.
+    #[cfg(test)]
+    pub(crate) fn specialised_count(&self) -> (usize, usize) {
+        let cache = self.special.lock().unwrap_or_else(PoisonError::into_inner);
+        let built = cache.values().filter(|p| p.is_some()).count();
+        (built, cache.len() - built)
+    }
+
+    /// Per-op effect pipelines built so far, and builds that failed.
+    #[cfg(test)]
+    pub(crate) fn px_specialised_count(&self) -> (usize, usize) {
+        let cache = self.px_special.lock().unwrap_or_else(PoisonError::into_inner);
+        let built = cache.values().filter(|p| p.is_some()).count();
+        (built, cache.len() - built)
+    }
+
     /// No working textures held.
     #[cfg(test)]
     pub(crate) fn is_idle(&self) -> bool {
@@ -570,6 +669,7 @@ impl FxStage {
     }
 
     fn targets(&mut self, device: &wgpu::Device, size: (u32, u32), n: usize) -> Vec<Target> {
+        let format = self.format;
         self.used.insert(size);
         let v = self.pool.entry(size).or_default();
         while v.len() < n {
@@ -579,7 +679,7 @@ impl FxStage {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: FX_FORMAT,
+                format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::STORAGE_BINDING
@@ -613,7 +713,7 @@ impl FxStage {
             return None;
         }
         // the working textures must fit the budget: temporal ops degrade to ±1, then are skipped
-        let px_bytes = u64::from(w) * u64::from(h) * FX_TEXEL_BYTES;
+        let px_bytes = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(texel_bytes(self.format));
         let wanted = fx.ops.iter().any(|o| matches!(o, FxOp::TemporalDenoise { inputs: Some(_), .. }));
         let mut chosen = None;
         for cap in [filmcraft_render::tnr::MAX_RADIUS, 1, 0] {
@@ -747,7 +847,81 @@ impl FxStage {
         } else {
             Pipe::Px
         };
-        Dispatch { pipe, bg, bg1: None, groups }
+        let special = match pipe {
+            Pipe::Chain | Pipe::ChainKey | Pipe::ChainMasked => self.special_pipeline(device, pipe, &s.codes),
+            Pipe::Px => self.px_pipeline(device, s.code),
+            _ => None,
+        };
+        Dispatch { pipe, bg, bg1: None, groups, special }
+    }
+
+    /// The chain pipeline for `pipe` specialised to `codes`, built on first use and cached.
+    /// None: specialisation off, no codes, or the build failed (the interpreter runs the chain).
+    fn special_pipeline(&self, device: &wgpu::Device, pipe: Pipe, codes: &[u32]) -> Option<wgpu::ComputePipeline> {
+        if codes.is_empty() || codes.len() > crate::colorops::MAX_SPECIALISED_OPS || self.interpret_only || !specialise_chains() {
+            return None;
+        }
+        let key = (pipe, codes.to_vec());
+        let mut cache = self.special.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(p) = cache.get(&key) {
+            return p.clone();
+        }
+        let built = self.build_special(device, pipe, codes);
+        if cache.len() >= MAX_SPECIAL_PIPELINES {
+            cache.clear();
+        }
+        cache.insert(key, built.clone());
+        built
+    }
+
+    /// The `fx_px` pipeline built for op `code` alone, built on first use and cached. None:
+    /// specialisation off, code 0, or the build failed (the generic pipeline runs the pass).
+    fn px_pipeline(&self, device: &wgpu::Device, code: u32) -> Option<wgpu::ComputePipeline> {
+        if code == 0 || self.interpret_only || !specialise_chains() {
+            return None;
+        }
+        let mut cache = self.px_special.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(p) = cache.get(&code) {
+            return p.clone();
+        }
+        let built = self.build_px(device, code);
+        if cache.len() >= MAX_SPECIAL_PIPELINES {
+            cache.clear();
+        }
+        cache.insert(code, built.clone());
+        built
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn build_px(&self, device: &wgpu::Device, code: u32) -> Option<wgpu::ComputePipeline> {
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("fx-px-specialised"),
+            layout: Some(&self.pl),
+            module: &self.shader,
+            entry_point: Some("fx_px"),
+            compilation_options: wgpu::PipelineCompilationOptions { constants: &[("PX_OP", f64::from(code))], ..Default::default() },
+            cache: None,
+        });
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            log::warn!("effect pass {code} failed to build alone, using the generic pass: {e}");
+            return None;
+        }
+        Some(pipeline)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn build_px(&self, _device: &wgpu::Device, _code: u32) -> Option<wgpu::ComputePipeline> {
+        None
+    }
+
+    fn build_special(&self, device: &wgpu::Device, pipe: Pipe, codes: &[u32]) -> Option<wgpu::ComputePipeline> {
+        let entry = match pipe {
+            Pipe::ChainKey => "chain_key",
+            Pipe::ChainMasked => "chain_masked",
+            _ => "chain_px",
+        };
+        crate::colorops::build_specialised(device, &self.pl, &self.chain_src, codes, entry)
     }
 
     /// Draw each neighbour of `spec` into scratch, replay the passes before the temporal op on
@@ -882,14 +1056,17 @@ impl FxStage {
                 Work::Compute(_) => {
                     let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("fx"), timestamp_writes: None });
                     while let Some(Work::Compute(d)) = job.work.get(i) {
-                        pass.set_pipeline(match d.pipe {
-                            Pipe::Px => &self.px,
-                            Pipe::Run => &self.run,
-                            Pipe::Chain => &self.chain,
-                            Pipe::ChainKey => &self.chain_key,
-                            Pipe::ChainMasked => &self.chain_masked,
-                            Pipe::Mask => &self.mask,
-                            Pipe::Temporal => &self.temporal,
+                        pass.set_pipeline(match (&d.special, d.pipe) {
+                            (Some(p), _) => p,
+                            (None, pipe) => match pipe {
+                                Pipe::Px => &self.px,
+                                Pipe::Run => &self.run,
+                                Pipe::Chain => &self.chain,
+                                Pipe::ChainKey => &self.chain_key,
+                                Pipe::ChainMasked => &self.chain_masked,
+                                Pipe::Mask => &self.mask,
+                                Pipe::Temporal => &self.temporal,
+                            },
                         });
                         pass.set_bind_group(0, &d.bg, &[]);
                         if let Some(b) = &d.bg1 {
@@ -914,4 +1091,33 @@ struct RouteCx<'a> {
     specs: &'a [TemporalSpec],
     /// Textures beyond the main chain's (the temporal neighbours' and their scratch).
     spare: &'a [usize],
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    #[test]
+    fn the_preview_format_follows_the_device_rule_and_the_override() {
+        let integrated = if HALF_ON_INTEGRATED { FX_FORMAT_HALF } else { FX_FORMAT };
+        assert_eq!(fx_format_pick(wgpu::DeviceType::IntegratedGpu, None), integrated);
+        assert_eq!(fx_format_pick(wgpu::DeviceType::DiscreteGpu, None), FX_FORMAT);
+        assert_eq!(fx_format_pick(wgpu::DeviceType::Cpu, None), FX_FORMAT);
+        assert_eq!(fx_format_pick(wgpu::DeviceType::DiscreteGpu, Some(" f16 ")), FX_FORMAT_HALF);
+        assert_eq!(fx_format_pick(wgpu::DeviceType::IntegratedGpu, Some("f32")), FX_FORMAT);
+        // anything else: the device's default
+        assert_eq!(fx_format_pick(wgpu::DeviceType::IntegratedGpu, Some("bogus")), integrated);
+        assert_eq!(texel_bytes(FX_FORMAT_HALF), 8);
+        assert_eq!(texel_bytes(FX_FORMAT), 16);
+    }
+
+    #[test]
+    fn half_float_shaders_write_half_float_storage() {
+        for src in [include_str!("fx.wgsl"), include_str!("colorops.wgsl")] {
+            assert!(src.contains("texture_storage_2d<rgba32float, write>"));
+            let half = wgsl_for(src, FX_FORMAT_HALF);
+            assert!(!half.contains("rgba32float") && half.contains("texture_storage_2d<rgba16float, write>"));
+            assert_eq!(wgsl_for(src, FX_FORMAT), src);
+        }
+    }
 }

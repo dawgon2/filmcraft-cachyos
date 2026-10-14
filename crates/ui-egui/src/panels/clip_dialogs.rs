@@ -623,8 +623,13 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
             // Quit ▸ Don't Save discards the changes: closing the project also clears their recovery
             // snapshot, so the next launch doesn't offer them back
             let close = d.command != "app.quit" || app.session.is_dirty();
-            if close && let Err(e) = app.session.execute("file.closeProject", json!({"force": true})) {
-                app.ui.status = e.to_string();
+            if close {
+                match app.session.execute("file.closeProject", json!({"force": true})) {
+                    // as in Resolve: closing the project goes back to the Project Manager
+                    Ok(_) if d.command != "app.quit" => crate::panels::home::show_home(app),
+                    Ok(_) => {}
+                    Err(e) => app.ui.status = e.to_string(),
+                }
             }
             if d.command == "app.quit" {
                 app.quit_confirmed = true;

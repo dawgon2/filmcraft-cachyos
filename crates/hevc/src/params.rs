@@ -97,7 +97,7 @@ pub fn skip_hrd(r: &mut BitReader, common: bool, max_sub_layers_minus1: u32) -> 
         }
         let mut cpb_cnt = 1;
         if !low_delay {
-            cpb_cnt = r.read_ue()? + 1;
+            cpb_cnt = r.read_ue()?.saturating_add(1);
             ensure!(cpb_cnt <= 32, "cpb_cnt_minus1 out of range");
         }
         if nal {
@@ -631,7 +631,7 @@ impl Sps {
         let start = if ordering_all { 0 } else { max_sub_layers_minus1 };
         for _ in start..=max_sub_layers_minus1 {
             // the values of the highest sub-layer are used
-            dpb = r.read_ue()? + 1;
+            dpb = r.read_ue()?.saturating_add(1);
             reorder = r.read_ue()?;
             latency = r.read_ue()?;
         }
@@ -849,10 +849,10 @@ impl Pps {
         let num_extra_slice_header_bits = r.read_bits(3)?;
         let sign_data_hiding = r.read_flag()?;
         let cabac_init_present = r.read_flag()?;
-        let num_ref_idx_l0_default = r.read_ue()? + 1;
-        let num_ref_idx_l1_default = r.read_ue()? + 1;
+        let num_ref_idx_l0_default = r.read_ue()?.saturating_add(1);
+        let num_ref_idx_l1_default = r.read_ue()?.saturating_add(1);
         ensure!(num_ref_idx_l0_default <= 15 && num_ref_idx_l1_default <= 15, "num_ref_idx_default_active out of range");
-        let init_qp = 26 + r.read_se()?;
+        let init_qp = 26i32.saturating_add(r.read_se()?);
         let constrained_intra_pred = r.read_flag()?;
         let transform_skip = r.read_flag()?;
         let cu_qp_delta_enabled = r.read_flag()?;
@@ -871,8 +871,8 @@ impl Pps {
         let (mut column_widths, mut row_heights) = (Vec::new(), Vec::new());
         let mut loop_filter_across_tiles = true;
         if tiles_enabled {
-            num_tile_columns = r.read_ue()? + 1;
-            num_tile_rows = r.read_ue()? + 1;
+            num_tile_columns = r.read_ue()?.saturating_add(1);
+            num_tile_rows = r.read_ue()?.saturating_add(1);
             ensure!(num_tile_columns <= 64 && num_tile_rows <= 64, "too many tiles");
             uniform_spacing = r.read_flag()?;
             if !uniform_spacing {

@@ -10,6 +10,8 @@ pub type Entry = (&'static str, &'static str, &'static str);
 
 /// FilmCraft additions to the per-command defaults: panel-specific shortcuts.
 pub const FILMCRAFT_PANEL: &[Entry] = &[
+    // fork: full screen on F11 (Linux / Windows convention), next to the default Ctrl+`
+    ("window.toggleFullScreen", "F11", ""),
     ("project.delete", "Backspace", "Project"),
     // the forward-delete key (Delete on Windows and Linux keyboards) clears timeline clips too;
     // application-wide it is Project ▸ Clear (#243)
@@ -234,6 +236,7 @@ pub const PREMIERE: &[Entry] = &[
     ("window.maximizeFrame", "Shift+`", ""),
     ("window.maximizeFrameUnderCursor", "`", ""),
     ("window.toggleFullScreen", "Ctrl+`", ""),
+    ("window.toggleFullScreen", "F11", ""),
     ("window.openSearch", "Cmd+Shift+F", ""),
     ("panel.selectFindBox", "Shift+F", ""),
     ("playback.inToOutPreroll", "Shift+Space", ""),
@@ -453,6 +456,9 @@ pub const AVID: &[Entry] = &[
 /// macOS and Ctrl elsewhere, as in Resolve itself. Commands that do not exist (yet) are skipped
 /// when the preset is built.
 pub const RESOLVE: &[Entry] = &[
+    // fork: full screen (F11, the Linux / Windows convention, and FilmCraft's Ctrl+`)
+    ("window.toggleFullScreen", "F11", ""),
+    ("window.toggleFullScreen", "Ctrl+`", ""),
     // Edit
     ("edit.undo", "Cmd+Z", ""),
     ("edit.redo", "Cmd+Shift+Z", ""),

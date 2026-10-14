@@ -117,11 +117,29 @@ Hardware, under Encoder speed; command parameter `exportEngines` of `file.export
 
 | Choice | What happens |
 |---|---|
-| **Auto** | both chips when the export qualifies (H.265, 4:2:0, a second chip that encodes, enough free memory), otherwise one |
+| **Auto** | the main chip, plus the second one when it makes the export faster: an export without effects or a grade that qualifies (H.265, 4:2:0, a second chip that encodes, enough free memory); otherwise one |
 | **Primary GPU only** | one chip, as every earlier FilmCraft export did |
 | **All GPUs** | every chip that can encode; if the export doesn't qualify it runs on one and the export log says why |
 
-1. Leave **Auto** for most exports.
+1. Leave **Auto** for most exports. Why Auto leaves graded exports on one chip: with effects, a
+   grade, noise reduction or a colour-space interpretation (Log footage) on the clips, the Intel
+   graphics render only a few frames per second at full precision, so they would add nothing
+   (FilmCraft would try them and then drop them, which wastes a few seconds). Plain exports gain a
+   lot (4K about 34 instead of 25 frames per second). The **?** next to the choice
+   {ui:export.video.exportEngines.help} says the same. [Fork]
+   **But the second chip can still decode for the first.** When the export is smaller than the
+   footage (a 4K export of 6.2K clips), Auto lets the Intel media engine decode the clips and hand
+   each picture to the AMD card already shrunk to the size it is drawn at; the AMD card grades
+   and encodes. A 4K graded export of 6.2K footage goes from about 25 to about 31 frames per
+   second. The export log says "one GPU renders and encodes, the other decodes (hand-off at …)".
+   It only happens for clips whose size on screen doesn't change during the clip (no keyframed
+   Motion, no temporal noise reduction, not inside a nested sequence) and never with **Maximum
+   Render Quality**, which always reads every pixel. Trade-off: the result is not bit-identical
+   to a single-chip export. Edges and flat areas match, but very fine texture such as grain or
+   sensor noise comes out slightly smoother, because Intel's scaler averages it where the
+   compositor would sample it. To keep the old behaviour, pick **Primary GPU only**, turn on
+   Maximum Render Quality, or set the environment variable `FILMCRAFT_HANDOFF_SCALE=1`. Resolve
+   and Premiere don't split work this way; it is specific to this fork. [Fork]
 2. Pick **Primary GPU only** when you are playing a game or using the other chip for something
    else during the export, when memory is tight, or to compare against an earlier single-chip
    export.
@@ -138,13 +156,15 @@ so a heavily graded export (Lumetri, curves, sharpening) runs at a few frames pe
 and would hold back the AMD card. After a few seconds FilmCraft compares the two: a chip at less
 than a quarter of the other's speed is stopped, and its part goes back to the faster one; at the
 very end, when the faster chip is idle and would finish the slower one's last part sooner from
-the start, it takes it over. So **All GPUs** is never meant to be slower than one chip; graded
-4K runs at about the one-chip speed. The export log and `perf.stats` show a chip that dropped
+the start, it takes it over. So **All GPUs** (which also tries the second chip on graded exports) is never meant to be
+slower than one chip; graded 4K runs at about the one-chip speed. The export log and `perf.stats` show a chip that dropped
 out as "too slow" or "its last chunk is faster on …" (not an error). The one chip that decodes
 4:2:2 footage is kept while 4:2:2 parts are still to be exported.
 If either chip fails during the export, the other one finishes its parts; if both fail, the
 export runs again on one chip. `perf.stats` (`export.lanes`, `export.sampleEntry`,
-`export.lanesNote`) shows what each chip did, or why the export stayed on one.
+`export.lanesNote`) shows what each chip did, or why the export stayed on one. Per chip,
+`failed` says why it stopped because something went wrong; `retired` says why the slow-lane rule
+took a working chip off the export (it was holding the other one back), which is not an error.
 
 Neither Resolve nor Premiere offers to split one export across two graphics chips; Resolve's
 render queue can use several machines (remote rendering), which is a different feature.

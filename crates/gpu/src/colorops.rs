@@ -79,8 +79,15 @@ fn lut(p: &mut Vec<f32>, l: &filmcraft_color::Lut) -> Option<()> {
 
 /// The program of a chain (None: too large, or a table too long to index in `f32`).
 pub fn program(ops: &[ColorOp]) -> Option<Vec<f32>> {
+    program_and_codes(ops).map(|(p, _)| p)
+}
+
+/// The program of a chain and the code of each op in it, in order (what [`specialise`] bakes in).
+pub fn program_and_codes(ops: &[ColorOp]) -> Option<(Vec<f32>, Vec<u32>)> {
     let mut p = Vec::new();
+    let mut codes = Vec::with_capacity(ops.len());
     for op in ops {
+        let start = p.len();
         match op {
             ColorOp::Matrix { m, offset } => {
                 p.push(CO_MATRIX);
@@ -172,11 +179,125 @@ pub fn program(ops: &[ColorOp]) -> Option<Vec<f32>> {
                 p.extend(weights);
             }
         }
+        // (every op's first value is its code)
+        codes.push(*p.get(start)? as u32);
         if p.len() > MAX_PROGRAM {
             return None;
         }
     }
-    Some(p)
+    Some((p, codes))
+}
+
+/// Chains longer than this run on the interpreter (one shader per op sequence is compiled and
+/// cached; cold compiles grow with length: 19 ops ~45 ms on the RX 6700 XT / ~110 ms on the UHD
+/// 750, 128 ops 0.5 / 2.4 s).
+pub const MAX_SPECIALISED_OPS: usize = 64;
+
+/// `colorops.wgsl` with its interpreter (`run_chain`, between the `RUN_CHAIN_BEGIN` /
+/// `RUN_CHAIN_END` markers) replaced by straight-line code for a chain of these op codes: one
+/// function per distinct code, made from that code's `case` in `chain_op`, called once per op in
+/// order (fork U0.2.3b: the interpreter's switch costs Intel's iGPU ~50 ms per op at 6.2K; inlining
+/// the whole switch per op instead made cold compiles grow to seconds). Same arithmetic, same
+/// program buffer. None: no codes, too many, or a code / marker / case not found in `src`.
+pub fn specialise(src: &str, codes: &[u32]) -> Option<String> {
+    const BEGIN: &str = "// RUN_CHAIN_BEGIN";
+    const END: &str = "// RUN_CHAIN_END";
+    if codes.is_empty() || codes.len() > MAX_SPECIALISED_OPS {
+        return None;
+    }
+    let (begin, end) = (src.find(BEGIN)?, src.find(END)?);
+    if end < begin {
+        return None;
+    }
+    let (head, tail) = (src.get(..begin)?, src.get(end..)?);
+    let interp = src.get(src.find("fn chain_op(")?..begin)?;
+    let mut distinct: Vec<u32> = codes.to_vec();
+    distinct.sort_unstable();
+    distinct.dedup();
+    let mut f = String::new();
+    for code in &distinct {
+        let body = case_body(interp, code_name(src, *code)?)?;
+        f.push_str(&format!(
+            "fn chain_op_{code}(c_in: vec3<f32>, xy: vec2<f32>, pcp: ptr<function, u32>, len: u32) -> vec3<f32> {{\n    var c = c_in;\n    var pc = *pcp;\n    {{{body}}}\n    *pcp = pc;\n    return c;\n}}\n\n"
+        ));
+    }
+    f.push_str(
+        "fn run_chain(c0: vec3<f32>, xy: vec2<f32>) -> vec3<f32> {\n    var c = c0;\n    stash_reg = c0;\n    var pc: u32 = 0u;\n    let len = min(u.i1.x, arrayLength(&prog));\n",
+    );
+    for code in codes {
+        f.push_str(&format!("    c = chain_op_{code}(c, xy, &pc, len);\n"));
+    }
+    f.push_str("    return c;\n}\n");
+    Some(format!("{head}{f}{tail}"))
+}
+
+/// A pipeline running `entry` of `src` (the chain shader for some format) specialised to `codes`
+/// ([`specialise`]). None: not specialisable, or the build failed; a failure is reported here (the
+/// caller runs the interpreter), not as an uncaptured error that would end GPU rendering.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn build_specialised(device: &wgpu::Device, layout: &wgpu::PipelineLayout, src: &str, codes: &[u32], entry: &str) -> Option<wgpu::ComputePipeline> {
+    let src = specialise(src, codes)?;
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let module = device
+        .create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("filmcraft-colorops-specialised"), source: wgpu::ShaderSource::Wgsl(src.into()) });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("colorops-specialised"),
+        layout: Some(layout),
+        module: &module,
+        entry_point: Some(entry),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    if let Some(e) = pollster::block_on(scope.pop()) {
+        log::warn!("specialised colour chain ({} ops) failed to build, using the interpreter: {e}", codes.len());
+        return None;
+    }
+    Some(pipeline)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn build_specialised(
+    _device: &wgpu::Device,
+    _layout: &wgpu::PipelineLayout,
+    _src: &str,
+    _codes: &[u32],
+    _entry: &str,
+) -> Option<wgpu::ComputePipeline> {
+    None
+}
+
+/// The name of the `const CO_…: u32 = <code>u;` in `src`.
+fn code_name(src: &str, code: u32) -> Option<&str> {
+    src.lines().find_map(|l| {
+        let rest = l.trim().strip_prefix("const ")?;
+        let (name, value) = rest.split_once(": u32 = ")?;
+        (name.starts_with("CO_") && value.strip_suffix("u;")?.parse::<u32>().ok()? == code).then_some(name)
+    })
+}
+
+/// The text inside the braces of `case <name>: { … }` in `src` (braces in `//` comments ignored).
+fn case_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
+    let open = src.find(&format!("case {name}: {{"))? + "case : {".len() + name.len();
+    let mut depth = 1u32;
+    let mut comment = false;
+    let bytes = src.as_bytes();
+    let mut i = open;
+    while let Some(&b) = bytes.get(i) {
+        match b {
+            b'\n' => comment = false,
+            b'/' if !comment && bytes.get(i + 1) == Some(&b'/') => comment = true,
+            b'{' if !comment => depth += 1,
+            b'}' if !comment => {
+                depth -= 1;
+                if depth == 0 {
+                    return src.get(open..i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Format of the compositor's accumulator, which the output pass reads and writes.
@@ -188,13 +309,21 @@ const OUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub(crate) struct OutputPass {
     pipeline: wgpu::ComputePipeline,
     bgl: wgpu::BindGroupLayout,
+    /// The shader source and layout for chains specialised to their op codes, and those
+    /// pipelines by op codes (None: failed to build; the interpreter runs that chain).
+    src: String,
+    pl: wgpu::PipelineLayout,
+    special: std::sync::Mutex<std::collections::HashMap<Vec<u32>, Option<wgpu::ComputePipeline>>>,
 }
+
+/// Output-pass pipelines kept at most (one per colour-management setup in use; cleared when full).
+const MAX_OUTPUT_PIPELINES: usize = 8;
 
 impl OutputPass {
     pub(crate) fn new(device: &wgpu::Device) -> Self {
         let src = include_str!("colorops.wgsl").replace("rgba32float", "rgba16float");
-        let shader =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("filmcraft-output"), source: wgpu::ShaderSource::Wgsl(src.into()) });
+        let shader = device
+            .create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("filmcraft-output"), source: wgpu::ShaderSource::Wgsl(src.as_str().into()) });
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("output"),
             entries: &[
@@ -245,7 +374,25 @@ impl OutputPass {
             compilation_options: Default::default(),
             cache: None,
         });
-        Self { pipeline, bgl }
+        Self { pipeline, bgl, src, pl, special: Default::default() }
+    }
+
+    /// The pipeline for a chain of `codes`: specialised (built on first use, cached) unless that
+    /// is off or fails.
+    fn pipeline_for(&self, device: &wgpu::Device, codes: &[u32]) -> Option<wgpu::ComputePipeline> {
+        if codes.is_empty() || codes.len() > MAX_SPECIALISED_OPS || !crate::fx::specialise_chains() {
+            return None;
+        }
+        let mut cache = self.special.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(p) = cache.get(codes) {
+            return p.clone();
+        }
+        let built = build_specialised(device, &self.pl, &self.src, codes, "chain_px");
+        if cache.len() >= MAX_OUTPUT_PIPELINES {
+            cache.clear();
+        }
+        cache.insert(codes.to_vec(), built.clone());
+        built
     }
 
     /// Record `ops` from `src` into `dst` (both `w`×`h`, the accumulator's format). None: the
@@ -260,7 +407,8 @@ impl OutputPass {
         (w, h): (u32, u32),
         ops: &[ColorOp],
     ) -> Option<()> {
-        let prog = program(ops)?;
+        let (prog, codes) = program_and_codes(ops)?;
+        let special = self.pipeline_for(device, &codes);
         let mut u = Vec::with_capacity(96);
         for v in [0u32, w, h, 0, prog.len() as u32, 0, 0, 0] {
             u.extend_from_slice(&v.to_le_bytes());
@@ -292,7 +440,7 @@ impl OutputPass {
             ],
         });
         let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("output"), timestamp_writes: None });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(special.as_ref().unwrap_or(&self.pipeline));
         pass.set_bind_group(0, &bg, &[]);
         pass.dispatch_workgroups(w.div_ceil(16), h.div_ceil(16), 1);
         Some(())
