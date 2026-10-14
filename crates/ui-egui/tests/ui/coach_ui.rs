@@ -587,6 +587,16 @@ fn walked() -> (Driver, BTreeSet<String>) {
     if d.element("settings.cancel").is_some() {
         d.click("settings.cancel");
     }
+    // Essential Sound on a Dialogue clip in the Audio workspace (audio.md: the manual voice clean-up
+    // and Clean Up Voice), then its Loudness section opened
+    d.ok("ui.set", json!({"workspace": "Audio"}));
+    let a1 = d.exec("sequence.inspect", json!({}))["audio"][0]["items"][0]["clip"].as_u64().expect("an audio clip");
+    d.exec("timeline.select", json!({"clips": [a1]}));
+    snap(&mut d, &mut seen);
+    d.exec("essentialSound.setType", json!({"type": "dialogue"}));
+    snap(&mut d, &mut seen);
+    d.click("essentialSound.section.Loudness");
+    snap(&mut d, &mut seen);
     // Lumetri Color in the Premiere-style Color workspace: Basic Correction's WB Selector and Auto
     // balance, then the Color Wheels & Match section (Comparison View, Apply Match)
     d.ok("ui.set", json!({"workspace": "Color"}));

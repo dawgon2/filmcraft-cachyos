@@ -368,3 +368,132 @@ fn node_questions_in_everyday_words_find_the_nodes_lesson() {
         assert!(a["sources"].to_string().contains("nodes.md"), "{q:?}: answered from the nodes lesson: {a}");
     }
 }
+
+// ---------- compact section headers (fork AI-PLAN AI3 0d, AI3-PREP.1) ----------
+
+#[test]
+fn headers_parse_and_refuse_what_is_wrong() {
+    let h = coach_ask::parse_header(
+        "> id: audio.cleanup-voice | does: one click sets the voice clean-up controls | ui: essentialSound.cleanupVoice, essentialSound.repair.* | cmd: audio.cleanupVoice | resolve: Voice Isolation + Dialogue Leveler | premiere: Essential Sound ▸ Dialogue | when: voice-over, interviews | see: audio.voice-isolation",
+    )
+    .unwrap();
+    assert_eq!(h.id, "audio.cleanup-voice");
+    assert_eq!(h.ui, ["essentialSound.cleanupVoice", "essentialSound.repair.*"]);
+    assert_eq!(h.cmd, ["audio.cleanupVoice"]);
+    assert_eq!(h.see, ["audio.voice-isolation"]);
+    assert_eq!(h.premiere.as_deref(), Some("Essential Sound ▸ Dialogue"));
+    assert!(h.search_text().contains("voice-over"));
+    for bad in [
+        "id: a.b | does: x",                        // not a blockquote
+        "> does: x | id: a.b",                      // id first
+        "> id: a.b",                                // does missing
+        "> id: A.B | does: x",                      // upper case id
+        "> id: a.b | does: x | does: y",            // twice
+        "> id: a.b | does: x | colour: red",        // unknown key
+        "> id: a.b | does: ",                       // empty
+        "> id: a.b | does: x | ui: grade.add node", // not an id
+        "> id: a.b | does: x | see: a.*",           // see takes ids, not prefixes
+        "> id: a.b | does x",                       // no colon
+    ] {
+        assert!(coach_ask::parse_header(bad).is_err(), "{bad:?} should be refused");
+    }
+    // hostile: huge, odd bytes, many separators
+    assert!(coach_ask::parse_header(&format!("> id: a.b | does: {}", "x".repeat(10_000))).is_err());
+    assert!(coach_ask::parse_header(&format!("> id: a.b | does: x{}", " | ".repeat(150))).is_err());
+    assert!(coach_ask::parse_header("> id: \u{0} | does: \u{202e}").is_err());
+    assert_eq!(coach_ask::page_id("color/nodes.md"), "color.nodes");
+}
+
+/// Every `{ui:…}` id the guide names (header `ui:` entries must be among them, or prefixes of one).
+fn guide_ui_ids() -> Vec<String> {
+    let mut out = Vec::new();
+    for (_, src) in GUIDE_PAGES {
+        for chunk in src.split("{ui:").skip(1) {
+            if let Some(id) =
+                chunk.split('}').next().map(str::trim).filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)))
+            {
+                out.push(id.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Every `` `command.id` `` the guide names (commands the desktop frontend registers, such as
+/// `page.deliver`, are checked when the coach answers in the app, not in a bare session).
+fn guide_command_ids() -> Vec<String> {
+    let mut out = Vec::new();
+    for (_, src) in GUIDE_PAGES {
+        // (every segment between two backticks: code fences shift the pairing, and prose never
+        // matches an id)
+        for chunk in src.split('`') {
+            if chunk.contains('.')
+                && chunk.bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+                && chunk.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.')
+            {
+                out.push(chunk.to_string());
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn section_headers_are_valid_unique_and_point_at_real_things() {
+    let s = Session::default();
+    let ui_ids = guide_ui_ids();
+    let named = guide_command_ids();
+    let mut headers = Vec::new();
+    let mut problems = Vec::new();
+    for (page, src) in GUIDE_PAGES.iter().filter(|(p, _)| *p != "README.md") {
+        for sec in coach_ask::split_page(page, src) {
+            let Some(line) = sec.header.as_deref() else {
+                problems.push(format!("{page} › {}: no compact header (`> id: … | does: …` under the heading)", sec.heading));
+                continue;
+            };
+            match coach_ask::parse_header(line) {
+                Err(e) => problems.push(format!("{page} › {}: {e}", sec.heading)),
+                Ok(h) => {
+                    if !h.id.starts_with(&format!("{}.", coach_ask::page_id(page))) {
+                        problems.push(format!("{page} › {}: id `{}` must start with `{}.`", sec.heading, h.id, coach_ask::page_id(page)));
+                    }
+                    for c in &h.cmd {
+                        let ok = match c.strip_suffix('*') {
+                            Some(prefix) => {
+                                crate::commands::command_specs().iter().any(|k| k.id.starts_with(prefix)) || named.iter().any(|n| n.starts_with(prefix))
+                            }
+                            None => s.shortcuts.is_known_command(c) || named.contains(c),
+                        };
+                        if !ok {
+                            problems.push(format!("{page} › {}: unknown command `{c}` (not an engine command, nor named in the guide)", sec.heading));
+                        }
+                    }
+                    for u in &h.ui {
+                        let ok = match u.strip_suffix('*') {
+                            Some(prefix) => ui_ids.iter().any(|i| i.starts_with(prefix)),
+                            None => ui_ids.contains(u),
+                        };
+                        if !ok {
+                            problems.push(format!("{page} › {}: ui `{u}` isn't a `{{ui:…}}` id the guide names (or a prefix of one)", sec.heading));
+                        }
+                    }
+                    headers.push((page.to_string(), sec.heading.clone(), h));
+                }
+            }
+        }
+    }
+    let ids: Vec<&str> = headers.iter().map(|(_, _, h)| h.id.as_str()).collect();
+    for (i, id) in ids.iter().enumerate() {
+        if ids[..i].contains(id) {
+            problems.push(format!("header id `{id}` is used twice"));
+        }
+    }
+    for (page, heading, h) in &headers {
+        for see in &h.see {
+            if !ids.contains(&see.as_str()) {
+                problems.push(format!("{page} › {heading}: `see: {see}` names no section"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{} header problem(s):\n{}", problems.len(), problems.join("\n"));
+}

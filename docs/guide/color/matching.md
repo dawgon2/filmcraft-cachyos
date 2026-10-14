@@ -4,12 +4,16 @@
 
 ## Why
 
+> id: color.matching.why | does: why shots of one scene must match, and the quickest route to it | resolve: gallery stills, shot match | premiere: Lumetri Color Match | when: a cut feels wrong because two shots differ | see: color.matching.stills
+
 **[Resolve-style]**
 
 A cut feels wrong when two shots of one scene differ in colour. The quickest route: save a good
 shot as a **still**, compare the next shot against it, then reuse or adjust the grade.
 
 ## Stills gallery
+
+> id: color.matching.stills | does: the Gallery holds still pictures of frames with their grades | ui: stills.grab, stills.delete | cmd: stills.grab, stills.apply, stills.label, stills.delete | resolve: Gallery stills | premiere: — (Comparison View reference) | when: keeping a reference look | see: color.matching.compare
 
 **[Resolve-style]**
 
@@ -29,6 +33,8 @@ Program frame plus the grade that made it, saved in the project.
 
 ## Compare
 
+> id: color.matching.compare | does: compares the current shot with a still by wipe or split | ui: stills.mode.*, compare.divider | cmd: compare.set | resolve: wipe / split screen | premiere: Lumetri Comparison View | when: matching by eye against a reference | see: color.matching.stills
+
 **[Resolve-style]**
 
 1. Park the playhead on the reference shot and press **Grab Still** {ui:stills.grab}.
@@ -42,6 +48,8 @@ Program frame plus the grade that made it, saved in the project.
 A still keeps its look even if the source clip is regraded later.
 
 ## Copy, paste and append grades
+
+> id: color.matching.copy-paste | does: copies a grade to other clips, replacing or appending nodes | cmd: grade.copy, grade.paste, grade.append, grade.applyFrom, edit.pasteAttributes | resolve: copy / paste grade, append node graph | premiere: Paste Attributes | when: a whole scene shares a grade | see: color.matching.same-grade
 
 **[Resolve-style]**
 
@@ -69,6 +77,8 @@ Grade checkbox yet, so from the dialog the grade always comes along.
 
 ## "Same grade?"
 
+> id: color.matching.same-grade | does: tells whether clips carry the same grade, and what differs | ui: grade.match.changes | cmd: grade.compareData | resolve: — | premiere: — | when: after copying a grade around a scene | see: color.matching.check-scene
+
 **[Fork]**
 
 ### Why
@@ -86,6 +96,8 @@ settings (node names and ids don't matter, nor do settings left at their neutral
    (`{"groups": [{"clips": [...]}]}`); pass `"clips"` to look at some only.
 
 ## Compare shots and check a scene
+
+> id: color.matching.check-scene | does: measures how two shots differ and which clip of a scene doesn't match | ui: grade.match.compare, grade.match.checkScene, grade.match.reference | cmd: grade.compareShots, grade.checkScene | resolve: — (by eye with scopes) | premiere: — | when: finding the odd clip out | see: color.matching.shot-match
 
 **[Fork]**
 
@@ -107,6 +119,8 @@ tonal ranges both shots actually contain are compared (a note says so when they 
    {ui:grade.match.checkScene} (`grade.checkScene`). The clip that stands out is named first.
 
 ## Shot Match
+
+> id: color.matching.shot-match | does: solves a new node so a shot matches a reference shot | ui: grade.match.shotMatch | cmd: grade.shotMatch | resolve: Shot Match | premiere: Lumetri Apply Match | when: a first pass of a match before fine-tuning | see: color.matching.check-scene
 
 **[Resolve-style]** **[Fork]**
 
@@ -137,6 +151,8 @@ adjustment).
 
 ## The node explainer
 
+> id: color.matching.explainer | does: measures what each node actually does to the picture and says it in words | ui: grade.match.explainGrade, grade.match.explainNode | cmd: grade.explainGrade, grade.explainNode | resolve: — | premiere: — | when: reading someone else's grade, or your own later | see: color.matching.ai
+
 **[Fork]**
 
 ### Why
@@ -159,6 +175,8 @@ Numbers are measured on the frame at the playhead (or the clip's middle frame), 
 a stop and whole percentages; anything below a just-noticeable change is called "untouched".
 
 ## AI explanations
+
+> id: color.matching.ai | does: a local model rewrites the explainer's measured sentences in plain words | ui: settings.color.ai.* | cmd: ai.explanation, ai.download, ai.select, ai.setEnabled, ai.remove, ai.models | resolve: — | premiere: — | when: you want friendlier explanations | see: color.matching.explainer
 
 **[Fork]**
 
@@ -225,6 +243,8 @@ blocks at most 20 s; still writing then, it returns the template with an `aiKey`
 `ai.explanation`; while pending, its `partial` field holds the checked sentences so far).
 
 ## If you know Resolve
+
+> id: color.matching.resolve | does: how stills, wipes and copying grades compare with Resolve | resolve: Gallery, memories, versions | when: you come from Resolve | see: color.matching.stills
 
 **[Resolve-style]**
 

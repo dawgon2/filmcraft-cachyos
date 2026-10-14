@@ -46,6 +46,11 @@ fn available() -> bool {
     cfg!(feature = "voice-isolation") && !cfg!(target_arch = "wasm32")
 }
 
+/// Whether Voice Isolation would run the model now (built in and installed), not DeNoise.
+pub(crate) fn ready() -> bool {
+    available() && checkpoint().is_some()
+}
+
 fn running(s: &Session) -> Option<u64> {
     s.jobs.iter().find(|j| j.label == JOB_LABEL && !j.progress.finished.load(Ordering::Relaxed)).map(|j| j.id)
 }

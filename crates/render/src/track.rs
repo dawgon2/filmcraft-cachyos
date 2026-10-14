@@ -424,6 +424,216 @@ pub fn track_step(a: &Prepared, b: &Prepared, region: &[Vec2], method: TrackMeth
     Some(Step { transform, features: feats.len(), tracked: src.len(), inliers })
 }
 
+// ---- perspective (four-point) tracking, fork Y3.3: a plane seen in perspective (a screen, a
+// sign) moves by a homography, not an affine map. Direct linear transform (Hartley & Zisserman,
+// "Multiple View Geometry", §4.1 with the normalisation of §4.4) solved as least squares with
+// h₃₃ = 1, inside the same RANSAC (4-point minimal samples).
+
+/// A 3×3 projective map, row-major, `m[8]` = 1 after fitting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Homography {
+    pub m: [f64; 9],
+}
+
+impl Homography {
+    pub const IDENTITY: Homography = Homography { m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] };
+
+    /// `p` mapped; None at (or numerically near) the line sent to infinity.
+    pub fn apply(&self, p: Vec2) -> Option<Vec2> {
+        let m = &self.m;
+        let w = m[6] * p.x + m[7] * p.y + m[8];
+        if !w.is_finite() || w.abs() < 1e-12 {
+            return None;
+        }
+        let q = Vec2::new((m[0] * p.x + m[1] * p.y + m[2]) / w, (m[3] * p.x + m[4] * p.y + m[5]) / w);
+        (q.x.is_finite() && q.y.is_finite()).then_some(q)
+    }
+
+    /// `self` after `first` (maps through `first`, then `self`).
+    pub fn after(&self, first: &Homography) -> Homography {
+        let (a, b) = (&self.m, &first.m);
+        let mut m = [0.0; 9];
+        for r in 0..3 {
+            for c in 0..3 {
+                m[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+            }
+        }
+        Homography { m }
+    }
+
+    fn is_finite(&self) -> bool {
+        self.m.iter().all(|v| v.is_finite())
+    }
+}
+
+/// The similarity moving `pts` to centroid 0 and mean distance √2 (H&Z §4.4), as (scale, cx, cy).
+fn normalising(pts: &[Vec2]) -> Option<(f64, f64, f64)> {
+    let n = pts.len() as f64;
+    let (cx, cy) = (pts.iter().map(|p| p.x).sum::<f64>() / n, pts.iter().map(|p| p.y).sum::<f64>() / n);
+    let d = pts.iter().map(|p| ((p.x - cx).powi(2) + (p.y - cy).powi(2)).sqrt()).sum::<f64>() / n;
+    let s = std::f64::consts::SQRT_2 / d;
+    (d > 1e-9 && s.is_finite() && cx.is_finite() && cy.is_finite()).then_some((s, cx, cy))
+}
+
+/// Solve the n×n system `a` x = `b` (row-major) by Gaussian elimination with partial pivoting.
+/// None when singular (a pivot below `1e-10` of the largest entry).
+fn solve(a: &mut [f64], b: &mut [f64], n: usize) -> Option<Vec<f64>> {
+    if a.len() != n * n || b.len() != n {
+        return None;
+    }
+    let scale = a.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    if !(scale.is_finite() && scale > 0.0) {
+        return None;
+    }
+    for col in 0..n {
+        let piv = (col..n).max_by(|&i, &j| a[i * n + col].abs().total_cmp(&a[j * n + col].abs()))?;
+        if a[piv * n + col].abs() < scale * 1e-10 {
+            return None;
+        }
+        if piv != col {
+            for k in 0..n {
+                a.swap(piv * n + k, col * n + k);
+            }
+            b.swap(piv, col);
+        }
+        for r in col + 1..n {
+            let f = a[r * n + col] / a[col * n + col];
+            for k in col..n {
+                a[r * n + k] -= f * a[col * n + k];
+            }
+            b[r] -= f * b[col];
+        }
+    }
+    let mut x = vec![0.0; n];
+    for r in (0..n).rev() {
+        let s: f64 = (r + 1..n).map(|k| a[r * n + k] * x[k]).sum();
+        x[r] = (b[r] - s) / a[r * n + r];
+    }
+    x.iter().all(|v| v.is_finite()).then_some(x)
+}
+
+/// Least-squares homography from at least 4 correspondences (normalised DLT, h₃₃ = 1). None for
+/// fewer points, mismatched lengths, non-finite input or a degenerate (e.g. collinear) set.
+pub fn fit_homography(src: &[Vec2], dst: &[Vec2]) -> Option<Homography> {
+    if src.len() < 4 || src.len() != dst.len() || src.iter().chain(dst).any(|p| !(p.x.is_finite() && p.y.is_finite())) {
+        return None;
+    }
+    let (ss, sx, sy) = normalising(src)?;
+    let (ds, dx, dy) = normalising(dst)?;
+    let mut ata = [0.0f64; 64];
+    let mut atb = [0.0f64; 8];
+    for (p, q) in src.iter().zip(dst) {
+        let (x, y) = ((p.x - sx) * ss, (p.y - sy) * ss);
+        let (u, v) = ((q.x - dx) * ds, (q.y - dy) * ds);
+        for (row, rhs) in [([x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y], u), ([0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y], v)] {
+            for i in 0..8 {
+                for j in 0..8 {
+                    ata[i * 8 + j] += row[i] * row[j];
+                }
+                atb[i] += row[i] * rhs;
+            }
+        }
+    }
+    let h = solve(&mut ata, &mut atb, 8)?;
+    let hn = Homography { m: [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1.0] };
+    // undo the normalisations: H = T_dst⁻¹ · Ĥ · T_src
+    let t_src = Homography { m: [ss, 0.0, -ss * sx, 0.0, ss, -ss * sy, 0.0, 0.0, 1.0] };
+    let t_dst_inv = Homography { m: [1.0 / ds, 0.0, dx, 0.0, 1.0 / ds, dy, 0.0, 0.0, 1.0] };
+    let mut out = t_dst_inv.after(&hn.after(&t_src));
+    let w = out.m[8];
+    if !(w.is_finite() && w.abs() > 1e-12) {
+        return None;
+    }
+    out.m.iter_mut().for_each(|v| *v /= w);
+    out.is_finite().then_some(out)
+}
+
+/// Whether three of `p` lie (nearly) on one line: such a 4-point sample can't fix a homography.
+fn has_collinear_triple(p: &[Vec2; 4]) -> bool {
+    let area = |a: Vec2, b: Vec2, c: Vec2| ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs();
+    [(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)].iter().any(|&(i, j, k)| area(p[i], p[j], p[k]) < 1.0)
+}
+
+/// RANSAC over 4-point samples + least-squares refit on the inliers. Returns (map, inlier count).
+pub fn fit_homography_robust(src: &[Vec2], dst: &[Vec2]) -> Option<(Homography, usize)> {
+    let n = src.len();
+    if n < 4 || n != dst.len() {
+        return None;
+    }
+    let inliers_of = |h: &Homography| -> Vec<usize> { (0..n).filter(|&i| h.apply(src[i]).is_some_and(|q| (q - dst[i]).length() < RANSAC_THRESHOLD)).collect() };
+    let mut rng = Rng(0x51ED_2701_AB54_93C1 ^ n as u64);
+    let mut best: Vec<usize> = Vec::new();
+    for _ in 0..RANSAC_ITERS {
+        let mut idx = [0usize; 4];
+        for k in 0..4 {
+            idx[k] = rng.below(n);
+        }
+        if (0..4).any(|i| (i + 1..4).any(|j| idx[i] == idx[j])) {
+            continue;
+        }
+        let sample = idx.map(|q| src[q]);
+        if has_collinear_triple(&sample) {
+            continue;
+        }
+        let Some(h) = fit_homography(&sample, &idx.map(|q| dst[q])) else { continue };
+        let inl = inliers_of(&h);
+        if inl.len() > best.len() {
+            best = inl;
+            if best.len() == n {
+                break;
+            }
+        }
+    }
+    if best.len() < 4 {
+        return None;
+    }
+    for _ in 0..2 {
+        let (s, d): (Vec<Vec2>, Vec<Vec2>) = best.iter().map(|&q| (src[q], dst[q])).unzip();
+        let h = fit_homography(&s, &d)?;
+        let inl = inliers_of(&h);
+        if inl.len() < best.len() {
+            break;
+        }
+        best = inl;
+    }
+    let (s, d): (Vec<Vec2>, Vec<Vec2>) = best.iter().map(|&q| (src[q], dst[q])).unzip();
+    fit_homography(&s, &d).map(|h| (h, best.len()))
+}
+
+/// One perspective tracking step's result.
+#[derive(Clone, Debug)]
+pub struct PerspectiveStep {
+    /// Maps frame A pixels to frame B pixels.
+    pub transform: Homography,
+    pub features: usize,
+    pub tracked: usize,
+    pub inliers: usize,
+}
+
+/// Track the plane inside `region` (polygon in frame pixels) from `a` to `b` as a homography.
+/// None when too little detail survives (fewer than 8 inliers: four points fit any quad exactly).
+pub fn track_step_perspective(a: &Prepared, b: &Prepared, region: &[Vec2]) -> Option<PerspectiveStep> {
+    let feats = features(a.base(), region, MAX_FEATURES, 5.0);
+    if feats.len() < 8 {
+        return None;
+    }
+    let pairs: Vec<(Vec2, Vec2)> = feats
+        .par_iter()
+        .filter_map(|&p| {
+            let q = lk(&a.levels, &b.levels, p)?;
+            let back = lk(&b.levels, &a.levels, q)?;
+            let fb = ((back[0] - p[0]).powi(2) + (back[1] - p[1]).powi(2)).sqrt();
+            (fb < FB_MAX).then(|| (Vec2::new(p[0] as f64, p[1] as f64), Vec2::new(q[0] as f64, q[1] as f64)))
+        })
+        .collect();
+    let (src, dst): (Vec<Vec2>, Vec<Vec2>) = pairs.into_iter().unzip();
+    let (transform, inliers) = fit_homography_robust(&src, &dst)?;
+    if inliers < 8 {
+        return None;
+    }
+    Some(PerspectiveStep { transform, features: feats.len(), tracked: src.len(), inliers })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,5 +733,118 @@ mod tests {
         for p in &src {
             assert!((m.apply(*p) - truth.apply(*p)).length() < 1e-6);
         }
+    }
+
+    /// A gentle perspective motion of the plane at time `t` (object coords → frame pixels).
+    fn persp(t: f64) -> Homography {
+        let a = Affine::motion(Vec2::new(160.0 + 2.5 * t, 120.0 - 1.2 * t), Vec2::new(1.0 + 0.01 * t, 1.0), 1.5 * t, Vec2::ZERO);
+        Homography { m: [a.a, a.c, a.e, a.b, a.d, a.f, 0.00012 * t, -0.00008 * t, 1.0] }
+    }
+
+    fn inverse(h: &Homography) -> Homography {
+        let m = &h.m;
+        let inv = [
+            m[4] * m[8] - m[5] * m[7],
+            m[2] * m[7] - m[1] * m[8],
+            m[1] * m[5] - m[2] * m[4],
+            m[5] * m[6] - m[3] * m[8],
+            m[0] * m[8] - m[2] * m[6],
+            m[2] * m[3] - m[0] * m[5],
+            m[3] * m[7] - m[4] * m[6],
+            m[1] * m[6] - m[0] * m[7],
+            m[0] * m[4] - m[1] * m[3],
+        ];
+        Homography { m: inv }
+    }
+
+    /// A textured square plane (side 160, centred) under `h` over a static background.
+    fn persp_frame(w: usize, hgt: usize, h: &Homography) -> Gray {
+        let inv = inverse(h);
+        let px = (0..w * hgt)
+            .into_par_iter()
+            .map(|i| {
+                let mut acc = 0.0;
+                for (ox, oy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                    let p = Vec2::new((i % w) as f64 + ox - 0.5, (i / w) as f64 + oy - 0.5);
+                    acc += match inv.apply(p) {
+                        Some(o) if o.x.abs() < 80.0 && o.y.abs() < 80.0 => texture(o.x + 200.0, o.y + 300.0),
+                        _ => 0.25 + 0.1 * texture(p.x * 0.5 + 900.0, p.y * 0.5),
+                    };
+                }
+                acc / 4.0
+            })
+            .collect();
+        Gray::new(w, hgt, px)
+    }
+
+    #[test]
+    fn homography_fit_recovers_a_known_map_and_rejects_outliers() {
+        let truth = persp(8.0);
+        let mut src = Vec::new();
+        let mut dst = Vec::new();
+        for i in 0..40 {
+            let p = Vec2::new((i * 37 % 100) as f64 - 50.0, (i * 61 % 90) as f64 - 45.0);
+            src.push(p);
+            let q = truth.apply(p).unwrap();
+            dst.push(if i % 5 == 0 { q + Vec2::new(17.0, -11.0) } else { q });
+        }
+        let exact = fit_homography(&src[1..5], &dst[1..5]).unwrap();
+        for p in &src[1..5] {
+            assert!((exact.apply(*p).unwrap() - truth.apply(*p).unwrap()).length() < 1e-6);
+        }
+        let (h, inl) = fit_homography_robust(&src, &dst).unwrap();
+        assert_eq!(inl, 32);
+        for p in &src {
+            assert!((h.apply(*p).unwrap() - truth.apply(*p).unwrap()).length() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn homography_fit_refuses_degenerate_and_hostile_input() {
+        let line: Vec<Vec2> = (0..10).map(|i| Vec2::new(i as f64, 2.0 * i as f64 + 1.0)).collect();
+        assert!(fit_homography(&line, &line).is_none(), "collinear points fix no homography");
+        assert!(fit_homography_robust(&line, &line).is_none());
+        let three = [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)];
+        assert!(fit_homography(&three, &three).is_none());
+        assert!(fit_homography_robust(&three, &three).is_none());
+        assert!(fit_homography_robust(&[], &[]).is_none());
+        let mut sq = vec![Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 10.0), Vec2::new(0.0, 10.0)];
+        assert!(fit_homography(&sq, &sq[..3]).is_none(), "mismatched lengths");
+        sq[2] = Vec2::new(f64::NAN, 3.0);
+        assert!(fit_homography(&sq, &sq).is_none());
+        let same = vec![Vec2::new(5.0, 5.0); 6];
+        assert!(fit_homography(&same, &same).is_none());
+        assert!(Homography { m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0] }.apply(Vec2::new(0.0, 4.0)).is_none());
+    }
+
+    #[test]
+    fn tracks_a_plane_in_perspective() {
+        let (w, h) = (320, 240);
+        let square = [Vec2::new(-60.0, -60.0), Vec2::new(60.0, -60.0), Vec2::new(60.0, 60.0), Vec2::new(-60.0, 60.0)];
+        let mut region: Vec<Vec2> = square.iter().filter_map(|c| persp(0.0).apply(*c)).collect();
+        let mut prev = Prepared::new(persp_frame(w, h, &persp(0.0)));
+        let corners = [Vec2::new(-70.0, -70.0), Vec2::new(70.0, -70.0), Vec2::new(70.0, 70.0), Vec2::new(-70.0, 70.0)];
+        let mut tracked: Vec<Vec2> = corners.iter().filter_map(|c| persp(0.0).apply(*c)).collect();
+        let mut worst = 0.0f64;
+        for k in 1..=10 {
+            let next = Prepared::new(persp_frame(w, h, &persp(k as f64)));
+            let st = track_step_perspective(&prev, &next, &region).expect("tracked");
+            region = region.iter().filter_map(|p| st.transform.apply(*p)).collect();
+            tracked = tracked.iter().filter_map(|p| st.transform.apply(*p)).collect();
+            assert_eq!(tracked.len(), 4);
+            for (c, t) in corners.iter().zip(&tracked) {
+                worst = worst.max((persp(k as f64).apply(*c).unwrap() - *t).length());
+            }
+            prev = next;
+        }
+        assert!(worst < 0.75, "max corner drift {worst} px");
+    }
+
+    #[test]
+    fn perspective_tracking_of_a_flat_region_is_refused() {
+        let flat = Prepared::new(Gray::new(64, 48, vec![0.5; 64 * 48]));
+        let region = [Vec2::new(5.0, 5.0), Vec2::new(60.0, 5.0), Vec2::new(60.0, 40.0), Vec2::new(5.0, 40.0)];
+        assert!(track_step_perspective(&flat, &flat, &region).is_none());
+        assert!(track_step_perspective(&flat, &flat, &[]).is_none());
     }
 }

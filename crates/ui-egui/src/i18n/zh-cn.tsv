@@ -876,7 +876,7 @@
 	Mix	混音
 	Reverb	混响
 	Stereo Width	立体声宽度
-	Remixing music to a target duration is not available yet. Trim the clip and add a crossfade instead.	将音乐重新混音至目标时长功能尚不可用。请改为修剪剪辑并添加交叉淡化。
+	To fit music to a length, select the clip and choose Clip ▸ Remix ▸ Enable Remix, then Remix Properties….	要让音乐适应目标时长，请选择该剪辑，然后选择 剪辑 ▸ 重新混音 ▸ 启用重新混音，再打开 重新混音属性…。
 	Pan	声像
 	Auto-Match	自动匹配
 	Not matched yet	尚未匹配
@@ -3965,3 +3965,33 @@
 	Audio mixing stopped after an error: playing without sound	音频混音因错误而停止：正在无声播放
 	No sound: the audio output could not start ({why})	无声音：音频输出无法启动（{why}）
 	No sound: the audio output keeps changing its sample rate (check Settings ▸ Audio Hardware)	无声音：音频输出的采样率不断变化（请检查“设置 ▸ 音频硬件”）
+	Clean Up Voice	清理人声
+	Limit True Peak	限制真峰值
+	Ceiling	上限
+	Track Corner Pin	跟踪四角定位
+	Track Surface	跟踪平面
+	Track the surface backward	向后跟踪平面
+	Track the surface backward 1 frame	向后跟踪平面 1 帧
+	Track the surface forward 1 frame	向前跟踪平面 1 帧
+	Track the surface forward	向前跟踪平面
+	Attach to Track	附加到跟踪
+	Follow the track backward	向后跟随跟踪
+	Follow the track backward 1 frame	向后跟随跟踪 1 帧
+	Follow the track forward 1 frame	向前跟随跟踪 1 帧
+	Follow the track forward	向前跟随跟踪
+	Follow: {method}	跟随：{method}
+	Blur and Track	模糊并跟踪
+	Export Look Pack…	导出风格包…
+	Import Look Pack…	导入风格包…
+	Import LUT Folder…	导入 LUT 文件夹…
+	Reload User Effects	重新加载用户效果
+	List User Effects	列出用户效果
+	Takes	录音条目
+	Take {n}	第 {n} 条
+	In use	使用中
+	Use	使用
+	Missing effect	缺失的效果
+	Needs the GPU: on the CPU these effects leave the picture unchanged	需要 GPU：在 CPU 上这些效果不会改变画面
+	No data folder for user effects in this session	本次会话没有用于用户效果的数据文件夹
+	Open Effects Folder	打开效果文件夹
+	Reload	重新加载

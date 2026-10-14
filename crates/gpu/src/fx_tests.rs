@@ -198,6 +198,32 @@ fn cases() -> Vec<(&'static str, Vec<(&'static str, ParamValue)>, bool)> {
         ("alpha_adjust", vec![("opacity", fl(60.0))], false),
         ("alpha_adjust", vec![("ignore", ParamValue::Bool(true)), ("invert", ParamValue::Bool(true))], false),
         ("alpha_adjust", vec![("invert", ParamValue::Bool(true)), ("mask_only", ParamValue::Bool(true)), ("opacity", fl(150.0))], false),
+        ("luma_key", vec![("threshold", fl(60.0)), ("cutoff", fl(20.0))], true),
+        ("luma_key", vec![("threshold", fl(10.0)), ("cutoff", fl(50.0))], true),
+        ("luma_key", vec![], true),
+        ("color_key", vec![("color", col(0.1, 0.8, 0.2)), ("tolerance", fl(60.0)), ("feather", fl(10.0))], true),
+        ("color_key", vec![("color", col(0.9, 0.2, 0.6)), ("tolerance", fl(200.0))], true),
+        ("color_key", vec![], true),
+        ("ultra_key", vec![], true),
+        ("ultra_key", vec![("output", ch(1))], true),
+        ("ultra_key", vec![("output", ch(2)), ("key_color", col(0.1, 0.2, 0.9))], true),
+        ("ultra_key", vec![("setting", ch(2))], true),
+        ("ultra_key", vec![("setting", ch(3)), ("choke", fl(40.0))], true),
+        ("ultra_key", vec![("setting", ch(3)), ("soften", fl(30.0)), ("contrast", fl(50.0)), ("mid_point", fl(40.0))], true),
+        (
+            "ultra_key",
+            vec![
+                ("setting", ch(3)),
+                ("choke", fl(20.0)),
+                ("soften", fl(10.0)),
+                ("spill", fl(100.0)),
+                ("key_color", col(0.8, 0.1, 0.1)),
+                ("cc_saturation", fl(150.0)),
+                ("cc_hue", fl(30.0)),
+                ("cc_luminance", fl(90.0)),
+            ],
+            true,
+        ),
         ("vignette", vec![], false),
         ("vignette", vec![("amount", fl(-100.0)), ("midpoint", fl(50.0)), ("roundness", fl(0.0)), ("feather", fl(50.0))], false),
         (
@@ -1404,5 +1430,54 @@ fn fused_grade_matches_the_unfused_passes() {
     for (((name, _), a), b) in grades.iter().zip(&plain).zip(&fused) {
         let (worst, flips) = compare(a, b);
         assert!(worst <= 1e-5 && flips == 0.0, "{name}: fused differs from the passes by {worst:.2e}, flips {flips}");
+    }
+}
+
+/// GPU cost of the keyers (fork Y3.1d) on a 3840×2160 green-screen-like working image (upload and
+/// read-back subtracted by timing the same image without the op), on the compositor's default
+/// working format for this adapter. `cargo test -p filmcraft-gpu --lib gpu_key_timing_4k --
+/// --ignored --nocapture`.
+#[test]
+#[ignore = "timing, run by hand"]
+fn gpu_key_timing_4k() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let (w, h) = (3840u32, 2160u32);
+    // a green backdrop with a textured subject in the middle third
+    let px: Vec<f32> = (0..w * h)
+        .flat_map(|i| {
+            let (x, y) = (i % w, i / w);
+            if x > w / 3 && x < 2 * w / 3 && y > h / 4 {
+                [(i % 251) as f32 / 251.0, (i % 241) as f32 / 300.0, (i % 239) as f32 / 239.0, 1.0]
+            } else {
+                [0.05 + (y % 7) as f32 * 0.002, 0.55 + (x % 13) as f32 * 0.003, 0.08, 1.0]
+            }
+        })
+        .collect();
+    let frame = VideoFrame::rgba_f32(w, h, px);
+    let mut time = |ops: Vec<FxOp>| {
+        let fx = LayerFx { size: (w, h), decimation: 1, ops };
+        let _ = c.effect_image(&frame, &fx);
+        let t = std::time::Instant::now();
+        for _ in 0..10 {
+            let _ = c.effect_image(&frame, &fx);
+        }
+        t.elapsed().as_secs_f64() * 1000.0 / 10.0
+    };
+    let base = time(vec![]);
+    let cases: Vec<(&str, Vec<(&str, ParamValue)>)> = vec![
+        ("ultra_key", vec![("key_color", col(0.05, 0.55, 0.08))]),
+        ("ultra_key", vec![("key_color", col(0.05, 0.55, 0.08)), ("setting", ch(3)), ("choke", fl(20.0)), ("soften", fl(20.0))]),
+        ("color_key", vec![("color", col(0.05, 0.55, 0.08)), ("tolerance", fl(60.0))]),
+        ("luma_key", vec![("threshold", fl(40.0)), ("cutoff", fl(10.0))]),
+    ];
+    for (id, params) in cases {
+        let e = effect(id, &params);
+        let ops = FxOp::eval_all(&e, &cx(Tick::ZERO, 1.0), w as usize, h as usize).unwrap_or_default();
+        let ms = time(ops);
+        eprintln!("{id} {params:?} 4K: {:.2} ms (frame with read-back {ms:.2} ms, without the op {base:.2} ms)", ms - base);
     }
 }

@@ -26,7 +26,7 @@ Design principles:
  L5  ui-egui · automation · platform
  L4  engine
  L3  render · gpu · export · golden (test-only)
- L2  edit · codecs · interchange · captions · speech · llm · tts · tts-text · voice
+ L2  edit · codecs · interchange · captions · speech · llm · tts · tts-text · voice · usershader
  L1  frame · media · project · audio-dsp · text · ml
  L0  foundation: time · geom · color · bitstream · testkit (dev-dependency only)
      codecs/containers: isobmff · matroska · mxf · cfb · mpegts · ogg · h264 · h264enc · hevc · vp9 · av1 · mpeg2v · prores · dnx · apv · aac · ac3 · opus
@@ -69,6 +69,7 @@ and `filmcraft-cli`.
 | `tts` | L2 | text to speech: `Voice` trait, voice catalogue, pause markers, built-in formant voices; Kokoro-82M natural voices on candle and their pinned package catalogue (feature `kokoro`). Same-layer edge to `tts-text` |
 | `tts-text` | L2 | text front end for narration: normalizer (numbers, money, dates, acronyms, pauses) and English pronunciation (CMUdict + letter-to-sound) to Kokoro phonemes |
 | `voice` | L2 | voice isolation (fork AUDIO-PLAN A2): DeepFilterNet3 port; so far its signal path (mixed-radix FFT, 960 / 480 STFT, ERB features, deep filter); the network on candle follows |
+| `usershader` | L2 | user shader effects (fork Y3.4, ADR 0006): a `.wgsl` effect file's `// @param` annotations, the forbidden-construct check, composition with the prelude / entry point and naga validation (no GPU) |
 | `codecs` | L2 | container + codec hub: MP4/MOV, MKV, MXF, Ogg and MPEG TS / PS / video elementary stream sources, GOP-aware seeking, decoder registry, audio decoding |
 | `interchange` | L2 | EDL, FCP7 XML, FCPXML, OTIO, AAF (on `cfb`) and OMF 2.0 import/export (no file I/O; the engine supplies rendered audio essence) ([README](../crates/interchange/README.md)) |
 | `render` | L3 | sequence evaluation, CPU compositor, video effects (`effects`, `vfx`; effects needing other frames or tracks read them through `vfx::FxEnv`), transitions, audio mix |

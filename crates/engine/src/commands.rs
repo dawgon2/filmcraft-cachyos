@@ -3039,6 +3039,9 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::render_cache::commands());
     v.extend(crate::project_manager::commands());
     v.extend(crate::masks::commands());
+    v.extend(crate::tracking::commands());
+    v.extend(crate::packs::commands());
+    v.extend(crate::user_effects::commands());
     v.extend(crate::presets::commands());
     v.extend(crate::export_tools::commands());
     v.extend(crate::transcript::commands());
@@ -3046,7 +3049,9 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::scopes::commands());
     v.extend(crate::remix::commands());
     v.extend(crate::voiceover::commands());
+    v.extend(crate::voiceover_takes::commands());
     v.extend(crate::voice_isolation::commands());
+    v.extend(crate::voice_cleanup::commands());
     v.extend(crate::narration::commands());
     v.extend(crate::keyboard::commands());
     v.extend(crate::project_panel::commands());

@@ -8,6 +8,8 @@ Color** panel; you can use either, or both.
 
 ## The idea in one minute
 
+> id: color.readme.idea | does: why F-Log2 looks flat and how a colour-managed grade turns it into a finished picture | resolve: colour-managed grading | premiere: log footage with Lumetri | when: starting to grade camera log footage | see: color.color-management.why
+
 **[Standard]** **[Fork]**
 
 Footage from the Fujifilm X-M5 in F-Log2 looks flat and grey on purpose: it keeps as much picture
@@ -30,6 +32,8 @@ clip → input transform (F-Log2/F-Gamut → working space)
 
 ## Where things are
 
+> id: color.readme.where | does: a map of the colour tools and the page that explains each | when: looking for a colour tool | see: color.readme.layout
+
 **[Fork]**
 
 | Where | What | Page |
@@ -43,6 +47,8 @@ clip → input transform (F-Log2/F-Gamut → working space)
 | Settings ▸ General ▸ Workflow | Premiere or Resolve layout and keys | [../getting-started.md](../getting-started.md) |
 
 ## The Color page layout
+
+> id: color.readme.layout | does: the Color page: gallery, viewer, clips strip, node graph and tool panels | ui: clips.*, grade.* | cmd: window.workspace.colorgrading | resolve: Color page | premiere: Color workspace | when: finding your way around the Color page | see: color.readme.first-grade
 
 **[Resolve-style]**
 
@@ -75,6 +81,8 @@ shows the graded frames.
 
 ## First grade in six steps
 
+> id: color.readme.first-grade | does: a first grade on a log clip in six steps | ui: grade.addFirst, grade.bypass | cmd: grade.addNode | resolve: first node, primaries | premiere: Lumetri Basic Correction | when: your first grade in FilmCraft | see: color.primaries.flog2-steps
+
 **[Resolve-style]**
 
 1. Open the workspace **Color Grading** and click a video clip in the **Clips** strip (or the
@@ -89,6 +97,8 @@ shows the graded frames.
 Every step is one undo step (Ctrl+Z); dragging a control counts as one step however long you drag.
 
 ## Not here yet
+
+> id: color.readme.not-yet | does: colour tools that are planned but not built yet | when: a Resolve tool you can't find | see: color.readme.where
 
 **[Fork]**
 

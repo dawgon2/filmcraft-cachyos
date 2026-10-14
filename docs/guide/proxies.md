@@ -5,6 +5,8 @@ instead of the originals; written for Phase 6.2 (automatic proxies)
 
 ## What a proxy is, and why
 
+> id: proxies.what | does: a smaller copy of a clip shown while editing so heavy footage plays smoothly | resolve: Proxy media / Optimized media | premiere: Proxies | when: 6.2K or other footage the computer can't play live | see: proxies.auto
+
 **[FilmCraft]**
 
 A **proxy** is a smaller, easier-to-decode copy of a clip. While you edit, FilmCraft can show the
@@ -18,6 +20,8 @@ the Toggle Proxies button). If you know Resolve: it is close to Resolve's proxy 
 media.
 
 ## Automatic proxies
+
+> id: proxies.auto | does: queues proxies in the background for clips that need them, on import or open | ui: settings.media.autoProxies | cmd: media.autoProxies | resolve: — (proxies are made by hand) | premiere: Ingest settings ▸ Create Proxies | when: every project with heavy footage | see: proxies.background
 
 **[Fork]**
 
@@ -50,6 +54,8 @@ another project, reuses the proxy instead of making it again.
 
 ## Never in the way
 
+> id: proxies.background | does: the proxy worker pauses while you play, scrub or export | when: wondering whether proxies slow editing | see: proxies.progress
+
 **[Fork]**
 
 Proxies are made by a background worker that steps aside whenever you are working:
@@ -61,6 +67,8 @@ Proxies are made by a background worker that steps aside whenever you are workin
 So making proxies never makes playback drop frames; it only takes longer when you keep playing.
 
 ## Watching the progress
+
+> id: proxies.progress | does: badges in the Project panel show each clip's proxy state | cmd: media.proxyStatus | resolve: Proxy status column | premiere: Proxy column | when: checking which clips have proxies | see: proxies.mode
 
 **[Fork]**
 
@@ -81,6 +89,8 @@ Hover any badge to read its meaning. Agents and scripts read the same thing with
 one row per clip.
 
 ## Choosing when proxies are used
+
+> id: proxies.mode | does: chooses whether playback, the timeline and export read proxies or the originals | ui: settings.media.proxies, program.transport.media.toggleProxies | cmd: media.proxyMode, media.toggleProxies, app.settings.media | resolve: Playback ▸ Use Proxy Media | premiere: Toggle Proxies button | when: comparing against the original; exporting | see: proxies.manual
 
 **[Fork]**
 
@@ -113,6 +123,8 @@ only while the picture moves.
 
 ## Making or stopping proxies yourself
 
+> id: proxies.manual | does: makes, attaches or cancels proxies for chosen clips | cmd: media.createProxies, media.attachProxies, media.cancelProxies | resolve: Generate Proxy Media | premiere: Proxy ▸ Create Proxies / Attach Proxies | when: clips the automatic rules skipped; stopping the worker | see: proxies.auto
+
 **[Fork] [FilmCraft]**
 
 To make the automatic proxy for clips that didn't get one:
@@ -128,6 +140,8 @@ To stop proxies that are queued or being made:
    are deleted.
 
 ## When the original changes
+
+> id: proxies.relink | does: a relinked or replaced original gets a fresh proxy; the old one is detached | when: relinking media, replacing a file on disk | see: proxies.manual
 
 **[Fork]**
 

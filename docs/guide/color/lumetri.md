@@ -5,6 +5,8 @@ Resolve-style node grader, and which one to reach for
 
 ## Why there are two
 
+> id: color.lumetri.what | does: why FilmCraft has both Lumetri Color (Premiere-style) and the node grader (Resolve-style) | resolve: node grader on the Color page | premiere: Lumetri Color | when: deciding which colour tool to learn | see: color.lumetri.which
+
 **[FilmCraft] [Fork]**
 
 FilmCraft (upstream) is modelled on Premiere Pro, so its colour tool is **Lumetri Color**: one
@@ -19,6 +21,8 @@ the same picture in either; no grading maths is written twice.
 
 ## Where Lumetri sits in the picture
 
+> id: color.lumetri.order | does: the processing order: input transform, grade nodes, clip effects including Lumetri, output | resolve: node tree then output transform | premiere: effect stack order | when: a look changes when you move it between tools | see: color.lumetri.what
+
 **[Fork]**
 
 The order for every clip is: input transform → **your grade nodes** → the clip's effects
@@ -31,6 +35,8 @@ The order for every clip is: input transform → **your grade nodes** → the cl
    own **fx** switch in its header.
 
 ## Using the Lumetri Color panel
+
+> id: color.lumetri.panel | does: Lumetri's sections: Basic Correction, Creative, Curves, Color Wheels & Match, HSL Secondary, Vignette | ui: lumetri.* | cmd: effects.apply, lumetri.applyPreset, lumetri.setLook, lumetri.setInputLut, lumetri.applyMatch | premiere: Lumetri Color panel | when: grading the Premiere way | see: color.lumetri.which
 
 **[FilmCraft]**
 
@@ -71,6 +77,8 @@ node ([matching.md](matching.md)).
 
 ## Which one to use
 
+> id: color.lumetri.which | does: when to reach for Lumetri and when for the node grader | resolve: Color page nodes | premiere: Lumetri Color | when: choosing a tool for a task | see: color.lumetri.no-carry-over
+
 **[Fork]**
 
 | You want… | Reach for |
@@ -88,6 +96,8 @@ for something nodes don't have yet (a vignette, vibrance).
 
 ## What doesn't carry over
 
+> id: color.lumetri.no-carry-over | does: Lumetri settings and nodes don't convert into each other; how to move a look | cmd: grade.copy, grade.paste, edit.pasteAttributes | when: moving a look between the two tools | see: color.lumetri.which
+
 **[Fork]**
 
 - **No conversion.** Lumetri settings don't turn into nodes, or the reverse. To move a look
@@ -104,6 +114,8 @@ for something nodes don't have yet (a vignette, vibrance).
   the colour panel; Lumetri stays one tab away and keeps working.
 
 ## If you know Premiere
+
+> id: color.lumetri.premiere | does: what matches Premiere's Lumetri and what differs | premiere: Lumetri Color | when: you come from Premiere | see: color.lumetri.panel
 
 **[FilmCraft]**
 

@@ -54,6 +54,11 @@ const OP_DENOISE: u32 = 32u;
 const OP_DENOISE_YCC: u32 = 33u;
 const OP_TEMPORAL_INIT: u32 = 34u;
 const OP_UNSHARP_DIRECT: u32 = 36u;
+const OP_LUMA_KEY: u32 = 37u;
+const OP_UKEY_MATTE: u32 = 38u;
+const OP_UKEY_CHOKE: u32 = 39u;
+const OP_UKEY: u32 = 40u;
+const OP_COLOR_KEY: u32 = 41u;
 
 fn size() -> vec2<i32> {
     return vec2<i32>(i32(u.i0.y), i32(u.i0.z));
@@ -581,6 +586,94 @@ fn unsharp_mix(o_in: vec4<f32>, bq: vec4<f32>) -> vec4<f32> {
     return o;
 }
 
+// ---- Ultra Key (fork Y3.1b, `FxOp::UltraKey`; CPU reference `vfx::color::ultra_key_apply`).
+// p0 = key Y′ Cb Cr, |key chroma|²; p1 = tolerance, gain, highlight, shadow; p2 = pedestal,
+// choke, contrast, mid point; p3 = spill, desaturate, range, spill luma; p4.xyz = colour
+// correction saturation, hue (turns), luminance. i1 = dominant channel, output, colour
+// correction on, matte in src (the combine reads the cleaned-up matte instead of keying again).
+
+fn ukey_ycbcr(v: vec3<f32>) -> vec3<f32> {
+    let kr = 0.2126;
+    let kb = 0.0722;
+    let kg = 1.0 - kr - kb;
+    let y = kr * v.x + kg * v.y + kb * v.z;
+    return vec3(y, (v.z - y) / (2.0 * (1.0 - kb)), (v.x - y) / (2.0 * (1.0 - kr)));
+}
+
+// `vfx::color::ultra_key_matte`: the matte of a premultiplied pixel before cleanup.
+fn ukey_matte(o: vec4<f32>) -> f32 {
+    if o.a <= 1e-6 {
+        return 0.0;
+    }
+    let k = u.p0.xyz;
+    let kmag2 = u.p0.w;
+    let v = enc(o.rgb / o.a);
+    let y = ukey_ycbcr(v);
+    let proj = (y.y * k.y + y.z * k.z) / kmag2;
+    let dy = y.y - proj * k.y;
+    let dz = y.z - proj * k.z;
+    let perp = sqrt(dy * dy + dz * dz) / sqrt(kmag2);
+    let keyness = clamp(proj, 0.0, 1.5) * (1.0 - smoothstep_fx(0.0, u.p1.x, perp));
+    var m = clamp(1.0 - keyness * u.p1.y, 0.0, 1.0);
+    m += max(y.x - k.x, 0.0) * u.p1.z * 2.0 * min(keyness, 1.0);
+    m += max(k.x - y.x, 0.0) * u.p1.w * 2.0 * min(keyness, 1.0);
+    let ped = u.p2.x;
+    return clamp((clamp(m, 0.0, 1.0) - ped) / (1.0 - ped), 0.0, 1.0);
+}
+
+fn ukey_channel(v: vec3<f32>, i: u32) -> f32 {
+    return select(select(v.x, v.y, i == 1u), v.z, i == 2u);
+}
+
+// The combine: `aux` is the original, `src` the cleaned-up matte (red) when i1.w is set.
+fn ukey_combine(p: vec2<i32>) -> vec4<f32> {
+    let o = textureLoad(aux, p, 0);
+    var a = select(ukey_matte(o), ld(p).x, u.i1.w != 0u);
+    let contrast = u.p2.z;
+    if contrast > 0.0 {
+        let g = 1.0 + contrast * 4.0;
+        let mid = u.p2.w;
+        a = clamp((a - mid) * g + mid, 0.0, 1.0);
+    }
+    let src_a = o.a;
+    var v = enc(select(o.rgb / o.a, vec3(0.0), o.a <= 1e-6));
+    let dom = u.i1.x;
+    let o1 = ukey_channel(v, (dom + 1u) % 3u);
+    let o2 = ukey_channel(v, (dom + 2u) % 3u);
+    let spill = u.p3.x; let desat = u.p3.y; let range = u.p3.z; let sluma = u.p3.w;
+    let limit = max(o1, o2) * (1.0 - range) + (o1 + o2) * 0.5 * range;
+    let excess = max(ukey_channel(v, dom) - limit, 0.0);
+    if excess > 0.0 && spill > 0.0 {
+        let l0 = luma709(v);
+        let one = vec3(select(0.0, 1.0, dom == 0u), select(0.0, 1.0, dom == 1u), select(0.0, 1.0, dom == 2u));
+        v = v - one * (excess * spill);
+        let l1 = luma709(v);
+        v = l1 + (v - l1) * (1.0 - desat * min(excess * 4.0, 1.0));
+        v = v + (l0 - l1) * sluma;
+    }
+    if u.i1.z != 0u {
+        var h = rgb_to_hsl(clamp(v, vec3(0.0), vec3(1.0)));
+        h.x = fract_euclid(h.x + u.p4.y);
+        h.y = clamp(h.y * u.p4.x, 0.0, 1.0);
+        h.z = clamp(h.z * u.p4.z, 0.0, 1.0);
+        v = hsl_to_rgb(h.x, h.y, h.z);
+    }
+    let l = dec(v);
+    switch u.i1.y {
+        case 1u: {
+            let g = srgb_to_linear1(a);
+            return vec4(vec3(g * src_a), src_a);
+        }
+        case 2u: {
+            return vec4(l * src_a, src_a);
+        }
+        default: {
+            let na = a * src_a;
+            return vec4(l * na, na);
+        }
+    }
+}
+
 fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
     let s = size();
     let pc = vec2<f32>(p) + 0.5;
@@ -609,6 +702,48 @@ fn pixel(op: u32, p: vec2<i32>) -> vec4<f32> {
                 return vec4(vec3(srgb_to_linear1(a)), 1.0);
             }
             return vec4(c * a, a);
+        }
+        case OP_UKEY_MATTE: {
+            return vec4(ukey_matte(ld(p)), 0.0, 0.0, 0.0);
+        }
+        case OP_UKEY_CHOKE: {
+            // src: the blurred matte, aux: the original
+            let m0 = ukey_matte(textureLoad(aux, p, 0));
+            let c = u.p2.y * 0.5;
+            return vec4(min(m0, clamp((ld(p).x - c) / (1.0 - c), 0.0, 1.0)), 0.0, 0.0, 0.0);
+        }
+        case OP_UKEY: {
+            return ukey_combine(p);
+        }
+        case OP_COLOR_KEY: {
+            // `FxOp::ColorKey`: key Y′CbCr = p0.xyz, tolerance p0.w, softness p1.x
+            let o = ld(p);
+            if o.a <= 0.0 {
+                return o;
+            }
+            let c = enc(o.rgb / o.a);
+            let y = ukey_ycbcr(c);
+            let k = u.p0.xyz;
+            let dc = y.yz - k.yz;
+            let d = sqrt(dc.x * dc.x + dc.y * dc.y) + abs(y.x - k.x) * 0.15;
+            let a = o.a * clamp((d - u.p0.w) / u.p1.x, 0.0, 1.0);
+            return vec4(dec(c) * a, a);
+        }
+        case OP_LUMA_KEY: {
+            // `FxOp::LumaKey`: th = p0.x, cut = p0.y
+            let o = ld(p);
+            if o.a <= 0.0 {
+                return o;
+            }
+            let th = u.p0.x; let cut = u.p0.y;
+            let l = linear_to_srgb1(max(luma709(o.rgb / o.a), 0.0));
+            var k = (l - cut) / max(th - cut, 1e-3);
+            if l <= cut {
+                k = 0.0;
+            } else if l >= max(th, cut + 1e-3) {
+                k = 1.0;
+            }
+            return o * k;
         }
         case OP_BOX: {
             // one box pass along x (i1.z = 0) or y (1): mean over 2r+1 pixels, clamped to the

@@ -22,7 +22,7 @@
 //! two weights are five values, more than one storage texture holds).
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use filmcraft_render::gpufx::FxOp;
 use filmcraft_render::plan::LayerFx;
@@ -103,6 +103,15 @@ const OP_TEMPORAL_INIT: u32 = 34;
 const OP_BOX3: u32 = 35;
 /// Unsharp Mask with at most one box per axis in one pass (`fx.wgsl`, [`fused_steps`]).
 const OP_UNSHARP_DIRECT: u32 = 36;
+/// Luma Key (fork Y3.1): a point op that scales the premultiplied pixel by a luma ramp.
+const OP_LUMA_KEY: u32 = 37;
+/// Ultra Key (fork Y3.1b): the matte into red (a pass before a combine), the choke (reads the
+/// blurred matte and the original), and the combine (spill, colour correction, output).
+const OP_UKEY_MATTE: u32 = 38;
+const OP_UKEY_CHOKE: u32 = 39;
+const OP_UKEY: u32 = 40;
+/// Color Key (fork Y3.1c): a point op.
+const OP_COLOR_KEY: u32 = 41;
 /// The largest box radius [`OP_UNSHARP_DIRECT`] takes ((2r + 1)² loads per pixel).
 const UNSHARP_DIRECT_MAX: u32 = 3;
 /// Pixels per `fx_box3` workgroup (`BOX3_TILE` in `fx.wgsl`).
@@ -155,6 +164,15 @@ pub(crate) struct FxStage {
     /// The effect shader and per-op `fx_px` pipelines (`PX_OP` set; None: failed to build).
     shader: wgpu::ShaderModule,
     px_special: Mutex<HashMap<u32, Option<wgpu::ComputePipeline>>>,
+    /// User shader effects (ADR 0006): their bind group layout (uniform, source, destination),
+    /// pipeline layout and pipelines by (id, source hash) (None: failed to build; the pass is
+    /// skipped).
+    ubgl: wgpu::BindGroupLayout,
+    upl: wgpu::PipelineLayout,
+    user_pipes: Mutex<HashMap<(String, u64), Option<wgpu::ComputePipeline>>>,
+    /// The slow-pass rule (ADR 0006) and whether the device has timestamp queries to apply it.
+    watch: Arc<Mutex<UserWatch>>,
+    timestamps: bool,
     /// Run every pass on the generic shaders (tests compare the two).
     interpret_only: bool,
     /// Fuse passes ([`fuse_passes`]; tests compare with the unfused passes).
@@ -293,6 +311,8 @@ enum Pipe {
     ChainMasked,
     Mask,
     Temporal,
+    /// A user shader effect (its pipeline is the dispatch's `special`).
+    User,
 }
 
 /// One compute pass of a job.
@@ -304,6 +324,9 @@ struct Dispatch {
     groups: (u32, u32),
     /// A chain pipeline specialised to the step's op codes, run instead of `pipe`'s.
     special: Option<wgpu::ComputePipeline>,
+    /// A user effect's pass: its (id, hash) and its timestamp pair in the job's query set.
+    user: Option<(String, u64)>,
+    slot: Option<u32>,
 }
 
 /// One recorded piece of a job, in order.
@@ -331,6 +354,62 @@ pub(crate) struct FxJob {
     /// The texture holding the result.
     pub(crate) result: wgpu::TextureView,
     pub(crate) result_texture: wgpu::Texture,
+    /// The user passes' GPU timestamps (slow-pass rule; None: no user pass or no timestamp
+    /// queries on this device).
+    timing: Option<UserTiming>,
+}
+
+/// User passes timed in one job (each its own compute pass with begin / end timestamps).
+struct UserTiming {
+    set: wgpu::QuerySet,
+    resolve: wgpu::Buffer,
+    read: wgpu::Buffer,
+    /// (id, hash) per timestamp pair.
+    users: Vec<(String, u64)>,
+    pixels: u64,
+    /// Nanoseconds per timestamp tick.
+    period: f32,
+}
+
+/// User passes timed per job at most (later ones run untimed).
+const MAX_TIMED_USER_PASSES: usize = 32;
+
+/// A user pass slower than this at 1080p (scaled by pixel count) on [`USER_SLOW_FRAMES`] frames
+/// in a row disables the effect for the session (ADR 0006).
+pub const USER_SLOW_MS_1080P: f64 = 50.0;
+pub const USER_SLOW_FRAMES: u8 = 3;
+
+/// The slow-pass rule's state, shared with the timestamp read-back callbacks.
+pub(crate) struct UserWatch {
+    slow: HashMap<(String, u64), u8>,
+    disabled: HashSet<(String, u64)>,
+    messages: Vec<String>,
+    limit_ms_1080p: f64,
+}
+
+impl UserWatch {
+    fn new() -> Self {
+        UserWatch { slow: HashMap::new(), disabled: HashSet::new(), messages: Vec::new(), limit_ms_1080p: USER_SLOW_MS_1080P }
+    }
+
+    /// One timed pass of `key` over `pixels` took `ms`.
+    fn observe(&mut self, key: &(String, u64), ms: f64, pixels: u64) {
+        let limit = self.limit_ms_1080p * (pixels as f64 / (1920.0 * 1080.0));
+        if !ms.is_finite() || ms <= limit {
+            self.slow.remove(key);
+            return;
+        }
+        let n = self.slow.entry(key.clone()).or_insert(0);
+        *n = n.saturating_add(1);
+        if *n >= USER_SLOW_FRAMES && self.disabled.insert(key.clone()) {
+            let msg = format!(
+                "the shader effect {} took {ms:.0} ms per frame ({} frames in a row over {limit:.1} ms): turned off until FilmCraft restarts",
+                key.0, USER_SLOW_FRAMES
+            );
+            log::warn!("{msg}");
+            self.messages.push(msg);
+        }
+    }
 }
 
 /// One pass before texture routing: entry point, op code, integer and float parameters.
@@ -354,6 +433,8 @@ struct Step {
     restore: bool,
     /// The temporal blend of `TemporalSpec` n (a combine: src = current YCC, aux = original).
     temporal: Option<usize>,
+    /// A user shader effect's pass (its own module and bind group layout).
+    user: Option<Box<filmcraft_render::gpufx::UserOp>>,
 }
 
 fn step(code: u32, i1: [u32; 4], p: &[f32]) -> Step {
@@ -361,7 +442,20 @@ fn step(code: u32, i1: [u32; 4], p: &[f32]) -> Step {
     for (d, s) in q.iter_mut().zip(p) {
         *d = *s;
     }
-    Step { run: false, code, i1, p: q, combine: false, unsharp_blur: false, program: None, codes: Vec::new(), save: false, restore: false, temporal: None }
+    Step {
+        run: false,
+        code,
+        i1,
+        p: q,
+        combine: false,
+        unsharp_blur: false,
+        program: None,
+        codes: Vec::new(),
+        save: false,
+        restore: false,
+        temporal: None,
+        user: None,
+    }
 }
 
 /// Box passes along x (vertical = false) or y for the radii (radius 0 is a no-op on the CPU).
@@ -450,6 +544,39 @@ fn steps(op: &FxOp) -> Vec<Step> {
         FxOp::AlphaAdjust { opacity, ignore, invert, mask_only } => {
             out.push(step(OP_ALPHA_ADJUST, [*ignore as u32, *invert as u32, *mask_only as u32, 0], &[*opacity]));
         }
+        FxOp::LumaKey { th, cut } => out.push(step(OP_LUMA_KEY, [0; 4], &[*th, *cut])),
+        FxOp::ColorKey { k, tol, soft } => out.push(step(OP_COLOR_KEY, [0; 4], &[k[0], k[1], k[2], *tol, *soft])),
+        FxOp::UltraKey(k) => {
+            let [cc_s, cc_h, cc_l] = k.cc.unwrap_or([1.0, 0.0, 1.0]);
+            #[rustfmt::skip]
+            let p = [
+                k.k[0], k.k[1], k.k[2], k.kmag2,
+                k.tol, k.gain, k.highlight, k.shadow,
+                k.pedestal, k.choke, k.contrast, k.mid,
+                k.spill, k.desat, k.range, k.sluma,
+                cc_s, cc_h, cc_l,
+            ];
+            let choke = k.choke > 0.0;
+            let blurred = choke || !k.soften_rx.is_empty() || !k.soften_ry.is_empty();
+            let i1 = [k.dom.min(2), k.output, k.cc.is_some() as u32, blurred as u32];
+            if blurred {
+                // the matte (red) through choke and soften; the original stays for the combine
+                out.push(step(OP_UKEY_MATTE, i1, &p));
+                if choke {
+                    boxes(&k.choke_rx, false, false, &mut out);
+                    boxes(&k.choke_ry, true, false, &mut out);
+                    out.push(step(OP_UKEY_CHOKE, i1, &p));
+                }
+                boxes(&k.soften_rx, false, false, &mut out);
+                boxes(&k.soften_ry, true, false, &mut out);
+                for s in &mut out {
+                    s.unsharp_blur = true;
+                }
+            }
+            let mut s = step(OP_UKEY, i1, &p);
+            s.combine = true;
+            out.push(s);
+        }
         // (no active mask: the effect applies everywhere, as `mask::coverage` → None)
         FxOp::Masked { ops, masks } if mask_program(masks).len() <= 1 => out.extend(ops.iter().flat_map(steps)),
         FxOp::OpacityMask { masks } if mask_program(masks).len() <= 1 => {}
@@ -529,6 +656,11 @@ fn steps(op: &FxOp) -> Vec<Step> {
         }
         // (built by `FxStage::job`, which has the neighbours' bind groups)
         FxOp::TemporalDenoise { .. } => {}
+        FxOp::User(u) => {
+            let mut s = step(0, [0; 4], &[]);
+            s.user = Some(u.clone());
+            out.push(s);
+        }
     }
     out
 }
@@ -655,6 +787,30 @@ impl FxStage {
             ],
         });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("fx"), bind_group_layouts: &[Some(&bgl)], immediate_size: 0 });
+        let ubgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("fx-user"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+                tex(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let upl =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("fx-user"), bind_group_layouts: &[Some(&ubgl)], immediate_size: 0 });
         let chain_src = wgsl_for(include_str!("colorops.wgsl"), format);
         let chain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("filmcraft-colorops"),
@@ -745,6 +901,11 @@ impl FxStage {
             special: Mutex::new(HashMap::new()),
             shader,
             px_special: Mutex::new(HashMap::new()),
+            ubgl,
+            upl,
+            user_pipes: Mutex::new(HashMap::new()),
+            watch: Arc::new(Mutex::new(UserWatch::new())),
+            timestamps: device.features().contains(wgpu::Features::TIMESTAMP_QUERY),
             interpret_only: false,
             fuse: fuse_passes(),
         }
@@ -879,7 +1040,82 @@ impl FxStage {
         let mut work = vec![Work::Source { bg: source_bg, target: views.first()?.clone() }];
         let cx = RouteCx { device, queue, views: &views, size: (w, h), dummy, specs: &specs, spare: &spare };
         let cur = self.route(&cx, &all, &main, 0, &mut work)?;
-        Some(FxJob { work, result: views.get(cur)?.clone(), result_texture: targets.get(cur)?.0.clone() })
+        let timing = self.user_timing(device, queue, &mut work, u64::from(w) * u64::from(h));
+        Some(FxJob { work, result: views.get(cur)?.clone(), result_texture: targets.get(cur)?.0.clone(), timing })
+    }
+
+    /// Give the job's user passes timestamp pairs (None: no user pass, or no timestamp queries).
+    fn user_timing(&self, device: &wgpu::Device, queue: &wgpu::Queue, work: &mut [Work], pixels: u64) -> Option<UserTiming> {
+        if !self.timestamps {
+            return None;
+        }
+        let mut users = Vec::new();
+        for w in work.iter_mut() {
+            if let Work::Compute(d) = w
+                && let Some(key) = &d.user
+                && users.len() < MAX_TIMED_USER_PASSES
+            {
+                d.slot = Some(users.len() as u32);
+                users.push(key.clone());
+            }
+        }
+        if users.is_empty() {
+            return None;
+        }
+        let n = (users.len() * 2) as u32;
+        let bytes = u64::from(n) * 8;
+        let set = device.create_query_set(&wgpu::QuerySetDescriptor { label: Some("fx-user-time"), ty: wgpu::QueryType::Timestamp, count: n });
+        let resolve = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fx-user-time"),
+            size: bytes,
+            usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let read = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fx-user-time-read"),
+            size: bytes,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        Some(UserTiming { set, resolve, read, users, pixels, period: queue.get_timestamp_period() })
+    }
+
+    /// After the job's submission: read its user passes' timestamps back (when the device is
+    /// next polled) and apply the slow-pass rule.
+    pub(crate) fn after_submit(&self, queue: &wgpu::Queue, job: &FxJob) {
+        // in flight until the GPU finishes (a device loss meanwhile quarantines them)
+        let keys: Vec<(String, u64)> = job.work.iter().filter_map(|w| if let Work::Compute(d) = w { d.user.clone() } else { None }).collect();
+        if !keys.is_empty() {
+            crate::user_in_flight(&keys, true);
+            queue.on_submitted_work_done(move || crate::user_in_flight(&keys, false));
+        }
+        let Some(t) = &job.timing else { return };
+        let (watch, read, users, pixels, period) = (self.watch.clone(), t.read.clone(), t.users.clone(), t.pixels, t.period);
+        t.read.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            if r.is_err() {
+                return;
+            }
+            let ticks: Vec<u64> = match read.slice(..).get_mapped_range() {
+                Ok(v) => v.as_chunks::<8>().0.iter().map(|b| u64::from_le_bytes(*b)).collect(),
+                Err(_) => return,
+            };
+            read.unmap();
+            let mut w = watch.lock().unwrap_or_else(PoisonError::into_inner);
+            for (key, pair) in users.iter().zip(ticks.as_chunks::<2>().0) {
+                let ms = pair[1].saturating_sub(pair[0]) as f64 * f64::from(period) / 1e6;
+                w.observe(key, ms, pixels);
+            }
+        });
+    }
+
+    /// Messages about user effects turned off by the slow-pass rule since the last call.
+    pub(crate) fn take_user_messages(&self) -> Vec<String> {
+        std::mem::take(&mut self.watch.lock().unwrap_or_else(PoisonError::into_inner).messages)
+    }
+
+    /// The slow-pass limit in ms at 1080p ([`USER_SLOW_MS_1080P`]; tests lower it).
+    pub(crate) fn set_user_slow_limit(&self, ms_1080p: f64) {
+        self.watch.lock().unwrap_or_else(PoisonError::into_inner).limit_ms_1080p = ms_1080p;
     }
 
     /// Route `steps` through the working textures `slots` (indices into `cx.views`) starting
@@ -896,13 +1132,23 @@ impl FxStage {
                 saved = Some(cur);
                 continue;
             }
+            // a user effect whose module doesn't build is skipped (the image passes through)
+            let user = match &s.user {
+                Some(u) if self.watch.lock().unwrap_or_else(PoisonError::into_inner).disabled.contains(&(u.id.clone(), u.hash)) => continue,
+                Some(u) => match self.user_pipeline(cx.device, u) {
+                    Some(p) => Some((u, p)),
+                    None => continue,
+                },
+                None => None,
+            };
             // (an Unsharp without blur passes, radius 0, combines the original with itself)
             if (s.unsharp_blur || s.combine) && orig.is_none() {
                 orig = Some(cur);
             }
             let keep = if s.unsharp_blur || s.combine { orig } else { None };
             let dst = slots.iter().copied().find(|k| *k != cur && Some(*k) != keep && Some(*k) != saved)?;
-            let aux = match (s.combine, orig, s.restore, saved) {
+            // (a pass before a combine reads the original too: Ultra Key's choke)
+            let aux = match (s.combine || s.unsharp_blur, orig, s.restore, saved) {
                 (true, Some(o), _, _) => cx.views.get(o)?,
                 (_, _, true, Some(v)) => cx.views.get(v)?,
                 _ => cx.dummy,
@@ -914,7 +1160,10 @@ impl FxStage {
                     let nbr = self.temporal_neighbours(cx, spec, work)?;
                     work.push(Work::Compute(self.temporal_dispatch(cx, spec, src_v, dst_v, aux, &nbr)?));
                 }
-                None => work.push(Work::Compute(self.dispatch(cx, s, src_v, dst_v, aux))),
+                None => work.push(Work::Compute(match user {
+                    Some((u, p)) => self.user_dispatch(cx, u, p, src_v, dst_v),
+                    None => self.dispatch(cx, s, src_v, dst_v, aux),
+                })),
             }
             cur = dst;
             if s.combine {
@@ -994,7 +1243,86 @@ impl FxStage {
             Pipe::Px => self.px_pipeline(device, s.code),
             _ => None,
         };
-        Dispatch { pipe, bg, bg1: None, groups, special }
+        Dispatch { pipe, bg, bg1: None, groups, special, user: None, slot: None }
+    }
+
+    /// A user effect's pass from `src` into `dst`: uniform `size` (w, h, time, 0) and one `vec4`
+    /// per parameter (`filmcraft_usershader::compose`'s `FxUniform`, 272 bytes).
+    fn user_dispatch(
+        &self,
+        cx: &RouteCx<'_>,
+        u: &filmcraft_render::gpufx::UserOp,
+        p: wgpu::ComputePipeline,
+        src: &wgpu::TextureView,
+        dst: &wgpu::TextureView,
+    ) -> Dispatch {
+        let (device, queue, (w, h)) = (cx.device, cx.queue, cx.size);
+        let mut v: Vec<f32> = vec![w as f32, h as f32, u.time, 0.0];
+        for k in 0..filmcraft_render::gpufx::USER_PARAM_SLOTS {
+            v.extend(u.pv.get(k).copied().unwrap_or([0.0; 4]));
+        }
+        let bytes: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fx-user-u"),
+            size: bytes.len() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&buf, 0, &bytes);
+        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fx-user"),
+            layout: &self.ubgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(src) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(dst) },
+            ],
+        });
+        Dispatch { pipe: Pipe::User, bg, bg1: None, groups: (w.div_ceil(16), h.div_ceil(16)), special: Some(p), user: Some((u.id.clone(), u.hash)), slot: None }
+    }
+
+    /// The pipeline of user effect `u`, built on first use and cached by (id, hash). None: the
+    /// module failed to build (logged once; the pass is skipped).
+    fn user_pipeline(&self, device: &wgpu::Device, u: &filmcraft_render::gpufx::UserOp) -> Option<wgpu::ComputePipeline> {
+        let key = (u.id.clone(), u.hash);
+        let mut cache = self.user_pipes.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(p) = cache.get(&key) {
+            return p.clone();
+        }
+        let built = self.build_user(device, u);
+        if cache.len() >= MAX_SPECIAL_PIPELINES {
+            cache.clear();
+        }
+        cache.insert(key, built.clone());
+        built
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn build_user(&self, device: &wgpu::Device, u: &filmcraft_render::gpufx::UserOp) -> Option<wgpu::ComputePipeline> {
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fx-user"),
+            source: wgpu::ShaderSource::Wgsl(wgsl_for(&u.module, self.format).into()),
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("fx-user"),
+            layout: Some(&self.upl),
+            module: &module,
+            entry_point: Some("fx_user_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            log::warn!("user effect {} failed to build on the GPU, skipped: {e}", u.id);
+            return None;
+        }
+        Some(pipeline)
+    }
+
+    /// (User effects need the native GPU path.)
+    #[cfg(target_arch = "wasm32")]
+    fn build_user(&self, _device: &wgpu::Device, _u: &filmcraft_render::gpufx::UserOp) -> Option<wgpu::ComputePipeline> {
+        None
     }
 
     /// The chain pipeline for `pipe` specialised to `codes`, built on first use and cached.
@@ -1195,9 +1523,22 @@ impl FxStage {
                     pass.draw(0..6, 0..1);
                     i += 1;
                 }
-                Work::Compute(_) => {
-                    let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("fx"), timestamp_writes: None });
+                Work::Compute(first) => {
+                    // a timed user pass runs in a compute pass of its own
+                    let timed = |d: &Dispatch| d.slot.zip(job.timing.as_ref());
+                    let tw = timed(first).map(|(k, t)| wgpu::ComputePassTimestampWrites {
+                        query_set: &t.set,
+                        beginning_of_pass_write_index: Some(2 * k),
+                        end_of_pass_write_index: Some(2 * k + 1),
+                    });
+                    let single = tw.is_some();
+                    let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("fx"), timestamp_writes: tw });
+                    let mut n = 0;
                     while let Some(Work::Compute(d)) = job.work.get(i) {
+                        if n > 0 && (single || timed(d).is_some()) {
+                            break;
+                        }
+                        n += 1;
                         pass.set_pipeline(match (&d.special, d.pipe) {
                             (Some(p), _) => p,
                             (None, pipe) => match pipe {
@@ -1210,6 +1551,8 @@ impl FxStage {
                                 Pipe::ChainMasked => &self.chain_masked,
                                 Pipe::Mask => &self.mask,
                                 Pipe::Temporal => &self.temporal,
+                                // (always has its pipeline in `special`)
+                                Pipe::User => &self.px,
                             },
                         });
                         pass.set_bind_group(0, &d.bg, &[]);
@@ -1221,6 +1564,11 @@ impl FxStage {
                     }
                 }
             }
+        }
+        if let Some(t) = &job.timing {
+            let n = (t.users.len() * 2) as u32;
+            enc.resolve_query_set(&t.set, 0..n, &t.resolve, 0);
+            enc.copy_buffer_to_buffer(&t.resolve, 0, &t.read, 0, u64::from(n) * 8);
         }
     }
 }

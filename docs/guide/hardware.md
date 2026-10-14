@@ -5,6 +5,8 @@ and the switches that change it
 
 ## Why
 
+> id: hardware.why | does: why 6.2K 10-bit HEVC needs the graphics card's video engine | resolve: GPU decoding | premiere: hardware-accelerated decoding | when: heavy camera footage | see: hardware.jobs
+
 **[Fork]**
 
 A 6.2K, 10-bit HEVC clip is far too heavy to decode on the CPU at playback speed. This fork
@@ -15,6 +17,8 @@ back to slower paths when it can't be used, so a file never becomes unplayable b
 hardware. Knowing what runs where helps when something is slower than you expect.
 
 ## The jobs and where they run
+
+> id: hardware.jobs | does: which jobs run on the AMD or Intel video engines or the processor, and the fallbacks | ui: program.resolution | resolve: GPU processing mode | premiere: Mercury Playback Engine | when: checking what runs where | see: hardware.switches
 
 **[Fork]**
 
@@ -67,6 +71,8 @@ memory instead (slower, same result) and one line is written to the log.
 
 ## The switches
 
+> id: hardware.switches | does: the settings that turn hardware decoding, GPU rendering and caches on or off | ui: settings.playback.hardwareDecoding, settings.playback.graphicsDevice, settings.memory.*, export.gpuRendering | cmd: app.settings.playback, app.settings.memory | resolve: Decode using hardware acceleration | premiere: Hardware decoding, GPU acceleration | when: testing a fallback, a slow machine | see: hardware.slow
+
 **[FilmCraft] [Fork]**
 
 ### Preferences
@@ -109,6 +115,8 @@ are for troubleshooting; normally leave them unset.
 
 ## When something is slow
 
+> id: hardware.slow | does: steps to find out why playback or export is slow | ui: program.resolution | resolve: render cache, proxy media | premiere: playback resolution, proxies | when: dropped frames, slow export | see: proxies.what, render-cache.why
+
 **[Fork]**
 
 1. Check the clip: a 4:2:2 clip with the amber badge is decoded in software (above).
@@ -120,6 +128,8 @@ are for troubleshooting; normally leave them unset.
 
 ## If you know Resolve
 
+> id: hardware.resolve | does: how these switches map to Resolve's hardware preferences | resolve: Decode H.264/H.265 using hardware acceleration | when: you come from Resolve | see: hardware.switches
+
 **[Resolve-style]**
 
 Resolve's "Decode H.264/H.265 using hardware acceleration" preference corresponds to
@@ -128,6 +138,8 @@ FilmCraft uses the Intel video engine for it instead, and proxies (like Resolve'
 media) remain the fallback.
 
 ## If you know Premiere
+
+> id: hardware.premiere | does: how these switches map to Premiere's hardware decoding and GPU rendering | premiere: hardware-accelerated decoding, Mercury GPU | when: you come from Premiere | see: hardware.switches
 
 **[FilmCraft]**
 

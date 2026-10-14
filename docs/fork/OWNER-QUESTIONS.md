@@ -556,3 +556,32 @@ exports now that its lane is ~4.9 fps (a few percent at best, since AMD is decod
 **(a)'s measured limit (X422 acceptance):** median of 2 = 20.0 fps; the Intel UHD 750 spends ~50 ms per frame on 4:2:2
 decode + the ~104 MB hand-off copy to the AMD card, and AMD waits on it (`docs/fork-benchmarks.md` "X422 final").
 (b) 4:2:2 HEVC master: 7.2 fps (Q27).
+
+## Q29 (2026-10-14, Y3.4): how user shader effects work (FYI, choice made)
+
+ADR [0006](../adr/0006-user-shader-effects.md), written by the scheduled run without a separate
+designer (weekly usage above pace). The choices you may want to change: (a) user effects are
+**GPU-only** (no CPU fallback; without a GPU they are skipped with a message); (b) the user writes
+one function `effect(px) -> vec4` on **display-referred straight colour** (FilmCraft converts from
+and to the linear working image), not raw linear premultiplied pixels; (c) the time limit is
+**after the fact** (3 frames over 50 ms at 1080p disables it; a GPU hang quarantines the file),
+because WGSL can't be stopped mid-frame. **Choice for now:** as in the ADR. Reversible: answer here
+and a run changes the ADR before step 4 (the runtime); steps 2–3 (parser, registry) don't depend on (a)–(c).
+
+## Q30 (2026-10-14, A2.8b, Dell lane): Voice Isolation misses two of its own acceptance bars on real speech (FYI, choice made)
+
+On ~50 LibriSpeech recordings (your Q26 yes), Voice Isolation beats DeNoise in every case and by a
+lot where noise is loud: **+7.1 dB at 0 dB SNR, +4.0 dB at 5 dB** (traffic, keyboard, wind). Two
+bars I set before measuring are missed: at **10 dB SNR** (mild noise) the margin is only **+0.8 dB**
+(bar 3 dB), and **clean speech** through it scores **17.0 dB** (bar 20 dB). Part of the clean-speech
+number is probably LibriSpeech itself: its "clean" recordings have background 23–38 dB under the
+voice, which the model removes and the measurement counts as damage. Clean Up Voice itself passes
+its gate (one click is as good as the written manual process in all 15 cases, PREP-A2 §1).
+Options: (a) accept as is: big gains on noisy voice, small ones on mildly noisy voice, slight
+change to an already clean voice (Clean Up Voice turns noise reduction off on clean recordings
+anyway); (b) keep A2 open and re-measure on recordings of your own voice in a quiet room
+(`~/.local/share/filmcraft-fork/voice-test/`), which would separate "the model" from
+"LibriSpeech's own noise"; (c) lower the default Voice Isolation amount for mild noise.
+**Choice for now: (a)** with the numbers written into "A2 ready for acceptance"; (b) any time you
+drop recordings there. Nothing to undo.
+

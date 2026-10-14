@@ -72,15 +72,31 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("getting-started.md", include_str!("../../../docs/guide/getting-started.md")),
     ("audio.md", include_str!("../../../docs/guide/audio.md")),
     ("cards.md", include_str!("../../../docs/guide/cards.md")),
+    ("edit-menu.md", include_str!("../../../docs/guide/edit-menu.md")),
     ("editing.md", include_str!("../../../docs/guide/editing.md")),
+    ("essential-sound.md", include_str!("../../../docs/guide/essential-sound.md")),
+    ("effects.md", include_str!("../../../docs/guide/effects.md")),
     ("export.md", include_str!("../../../docs/guide/export.md")),
+    ("export-queue.md", include_str!("../../../docs/guide/export-queue.md")),
+    ("file-menu.md", include_str!("../../../docs/guide/file-menu.md")),
     ("glossary.md", include_str!("../../../docs/guide/glossary.md")),
+    ("graphics.md", include_str!("../../../docs/guide/graphics.md")),
     ("hardware.md", include_str!("../../../docs/guide/hardware.md")),
+    ("keying.md", include_str!("../../../docs/guide/keying.md")),
     ("linux.md", include_str!("../../../docs/guide/linux.md")),
+    ("media.md", include_str!("../../../docs/guide/media.md")),
+    ("mixing.md", include_str!("../../../docs/guide/mixing.md")),
+    ("packs.md", include_str!("../../../docs/guide/packs.md")),
+    ("shader-effects.md", include_str!("../../../docs/guide/shader-effects.md")),
     ("pages.md", include_str!("../../../docs/guide/pages.md")),
     ("projects.md", include_str!("../../../docs/guide/projects.md")),
     ("proxies.md", include_str!("../../../docs/guide/proxies.md")),
     ("render-cache.md", include_str!("../../../docs/guide/render-cache.md")),
+    ("shortcuts.md", include_str!("../../../docs/guide/shortcuts.md")),
+    ("text.md", include_str!("../../../docs/guide/text.md")),
+    ("timeline.md", include_str!("../../../docs/guide/timeline.md")),
+    ("tracking.md", include_str!("../../../docs/guide/tracking.md")),
+    ("trimming.md", include_str!("../../../docs/guide/trimming.md")),
     ("color/README.md", include_str!("../../../docs/guide/color/README.md")),
     ("color/coach.md", include_str!("../../../docs/guide/color/coach.md")),
     ("color/color-management.md", include_str!("../../../docs/guide/color/color-management.md")),
@@ -93,12 +109,46 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("color/primaries.md", include_str!("../../../docs/guide/color/primaries.md")),
     ("color/recipes.md", include_str!("../../../docs/guide/color/recipes.md")),
     ("color/secondaries.md", include_str!("../../../docs/guide/color/secondaries.md")),
+    ("practice/audio.md", include_str!("../../../docs/guide/practice/audio.md")),
+    ("practice/delivery.md", include_str!("../../../docs/guide/practice/delivery.md")),
+    ("practice/editing.md", include_str!("../../../docs/guide/practice/editing.md")),
+    ("practice/grading.md", include_str!("../../../docs/guide/practice/grading.md")),
+    ("practice/looks.md", include_str!("../../../docs/guide/practice/looks.md")),
+    ("practice/mixed-cameras.md", include_str!("../../../docs/guide/practice/mixed-cameras.md")),
+    ("practice/node-trees.md", include_str!("../../../docs/guide/practice/node-trees.md")),
+    ("practice/titles.md", include_str!("../../../docs/guide/practice/titles.md")),
+    ("practice/workflow.md", include_str!("../../../docs/guide/practice/workflow.md")),
+    ("practice/youtube.md", include_str!("../../../docs/guide/practice/youtube.md")),
 ];
 
 /// Pages that are about the guide itself (how it is written), not about the app, and pages
 /// about the desktop rather than editing or grading (`linux.md`: its words shifted the Coach's
 /// ranking of colour questions): not searched.
-const NOT_INDEXED: &[&str] = &["README.md", "linux.md"];
+/// AI3-PREP feature pages after `timeline.md` (AI3-PREP.2d): the 116-question colour eval sits at
+/// its floor, and each general page's words pushed it one below; they stay in the guide (and
+/// their headers) for AI3's retrieval, which replaces this keyword index.
+const NOT_INDEXED: &[&str] = &[
+    "README.md",
+    "linux.md",
+    "timeline.md",
+    "effects.md",
+    "media.md",
+    "shortcuts.md",
+    "edit-menu.md",
+    "trimming.md",
+    "export-queue.md",
+    "file-menu.md",
+    "practice/grading.md",
+    "practice/editing.md",
+    "practice/audio.md",
+    "practice/delivery.md",
+    "practice/node-trees.md",
+    "practice/looks.md",
+    "practice/youtube.md",
+    "practice/titles.md",
+    "practice/workflow.md",
+    "practice/mixed-cameras.md",
+];
 
 /// Sections that are never an answer (page, heading): the glossary's table of Resolve / Premiere
 /// names has no steps and outranks the entry it points to (its useful names are synonyms).
@@ -520,6 +570,105 @@ pub struct Section {
     /// For a page's first `##` section, the page's introduction (the text under its `#` title):
     /// searched with the section, never shown.
     pub intro: String,
+    /// The section's compact header line (`> id: … | does: …`, see [`parse_header`]), taken out
+    /// of the body (not searched by the keyword index).
+    pub header: Option<String>,
+}
+
+// ---------- compact section headers (fork AI-PLAN AI3 0d) ----------
+
+/// Longest header line that is read, in characters.
+pub const MAX_HEADER_CHARS: usize = 600;
+/// Longest `does:` text, in characters.
+pub const MAX_DOES_CHARS: usize = 120;
+
+/// A section's compact header: what a retriever (or a small model) needs without the prose.
+/// Written as one blockquote line under the section's tag line:
+/// `> id: audio.cleanup-voice | does: … | ui: a.b, c.* | cmd: x.y, z.* | resolve: … | premiere: … | when: … | see: other.id`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Header {
+    /// `<page id>.<slug>`: unique in the guide; the page id is its path without `.md`, `/` as `.`.
+    pub id: String,
+    /// What the feature or technique does, in a few words (required).
+    pub does: String,
+    /// Automation ids (`{ui:…}` of the section) or prefixes ending in `*`.
+    pub ui: Vec<String>,
+    /// Command ids or prefixes ending in `*`.
+    pub cmd: Vec<String>,
+    /// The closest name in DaVinci Resolve / Premiere Pro (`—` for none).
+    pub resolve: Option<String>,
+    pub premiere: Option<String>,
+    /// When to reach for it.
+    pub when: Option<String>,
+    /// Related section ids.
+    pub see: Vec<String>,
+}
+
+impl Header {
+    /// The header's words for search (not its ids).
+    pub fn search_text(&self) -> String {
+        [Some(self.does.as_str()), self.when.as_deref(), self.resolve.as_deref(), self.premiere.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(". ")
+    }
+}
+
+fn is_id(v: &str, star: bool) -> bool {
+    let body = if star { v.strip_suffix('*').unwrap_or(v) } else { v };
+    !v.is_empty() && v.len() <= 120 && body.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) && !body.starts_with('.')
+}
+
+/// The page id of a guide page path (`color/nodes.md` → `color.nodes`).
+pub fn page_id(page: &str) -> String {
+    page.trim_end_matches(".md").replace('/', ".").to_ascii_lowercase()
+}
+
+/// Parse a header line. Errors say what is wrong, for the guide check.
+pub fn parse_header(line: &str) -> Result<Header, String> {
+    if line.chars().count() > MAX_HEADER_CHARS {
+        return Err(format!("longer than {MAX_HEADER_CHARS} characters"));
+    }
+    let body = line.trim().strip_prefix("> ").ok_or("a header is a blockquote line starting with `> id:`")?;
+    let mut h = Header::default();
+    let mut seen: Vec<&str> = Vec::new();
+    for field in body.split(" | ") {
+        let (key, value) = field.split_once(':').ok_or_else(|| format!("`{field}`: expected `key: value`"))?;
+        let (key, value) = (key.trim(), value.trim());
+        if value.is_empty() {
+            return Err(format!("`{key}` is empty"));
+        }
+        if seen.contains(&key) {
+            return Err(format!("`{key}` appears twice"));
+        }
+        seen.push(key);
+        let list = |star: bool| -> Result<Vec<String>, String> {
+            let v: Vec<String> = value.split(',').map(|x| x.trim().to_string()).collect();
+            match v.iter().find(|x| !is_id(x, star)) {
+                Some(bad) => Err(format!("`{key}`: `{bad}` is not an id")),
+                None => Ok(v),
+            }
+        };
+        match key {
+            "id" if is_id(value, false) && value.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b)) => {
+                h.id = value.to_string()
+            }
+            "id" => return Err(format!("id `{value}`: lower case letters, digits, `.`, `-`")),
+            "does" if value.chars().count() <= MAX_DOES_CHARS => h.does = value.to_string(),
+            "does" => return Err(format!("`does` is longer than {MAX_DOES_CHARS} characters")),
+            "ui" => h.ui = list(true)?,
+            "cmd" => h.cmd = list(true)?,
+            "see" => h.see = list(false)?,
+            "resolve" => h.resolve = Some(value.to_string()),
+            "premiere" => h.premiere = Some(value.to_string()),
+            "when" => h.when = Some(value.to_string()),
+            other => return Err(format!("unknown key `{other}` (id, does, ui, cmd, resolve, premiere, when, see)")),
+        }
+    }
+    if seen.first() != Some(&"id") {
+        return Err("the first field must be `id`".into());
+    }
+    if h.does.is_empty() {
+        return Err("`does` is required".into());
+    }
+    Ok(h)
 }
 
 fn heading_level(line: &str) -> Option<(usize, &str)> {
@@ -545,6 +694,8 @@ pub fn split_page(page: &'static str, src: &str) -> Vec<Section> {
     let mut cur: Option<Section> = None;
     let mut fence = false;
     let mut want_tags = false;
+    // the first line after a `##` heading's tag line may be its compact header
+    let mut want_header = false;
     // whether `cur` is the page's introduction (the text before its first `##`)
     let mut in_intro = false;
     for line in src.lines() {
@@ -563,6 +714,7 @@ pub fn split_page(page: &'static str, src: &str) -> Vec<Section> {
                     provenance: Vec::new(),
                     body: String::new(),
                     intro: String::new(),
+                    header: None,
                 });
                 in_intro = true;
                 continue;
@@ -576,13 +728,28 @@ pub fn split_page(page: &'static str, src: &str) -> Vec<Section> {
                     p => out.extend(p),
                 }
                 in_intro = false;
-                cur = Some(Section { page, page_title: page_title.clone(), heading: t.to_string(), provenance: Vec::new(), body: String::new(), intro });
+                cur = Some(Section {
+                    page,
+                    page_title: page_title.clone(),
+                    heading: t.to_string(),
+                    provenance: Vec::new(),
+                    body: String::new(),
+                    intro,
+                    header: None,
+                });
                 want_tags = true;
+                want_header = true;
                 continue;
             }
             _ => {}
         }
         let Some(sec) = cur.as_mut() else { continue };
+        // the compact header: directly under the heading, before or after the tag line
+        if want_header && head.is_none() && line.trim_start().starts_with("> id:") {
+            want_header = false;
+            sec.header = Some(line.trim().to_string());
+            continue;
+        }
         if want_tags && !line.trim().is_empty() && head.is_none() {
             want_tags = false;
             if is_tag_line(line) {
@@ -593,6 +760,9 @@ pub fn split_page(page: &'static str, src: &str) -> Vec<Section> {
                 sec.provenance = tags;
                 continue;
             }
+        }
+        if !line.trim().is_empty() {
+            want_header = false;
         }
         sec.body.push_str(line);
         sec.body.push('\n');
@@ -703,6 +873,8 @@ fn guide() -> &'static Guide {
     static G: OnceLock<Guide> = OnceLock::new();
     G.get_or_init(|| {
         let sections: Vec<Section> = GUIDE_PAGES.iter().filter(|(p, _)| !NOT_INDEXED.contains(p)).flat_map(|(p, src)| split_page(p, src)).collect();
+        // (the compact headers aren't searched: the keyword index keeps its tuned weights; AI3's
+        // retrieval reads them through `Section::header`)
         let index = Index::build(sections.iter().map(|s| (s.heading.clone(), format!("{}\n{}\n{}", s.page_title, s.intro, s.body))));
         let lessons = Index::build(crate::coach::bundled().iter().map(|l| {
             let steps: Vec<&str> = l.steps.iter().flat_map(|s| [s.text.as_str(), s.why.as_str()]).collect();

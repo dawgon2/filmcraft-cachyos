@@ -2085,6 +2085,7 @@ dependencies = [
  "filmcraft-text",
  "filmcraft-time",
  "filmcraft-tts",
+ "filmcraft-usershader",
  "filmcraft-voice",
  "image",
  "log",
@@ -2094,6 +2095,7 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 1.1.6+spec-1.1.0",
  "web-time",
+ "zip",
 ]
 
 [[package]]
@@ -2190,6 +2192,7 @@ dependencies = [
  "filmcraft-render",
  "filmcraft-scopes",
  "filmcraft-time",
+ "filmcraft-usershader",
  "image",
  "log",
  "pollster 0.4.0",
@@ -2535,6 +2538,13 @@ dependencies = [
  "serde_json",
  "toml 1.1.6+spec-1.1.0",
  "web-time",
+]
+
+[[package]]
+name = "filmcraft-usershader"
+version = "0.6.0"
+dependencies = [
+ "naga",
 ]
 
 [[package]]

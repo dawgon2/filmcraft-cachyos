@@ -13,6 +13,9 @@
 //! | `audio.voiceover.sync` | the host's playback actually started at `time`: restart the capture there |
 //! | `audio.voiceover.stop` | stop capturing; write, import and place the recording (one undo step) |
 //!
+//! Each recording is tagged as a take of its record point; [`crate::voiceover_takes`] lists the
+//! takes and swaps them.
+//!
 //! Input goes through the [`AudioInput`] trait. The desktop app installs a cpal input; headless
 //! sessions (CLI, MCP, tests) use [`SyntheticInput`], a deterministic generated signal that produces
 //! exactly as many samples as the timeline asks for, so a recording lands sample-accurately.
@@ -501,6 +504,13 @@ fn stop(s: &mut Session, p: &Value) -> Result<Value> {
         filmcraft_edit::overwrite(seq, vec![(track, it)], &mut ctx)?;
         seq.check().map_err(EngineError::Other)?;
         pr.next_id = next;
+        // a take of this record point (audio.voiceover.takes)
+        let group = crate::voiceover_takes::group_key(rec.seq, track, at);
+        let take = crate::voiceover_takes::next_take(pr, &group);
+        if let Some(pi) = pr.item_mut(item) {
+            pi.metadata.insert(crate::voiceover_takes::TAKE_GROUP.into(), group);
+            pi.metadata.insert(crate::voiceover_takes::TAKE.into(), take.to_string());
+        }
         Ok(id)
     });
     crate::clip_ops::collapse_history(s, n0, "Record Voice-over");

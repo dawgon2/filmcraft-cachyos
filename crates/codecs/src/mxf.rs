@@ -57,6 +57,8 @@ pub struct MxfSource {
     atracks: Vec<(usize, u64)>,
     /// Presented sample frames.
     aframes: u64,
+    /// [`MediaSource::set_handoff_scale`] (f32 bits; 1.0: unscaled).
+    handoff_scale: std::sync::atomic::AtomicU32,
 }
 
 /// Picture order counts of AVC access units (Annex B), in stored order, as presentation
@@ -381,6 +383,7 @@ impl MxfSource {
             atracks: combined,
             aframes,
             file,
+            handoff_scale: 1.0f32.to_bits().into(),
         })
     }
 
@@ -420,6 +423,13 @@ impl VideoSamples for MxfVideo<'_> {
         self.src.file.read_sample(&self.src.bytes, self.track, i).map_err(|e| CodecError::Container(e.to_string()))
     }
     fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>> {
+        let s = f32::from_bits(self.src.handoff_scale.load(std::sync::atomic::Ordering::Relaxed));
+        if s < 1.0 { crate::hw::with_handoff_scale(Some(s), || self.make_decoder_unscaled()) } else { self.make_decoder_unscaled() }
+    }
+}
+
+impl MxfVideo<'_> {
+    fn make_decoder_unscaled(&self) -> crate::Result<Box<dyn VideoDecoder>> {
         if let Some(why) = &self.src.unsupported {
             return Err(CodecError::Unsupported(why.clone()));
         }
@@ -439,6 +449,10 @@ impl VideoSamples for MxfVideo<'_> {
 impl MediaSource for MxfSource {
     fn info(&self) -> &MediaInfo {
         &self.info
+    }
+    fn set_handoff_scale(&self, scale: f32) {
+        let s = if scale.is_finite() && scale > 0.0 && scale < 1.0 { scale } else { 1.0 };
+        self.handoff_scale.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
     }
 
     fn video_frame(&self, req: FrameRequest) -> Result<Arc<VideoFrame>, MediaError> {

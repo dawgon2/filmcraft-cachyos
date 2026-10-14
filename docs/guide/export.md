@@ -6,6 +6,8 @@ happens to HDR sequences
 
 ## Why
 
+> id: export.why | does: exporting renders every frame with its grade and effects into a file | resolve: Deliver page | premiere: Export mode | when: the edit is finished | see: export.open
+
 **[FilmCraft]**
 
 Exporting is the last step of every edit: FilmCraft renders each frame of the sequence (with every
@@ -16,6 +18,8 @@ else has a sensible default. If you know Premiere, the Export page works the way
 does: settings on the left, a preview in the middle, a queue on the side.
 
 ## Open the Export page
+
+> id: export.open | does: opens the Export page with the sequence's file name, location and format | ui: header.mode.export, export.fileName, export.location, export.format | cmd: file.exportMedia | resolve: Deliver page | premiere: Export mode | when: making a file of the sequence | see: export.presets
 
 **[FilmCraft]**
 
@@ -29,6 +33,8 @@ does: settings on the left, a preview in the middle, a queue on the side.
    with **Start Queue** {ui:export.queue.start} (`export.queue.start`).
 
 ## Choose a preset
+
+> id: export.presets | does: chooses or saves a set of export settings for where the file is going | ui: export.preset, export.preset.more, presetManager.* | cmd: export.presets.list, export.presets.save | resolve: render presets | premiere: export presets, Preset Manager | when: YouTube, a master file, a quick review copy | see: export.hevc
 
 **[FilmCraft] [Fork]**
 
@@ -51,6 +57,8 @@ H.265 presets for 6.2K footage to upstream's list:
    {ui:presetManager.save} (`export.presets.save`). `export.presets.list` lists every preset.
 
 ## How H.265 is encoded, and when it falls back
+
+> id: export.hevc | does: H.265 is encoded by the graphics card's video engine, falling back when it can't | ui: export.video.hevcEncoder, export.video.hwEncodeSpeed, export.video.exportEngines | cmd: export.lanes, export.lanesNote | resolve: Encoder: hardware / native | premiere: Hardware Encoding | when: export is slow or a setting is greyed out | see: hardware.jobs
 
 **[Fork]**
 
@@ -175,6 +183,8 @@ feature.
 
 ## Bitrate or constant quality
 
+> id: export.bitrate-crf | does: aims an encoder at a file size (bitrate) or a quality (CRF) | ui: export.video.bitrateMode, export.video.crf | resolve: Quality: restrict to / automatic | premiere: Bitrate Encoding: CBR, VBR | when: a file must fit a size, or look a certain way | see: export.presets
+
 **[Standard] [FilmCraft]**
 
 An encoder can aim for a **size** (a bitrate: so many megabits per second) or for a **quality**
@@ -197,6 +207,8 @@ only a CRF number. They still load: a preset with a CRF number and no mode opens
 without a number opens with its bitrate.
 
 ## HDR sequences export as Main 10
+
+> id: export.hdr-main10 | does: HDR sequences export as 10-bit H.265 Main 10 to avoid banding | ui: export.video.hevcProfile, export.video.hevcMain10Note | cmd: sequence.colorSettings | resolve: Main10 profile | premiere: HEVC Main 10 | when: exporting HDR | see: export.hevc
 
 **[Fork] [Standard]**
 

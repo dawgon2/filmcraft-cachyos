@@ -4,12 +4,16 @@
 
 ## Why
 
+> id: color.curves.why | does: curves map brightness in to brightness out for contrast and per-channel colour | resolve: Custom curves | premiere: Lumetri RGB Curves | when: soft contrast, a filmic shoulder, a channel tint | see: color.curves.steps
+
 **[Resolve-style]**
 
 A curve draws "brightness in" against "brightness out". Use it for contrast with a soft shoulder,
 for lifting only the shadows, or for pushing one range toward a colour through a single channel.
 
 ## Steps
+
+> id: color.curves.steps | does: steps to shape a master or red / green / blue curve | ui: grade.curve.*, grade.tab.curves | cmd: grade.setParam | resolve: Custom curves | premiere: Lumetri RGB Curves | when: drawing a curve on a node | see: color.curves.limits
 
 **[Resolve-style]**
 
@@ -26,6 +30,8 @@ has wheel or slider changes).
 
 ## Limits
 
+> id: color.curves.limits | does: what the curves can't do yet (hue curves, soft clip in the curve) | when: a curve you miss from Resolve | see: color.curves.resolve
+
 **[Fork]**
 
 - Four curves per node: master (Y), red, green, blue (keys `curve.master`, `curve.r`,
@@ -35,6 +41,8 @@ has wheel or slider changes).
   section, not yet in the node grader.
 
 ## If you know Resolve
+
+> id: color.curves.resolve | does: how these curves compare with Resolve's Custom and hue curves | resolve: Custom curves, Hue vs curves | when: you come from Resolve | see: color.curves.steps
 
 **[Resolve-style]**
 

@@ -5,6 +5,8 @@ reduction on the clip (fork Phases 6.7 and 6.7b)
 
 ## Why
 
+> id: color.noise.why | does: why log footage gets noisy when shadows are lifted, and where to fix it | resolve: Spatial / Temporal NR | premiere: Median / Noise reduction effects | when: grainy shadows after a grade | see: color.noise.steps
+
 **[Resolve-style]**
 
 Log footage such as F-Log2 is noisy in the shadows, and lifting the shadows in a grade makes the
@@ -18,6 +20,8 @@ averaging the same point over several frames removes noise and keeps detail. It 
 tool for static or slowly moving shots; spatial is the fallback where things move fast.
 
 ## Steps
+
+> id: color.noise.steps | does: spatial noise reduction on a node at the start of the chain | ui: grade.param.nr.*, grade.tab.noise | cmd: grade.insertNode, grade.setParam | resolve: Spatial NR | premiere: — (third-party plug-ins) | when: noise in one shot | see: color.noise.temporal
 
 **[Resolve-style]**
 
@@ -35,6 +39,8 @@ tool for static or slowly moving shots; spatial is the fallback where things mov
    node does *not* limit the noise reduction, see Limits.)
 
 ## Temporal noise reduction
+
+> id: color.noise.temporal | does: cleans noise using neighbouring frames, set per clip | ui: tnr.* | cmd: tnr.set, tnr.toggle, tnr.copy, tnr.paste, tnr.reset | resolve: Temporal NR | premiere: — | when: heavy noise on static or slow shots | see: color.noise.how
 
 **[Fork]**
 
@@ -80,6 +86,8 @@ node's spatial NR, then that node's correction. With temporal NR on, keep spatia
 
 ## How it works
 
+> id: color.noise.how | does: how the spatial (bilateral) and temporal filters decide what is noise | resolve: Spatial / Temporal NR internals | when: understanding artefacts and settings | see: color.noise.limits
+
 **[Standard]** **[Fork]**
 
 Spatial: an edge-preserving *bilateral* filter: each pixel is averaged with its neighbours,
@@ -100,6 +108,8 @@ speed, reverse and holds (a hold has no other frame to average, so nothing chang
 Motion between neighbouring frames is computed once and reused.
 
 ## Limits
+
+> id: color.noise.limits | does: where temporal NR renders and what it costs | ui: program.resolution | when: temporal NR doesn't show while playing | see: color.noise.temporal
 
 **[Fork]**
 
@@ -129,6 +139,8 @@ Motion between neighbouring frames is computed once and reused.
   radius, much more on the Intel GPU. Use lower playback resolution while grading.
 
 ## If you know Resolve
+
+> id: color.noise.resolve | does: how this compares with Resolve's NR palette | resolve: Spatial / Temporal NR | when: you come from Resolve | see: color.noise.steps
 
 **[Resolve-style]**
 

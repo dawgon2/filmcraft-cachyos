@@ -117,7 +117,10 @@ impl ExportRenderer {
                 // wgpu's default handler panics on a validation or out-of-memory error; log it and
                 // send the remaining frames to the CPU instead.
                 device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| mark_device_failed(&format!("GPU error: {e}"))));
-                device.set_device_lost_callback(|reason, msg| mark_device_failed(&format!("GPU device lost ({reason:?}): {msg}")));
+                device.set_device_lost_callback(|reason, msg| {
+                    mark_device_failed(&format!("GPU device lost ({reason:?}): {msg}"));
+                    crate::notify_device_lost();
+                });
                 Some((instance, device, queue))
             })
             .as_ref()?

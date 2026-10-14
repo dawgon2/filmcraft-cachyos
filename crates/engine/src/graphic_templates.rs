@@ -538,7 +538,14 @@ fn install_template(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(EngineError::Other(MOGRT.into()));
     }
     let b = s.services.read_file(&path).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
-    let mut t = GraphicsTemplate::from_bytes(&b).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    install_template_bytes(s, &b, &path)
+}
+
+/// Install a `.fcgt` template from its bytes into the user library (`what` names it in errors).
+/// Shared by `graphics.template.install` and look packs (`packs.import`, fork Y3.5).
+pub(crate) fn install_template_bytes(s: &mut Session, b: &[u8], what: &str) -> Result<Value> {
+    let path = what;
+    let mut t = GraphicsTemplate::from_bytes(b).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     if !t.id.starts_with("user:") {
         t.id = format!("user:{}", gtemplate::slug(&t.name));
     }

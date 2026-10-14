@@ -884,7 +884,7 @@
 	Mix	Mixage
 	Reverb	Réverbération
 	Stereo Width	Largeur stéréo
-	Remixing music to a target duration is not available yet. Trim the clip and add a crossfade instead.	Le remixage de la musique à une durée cible n'est pas encore disponible. Rognez plutôt le clip et ajoutez un fondu enchaîné.
+	To fit music to a length, select the clip and choose Clip ▸ Remix ▸ Enable Remix, then Remix Properties….	Pour ajuster une musique à une durée, sélectionnez le clip et choisissez Clip ▸ Remix ▸ Activer le remix, puis Propriétés du remix….
 	Pan	Panoramique
 	Auto-Match	Correspondance auto
 	Not matched yet	Pas encore mis en correspondance
@@ -3600,3 +3600,15 @@
 	Dismiss Camera Card	Ignorer la carte d'appareil photo
 	Card	Carte
 	Match the desktop's text size	Suivre la taille du texte du bureau
+	Clean Up Voice	Nettoyer la voix
+	Limit True Peak	Limiter le pic réel
+	Ceiling	Plafond
+	Takes	Prises
+	Take {n}	Prise {n}
+	In use	Utilisée
+	Use	Utiliser
+	Missing effect	Effet manquant
+	Needs the GPU: on the CPU these effects leave the picture unchanged	Nécessite le GPU : sur le CPU, ces effets laissent l'image inchangée
+	No data folder for user effects in this session	Aucun dossier de données pour les effets utilisateur dans cette session
+	Open Effects Folder	Ouvrir le dossier des effets
+	Reload	Recharger

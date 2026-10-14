@@ -51,6 +51,7 @@ filmcraft-speech = { workspace = true }
 filmcraft-tts = { workspace = true }
 filmcraft-llm = { workspace = true }
 filmcraft-voice = { workspace = true }
+filmcraft-usershader = { workspace = true }
 sha2 = { version = "0.10", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -62,6 +63,8 @@ crc32fast = "1"
 # Grading Coach lesson files (assets/lessons/*.toml), embedded and parsed at run time.
 toml = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Look packs (fork Y3.5): zip containers; Deflate through zlib-rs (pure Rust, already in the tree).
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 filmcraft-testkit = { workspace = true }

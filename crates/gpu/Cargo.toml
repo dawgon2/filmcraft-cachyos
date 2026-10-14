@@ -53,3 +53,5 @@ wgpu = { version = "30", features = ["wgsl", "metal", "vulkan", "dx12", "gles"] 
 filmcraft-media = { workspace = true }
 filmcraft-time = { workspace = true }
 filmcraft-scopes = { workspace = true }
+# User shader effects' modules (`user_fx_tests`).
+filmcraft-usershader = { workspace = true }

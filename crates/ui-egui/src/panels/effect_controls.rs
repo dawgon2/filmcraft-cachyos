@@ -161,7 +161,15 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     tnr_section(app, bui, body, &lane, clip, it, &mut actions);
                 }
                 let e = &it.effects[idx];
-                let Some(def) = e.def() else { continue };
+                let Some(def) = e.def() else {
+                    // a user shader effect whose file is gone (ADR 0006): kept with its values
+                    let (r, _) = bui.allocate_exact_size(vec2(body.width(), ROW_H), Sense::hover());
+                    row_line(bui, r, &lane, &t);
+                    let label = format!("⚠ {}: {}", tl!("Missing effect"), e.effect);
+                    row_label(bui, pos2(r.min.x + 42.0, r.center().y), &label, r.max.x - 8.0 - (r.min.x + 42.0), Tokens::ui(12.0), t.text_dim);
+                    app.auto.add(&format!("effectControls.missing.{}", e.effect), r, &label);
+                    continue;
+                };
                 let key = format!("{}:{}", clip.0, idx);
                 let open = !app.ui.collapsed_fx.contains(&key);
                 let (r, resp) = bui.allocate_exact_size(vec2(body.width(), ROW_H), Sense::click());
@@ -234,6 +242,12 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     {
                         graph_rows(app, bui, body, clip, idx, None, pd, param, &lane, it, &mut actions);
                     }
+                }
+                if e.effect == "corner_pin" {
+                    corner_pin_track_row(app, bui, body, &lane, clip, idx, &mut actions);
+                }
+                if e.effect == "motion" {
+                    attach_track_row(app, bui, body, &lane, clip, &mut actions);
                 }
                 if crate::panels::masks::maskable(e) {
                     crate::panels::masks::effect_rows(app, bui, body, clip, idx, e, mt_now, &mut actions, &lane, &lx, it);
@@ -327,6 +341,106 @@ fn custom_setup_row(app: &mut FilmcraftApp, ui: &mut egui::Ui, body: Rect, lane:
     if resp.clicked() {
         crate::panels::audio_fx_editor::open(app, crate::panels::audio_fx_editor::FxTarget::Clip { clip: clip.0, index: idx });
     }
+}
+
+/// Corner Pin's **Track Surface** row (fork Y3.3c, `tracking.cornerPin`): track the flat surface
+/// inside the four points in the clip below, backward continuously / one frame, forward one frame
+/// / continuously; clicking while a track runs stops it.
+fn corner_pin_track_row(app: &mut FilmcraftApp, ui: &mut egui::Ui, body: Rect, lane: &Rect, clip: ClipId, idx: usize, actions: &mut Vec<(String, Value)>) {
+    let t = app.tokens;
+    let (r, _) = ui.allocate_exact_size(vec2(body.width(), ROW_H), Sense::hover());
+    row_line(ui, r, lane, &t);
+    ui.painter().text(pos2(r.min.x + 42.0, r.center().y), Align2::LEFT_CENTER, tl!("Track Surface"), Tokens::ui(12.0), t.text_dim);
+    let running = app.session.pin_jobs.iter().find(|j| j.clip == clip && j.effect == idx).map(|j| j.job);
+    let mut x = r.min.x + 160.0;
+    for (icon, dir, frames, id, tip) in [
+        (Icon::TrackMaskBack, "backward", None, "effectControls.cornerPin.track.back", tl!("Track the surface backward")),
+        (Icon::TrackMaskBackFrame, "backward", Some(1), "effectControls.cornerPin.track.backFrame", tl!("Track the surface backward 1 frame")),
+        (Icon::TrackMaskFwdFrame, "forward", Some(1), "effectControls.cornerPin.track.fwdFrame", tl!("Track the surface forward 1 frame")),
+        (Icon::TrackMaskFwd, "forward", None, "effectControls.cornerPin.track.fwd", tl!("Track the surface forward")),
+    ] {
+        let br = Rect::from_min_size(pos2(x, r.min.y + 1.0), vec2(20.0, ROW_H - 2.0));
+        x += 22.0;
+        let resp = ui.interact(br, egui::Id::new(("fx-pin-track", clip.0, idx, id)), Sense::click());
+        let resp = resp.on_hover_text(if running.is_some() { tl!("Stop tracking") } else { tip });
+        if resp.hovered() {
+            ui.painter().rect_filled(br, 3.0, t.hover);
+        }
+        icons::paint(ui.painter(), br.shrink(3.0), icon, if running.is_some() { t.accent } else { t.icon });
+        app.auto.add(id, br, tip);
+        if resp.clicked() {
+            match running {
+                Some(job) => actions.push(("jobs.cancel".into(), json!({"job": job}))),
+                None => {
+                    let mut p = json!({"clip": clip.0, "effect": idx, "direction": dir});
+                    if let Some(n) = frames {
+                        p["frames"] = json!(n);
+                    }
+                    actions.push(("tracking.cornerPin".into(), p));
+                }
+            }
+        }
+    }
+}
+
+/// Motion's **Attach to Track** row (fork Y3.2b, `tracking.attach`): the clip's Position (and,
+/// by the method menu, Rotation and Scale) follows what is under it in the clip below; backward
+/// continuously / one frame, forward one frame / continuously; clicking while it runs stops it.
+fn attach_track_row(app: &mut FilmcraftApp, ui: &mut egui::Ui, body: Rect, lane: &Rect, clip: ClipId, actions: &mut Vec<(String, Value)>) {
+    use filmcraft_project::TrackMethod;
+    let t = app.tokens;
+    let (r, _) = ui.allocate_exact_size(vec2(body.width(), ROW_H), Sense::hover());
+    row_line(ui, r, lane, &t);
+    ui.painter().text(pos2(r.min.x + 42.0, r.center().y), Align2::LEFT_CENTER, tl!("Attach to Track"), Tokens::ui(12.0), t.text_dim);
+    let running = app.session.attach_jobs.iter().find(|j| j.clip == clip).map(|j| j.job);
+    let mem = egui::Id::new(("fx-attach-method", clip.0));
+    let method = ui.data(|d| d.get_temp::<usize>(mem)).and_then(|i| TrackMethod::ALL.get(i).copied()).unwrap_or(TrackMethod::Position);
+    let mut x = r.min.x + 160.0;
+    for (icon, dir, frames, id, tip) in [
+        (Icon::TrackMaskBack, "backward", None, "effectControls.motion.attach.back", tl!("Follow the track backward")),
+        (Icon::TrackMaskBackFrame, "backward", Some(1), "effectControls.motion.attach.backFrame", tl!("Follow the track backward 1 frame")),
+        (Icon::TrackMaskFwdFrame, "forward", Some(1), "effectControls.motion.attach.fwdFrame", tl!("Follow the track forward 1 frame")),
+        (Icon::TrackMaskFwd, "forward", None, "effectControls.motion.attach.fwd", tl!("Follow the track forward")),
+    ] {
+        let br = Rect::from_min_size(pos2(x, r.min.y + 1.0), vec2(20.0, ROW_H - 2.0));
+        x += 22.0;
+        let resp = ui.interact(br, egui::Id::new(("fx-attach", clip.0, id)), Sense::click());
+        let resp = resp.on_hover_text(if running.is_some() { tl!("Stop tracking") } else { tip });
+        if resp.hovered() {
+            ui.painter().rect_filled(br, 3.0, t.hover);
+        }
+        icons::paint(ui.painter(), br.shrink(3.0), icon, if running.is_some() { t.accent } else { t.icon });
+        app.auto.add(id, br, tip);
+        if resp.clicked() {
+            match running {
+                Some(job) => actions.push(("jobs.cancel".into(), json!({"job": job}))),
+                None => {
+                    let name = match method {
+                        TrackMethod::Position => "position",
+                        TrackMethod::PositionRotation => "positionRotation",
+                        TrackMethod::PositionScaleRotation => "positionScaleRotation",
+                    };
+                    let mut p = json!({"clip": clip.0, "direction": dir, "method": name});
+                    if let Some(n) = frames {
+                        p["frames"] = json!(n);
+                    }
+                    actions.push(("tracking.attach".into(), p));
+                }
+            }
+        }
+    }
+    let br = Rect::from_min_size(pos2(x, r.min.y + 1.0), vec2(20.0, ROW_H - 2.0));
+    let resp = ui.interact(br, egui::Id::new(("fx-attach-method-btn", clip.0)), Sense::click());
+    icons::paint(ui.painter(), br.shrink(3.0), Icon::Wrench, if resp.hovered() { t.tab_text_active } else { t.icon });
+    app.auto.add("effectControls.motion.attach.method", br, "Follow");
+    let resp = resp.on_hover_text(tlf!("Follow: {method}", method = crate::i18n::t(method.label())));
+    egui::Popup::menu(&resp).show(|ui| {
+        for (i, tm) in TrackMethod::ALL.into_iter().enumerate() {
+            if ui.selectable_label(tm == method, crate::i18n::t(tm.label())).clicked() {
+                ui.data_mut(|d| d.insert_temp(mem, i));
+            }
+        }
+    });
 }
 
 /// The clip's fixed **Temporal NR** section (fork 6.7b; the Inspector in the Resolve workflow):

@@ -1274,7 +1274,8 @@ mod tests {
         // badge spot checks
         let b = |n: &str| find_effect_by_name(n).map(|d| (d.accelerated, d.float32, d.yuv)).unwrap();
         assert_eq!(b("ProcAmp"), (true, true, true));
-        assert_eq!(b("Luma Key"), (false, true, true));
+        // GPU since fork Y3.1
+        assert_eq!(b("Luma Key"), (true, true, true));
         assert_eq!(b("Black & White"), (true, false, true));
         assert_eq!(b("Glint"), (false, true, false));
         assert_eq!(b("Lumetri Color"), (true, true, true));

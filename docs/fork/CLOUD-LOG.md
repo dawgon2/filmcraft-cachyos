@@ -58,3 +58,36 @@ them by label only. The export dialog has no SDR switch for HDR sequences (only 
 work: backfill `docs/guide/editing.md` (cutting, JKL, multicam; proxies / render cache once 6.2 /
 6.3 land) and the scopes section of `color/finishing.md`; or a walk extension in `coach_ui.rs`
 that opens the Export page so its ids are seen instead of listed in `NOT_WALKED`.
+
+## 2026-10-14 12:17–12:25 UTC (cloud run; stopped because the PC heartbeat came back)
+
+origin/cloud-work was already merged into hevc-vaapi, so cloud-work was fast-forwarded to
+`730e95df`. Worked CLOUD-QUEUE:
+
+- **C1-PREP (item 7): not done, superseded.** `docs/fork/DESIGN-C1.md` (2026-10-12) already covers
+  what exists, the per-step gaps and the files, so a PREP-C1.md would duplicate it. The PC can strike it.
+- `fbf60f1d` **MKV-HANDOFF (item 11)**: `MkvSource` and `MxfSource` store the hand-off scale
+  (same sanitising as `Mp4Source`: finite, in (0, 1), else 1.0) and make their decoders inside
+  `hw::with_handoff_scale`. MXF was included because its VC-3 / ProRes decoders also come from
+  `make_video_decoder` (VideoToolbox could take ProRes); MPEG-TS / APV build our software
+  decoders directly, so they have nothing to scale. `hw.rs` and `mp4.rs` were not touched
+  (don't-touch list). New `crates/codecs/tests/handoff_scale.rs`: a recording factory (registered
+  ahead of the built-ins, declines, so our decoders still decode) checks MP4 / MKV / MXF:
+  unset → 1.0, 0.5 → 0.5, NaN / ∞ / 0 / −0.5 / 1 / 2 → 1.0, and the scale doesn't leak past
+  decoder creation. MKV and MXF failed before the change (checked by stashing it).
+
+**Verified on CPU:** `cargo test -p filmcraft-codecs --lib --test mxf_oracle --test
+handoff_scale` (113 + 9 + 3 ok), `cargo clippy -p filmcraft-codecs --all-targets -D warnings`,
+`cargo fmt --check`. No dependency changes, so `xtask layers` is unaffected.
+
+**UNVERIFIED ON GPU / owed by the PC:** one 4K-from-6.2K **MKV** export on the PC with Intel
+(VA-API) decoding, checking the hand-off copies are made at the export scale (as for MP4 in
+U0.2.3b d). Full `cargo xtask ci` at the next boundary.
+
+**Questions for the owner:** none.
+
+**Known problems:** none found.
+
+**Cloud's exact next step:** CLOUD-QUEUE item 9 **R1-PREP** (`docs/fork/PREP-R1.md`, docs only),
+then item 10 **TEARDOWN-FLAKE** (`tests/ui/teardown_ui.rs`, needs 3 parallel runs of the ui test
+binary with `RUST_TEST_THREADS=12`; long build, start it early).

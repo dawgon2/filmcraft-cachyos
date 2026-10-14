@@ -209,3 +209,69 @@ fn cue_times_count_down_whole_seconds() {
     assert_eq!(tone.len(), 4_800);
     assert!(tone.iter().all(|x| x.abs() <= 0.25) && tone[0] == 0.0);
 }
+
+/// Per-take review (fork AUDIO-PLAN A2.9): recording twice at one point keeps both takes; the
+/// review lists them and swaps one in with the clip's processing, as one undo step.
+#[test]
+fn takes_are_kept_listed_and_swapped_with_their_processing() {
+    let (mut s, rt, ti) = demo();
+    let dir = tmp("takes");
+    s.execute("audio.voiceover.settings", json!({"prerollSeconds": 0.0})).unwrap();
+    s.voiceover.input = Some(Box::new(SyntheticInput::clicks()));
+    s.execute("audio.voiceover.start", json!({"track": rt, "time": sec(2.0)})).unwrap();
+    let t1 = s.execute("audio.voiceover.stop", json!({"time": sec(3.5), "dir": dir})).unwrap();
+    s.execute("audio.voiceover.start", json!({"track": rt, "time": sec(2.0)})).unwrap();
+    let t2 = s.execute("audio.voiceover.stop", json!({"time": sec(3.0), "dir": dir})).unwrap();
+    let clip2 = t2["clip"].as_u64().unwrap();
+    let l = s.execute("audio.voiceover.takes", json!({"clip": clip2})).unwrap();
+    let takes = l["takes"].as_array().unwrap();
+    assert_eq!(takes.len(), 2, "{l}");
+    assert_eq!((takes[0]["take"].clone(), takes[1]["take"].clone()), (json!(1), json!(2)));
+    assert_eq!(takes[1]["current"], json!(true));
+    assert_eq!(takes[0]["item"], t1["item"]);
+    // the clip's processing goes with the take
+    s.execute("essentialSound.setType", json!({"clips": [clip2], "type": "dialogue"})).unwrap();
+    s.execute("essentialSound.set", json!({"clips": [clip2], "key": "repair.rumble.on", "value": true})).unwrap();
+    let n_undo = s.history.undo.len();
+    let r = s.execute("audio.voiceover.pickTake", json!({"clip": clip2, "item": t1["item"]})).unwrap();
+    assert_eq!(s.history.undo.len(), n_undo + 1, "one undo step");
+    let clips = track_clips(&s, ti);
+    assert_eq!(clips.len(), 1, "the take replaces the clip");
+    let c = &clips[0];
+    assert_eq!((c.id.0, c.item.0, c.start, c.duration), (r["clip"].as_u64().unwrap(), t1["item"].as_u64().unwrap(), Tick(sec(2.0)), Tick(sec(1.5))));
+    assert!(c.essential.as_ref().is_some_and(|e| e.repair.rumble.on));
+    assert!(c.effects.iter().any(|e| e.effect == "highpass"));
+    // picking the take in use changes nothing; undo restores take 2
+    let same = s.execute("audio.voiceover.pickTake", json!({"clip": c.id.0, "item": t1["item"]})).unwrap();
+    assert_eq!(same["changed"], json!(false));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(track_clips(&s, ti)[0].item.0, t2["item"].as_u64().unwrap());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn takes_refuse_foreign_items_and_damaged_groups() {
+    let (mut s, rt, _) = demo();
+    let dir = tmp("takes-hostile");
+    s.voiceover.input = Some(Box::new(SyntheticInput::clicks()));
+    s.execute("audio.voiceover.start", json!({"track": rt, "time": sec(1.0)})).unwrap();
+    let t = s.execute("audio.voiceover.stop", json!({"time": sec(2.0), "dir": dir})).unwrap();
+    let clip = t["clip"].as_u64().unwrap();
+    // not a take of this clip / no item / not a recording / nothing selected
+    let other = s.active_sequence().unwrap().audio_tracks[0].items[0].clone();
+    assert!(s.execute("audio.voiceover.pickTake", json!({"clip": clip, "item": other.item.0})).is_err());
+    assert!(s.execute("audio.voiceover.pickTake", json!({"clip": clip})).is_err());
+    assert!(s.execute("audio.voiceover.takes", json!({"clip": other.id.0})).is_err());
+    assert!(s.execute("audio.voiceover.takes", json!({"clip": 999_999})).is_err());
+    s.execute("edit.deselectAll", json!({})).unwrap();
+    assert!(s.execute("audio.voiceover.takes", json!({})).is_err());
+    // a damaged group (hand-edited project) lists but never places
+    let item = filmcraft_project::ItemId(t["item"].as_u64().unwrap());
+    let mut p = (*s.project).clone();
+    p.item_mut(item).unwrap().metadata.insert(crate::voiceover_takes::TAKE_GROUP.into(), "x/y/zz".into());
+    p.item_mut(item).unwrap().metadata.insert(crate::voiceover_takes::TAKE.into(), "-3".into());
+    s.project = std::sync::Arc::new(p);
+    let l = s.execute("audio.voiceover.takes", json!({"clip": clip})).unwrap();
+    assert_eq!(l["takes"].as_array().unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

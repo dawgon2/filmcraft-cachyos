@@ -4,7 +4,7 @@ Jobs for the cloud routine (branch `cloud-work`, only while the PC is down; FORK
 CPU-verifiable, chosen not to overlap with what the PC run is doing. Take them top to bottom; note
 each in `docs/fork/CLOUD-LOG.md` with what is UNVERIFIED ON GPU.
 
-**PC is doing now (2026-10-14 03:00, scheduled run): X422 (6.2K 4:2:2 graded export; next the fused graded passes, §1a.71) and AI1.4 (SmolLM2-135M tune); don't touch `crates/gpu`, `crates/export`, `crates/platform`, `crates/render/src/plan*`, `tools/explainer-train`; the Dell lane is on A2 (`crates/voice`), don't touch that either**. Also **don't touch**
+**PC is doing now (2026-10-14 09:10, scheduled run): the yt-3 acceptance (full ci, tag, build, publish), then C1 (COMPOSITOR-PLAN; `crates/project` comp types, `crates/engine` comp.* commands, `crates/gpu` comp evaluation, a node canvas in `crates/ui-egui`); don't touch those C1 areas, `crates/usershader`, `crates/gpu/src/fx.rs`, or `crates/engine/src/user_effects*`; the Dell lane is on AI3-PREP (guide headers, `crates/engine/src/coach_ask*`), don't touch that either**. Also **don't touch**
 `crates/hevc`, `crates/codecs` (hybrid / hw factory), `crates/export/src/lanes/`, or the Dell lane's
 Linux desktop files (`apps/filmcraft/src/{desktop,mpris,cards,kdeconnect,portal*}.rs`). Earlier rules:
 **Don't touch** `crates/ui-egui/src/{app.rs,menus.rs,theme.rs,workspaces*,i18n/mod.rs}`,
@@ -47,7 +47,7 @@ FORK-PLAN §1a.40 (c)). Also don't touch the TNR / grade compiler code (step 6.7
    blur, screen replacement, WGSL custom shaders, look packs): what exists (keyers, tracker,
    effect registry), the gaps, and a lane split; write `docs/fork/PREP-Y3.md`. No code changes.
    GPU owed: none.
-7. **C1-PREP, docs only (CPU):** read COMPOSITOR-PLAN.md C1 and C2 and audit what they build on
+7. **~~C1-PREP~~ SUPERSEDED (cloud 2026-10-14): `docs/fork/DESIGN-C1.md` covers it; don't do.** Was: **C1-PREP, docs only (CPU):** read COMPOSITOR-PLAN.md C1 and C2 and audit what they build on
    (the grade node model and compiler, `effects` / FxOps, GPU compositing in the renderer, keyers,
    masks, text / title rendering, the ADR list); write `docs/fork/PREP-C1.md`: what exists, gaps
    per C1 / C2 step with the files they touch, risks (serde of the DAG, cycles, GPU memory),
@@ -69,9 +69,27 @@ FORK-PLAN §1a.40 (c)). Also don't touch the TNR / grade compiler code (step 6.7
    thumbnail jobs) and make closing wait for / cancel it deterministically, or make the test
    measure the right thing; never just raise the timeout. Done = the test passes in 3 full
    parallel runs of the ui test binary with `RUST_TEST_THREADS=12`. GPU owed: none.
-11. **MKV-HANDOFF, `crates/codecs` (CPU):** `MediaSource::set_handoff_scale` is implemented for
+11. **~~MKV-HANDOFF~~ DONE (cloud `fbf60f1d`, merged and tested on the PC 2026-10-14; the MKV Intel export check is still owed by the PC).** Was: **MKV-HANDOFF, `crates/codecs` (CPU):** `MediaSource::set_handoff_scale` is implemented for
    MP4 / MOV only (`mp4.rs`, U0.2.3b d). Give `mkv.rs` (and any other source whose decoder comes from
    `make_video_decoder`) the same: store the scale, wrap its decoder creation in
    `hw::with_handoff_scale`. Done = a unit test per source that the scale reaches
    `hw::handoff_scale()` inside decoder creation (a test factory can record it). GPU owed: one
    4K-from-6.2K MKV export on the PC with Intel decoding.
+12. **USHADER-HOSTILE, `crates/usershader` tests only (CPU):** a deterministic generator test
+   (no new dependency: a small xorshift) that feeds `parse` 2 000 mutated effect files (random
+   annotation lines, truncated / repeated `// @param`, huge numbers, NaN / inf defaults, non-ASCII
+   names, `fx_` names, nested comments, 16+ params, empty file) and asserts it never panics, every
+   error has a line inside the file or none, and every accepted effect validates with `validate`.
+   Done = the test passes in < 10 s. GPU owed: none.
+13. **USERFX-FOLDER, `crates/engine` test only (CPU):** extend `user_effects_tests.rs` for the
+   Effects folder edge cases: a symlink loop / a directory named `x.wgsl`, a non-UTF-8 file, an empty
+   file, 300 files (cap `MAX_FILES` 256, the rest reported in the log), two files whose stems give
+   the same id (`My Glow.wgsl` / `my-glow.wgsl`), upper-case `.WGSL`. Fix what panics or misreports
+   (with the test). Done = tests green. GPU owed: none.
+14. **GUIDE-SHADER-COOKBOOK, docs only (CPU):** add a "Recipes" section to
+   `docs/guide/shader-effects.md` with 3 short original example effects users can copy (vignette
+   with a softness control, a duotone using two colour params, a time-driven pulse), each checked by
+   a new engine test that parses and validates it with `filmcraft_usershader::validate`; compact
+   header per `docs/guide/README.md`; keep the coach eval at its floor (`coach_ask_tests`; reword
+   rather than lower it). GPU owed: render each recipe once on AMD and Intel.
+

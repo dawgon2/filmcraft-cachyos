@@ -4,6 +4,8 @@
 
 ## Why
 
+> id: color.nodes.why | does: why a grade is split into nodes, one job per node | resolve: serial nodes | premiere: — (one Lumetri effect, or several stacked) | when: a grade gets hard to follow | see: color.nodes.panel
+
 **[Resolve-style]**
 
 One big correction is hard to reason about. Splitting a grade into nodes, **one job per node**
@@ -12,6 +14,8 @@ only the steps you want to other clips. Today the chain is **serial**: node 1 fe
 node 3. The grade belongs to the clip, not to the sequence.
 
 ## The Nodes panel
+
+> id: color.nodes.panel | does: the Nodes panel: the clip's chain of nodes, the selected node, on / off | ui: grade.addNode, grade.toggleNode, grade.bypass | cmd: grade.selectNode, grade.toggleNode, grade.bypass | resolve: Node editor | premiere: — | when: finding and switching nodes | see: color.nodes.three-node
 
 **[Resolve-style]** **[Fork]**
 
@@ -40,6 +44,8 @@ rendered)".
 
 ## Steps: build a three-node grade
 
+> id: color.nodes.three-node | does: steps to build a balance, contrast and look grade in three nodes | ui: grade.addFirst, grade.addNode | cmd: grade.addNode, grade.labelNode | resolve: serial nodes (Alt+S) | premiere: — | when: your first multi-node grade | see: color.nodes.starter-tree
+
 **[Resolve-style]**
 
 1. Select a clip. In **Primaries** press **Add Node** {ui:grade.addFirst} (or **+ Serial** in
@@ -53,6 +59,8 @@ rendered)".
 
 ## Delete a node
 
+> id: color.nodes.delete | does: removes a node and its correction from the chain | ui: grade.removeNode | cmd: grade.removeNode | resolve: Delete node | when: a node that no longer does anything useful | see: color.nodes.undo
+
 **[Resolve-style]**
 
 A node you no longer need only makes the grade harder to read. Deleting (removing) it takes its
@@ -65,6 +73,8 @@ settings for later, use **Disable** {ui:grade.toggleNode} instead.
 3. Changed your mind? **Ctrl+Z** brings the node back with its settings.
 
 ## Reorder and name nodes
+
+> id: color.nodes.reorder | does: moves nodes earlier or later and names them | ui: grade.insertNode, grade.renameNode | cmd: grade.moveNode, grade.labelNode, grade.insertNode | resolve: node labels, dragging nodes | when: making a grade readable; fixing the order | see: color.nodes.orders
 
 **[Fork]**
 
@@ -81,6 +91,8 @@ Right-clicking a node also offers **Disable** / **Enable**, **Reset** and **Dele
 command (control channel, MCP or command list).
 
 ## A starter tree for F-Log2
+
+> id: color.nodes.starter-tree | does: a node order to start from for F-Log2 footage, and why each node sits where it does | resolve: fixed node tree for log footage | premiere: Lumetri section order | when: grading X-M5 F-Log2 clips | see: color.nodes.orders
 
 **[Resolve-style] [Fork]**
 
@@ -109,6 +121,8 @@ automatic ([color-management.md](color-management.md)). The app does not build t
 you; add nodes with **+ Serial**.
 
 ## Other node orders, and why you'd choose them
+
+> id: color.nodes.orders | does: other node orders in use, with their trade-offs | resolve: node tree habits | when: your footage or habits don't fit the starter tree | see: color.nodes.starter-tree
 
 **[Resolve-style] [Standard]**
 
@@ -151,11 +165,15 @@ balance node per shot), then share the look node across all of them.
 
 ## Undo
 
+> id: color.nodes.undo | does: every node command is one undo step | cmd: grade.resetNode | resolve: undo, reset node | when: a node change went wrong | see: color.nodes.delete
+
 **[FilmCraft]**
 
 Every node command is one undo step. Delete a node, undo, and it comes back with its settings.
 
 ## If you know Resolve
+
+> id: color.nodes.resolve | does: how this node chain compares with Resolve's node graph | resolve: Node editor | when: you come from Resolve | see: color.nodes.later
 
 **[Resolve-style]**
 
@@ -165,6 +183,8 @@ With Workflow set to Resolve the keys follow Resolve's: add serial node **Alt+S*
 macOS). In the default Premiere workflow these commands have no shortcut.
 
 ## Later: parallel and layer nodes (C2)
+
+> id: color.nodes.later | does: parallel, layer, splitter, outside and key-mixer nodes that are planned | resolve: parallel / layer / outside nodes | when: a Resolve node type you can't find | see: color.nodes.resolve
 
 **[Resolve-style]**
 

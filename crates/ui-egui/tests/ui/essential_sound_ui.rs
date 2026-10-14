@@ -20,9 +20,13 @@ struct Driver {
 
 impl Driver {
     fn demo() -> Self {
-        let mut session = Session::default();
         // (the Premiere header, workspaces and Export mode; the fork build defaults to Resolve, RS3)
-        session.prefs.workflow = filmcraft_engine::settings::Workflow::Premiere;
+        Self::demo_in(filmcraft_engine::settings::Workflow::Premiere)
+    }
+
+    fn demo_in(workflow: filmcraft_engine::settings::Workflow) -> Self {
+        let mut session = Session::default();
+        session.prefs.workflow = workflow;
         session.execute("file.openDemoProject", json!({})).expect("demo project");
         let (tx, rx) = channel();
         let app = FilmcraftApp::new(session).with_control(rx);
@@ -254,4 +258,87 @@ fn essential_sound_panel_by_id_and_by_drag() {
     d.snapshot("essential-sound-browse", Some("essentialSound."));
     d.click("essentialSound.tab.Edit");
     d.snapshot("essential-sound-audio-workspace", None);
+}
+
+/// Repair ▸ Clean Up Voice and the Voice Isolation slot, Loudness ▸ Limit True Peak (fork AUDIO-PLAN
+/// A2.8), in both workflows: one click sets the visible controls in one undo step.
+#[test]
+fn clean_up_voice_in_both_workflows() {
+    for workflow in [filmcraft_engine::settings::Workflow::Premiere, filmcraft_engine::settings::Workflow::Resolve] {
+        let mut d = Driver::demo_in(workflow);
+        let ws = if workflow == filmcraft_engine::settings::Workflow::Resolve { "Fairlight Page" } else { "Audio" };
+        d.ok("ui.set", json!({"workspace": ws}));
+        d.ok("ui.panel.show", json!({"panel": "Essential Sound"}));
+        d.frames(3);
+        let seq = d.exec("sequence.inspect", json!({}));
+        let a1 = seq["audio"][0]["items"][0]["clip"].as_u64().unwrap();
+        d.exec("timeline.select", json!({"clips": [a1]}));
+        d.exec("essentialSound.setType", json!({"type": "dialogue"}));
+        d.frames(3);
+        let ids = d.ids("essentialSound.");
+        for id in ["essentialSound.cleanupVoice", "essentialSound.repair.isolate.on", "essentialSound.repair.isolate.amount"] {
+            assert!(ids.iter().any(|i| i == id), "{workflow:?}: {id} missing from {ids:?}");
+        }
+        let undo0 = d.exec("history.list", json!({}))["undo"].as_array().unwrap().len();
+        d.click("essentialSound.cleanupVoice");
+        // a background job, applied when it finishes
+        let mut c = es(&mut d, a1);
+        for _ in 0..1500 {
+            if c["settings"]["loudness"]["limit"] == true {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            d.frames(1);
+            c = es(&mut d, a1);
+        }
+        assert_eq!(c["settings"]["repair"]["rumble"]["on"], true, "{workflow:?}: {c}");
+        assert_eq!(c["settings"]["loudness"]["limit"], true, "{workflow:?}: {c}");
+        assert!(c["effects"].as_array().unwrap().iter().any(|e| e["effect"] == "hard_limiter"), "{workflow:?}: {c}");
+        assert_eq!(d.exec("history.list", json!({}))["undo"].as_array().unwrap().len(), undo0 + 1, "one undo step");
+        // the limit is an ordinary switch
+        d.click("essentialSound.section.Loudness");
+        d.frames(2);
+        d.click("essentialSound.loudness.limit");
+        assert_eq!(es(&mut d, a1)["settings"]["loudness"]["limit"], false, "{workflow:?}");
+        d.click("essentialSound.repair.isolate.on");
+        assert_eq!(es(&mut d, a1)["settings"]["repair"]["isolate"]["on"], json!(!c["settings"]["repair"]["isolate"]["on"].as_bool().unwrap()));
+    }
+}
+
+/// Per-take review (fork AUDIO-PLAN A2.9) in both workflows: two recordings at one point show as
+/// Takes with waveforms in Essential Sound, and Use puts the other one in place.
+#[test]
+fn voice_over_takes_in_both_workflows() {
+    for workflow in [filmcraft_engine::settings::Workflow::Premiere, filmcraft_engine::settings::Workflow::Resolve] {
+        let mut d = Driver::demo_in(workflow);
+        let ws = if workflow == filmcraft_engine::settings::Workflow::Resolve { "Fairlight Page" } else { "Audio" };
+        d.ok("ui.set", json!({"workspace": ws}));
+        d.ok("ui.panel.show", json!({"panel": "Essential Sound"}));
+        d.exec("sequence.addTracks", json!({"video": 0, "audio": 1}));
+        let n = d.exec("sequence.inspect", json!({}))["audio"].as_array().unwrap().len();
+        let track = format!("A{n}");
+        let dir = std::env::temp_dir().join(format!("filmcraft-takes-ui-{}-{workflow:?}", std::process::id()));
+        let dir = dir.to_string_lossy().to_string();
+        let tps = filmcraft_time::TICKS_PER_SECOND;
+        d.exec("audio.voiceover.settings", json!({"prerollSeconds": 0.0}));
+        let mut takes = Vec::new();
+        for end in [3.5, 3.0] {
+            d.exec("audio.voiceover.start", json!({"track": track, "time": 2 * tps}));
+            takes.push(d.exec("audio.voiceover.stop", json!({"time": (end * tps as f64) as i64, "dir": dir})));
+        }
+        let clip2 = takes[1]["clip"].as_u64().unwrap();
+        d.exec("timeline.select", json!({"clips": [clip2]}));
+        d.frames(4);
+        let ids = d.ids("essentialSound.");
+        for id in ["essentialSound.take.1", "essentialSound.take.2", "essentialSound.take.1.use"] {
+            assert!(ids.iter().any(|i| i == id), "{workflow:?}: {id} missing from {ids:?}");
+        }
+        assert!(!ids.iter().any(|i| i == "essentialSound.take.2.use"), "the take in use has no Use button");
+        d.click("essentialSound.take.1.use");
+        d.frames(2);
+        let seq = d.exec("sequence.inspect", json!({}));
+        let items: Vec<u64> = seq["audio"][n - 1]["items"].as_array().unwrap().iter().filter_map(|i| i["item"].as_u64()).collect();
+        assert_eq!(items, vec![takes[0]["item"].as_u64().unwrap()], "{workflow:?}: take 1 in place");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

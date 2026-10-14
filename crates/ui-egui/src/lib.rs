@@ -664,6 +664,18 @@ impl FilmcraftApp {
             log::error!("GPU error, switching to the CPU compositor: {e}");
             flag.store(true, std::sync::atomic::Ordering::Relaxed);
         }));
+        // a user shader effect running when the GPU stops is quarantined (ADR 0006)
+        if let Some(dir) = filmcraft_engine::user_effects::folder(&self.session) {
+            filmcraft_gpu::set_user_effect_lost_hook(Box::new(move |keys| {
+                if let Err(e) = filmcraft_engine::user_effects::quarantine(&dir, keys) {
+                    log::error!("couldn't quarantine user effects {keys:?}: {e}");
+                }
+            }));
+        }
+        rs.device.set_device_lost_callback(|reason, msg| {
+            log::error!("GPU device lost ({reason:?}): {msg}");
+            filmcraft_gpu::notify_device_lost();
+        });
         let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| filmcraft_gpu::GpuCompositor::new(&rs.device, &rs.queue)));
         match made {
             Ok(compositor) if !broken.load(std::sync::atomic::Ordering::Relaxed) => {
@@ -733,6 +745,10 @@ impl FilmcraftApp {
         };
         let g = self.gpu.as_mut()?;
         g.last_ms = t0.elapsed().as_secs_f32() * 1000.0;
+        // a user shader effect turned off by the slow-pass rule (ADR 0006)
+        if let Some(m) = g.compositor.take_user_effect_messages().pop() {
+            self.ui.status = m;
+        }
         // scopes open: sample this picture for them (one read-back in flight at a time)
         if g.scope_pending.is_none() && g.scopes_wanted.is_some_and(|t| t.elapsed().as_secs_f32() < 0.5) {
             g.scope_pending = g.compositor.request_scope_samples(filmcraft_scopes::MAX_W as u32, filmcraft_scopes::MAX_H as u32).map(|r| (key, r));

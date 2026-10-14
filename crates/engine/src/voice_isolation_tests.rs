@@ -60,7 +60,7 @@ fn hostile_files_are_refused_before_anything_is_written() {
 
 /// 48 kHz mono speech from a simple WAV file (16-bit PCM or 32-bit float), `None` otherwise.
 #[cfg(feature = "voice-isolation")]
-fn read_wav_48k_mono(path: &std::path::Path) -> Option<Vec<f32>> {
+pub(crate) fn read_wav_48k_mono(path: &std::path::Path) -> Option<Vec<f32>> {
     let b = std::fs::read(path).ok()?;
     let u16_at = |i: usize| b.get(i..i + 2).map(|s| u16::from_le_bytes([s[0], s[1]]));
     let u32_at = |i: usize| b.get(i..i + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]));

@@ -886,7 +886,7 @@
 	Mix	Mezcla
 	Reverb	Reverberación
 	Stereo Width	Amplitud estéreo
-	Remixing music to a target duration is not available yet. Trim the clip and add a crossfade instead.	Aún no se puede remezclar la música a una duración objetivo. Recorta el clip y añade un fundido cruzado.
+	To fit music to a length, select the clip and choose Clip ▸ Remix ▸ Enable Remix, then Remix Properties….	Para ajustar la música a una duración, selecciona el clip y elige Clip ▸ Remezcla ▸ Activar remezcla y luego Propiedades de remezcla….
 	Pan	Panorámica
 	Auto-Match	Igualar automáticamente
 	Not matched yet	Aún sin igualar
@@ -3971,3 +3971,33 @@
 	Audio mixing stopped after an error: playing without sound	La mezcla de audio se detuvo por un error: reproducción sin sonido
 	No sound: the audio output could not start ({why})	Sin sonido: no se pudo iniciar la salida de audio ({why})
 	No sound: the audio output keeps changing its sample rate (check Settings ▸ Audio Hardware)	Sin sonido: la salida de audio cambia continuamente su frecuencia de muestreo (revisa Ajustes ▸ Hardware de audio)
+	Clean Up Voice	Limpiar voz
+	Limit True Peak	Limitar pico real
+	Ceiling	Techo
+	Track Corner Pin	Seguir el anclaje de esquinas
+	Track Surface	Seguir superficie
+	Track the surface backward	Seguir la superficie hacia atrás
+	Track the surface backward 1 frame	Seguir la superficie 1 fotograma hacia atrás
+	Track the surface forward 1 frame	Seguir la superficie 1 fotograma hacia delante
+	Track the surface forward	Seguir la superficie hacia delante
+	Attach to Track	Adjuntar al seguimiento
+	Follow the track backward	Seguir el seguimiento hacia atrás
+	Follow the track backward 1 frame	Seguir el seguimiento 1 fotograma hacia atrás
+	Follow the track forward 1 frame	Seguir el seguimiento 1 fotograma hacia delante
+	Follow the track forward	Seguir el seguimiento hacia delante
+	Follow: {method}	Seguir: {method}
+	Blur and Track	Desenfocar y seguir
+	Export Look Pack…	Exportar paquete de looks…
+	Import Look Pack…	Importar paquete de looks…
+	Import LUT Folder…	Importar carpeta de LUT…
+	Reload User Effects	Recargar efectos de usuario
+	List User Effects	Listar efectos de usuario
+	Takes	Tomas
+	Take {n}	Toma {n}
+	In use	En uso
+	Use	Usar
+	Missing effect	Efecto ausente
+	Needs the GPU: on the CPU these effects leave the picture unchanged	Necesita la GPU: en la CPU estos efectos dejan la imagen sin cambios
+	No data folder for user effects in this session	No hay carpeta de datos para efectos de usuario en esta sesión
+	Open Effects Folder	Abrir carpeta de efectos
+	Reload	Recargar

@@ -4,6 +4,8 @@
 
 ## Why
 
+> id: color.color-management.why | does: why log footage needs its colour space known and a working space to grade in | resolve: DaVinci YRGB Color Managed | premiere: Color Management settings | when: before grading log or HDR footage | see: color.color-management.input
+
 **[Standard]**
 
 A log clip stores brightness with a curve that squeezes the sun and the shadows into a flat
@@ -16,6 +18,8 @@ Gamut; in a Rec. 709 sequence they work on the Rec. 709 signal, in a Rec. 2100 s
 PQ or HLG signal, so the same numbers look different in each.
 
 ## Tell FilmCraft what the clip is (input)
+
+> id: color.color-management.input | does: sets a clip's input colour space, such as F-Log2 / F-Gamut | ui: colorDialog.space.* | cmd: clip.interpretFootage | resolve: Input Color Space per clip | premiere: Interpret Footage ▸ Color Management | when: a log clip looks grey or wrong | see: color.color-management.working
 
 **[FilmCraft]**
 
@@ -33,6 +37,8 @@ in the viewer, tell it explicitly:
 Plain F-Log (not F-Log2) is `flog-fgamut`, "Fujifilm F-Log / F-Gamut".
 
 ## Choose the working space (sequence)
+
+> id: color.color-management.working | does: picks the sequence's working space, DaVinci Wide Gamut / Intermediate for grading | ui: colorDialog.working.dwg-di, colorDialog.wideGamut, colorDialog.ok | cmd: sequence.colorSettings | resolve: Timeline Color Space | premiere: Sequence Color Management | when: setting up a sequence for grading | see: color.color-management.output
 
 **[FilmCraft]** **[Fork]**
 
@@ -53,6 +59,8 @@ different timeline colour space.
 
 ## Output
 
+> id: color.color-management.output | does: converts the working space to Rec. 709 at the end, with highlight roll-off | ui: colorDialog.autoToneMap | cmd: sequence.colorSettings | resolve: Output Color Space, tone mapping | premiere: Sequence output colour space | when: delivering SDR from a wide-gamut grade | see: color.color-management.working
+
 **[Standard]** **[Fork]**
 
 In a DaVinci Wide Gamut sequence the working space is converted to **Rec. 709** at the end,
@@ -62,6 +70,8 @@ separate control yet: a per-grade highlight knob is planned for G2.
 
 ## If you know Resolve
 
+> id: color.color-management.resolve | does: how this compares with Resolve's colour-managed setup | resolve: DaVinci YRGB Color Managed | when: you come from Resolve | see: color.color-management.working
+
 **[Resolve-style]**
 
 This matches Resolve's "DaVinci YRGB Color Managed" idea, but the setting lives in the sequence
@@ -69,6 +79,8 @@ and in Interpret Footage, not in a project-wide settings page. There is no per-c
 transform node: the input transform is applied automatically before your first node.
 
 ## If you know Premiere
+
+> id: color.color-management.premiere | does: how this compares with Premiere's Interpret Footage and sequence colour settings | premiere: Interpret Footage, Sequence Color Management | when: you come from Premiere | see: color.color-management.input
 
 **[FilmCraft]**
 

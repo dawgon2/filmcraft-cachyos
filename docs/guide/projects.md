@@ -4,6 +4,8 @@
 
 ## What the Project Manager is
 
+> id: projects.what | does: a full-window screen of project tiles to open, make and manage projects | ui: pageBar.home | cmd: file.projectManager, projects.show | resolve: Project Manager | premiere: Home screen | when: starting work; switching projects | see: projects.where
+
 **[Resolve-style]**
 
 The **Project Manager** is a full-window screen that shows your projects as picture tiles. You
@@ -16,6 +18,8 @@ of this page. If you know Premiere: it plays the part of Premiere's Home screen 
 projects list.
 
 ## Where projects live
+
+> id: projects.where | does: each project is a .fcproj file in a projects folder, not a database | ui: settings.general.projectsFolder | cmd: app.settings.general | resolve: project database | premiere: .prproj files | when: backing up, syncing or moving projects | see: projects.what
 
 **[Fork]**
 
@@ -31,6 +35,8 @@ To use another folder: Edit ▸ Preferences ▸ **General…** (`app.settings.ge
 **Projects folder** ({ui:settings.general.projectsFolder}); leave it empty for the default.
 
 ## Opening the Project Manager
+
+> id: projects.opening | does: when the Project Manager appears and how to open it | ui: pageBar.home, settings.general.startupShow | cmd: file.projectManager | resolve: Project Manager at launch | premiere: Home screen at launch | when: choosing what shows at startup | see: projects.what
 
 **[Resolve-style]**
 
@@ -48,6 +54,8 @@ own **At Startup** setting in the Premiere workflow.
 
 ## Make a new project
 
+> id: projects.new | does: makes a new project or folder from the Project Manager | ui: projects.tile.new, projects.new, projects.newFolder, projects.dialog.* | cmd: projects.new, projects.newFolder | resolve: New Project | premiere: New Project | when: starting something new | see: projects.open
+
 **[Resolve-style]**
 
 1. Click the **New Project** tile ({ui:projects.tile.new}) or the **New Project** button at the
@@ -63,6 +71,8 @@ overwritten. If the project you had open has unsaved changes, FilmCraft asks fir
 
 ## Open a project
 
+> id: projects.open | does: opens a project from its tile or the Open button | ui: projects.open | cmd: projects.open | resolve: open project | premiere: Open Project | when: getting back to work | see: projects.find
+
 **[Resolve-style]**
 
 1. Double-click its tile, or click it and press Enter, or click **Open** ({ui:projects.open})
@@ -76,6 +86,8 @@ Each tile shows the frame that was under the playhead when the project was last 
 saved before this feature, or by another build, shows a film icon until you save it once here.
 
 ## Find, sort and view
+
+> id: projects.find | does: search, sort, grid or list view and tile size | ui: projects.search, projects.sort, projects.view.*, projects.thumbSize | cmd: projects.list | resolve: Project Manager sort and search | premiere: Home screen recent list | when: many projects | see: projects.manage
 
 **[Resolve-style]**
 
@@ -101,6 +113,8 @@ and from the right:
 
 ## Rename, duplicate, move to the trash
 
+> id: projects.manage | does: renames, duplicates, locates or trashes a project from its menu | cmd: projects.rename, projects.duplicate, projects.trash, projects.reveal, projects.locate, projects.removeFromList | resolve: Project Manager context menu | premiere: — (Finder / file manager) | when: tidying projects | see: projects.export-import
+
 **[Resolve-style] [Fork]**
 
 Right-click a tile for its menu:
@@ -119,6 +133,8 @@ project permanently. The project that is open can't be moved to the trash.
 
 ## Export and import
 
+> id: projects.export-import | does: exports a project as a file to move or archive it, and imports one | ui: projects.export, projects.import | cmd: projects.export, projects.import | resolve: Export / Import Project (.drp) | premiere: Project Manager copy, .prproj | when: moving to another computer, archiving | see: projects.where
+
 **[Fork]**
 
 1. Select a project and click **Export** ({ui:projects.export}), then choose a folder
@@ -132,6 +148,8 @@ folder you are looking at (a second copy gets a number, nothing is overwritten).
 import a whole exported archive folder by passing its path.
 
 ## Where it differs from Resolve
+
+> id: projects.resolve | does: how projects differ from Resolve's database | resolve: project database, .drp | when: you come from Resolve | see: projects.where
 
 **[Resolve-style]**
 

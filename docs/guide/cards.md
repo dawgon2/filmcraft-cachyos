@@ -9,6 +9,8 @@ to a folder on your media drive, checks every file, and only then imports the cl
 
 ## When you put a card in
 
+> id: cards.insert | does: offers a verified copy of a camera card when the desktop mounts it | ui: project.card.* | cmd: card.offload | resolve: Clone tool (Media page) | premiere: Media Browser ingest with verify | when: every shoot, before the card is formatted | see: cards.copy-details
+
 1. Insert the card (or connect the camera as a drive). When the desktop mounts it, a bar at the
    top of the Project panel says **Camera card <name>**.
 2. Click **Copy** {ui:project.card.copy}. The first time, FilmCraft asks for the folder cards are
@@ -33,6 +35,8 @@ managers use; without it, eject the card from the file manager.
 
 ## What the copy does
 
+> id: cards.copy-details | does: copies the whole card, checks every file and writes a checksum list | cmd: card.* | resolve: Clone tool checksums | premiere: Ingest with copy verification | when: knowing whether a card is safe to format | see: cards.insert
+
 - **Everything on the card is copied**, in the card's own folder structure (`DCIM/100_FUJI/…`,
   `PRIVATE/M4ROOT/…`), so camera sidecar files (`.XML`, `.THM`) and any tool that expects the
   card layout still work. Hidden files and other computers' leftovers (`.Trashes`,
@@ -56,6 +60,8 @@ top, in any letter case.
 
 ## From scripts or an agent
 
+> id: cards.commands | does: the card commands for scripts and agents | cmd: card.* | when: automating ingest | see: cards.insert
+
 | Command | What it does |
 |---|---|
 | `card.inspect` (`mount`) | The card's layout (`dcim`, `private`, `xdcam`, `p2`, `clip`, or none), how many files and media files, total bytes |
@@ -70,6 +76,8 @@ The destination must be an existing folder that is not on the card. The copy run
 it, or cancel it, like an export.
 
 ## Options, and when to pick which
+
+> id: cards.options | does: copy first, import from the card, or copy outside FilmCraft: the trade-offs | cmd: card.offload, file.import | resolve: Clone tool vs importing from the card | premiere: Ingest vs importing from the card | when: choosing how footage comes in | see: cards.copy-details
 
 - **Copy, then edit from the copy (this feature):** the safe default. The card can be formatted
   as soon as the copy is verified and you have a second backup. Costs the time of one full copy

@@ -1,0 +1,7 @@
+asset:        glitch.wgsl
+title:        FilmCraft example shader effect "glitch"
+author:       FilmCraft fork contributors (written by Claude, agent, for the fork owner @dawgon2)
+source:       original work (no third-party code or shaders consulted)
+license:      MIT OR Apache-2.0
+added:        2026-10-14 by Claude (agent) for @dawgon2
+notes:        Bundled example of a user shader effect (ADR 0006); loads as example.glitch.

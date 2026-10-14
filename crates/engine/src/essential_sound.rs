@@ -44,13 +44,13 @@ pub fn targets(s: &Session, p: &Value) -> Vec<ClipId> {
     seq.audio_tracks.iter().flat_map(|t| t.items.iter()).filter(|i| all.contains(&i.id)).map(|i| i.id).collect()
 }
 
-fn mt_of(it: &TrackItem, t: Tick) -> Tick {
+pub(crate) fn mt_of(it: &TrackItem, t: Tick) -> Tick {
     it.source_time_at(t.clamp(it.start, (it.end() - Tick(1)).max(it.start)))
 }
 
 /// Change the settings of `clips` with `f` and reconcile their effects, as one undo step (or merged
 /// into the previous step with the same `merge` key while a control is dragged).
-fn update(
+pub(crate) fn update(
     s: &mut Session,
     cmd: &str,
     label: &str,

@@ -137,10 +137,66 @@ pub struct GpuCompositor {
 /// and converts planes it was not handed.
 static UNORM16: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// User shader effects (ADR 0006) submitted to the GPU and not finished yet, with a count each.
+static USER_IN_FLIGHT: std::sync::Mutex<Vec<((String, u64), u32)>> = std::sync::Mutex::new(Vec::new());
+/// Called with the user effects that were on the GPU when a device was lost.
+pub type UserEffectLostHook = Box<dyn Fn(&[(String, u64)]) + Send + Sync>;
+static USER_LOST_HOOK: std::sync::Mutex<Option<UserEffectLostHook>> = std::sync::Mutex::new(None);
+
+/// Most distinct user effects tracked in flight.
+const MAX_USER_IN_FLIGHT: usize = 1024;
+
+/// Count `keys` in (`add`) or out of flight.
+fn user_in_flight(keys: &[(String, u64)], add: bool) {
+    let mut v = USER_IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for k in keys {
+        match (v.iter().position(|(e, _)| e == k), add) {
+            (Some(i), true) => {
+                if let Some((_, n)) = v.get_mut(i) {
+                    *n = n.saturating_add(1);
+                }
+            }
+            (Some(i), false) => {
+                if let Some((_, n)) = v.get_mut(i) {
+                    *n = n.saturating_sub(1);
+                }
+            }
+            (None, true) if v.len() < MAX_USER_IN_FLIGHT => v.push((k.clone(), 1)),
+            _ => {}
+        }
+    }
+    v.retain(|(_, n)| *n > 0);
+}
+
+/// The user effects submitted to the GPU and not finished yet (id, source hash).
+pub fn user_effects_in_flight() -> Vec<(String, u64)> {
+    USER_IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|(k, _)| k.clone()).collect()
+}
+
+/// Set what happens to the user effects in flight when a device is lost (the app quarantines
+/// them: `filmcraft_engine::user_effects::quarantine`).
+pub fn set_user_effect_lost_hook(hook: UserEffectLostHook) {
+    *USER_LOST_HOOK.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hook);
+}
+
+/// A device was lost: hand the user effects in flight to the hook. Call it from the device's
+/// lost callback.
+pub fn notify_device_lost() {
+    let keys = user_effects_in_flight();
+    if keys.is_empty() {
+        return;
+    }
+    log::error!("the GPU stopped while user shader effects ran: {keys:?}");
+    if let Some(h) = USER_LOST_HOOK.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
+        h(&keys);
+    }
+}
+
 /// The device features a [`GpuCompositor`] uses when the adapter has them: request these when
 /// creating the device (`adapter.features() & filmcraft_gpu::wanted_features()`).
 pub fn wanted_features() -> wgpu::Features {
-    wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
+    // (timestamps: the slow-pass rule of user shader effects, ADR 0006)
+    wgpu::Features::TEXTURE_FORMAT_16BIT_NORM | wgpu::Features::TIMESTAMP_QUERY
 }
 
 fn tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -1206,6 +1262,11 @@ impl GpuCompositor {
             pass.draw(0..3, 0..1);
         }
         self.queue.submit([enc.finish()]);
+        if let Some(f) = self.fx.as_ref() {
+            for job in jobs.iter().flatten() {
+                f.after_submit(&self.queue, job);
+            }
+        }
         (if resolve { out_view } else { accum_view }, (w, h))
     }
 
@@ -1287,6 +1348,21 @@ impl GpuCompositor {
         );
     }
 
+    /// Messages about user shader effects turned off by the slow-pass rule (ADR 0006) since the
+    /// last call (timings arrive when the device is next polled).
+    pub fn take_user_effect_messages(&self) -> Vec<String> {
+        self.fx.as_ref().map(fx::FxStage::take_user_messages).unwrap_or_default()
+    }
+
+    /// The slow-pass rule's limit: a user pass slower than `ms_at_1080p` (scaled by pixel count)
+    /// on [`fx::USER_SLOW_FRAMES`] frames in a row is turned off ([`fx::USER_SLOW_MS_1080P`] by
+    /// default).
+    pub fn set_user_effect_slow_limit(&self, ms_at_1080p: f64) {
+        if let Some(f) = self.fx.as_ref() {
+            f.set_user_slow_limit(ms_at_1080p);
+        }
+    }
+
     /// Run the effect stage of a layer alone: `frame` decoded into its working image and `fx`
     /// applied, read back as linear premultiplied RGBA f32 (what `LayerFx` ops produce on the
     /// CPU from the same frame). None when the working image does not fit in a texture.
@@ -1303,6 +1379,7 @@ impl GpuCompositor {
         stage.record(&mut enc, &job);
         let bands = record_readback(&self.device, &mut enc, &job.result_texture, (w, h), bpp);
         self.queue.submit([enc.finish()]);
+        stage.after_submit(&self.queue, &job);
         stage.end_frame();
         let bytes = map_readback(&self.device, &bands?, (w, h), bpp)?;
         let out = if half {
@@ -1699,3 +1776,5 @@ mod colorops_tests;
 mod fx_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod user_fx_tests;

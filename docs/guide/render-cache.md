@@ -5,6 +5,8 @@ background so they play smoothly, what the colours of the render bar mean, and t
 
 ## Why
 
+> id: render-cache.why | does: renders heavy parts of the timeline ahead so they play smoothly | resolve: Smart render cache | premiere: Render Effects In to Out (preview files) | when: graded 6.2K, effect stacks, many cuts between long-GOP files | see: render-cache.when
+
 **[Resolve-style]**
 
 Some parts of a timeline are too heavy to play live: a graded 6.2K clip in a 4K sequence, a stack
@@ -22,6 +24,8 @@ Out** (`sequence.renderEffectsInToOut`), automatically. Rendering by hand still 
 same bar.
 
 ## When it renders, and when it waits
+
+> id: render-cache.when | does: renders only while you are idle and stops the moment you play, scrub or export | resolve: Smart render cache idle rendering | premiere: — | when: understanding why the bar fills between edits | see: render-cache.bar
 
 **[Fork]**
 
@@ -41,6 +45,8 @@ Proxies (Phase 6.2) are made before cache files when both are waiting.
 
 ## What the render bar shows
 
+> id: render-cache.bar | does: the coloured bar under the ruler shows what is cached, waiting or too heavy | resolve: render cache indicator line | premiere: render bar | when: reading the timeline's playback state | see: render-cache.correct
+
 **[FilmCraft] [Fork]**
 
 The thin bar under the timeline ruler:
@@ -57,6 +63,8 @@ Hover over the bar to read what a stretch is.
 
 ## How it stays correct
 
+> id: render-cache.correct | does: cached pieces are named after everything in their picture, so a change is never shown stale | when: wondering whether an edit invalidates the cache | see: render-cache.files
+
 **[Fork]**
 
 Each cached file is named after everything that affects its pictures (the clips, their grade and
@@ -72,6 +80,8 @@ effects, the source file, the sequence settings). So:
 
 ## How the files are made
 
+> id: render-cache.files | does: 2-second H.265 10-bit pieces made by the graphics card's encoder | resolve: render cache format | premiere: preview file format | when: disk space, quality of cached pictures | see: render-cache.settings
+
 **[Fork]**
 
 Every stretch between two cuts is cached in pieces of 2 seconds. Each piece is a small H.265
@@ -85,6 +95,8 @@ The files live in the project's preview folder (next to the project, in
 always safe: FilmCraft renders them again.
 
 ## Settings and commands
+
+> id: render-cache.settings | does: turns the cache on or off, sets its size, pauses it and clears unused files | ui: settings.mediaCache.renderCache, settings.mediaCache.renderCacheGb, settings.renderCache.* | cmd: cache.*, app.settings.mediaCache, sequence.renderEffectsInToOut | resolve: Render Cache: Smart / User / None | premiere: Render Effects In to Out, Delete Render Files | when: setting the cache up or freeing disk space | see: render-cache.why
 
 **[Fork]**
 
@@ -114,6 +126,8 @@ For agents and scripts, `cache.status` reports the mode, the number of pieces, t
 size limit, how many are queued and how far the piece being rendered is.
 
 ## Good to know
+
+> id: render-cache.notes | does: details: old preview files, where the cache lives, what isn't cached | cmd: cache.status | when: something about the cache looks odd | see: render-cache.settings
 
 **[Fork]**
 

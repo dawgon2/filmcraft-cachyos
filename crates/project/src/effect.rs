@@ -860,6 +860,7 @@ pub const GPU_EFFECTS: &[&str] = &[
     "tint",
     "black_white",
     "color_balance",
+    "color_key",
     "leave_color",
     "change_to_color",
     "color_pass",
@@ -886,7 +887,9 @@ pub const GPU_EFFECTS: &[&str] = &[
     "channel_mix",
     "color_replace",
     "alpha_adjust",
+    "luma_key",
     "lumetri",
+    "ultra_key",
     "vignette",
     "video_limiter",
 ];
@@ -897,7 +900,126 @@ pub fn effect_defs() -> &'static [EffectDef] {
 }
 
 pub fn find_effect(id: &str) -> Option<&'static EffectDef> {
-    effect_defs().iter().find(|e| e.id == id)
+    effect_defs().iter().find(|e| e.id == id).or_else(|| find_user_effect(id))
+}
+
+// ---- user effects (fork Y3.4, ADR 0006): WGSL files registered at run time. Their definitions are
+// interned as `&'static EffectDef` (leaked once per id and content), so every caller of
+// `find_effect` / `EffectInstance::def` works unchanged; at most [`MAX_INTERNED_USER_EFFECTS`].
+
+/// Most user-effect definitions interned per process (each a few hundred bytes).
+pub const MAX_INTERNED_USER_EFFECTS: usize = 4096;
+
+/// Whether `id` names a user (or bundled example) shader effect.
+pub fn is_user_effect(id: &str) -> bool {
+    id.starts_with("user.") || id.starts_with("example.")
+}
+
+/// A user effect to register: its id (`user.<slug>` / `example.<slug>`), name, folder under
+/// "Video Effects ▸ User", parameters and the hash of its source (a new hash is a new version).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UserEffectSpec {
+    pub id: String,
+    pub name: String,
+    pub category: Option<String>,
+    pub params: Vec<UserParamSpec>,
+    pub hash: u64,
+    /// The composed WGSL module the GPU runs (`filmcraft_usershader::compose` for `rgba32float`
+    /// storage; the GPU stage swaps the format for half-float working textures).
+    pub module: std::sync::Arc<str>,
+}
+
+/// One parameter of a [`UserEffectSpec`]: kind `Float` (with its range), `Bool`, `Color` or `Point`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UserParamSpec {
+    pub id: String,
+    pub label: String,
+    pub kind: ParamKind,
+    pub default: ParamValue,
+}
+
+type Interned = Vec<((String, u64), &'static EffectDef)>;
+/// A registered user effect: its definition, source hash and composed module.
+type Active = (&'static EffectDef, u64, std::sync::Arc<str>);
+
+fn user_state() -> &'static std::sync::RwLock<(Interned, Vec<Active>)> {
+    static S: OnceLock<std::sync::RwLock<(Interned, Vec<Active>)>> = OnceLock::new();
+    S.get_or_init(Default::default)
+}
+
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
+fn intern(spec: &UserEffectSpec) -> EffectDef {
+    let folder = match &spec.category {
+        Some(c) => leak(c),
+        None => "User",
+    };
+    let category: &'static [&'static str] = Box::leak(vec!["Video Effects", "User", folder].into_boxed_slice());
+    EffectDef {
+        id: leak(&spec.id),
+        name: leak(&spec.name),
+        kind: EffectKind::Video,
+        category: if spec.category.is_some() { category } else { category.get(..2).unwrap_or(&["Video Effects", "User"]) },
+        params: spec
+            .params
+            .iter()
+            .map(|p| ParamDef { id: leak(&p.id), label: leak(&p.label), kind: p.kind.clone(), default: p.default.clone(), animatable: true, group: None })
+            .collect(),
+        intrinsic: false,
+        accelerated: true,
+        float32: true,
+        yuv: false,
+    }
+}
+
+/// Replace the registered user effects with `specs` (ids must satisfy [`is_user_effect`]; others
+/// and duplicates are skipped). Returns the ids registered. Unchanged definitions are reused;
+/// once [`MAX_INTERNED_USER_EFFECTS`] are interned, new versions are refused (left out of the result).
+pub fn register_user_effects(specs: &[UserEffectSpec]) -> Vec<String> {
+    let mut st = user_state().write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut active: Vec<Active> = Vec::new();
+    for spec in specs {
+        if !is_user_effect(&spec.id) || active.iter().any(|a| a.0.id == spec.id) || effect_defs().iter().any(|d| d.id == spec.id) {
+            continue;
+        }
+        let key = (spec.id.clone(), spec.hash);
+        let def = match st.0.iter().find(|(k, _)| *k == key) {
+            Some((_, d)) => *d,
+            None if st.0.len() < MAX_INTERNED_USER_EFFECTS => {
+                let d: &'static EffectDef = Box::leak(Box::new(intern(spec)));
+                st.0.push((key, d));
+                d
+            }
+            // (the caller sees it missing from the returned ids)
+            None => continue,
+        };
+        active.push((def, spec.hash, spec.module.clone()));
+    }
+    let ids = active.iter().map(|a| a.0.id.to_string()).collect();
+    st.1 = active;
+    ids
+}
+
+/// The registered user effects.
+pub fn user_effects() -> Vec<&'static EffectDef> {
+    user_state().read().unwrap_or_else(std::sync::PoisonError::into_inner).1.iter().map(|a| a.0).collect()
+}
+
+/// The source hash and composed WGSL module of the registered user effect `id`.
+pub fn user_effect_module(id: &str) -> Option<(u64, std::sync::Arc<str>)> {
+    if !is_user_effect(id) {
+        return None;
+    }
+    user_state().read().unwrap_or_else(std::sync::PoisonError::into_inner).1.iter().find(|a| a.0.id == id).map(|a| (a.1, a.2.clone()))
+}
+
+fn find_user_effect(id: &str) -> Option<&'static EffectDef> {
+    if !is_user_effect(id) {
+        return None;
+    }
+    user_state().read().unwrap_or_else(std::sync::PoisonError::into_inner).1.iter().find(|a| a.0.id == id).map(|a| a.0)
 }
 
 /// Case-insensitive lookup by id or display name.
@@ -930,5 +1052,51 @@ mod tests {
         assert!(effect_defs().len() > 90);
         assert_eq!(find_effect_by_name("Gaussian Blur").unwrap().id, "gaussian_blur");
         assert_eq!(intrinsic_video().len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod user_effect_tests {
+    use super::*;
+
+    fn spec(id: &str, hash: u64) -> UserEffectSpec {
+        UserEffectSpec {
+            id: id.into(),
+            name: format!("Name of {id}"),
+            category: None,
+            params: vec![UserParamSpec {
+                id: "amount".into(),
+                label: "Amount".into(),
+                kind: ParamKind::Float { min: 0.0, max: 10.0, soft_min: 0.0, soft_max: 10.0, unit: "", decimals: 2 },
+                default: ParamValue::Float(2.0),
+            }],
+            hash,
+            module: format!("// module of {id} v{hash}").into(),
+        }
+    }
+
+    /// One test (the registry is process-wide): register, find, re-register unchanged (same
+    /// `&'static`), a new version, refusals, and dropping a set.
+    #[test]
+    fn user_effects_register_intern_and_refuse() {
+        let ids = register_user_effects(&[spec("user.glow", 1), spec("example.vhs", 2), spec("blur", 3), spec("gaussian_blur", 4), spec("user.glow", 5)]);
+        assert_eq!(ids, ["user.glow", "example.vhs"], "non-user ids, built-in ids and duplicates are skipped");
+        let a = find_effect("user.glow").expect("found");
+        assert_eq!(a.name, "Name of user.glow");
+        assert_eq!(a.category, ["Video Effects", "User"]);
+        assert!(a.accelerated);
+        assert_eq!(user_effect_module("user.glow").map(|(h, m)| (h, m.to_string())), Some((1, "// module of user.glow v1".into())));
+        assert!(user_effect_module("blur").is_none() && user_effect_module("user.nope").is_none());
+        let inst = a.instance();
+        assert_eq!(inst.def().map(|d| d.id), Some("user.glow"));
+        assert_eq!(inst.param("amount").map(|p| p.value.clone()), Some(ParamValue::Float(2.0)));
+        register_user_effects(&[spec("user.glow", 1)]);
+        assert!(std::ptr::eq(a, find_effect("user.glow").unwrap()), "unchanged content is not leaked again");
+        assert!(find_effect("example.vhs").is_none(), "a reload without the file drops it");
+        register_user_effects(&[spec("user.glow", 99)]);
+        assert!(!std::ptr::eq(a, find_effect("user.glow").unwrap()), "a new version is a new definition");
+        assert!(find_effect("gaussian_blur").is_some_and(|d| !is_user_effect(d.id)));
+        register_user_effects(&[]);
+        assert!(find_effect("user.glow").is_none() && user_effects().is_empty() && user_effect_module("user.glow").is_none());
     }
 }

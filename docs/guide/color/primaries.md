@@ -4,12 +4,16 @@
 
 ## Why
 
+> id: color.primaries.why | does: why primaries come first: they change the whole picture or whole brightness ranges | resolve: Primaries | premiere: Lumetri Basic Correction, Color Wheels | when: starting a grade | see: color.primaries.panel
+
 **[Resolve-style]**
 
 Primaries change the whole picture, or whole brightness ranges of it. Do them first; fine work on
 one colour (secondaries, G2) comes after.
 
 ## The panel
+
+> id: color.primaries.panel | does: Lift, Gamma, Gain and Offset wheels, contrast, pivot, saturation, temperature and tint | ui: grade.wheel.*, grade.param.*, grade.tab.primaries | cmd: grade.setParam | resolve: Primaries Color Wheels | premiere: Lumetri Color Wheels | when: balancing and shaping a shot | see: color.primaries.white-balance
 
 **[Resolve-style]**
 
@@ -58,6 +62,8 @@ every control of the node to neutral. The node's LUT menu sits under the bottom 
 
 ## White balance picker and Auto balance
 
+> id: color.primaries.white-balance | does: removes a colour cast by picking something neutral, or automatically | ui: grade.wb.pick, grade.wb.auto | cmd: grade.wb.pick, grade.wb.auto | resolve: Highlight / white balance picker, Auto Balance | premiere: Lumetri WB Selector | when: orange, blue, green or magenta casts | see: color.primaries.panel
+
 **[Resolve-style]**
 
 **Why:** a colour cast (orange tungsten light, blue shade, a green fluorescent tube, a magenta
@@ -94,6 +100,8 @@ correction differently, so the numbers won't match between the two applications.
 
 ## Steps: fix a flat F-Log2 clip
 
+> id: color.primaries.flog2-steps | does: steps to turn a flat F-Log2 clip into a balanced picture | ui: grade.addFirst, grade.param.contrast, grade.param.pivot | cmd: grade.setParam | resolve: first primary correction on log | premiere: Lumetri Basic Correction on log | when: the first node of an X-M5 clip | see: color.color-management.input
+
 **[Fork]**
 
 1. Confirm the clip is interpreted as F-Log2 ([color-management.md](color-management.md)).
@@ -110,6 +118,8 @@ Dragging a control is one undo step no matter how long you drag.
 
 ## Commands
 
+> id: color.primaries.commands | does: the grade commands for scripts and agents | cmd: grade.setParam, grade.params, grade.get, grade.toggleAnimation | when: scripting a grade | see: color.primaries.panel
+
 **[Fork]**
 
 `grade.setParam` sets one parameter (`param`, `value`); `grade.params` lists every parameter with
@@ -122,6 +132,8 @@ their limit.
 
 ## If you know Resolve
 
+> id: color.primaries.resolve | does: how these wheels compare with Resolve's primaries | resolve: Lift / Gamma / Gain / Offset | when: you come from Resolve | see: color.primaries.panel
+
 **[Resolve-style]**
 
 Lift / Gamma / Gain / Offset do the same jobs, but they act on the sequence's grading signal
@@ -130,6 +142,8 @@ offsets, not Resolve's internal values. There are no separate shadows / highligh
 colour-boost / mid-detail sliders yet.
 
 ## If you know Premiere
+
+> id: color.primaries.premiere | does: how the node grader relates to Lumetri's wheels and sliders | premiere: Lumetri Color | when: you come from Premiere | see: color.lumetri.what
 
 **[FilmCraft]**
 

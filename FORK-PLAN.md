@@ -1353,157 +1353,119 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
 
 Older entries (everything before the newest ~20) are in [`docs/fork/PROGRESS-LOG-ARCHIVE.md`](docs/fork/PROGRESS-LOG-ARCHIVE.md) (§1a.55); read them only when HANDOFF points at one.
 
-- **2026-10-13 21:29 EDT, same run (MINIMAL): AI1.1f-1, batched prefill** (generic row kernel, `Weight::matmul`, 64-token chunks,
-  parallel attention; bit-identical to token-by-token). Synthetic 300-token prefill on the 360M tune: 1.86 s
-  without the flag vs candle 15.9 s (no flag) / 2.75 s (flag). Next AI1.1f-2 sampling, then AI1.1h swap infer.rs.
-- **2026-10-13 21:30 EDT, same run (MINIMAL): AI1.1f-2, sampling** (`sample.rs`: greedy + repeat penalty equal to candle;
-  seeded temperature sampling). Next AI1.1h: swap infer.rs onto our pass, then the 75-case evaluation.
-- **2026-10-13 21:44 EDT, same run (MINIMAL): AI1.1h, infer.rs on our own forward pass** (candle → dev-dependency oracle).
-  Real models, no flag: tuned smol360-v1 1.57 s / answer, all six models answer sensibly; engine ai_explain
-  green. Regression found: 958-token prefill on Qwen2.5-1.5B 50 s vs candle-with-flag 17 s (compute-bound
-  portable dots) → AI1.1g fast per-arch kernels is now required before AI1 acceptance.
-- **2026-10-13 21:49 EDT, same run (MINIMAL): AI1.1g-1, AVX2 Q8_0 dot** (pulp V3 safe intrinsics, run-time chosen): synthetic
-  960 × 2560 matvec 91.5 µs 1 thread / 26 µs 12 threads, beating candle with the flag (110 / 41.7); 958-token
-  prefill on the 360M tune 8.3 → 5.2 s. Next: vectorized attention, Q4_K / Q6_K on AVX2.
-- **2026-10-13 21:55 EDT, same run (MINIMAL): AI1.1g-2, vectorized attention dot + 4-token blocking** (bit-identical per lane):
-  958-token prefill on the 360M tune 5.2 → 4.2 s (candle no-flag 54.7 s). Next: Q4_K / Q6_K on AVX2.
-- **2026-10-13 22:00 EDT, same run (MINIMAL): AI1.1g-3, Q4_K / Q6_K on AVX2**: synthetic 12-thread matvecs 24.3 / 31.7 µs
-  (candle flagged 31 / 37); Qwen2.5-1.5B 958-token prefill 50 → 11.9 s (candle flagged 17 s): the AI1.1h
-  regression is closed. Test race on the global SIMD override fixed. Next AI1.2 (drop the x86-64-v3 flag).
-- **2026-10-13 22:09 EDT, same run (MINIMAL): AI1 held-out evaluation on our own pass** (75 cases, no flag, synthetic): qwen05-v1
-  74/75 (identical), smol360-v1 70/75 (recorded 72; summation-order noise on threshold cases, Q22 provisional (a)),
-  mean 1.62 s / answer (was ~3 s). llm_eval header reports the run-time SIMD level now.
-- **2026-10-13 22:26 EDT, scheduled run (MINIMAL, U 20 / L 11, 5 h 5 %): AI1.2, x86-64-v3 flag dropped** (Q8 resolved). No Whisper /
-  Kokoro weights on disk, so candle's f32 ops were timed synthetically with vs without the flag
-  (`crates/speech/examples/candle_ops_bench.rs`): gemm-backed ops equal; `conv_transpose1d` 6.7 → 45 ms and last-dim
-  mean 0.2 → 2 ms without it, so Kokoro's ConvT / `norm_last` now go through gemm (8.0 / 0.09 ms, tested against candle).
-  Also fixed an `expect` in the Whisper tokenizer that clippy only sees with `--all-features` (+ test). Next AI1.3.
-- **2026-10-13 22:38 EDT, same run (MINIMAL): AI1.3a, streaming + prompt-prefix KV reuse in crates/llm**: `generate_streaming` (cancel,
-  panic-safe) and the system prompt's KV cache kept between calls (identical answers): first words 0.29–0.31 s on the
-  tuned models (synthetic; was ~0.6 s). Next AI1.3b: stream into the explainer panel, then pre-generation.
-- **2026-10-13 22:47 EDT, same run (MINIMAL): AI1.3b, checked sentences stream into the explainer** (engine `partial`, Match tab, guide);
-  never unchecked text. Next AI1.3c background pre-generation.
-- **2026-10-13 22:54 EDT, same run (MINIMAL): AI1.3c, background pre-generation of node explanations** (engine prefetch with
-  supersede / adopt, grade panel debounce 0.6 s, guide). Next AI1.4 (needs a download: owner question) → AI1.5.
-- **2026-10-13 20:47–22:55 EDT, Dell lane: L1 / L2 part 2 done, ready for acceptance.** L1.5 (`d0c68898`): upstream #260
-  off-thread file dialogs cherry-picked (U0.2 didn't bring them; Q23), dialogs parented to the window (rfd
-  `set_parent`, xdg-foreign), each kind starts in its last folder (`dialogs.lastFolders`, lenient), close waits for an
-  open dialog. L2.6 (`7f6d79dc`): Settings ▸ Playback ▸ Graphics device (PCI ids; Linux interop + eframe selector),
-  VA-API prefers the chosen GPU's node (`va::prefer_gpu`), GPU list on a thread, `graphics.listDevices`; prefs
-  sanitize keeps the file when a device value is malformed. Dell gates green (86 UI modules one per process; the
-  combined test run OOM-killed twice before that). Opus reviews for both, findings fixed. Seen: workspace clippy
-  fails in `filmcraft-speech` example `candle_ops_bench` since `a2cd09d4` (main runner's). Next on the lane: A1.
-- **2026-10-13 22:58 EDT, same run (MINIMAL): AI1.4 deferred (download → Q24), AI1.5 shared ML runtime `crates/ml`** (L1: SIMD level,
-  guarded cancellable jobs, gemm-backed candle ops moved from Kokoro). Next AI1.6 (retrain smol360-v2).
-- **2026-10-13 23:00–23:14 EDT, Dell lane: A1 started; A1.1 merged (`a7b753c2`).** U0.2 brought nothing for audio;
-  upstream main's #840 (restart a dropped stream on the same clock and mixer) cherry-picked and ported to cpal 0.18
-  (error kinds mapped: device / server gone or stream invalidated → restart at once; Xrun etc. → restart when samples
-  stop; reroute → nothing). Guide linux.md "Sound when the audio device has a hiccup". Opus review: no bugs; a failed
-  reopen gives up at once and the restart's channel check is too strict → next step A1.3a.
-- **2026-10-13 23:18 EDT, Dell lane: A1.3a merged (`39f4439a`).** A dropped stream whose reopen fails is retried every
-  200 ms within the restart budget (clock held still, given up ~600 ms after the loss, under the UI's 1 s); a restart
-  asks for the running rate / channel count. Tested through `recover_with` with injected restarts. Next: A1.2 hardening.
-- **2026-10-13 23:31 EDT, Dell lane: A1.2 merged.** Play-ahead mixer: a panicking block plays as silence (4 in a row
-  stop it: status + wall clock), non-finite samples silenced, adaptive lead (≥ 4 device buffers, +50 ms per underrun
-  episode, ≤ 0.5 s), checked `playback_mix` access, start failure shown. Opus review findings fixed. Next: A1.2b
-  (Source monitor), A1.3b rate agreement.
-- **2026-10-13 23:34 EDT, Dell lane: A1.2b merged.** The Source monitor hands over to the wall clock with a status
-  message when its mixer stops, like the Program monitor. Next: A1.3b rate agreement between configure and start.
-- **2026-10-13 23:36 EDT, Dell lane: A1.3b merged (`a9077873`).** The playback mix is rebuilt at the rate the output
-  really opened (it used the rate `configure` read); a device that changes again plays without sound on the wall
-  clock and says so. Next: clock latency compensation, sync probe, soak harness.
-- **2026-10-13 23:40–23:47 EDT, Dell lane: A1.4a (`c0a81628`) and A1.4b (`cdd0dc69`) merged.** The playback clock
-  counts frames heard (cpal callback timestamps: output latency + the buffer, capped, monotonic); an A/V sync probe
-  (position-coded WAV through the real mix and play-ahead path) measures 0 frames off after 100 seeks, at 1× and 2×,
-  with a self-check that a skewed clock is caught. Sonnet reviews. Next: A1.5 real-device soak harness (null sink).
-- **2026-10-14 00:43 EDT, same run (MINIMAL): AI1.6 smol360-v2 trained and evaluated, not shipped**: v2 33/36, 36/40, 13/13 vs v1
-  34/36, 37/40, 13/13 (synthetic), so v1 stays (AI-PLAN Accept; TRAINING.md "smol360-v2" has the analysis).
-  AI1 acceptance (synthetic, no build flag): smol360-v1 ~1.3 s / answer (≤ 2.5 ✓), forced portable path 35/36 at
-  1.92 s, first words ~0.3 s (< 0.5 ✓), scores within Q22's ±2, missing / corrupt model tests green. Next: ci, tag ai-1.
-- **2026-10-13 23:50 – 2026-10-14 00:55 EDT, Dell lane: A1.5 merged (`c008e455`); A1 ready for acceptance.** Soak harness
-  (`tools/fork/a1-audio-soak.sh`, `apps/filmcraft/src/audio_soak.rs`): real CpalOut into a null sink, 20 tracks, seeks,
-  2× shuttles, sink removal / card profile off-on automated. 30 min: 0 underruns, drift ≤ 1 frame (87 383 readings),
-  every device event recovered in ≤ 0.56 s, profile restored. Along the way the harness's own measurement errors
-  (frame snapping of a 23.976 fps loop, reading the clock after the step drew) were found and fixed. Checklist and
-  owed PC checks in HANDOFF. `.dell-a1-complete` created; the Dell lane is done.
-- **2026-10-14 01:39 EDT, same run (MINIMAL): AI1 ci** (`cargo xtask ci`, 48 min): 3717 / 3719 passed; the two failures pass alone:
-  `teardown_ui` (the known parallel-load flake, CLOUD-QUEUE TEARDOWN-FLAKE) and the Dell lane's new A1.4b
-  `av_sync_ui` (3 frames off once under full load; renamed `…_realtime` so ci runs it alone, as for the mixer test).
-  Prefetch now runs the model-file readiness check only when its debounce fires. §1a.33's public build drops
-  `-C target-cpu=x86-64-v3`. Self-reviewed (MINIMAL: no reviewer subagents; Opus review of AI1.1g–AI1.5 owed).
-- **2026-10-14 01:52 EDT, same run (MINIMAL, U 22 / L 12.5): AI1 accepted, tag `ai-1` (bcb5f713).** Build
-  `~/Apps/filmcraft-builds/ai-1` (NOTES.md), `latest` → it, launcher valid. Public: snapshot `6e3428fc` on cachyos
-  `fork`, tag + release `fork-ai-1` with the scrubbed Dell build (326 s, now without `target-cpu`; `strings`: only
-  /home/user). §1a.69's NEON path not done → OWNER-QUESTIONS Q25 (provisional: Phase 8 item 7). HANDOFF rewritten for
-  **X422** (AI1 notes archived).
-- **2026-10-14 02:15 EDT, scheduled run (MINIMAL, U 23 / L 12.9; 5-h 26 / L5 74): X422 started.** Bench cases
-  `xm5-export-422 graded` / `xm5-export-422 master graded`; (b) RGB → 4:2:2 moved to the GPU (`YuvPass` 4:2:2 mode,
-  read back; ≤ 1 code vs CPU oracle on AMD + Intel). First synthetic numbers: (a) 17.1 fps, (b) 6.8 fps (0.5 on the
-  old CPU path). Self-reviewed (MINIMAL). AI1.4 (Q24 (a)) owed before the final X422 benches (§1a.71).
-- **2026-10-14 02:22 EDT, same run (MINIMAL): X422 (b) diagnosis.** Trace stages `gpu read-back` / `4:2:2 encoder
-  input`; VA upload image kept per surface pool (`Surface::write`, test on both render nodes): 145 → 126 ms/frame.
-  (b)'s limit is the read-back (108 ms/frame, serial under the compositor lock). Self-reviewed (MINIMAL).
-- **2026-10-14 02:34 EDT, same run (MINIMAL): X422 (b) read-back pipelined** (`YuvPass::submit` / `YuvReadback::wait`,
-  waited for outside the export compositor lock): (b) 7.3 fps (a unchanged 17.1). Now limited by Intel's `vaPutImage`
-  (~87 ms/frame). GPU tests green on AMD + Intel. Self-reviewed (MINIMAL).
-- **2026-10-14 02:38 EDT, same run (MINIMAL): X422 (b)** parallel pass-through copy (28 → 19 ms/frame). Dead end
-  recorded: Intel encode from CPU-filled linear Y210 AMD memory gives wrong pictures (reverted, tests caught it).
-- **2026-10-14 02:56 EDT, same run (MINIMAL): X422 (b) recorded** at ~7.3 fps (Intel UHD 750 saturated: 4:2:2 decode +
-  hand-off + encode); bench case `xm5-export-422 prores graded` (0.5 fps, CPU render) and `FILMCRAFT_BENCH_ENC_SPEED`;
-  OWNER-QUESTIONS Q27 (FYI). `vaDeriveImage` and non-blocking polling tried, no gain, reverted.
-- **2026-10-14 ~03:30 EDT, Dell lane: A2.0–A2.3** (§1a.72). PREP-A2 audit + Q26 (FYI: oracle built from
-  source, formant test speech); DeepFilterNet3 weights downloaded (consented 2026-10-12, pinned, checksummed,
-  Dell only). New L2 crate `crates/voice`: DFN3 signal path (A2.1), checked checkpoint loader (A2.2), network as
-  plain-Rust streaming kernels + `Denoiser` (A2.3): parity with the original 68.2 dB, RTF 0.071 on one Dell core.
-  Next A2.4 (the `voice_isolate` effect).
-- **2026-10-14 ~04:20 EDT, Dell lane: A2.4** `voice_isolate` effect merged (audio-dsp external-effect registry with a
-  DeNoise fallback, the model effect in `crates/voice`, project def, one render arm, guide page `audio.md`). Next A2.5.
-- **2026-10-14 03:29 EDT, same run (MINIMAL): AI1.4 done** (Q24 (a), §1a.71): SmolLM2-135M-Instruct downloaded (pinned
-  12fd25f), `run.sh smol135`, tune `smol135-v1`: 34 / 36, 36 / 40, 13 / 13 (360M v1: 34, 37, 13) at ~0.6 s per answer
-  (half); catalogued as `filmcraft-explainer-smol135-v1-q8` ("fast", user-picked only), guide `color/matching.md`.
-  `run.sh` builds through fc-cargo.sh now. CLOUD-QUEUE "PC is doing" updated.
-- **2026-10-14 ~05:45 EDT, Dell lane: A2.5a / A2.5b** merged: `audio.voiceIsolate.*` (download from the pinned URL with
-  checksum, installFile, remove, lazy loading; checked end to end on the Dell) and Settings ▸ Audio ▸ Voice isolation.
-  Next A2.7 (SI-SDR test set).
-- **2026-10-14 ~06:30 EDT, Dell lane: A2.7** SI-SDR harness merged (`voice_isolation_eval`, noise generators fan / room /
-  traffic / keyboard / wind). **Provisional, synthetic speech only (built-in formant voices; not valid for acceptance):**
-  clean speech through Voice Isolation 2.1 dB SI-SDR (≥ 20 required); mean margin over DeNoise on traffic / keyboard /
-  wind +1.8 dB at 0 dB SNR, −3.4 at 5, −8.1 at 10; fan / room −0.7…−10.4. DeepFilterNet doesn't treat the formant voice
-  as speech (port verified at 68.2 dB parity, alignment checked). Real speech needed: OWNER-QUESTIONS Q26 (now a question).
-- **2026-10-14 ~09:15 EDT, Dell lane: A2.6** merged: Voice Isolation live in the playback mixer. The first soak with it on 4
-  stereo tracks had 15 118 underruns (1 s pre-roll through the network on every fresh chain → cascade; both channels'
-  networks serial, ~0.59 core per track on the i5-13500T's slower cores). Fixed: one network step per track on the
-  channels' mean (stereo ≈ mono cost, parity unchanged), 0.2 s pre-roll. Soak 300 s (13 seeks, 8 2× shuttles, sink / card
-  loss): 1 track 0 underruns, drift ≤ 1 frame; 4 tracks 21 underruns, all at the first 2× shuttle's start. Next A2.8.
+- **2026-10-14 07:06 EDT, same run (MINIMAL; U 28 % vs L ≈ 16 %): Y3.1b** Ultra Key on the GPU: CPU keyer split into evaluated numbers
+  (`UltraKey`) + reference apply; GPU matte / choke / soften / combine passes (the matte rides the Unsharp-style side
+  chain; passes before a combine now also see the original). Parity 7 cases ≤ 6e-7, 0 flips, AMD + Intel; hostile-number
+  test (NaN / ±inf / 1e30 stays on the CPU, 0×0 and 1×1 images). Self-reviewed. Next: Y3.1c Color Key.
+- **2026-10-14 07:09 EDT, same run (MINIMAL): Y3.1c** Color Key on the GPU (`FxOp::ColorKey`, point op; dead `effects.rs` `key()`
+  removed). Parity 3 cases ≤ 2e-7 AMD + Intel; gpu crate 64 / 64 on both; render / project tests, clippy green.
+  Edge Thin is unused by the CPU keyer as well (gap noted, not ported). Next: Y3.1d 4K timing, keying guide page.
+- **2026-10-14 07:13 EDT, same run (MINIMAL): Y3.1 guide** `docs/guide/keying.md` (green screen with Ultra Key, Output ▸ Alpha Channel,
+  cleanup / spill, Luma Key, Color Key, GPU note; options and trade-offs, Premiere / Resolve differences). Coach eval 82 / 116
+  (floor 82; was 83): adding the page first cost 2 qualifier questions (matte wording), reworded; one Resolve node "key output"
+  question now misses on word weights. Engine coach tests green.
+- **2026-10-14 07:15 EDT, same run (MINIMAL): Y3.1d** keyer timing at 4K (synthetic, `gpu_key_timing_4k`, release, idle): AMD Ultra Key
+  1.9 ms (11.2 with choke + soften), Color Key 2.5, Luma Key 2.2 ms per frame → real time at Full; Intel UHD 750 10.9 / 95.1 /
+  6.4 / 10.2 ms (matte blur passes bandwidth-bound; one-channel matte owed only if Intel plays keys). **Y3.1 complete.**
+- **2026-10-14 07:19 EDT, same run (MINIMAL): Y3.3a** perspective (homography) tracking in `render/track.rs` (normalised DLT least squares,
+  4-point RANSAC, perspective tracking step); 4 new tests green (known map with outliers to 1e-6, degenerate / NaN / mismatched
+  input → None, textured plane in perspective: corner drift < 0.75 px over 10 frames, flat region refused). Done before Y3.2
+  because its design is settled (best value per token in MINIMAL); Y3.2 needs the attach-to-Motion design.
+- **2026-10-14 07:29 EDT, same run (MINIMAL): Y3.3b** `tracking.cornerPin`: Corner Pin points follow a plane tracked in another clip (or
+  the same one), keyframed per frame through both clips' Motion; one undo step per run; background job like `masks.track`.
+  Synthetic test: 0.67 px worst corner error over 18 frames of perspective motion. Also fixed an engine badge test Y3.1a
+  missed (`vfx_tests`: Luma Key is GPU now; engine suite 806 green). Self-reviewed. Next: Y3.3c UI + guide.
+- **2026-10-14 07:36 EDT, same run (MINIMAL): Y3.3c** Corner Pin Track Surface buttons in Effect Controls / Inspector (UI test in both
+  workflows), default tracked clip = the clip below, guide page `tracking.md` (screen replacement); coach tests green.
+  **Y3.3 complete.** Next: Y3.2 attach to a track.
+- **2026-10-14 07:40 EDT, same run (MINIMAL): Y3.2a** `tracking.attach`: a layer's Motion follows a region tracked in the clip below
+  (Position; or Position, Rotation, Scale), keyframed through both clips' Motion, one undo step per run. Synthetic: 0.57 px
+  (Position, sliding) and 0.49 px / 0.08° / 0.07 % (P-S-R, rotating + scaling) over 38 frames. Self-reviewed. Next: Y3.2b UI + guide.
+- **2026-10-14 07:43 EDT, same run (MINIMAL): Y3.2b** Attach to Track row on Motion (both workflows, UI test), guide section; coach tests
+  green. Next: Y3.2c one-click tracked blur / mosaic.
+- **2026-10-14 07:47 EDT, same run (MINIMAL): Y3.2c** `tracking.blurRegion` (one-click tracked blur / mosaic: effect + ellipse mask + track);
+  test: only the moving region changes (blur and mosaic, frames 10 and 30). **Y3.2 complete.** Next: Y3.4 (ADR 0006 first).
+- **2026-10-14 07:55 EDT, same run (MINIMAL): Y3.5a** look packs (`packs.export` / `packs.import`, `.fcpack` zip of presets, project LUTs,
+  user templates; hostile-archive caps and rules; rename instead of overwrite). Tests: round trip + 18 hostile cases; engine
+  suite 811 green; guide `packs.md`; coach green. Next: Y3.5b LUT folder import, then Y3.4 (ADR 0006 first).
+- **2026-10-14 07:57 EDT, same run (MINIMAL): Y3.5b** `lut.importFolder` (one undo step, skips broken files); guide line in `packs.md`.
+  **Y3.5 complete.** Left in Y3: Y3.4 WGSL custom shader effects (ADR 0006 first), then the yt-3 acceptance.
+- **2026-10-14 07:59 EDT, same run (MINIMAL): Y3.4 step 1** ADR 0006 user shader effects (registry with interned defs, annotation format,
+  shader contract, GPU-only, measured time limit + quarantine); provisional, OWNER-QUESTIONS Q29 (FYI). HANDOFF next step
+  rewritten for Y3.4 (Y3 summary). Next: Y3.4 step 2 (`filmcraft-usershader` parser / validator).
+- **2026-10-14 08:03 EDT, same run (MINIMAL): Y3.4 step 2** `filmcraft-usershader` (L2 leaf, naga 30): annotation parser, forbidden-construct
+  check, composition with the prelude / entry point, naga validation with user line numbers; 6 tests (good file, 17
+  annotation errors with lines, 7 forbidden constructs, WGSL syntax / type errors on the user's line, hostile input).
+  layers / wasm (48 crates) green. Next: step 3 registry.
+- **2026-10-14 ~08:10 EDT, Dell lane: A2.8b** merged (`66654f4d`): A2's gates on recorded speech (LibriSpeech test-clean,
+  Q26 b: 50 utterances, archive md5-checked, Dell only). **Voice Isolation vs DeNoise** (486 s, SI-SDR dB, DeNoise best of
+  40 / 100 %): fan 9.6 vs 7.3 / 12.6 vs 10.9 / 15.3 vs 14.6 at 0 / 5 / 10 dB SNR; room 8.4 / 6.4, 11.8 / 10.3, 14.3 / 14.0;
+  traffic 10.1 / 6.6, 12.9 / 10.6, 15.3 / 14.4; keyboard 9.9 / −0.0, 10.4 / 5.0, 10.9 / 9.9; wind 7.6 / −0.2, 9.1 / 4.8,
+  10.3 / 9.8. Non-steady mean margin **+7.1 / +4.0 / +0.8 dB** (bar 3 at each SNR: missed at 10 dB); clean speech
+  **17.0 dB** (bar 20: missed; LibriSpeech's own floor is 23–38 dB under the voice). Q30 FYI, choice (a). **One-click gate**
+  (51 s, Repair-stage SI-SDR vs manual / one-click): fan 6.6 / 10.5, 10.6 / 13.9, 14.5 / 17.3; room 5.9 / 9.9, 9.9 / 13.6,
+  14.0 / 17.2; traffic 10.4 / 10.4, 13.7 / 13.7, 17.0 / 16.9; keyboard 17.4 / 17.4, 19.1 / 19.1, 20.8 / 20.7; wind 10.4 /
+  10.4, 14.6 / 14.6, 17.9 / 17.8; loudness manual −14.7 … −15.0 vs one-click −14.0 … −14.2 LUFS, both −1.5 dBTP: **all 15
+  pass**. Tuned once on this set (model-measured noise, Voice Isolation 10 / 8), said in PREP-A2 §1. Self-reviewed.
+- **2026-10-14 08:13 EDT, same run (MINIMAL): Y3.4 step 3** user-effect registry (interned defs, id prefixes) + engine loading
+  (`effects.reloadUser` / `listUser`, at startup); a project using a missing user effect keeps it and renders. Engine 814 /
+  project 79 green. Merged the Dell lane's A2.8b first (progress-log conflict, both kept). Next: step 4 (GPU runtime).
+- **2026-10-14 ~08:45 EDT, Dell lane: A2.8c** merged (`f5eafc67`): Clean Up Voice runs as a background job (the ~6 renders
+  of a long clip no longer block the UI): guarded thread, stop checked every second of audio, the plans applied in one undo
+  step when the session polls (nothing when stopped or the sequence changed); `wait: true` keeps the in-place form for
+  agents. Gates on the Dell green. Next A2.9 (per-take review). Self-reviewed.
+- **2026-10-14 ~08:30 EDT, Dell lane: A2.9** merged (`f9f290ac`): per-take review (recordings kept as takes of their record
+  point, `audio.voiceover.takes` / `pickTake`, Takes with waveforms in Essential Sound; the clip's processing moves to the
+  picked take). **A2 ready for acceptance** (checklist in HANDOFF): one-click gate passes all 15 cases; Voice Isolation
+  misses its 10 dB-SNR margin and clean-speech bars (Q30, choice (a)); fresh-context reviews owed; live check on the
+  i5-11600K owed on the PC. `.dell-a2-complete` created; the lane moves to AI3-PREP. Self-reviewed.
+- **2026-10-14 08:33–08:50 EDT, scheduled run (MINIMAL: U 30 % vs L ≈ 17 %; 5-hour 9 %): cloud MKV-HANDOFF merged +
+  Y3.4 step 4.** Cloud `fbf60f1d` (MKV / MXF `set_handoff_scale`) reviewed and merged; codecs tests green (113 + 9 + 3);
+  the owed MKV 4K-from-6.2K Intel export check is still owed. Dell lane A2.9 merged from origin. **Y3.4 step 4:** user
+  shader effects run on the GPU (`FxOp::User`, own pass / pipeline cache, broken modules pass through) and the
+  slow-pass rule (timestamp queries, 3 frames over 50 ms at 1080p → off + message); parity AMD + Intel (full ≤ 4.2e-7,
+  half ≤ 4.9e-4); gpu suite green on both. Self-reviewed. Next: step 4c (quarantine on device loss), then step 5.
+- **2026-10-14 ~09:15 EDT, Dell lane: AI3-PREP.1** merged (`2f2d3a31`): compact section headers (AI3 0d). Spec in
+  `docs/guide/README.md`; `coach_ask::parse_header` + the guide check (ids per page and unique, commands / ui ids / see
+  links real); header words searched with their section; 50 sections on 9 pages headed, the rest page by page. Coach eval
+  floor and off-topic set unchanged (green). Self-reviewed.
+- **2026-10-14 08:52 EDT, same run (MINIMAL): Y3.4 step 4c** quarantine: user passes tracked in flight until the GPU
+  finishes them; a device loss (UI and export devices) hands them to the UI's hook, which writes
+  `<data dir>/Effects/quarantine.json`; quarantined (id, hash) load as broken until the file changes or
+  `effects.unquarantine`. Tests: engine (quarantine / hostile files / unquarantine), gpu in-flight + hook (AMD + Intel
+  suites green, 69 each). Archived 44 old log entries. Self-reviewed. Next: step 5 (examples, UI, guide).
+- **2026-10-14 09:04 EDT, same run (MINIMAL): Y3.4 step 5, Y3.4 complete.** Four original example shaders (chromatic
+  aberration, glitch, VHS, light leak) bundled and tested on AMD + Intel; Effects panel Video Effects ▸ User (broken
+  files, needs-GPU note, Reload, Open Effects Folder), Effect Controls "Missing effect" row, slow-pass messages in the
+  status line; UI test; guide `shader-effects.md` (coach eval stays ≥ floor after rewording). Self-reviewed. Next:
+  yt-3 acceptance.
+- **2026-10-14 ~09:55 EDT, Dell lane: AI3-PREP.1b–1e** merged: compact headers on the rest of the guide (183 headers, 27
+  pages; the check now covers every page but README.md, so **new guide sections need a header**). Header words are no
+  longer searched by the keyword index (they moved 3 of the 30 eval questions; floor kept). Next: AI3-PREP part (2),
+  feature pages. Self-reviewed.
+- **2026-10-14 ~10:30 EDT, Dell lane: AI3-PREP.2a–2c** merged: feature pages text.md (transcripts, speech models, pauses /
+  fillers, captions, narration vs recording), mixing.md (track and clip mixers, inserts, submixes / sends, automation
+  modes, track keyframes) and graphics.md (graphic layers, text, arranging, responsive design, templates, source graphics,
+  fonts), written from the code with options and trade-offs; two off-topic coach questions the guide now covers were
+  swapped for uncovered ones. Self-reviewed.
+- **2026-10-14 ~10:55 EDT, Dell lane: AI3-PREP.2d–2f** merged: feature pages timeline.md (targeting, keyboard moves,
+  navigation, In / Out and split edits, markers), effects.md (effects, keyframes and interpolation, transitions, presets)
+  and media.md (import, generated media, bins, saving / recovery, relinking, clip operations, audio channels,
+  interchange). The colour eval sits at its floor (82 / 116) and each of these general pages pushed it to 81, so they are
+  left out of today's keyword index (NOT_INDEXED) and kept for AI3's retrieval. Self-reviewed.
+- **2026-10-14 ~11:40 EDT, Dell lane: AI3-PREP.2g–2j** merged: getting-started "Import X-M5 clips" (a stub until now: card
+  copy to graded sequence, camera and sequence choices with trade-offs), shortcuts.md, edit-menu.md, trimming.md and
+  export-queue.md; about 470 of ~700 commands are now named in the guide. Off-topic coach set: "add a title with my name"
+  is now covered (graphics.md) and was swapped. Self-reviewed.
+- **2026-10-14 ~12:15 EDT, Dell lane: AI3-PREP.2k–2n** merged: file-menu.md, essential-sound.md (indexed; the Essential
+  Sound panel's Duration hint, which still said remixing "is not available yet", now points at Clip ▸ Remix), voice-over
+  recording (audio.md), caption tracks by hand (text.md), Scene Edit Detection (media.md), more marker kinds
+  (timeline.md). Part (2), feature pages, is done (~580 of ~700 commands named by family). Next: part (3), practice
+  notes. Self-reviewed.
+- **2026-10-14 ~13:15 EDT, Dell lane: AI3-PREP.3a–3j** merged: **150 practice notes** (AI3 0a + 0c) on ten pages in
+  docs/guide/practice/ (grading 15, editing 15, sound 15, delivery 14, node trees 15, looks 15, YouTube 15, titles 15,
+  workflow 15, mixed cameras 16), each mapped to FilmCraft with the gaps said in place (parallel / layer / outside /
+  shared nodes, grade groups and versions, node hue curves, gamut compression, glow, beauty, ACES, auto reframe, chart
+  matching, word-by-word caption highlight). Written from general practice in our own words; no source text used.
+  Next: part (4), training pairs and the ≥ 60-question advanced eval. Self-reviewed.
 
-- **2026-10-14 05:21 EDT, scheduled run (MINIMAL: weekly U 26 % vs line L ≈ 15 %; 5-hour 20 % vs L5 ≈ 44 %):
-  X422 2b design note** `docs/fork/DESIGN-X422-FUSED.md`: fuse point-op runs (colour chains + point `fx_px` ops)
-  into one generated pass, box cascades into one shared-memory pass per axis (exact edge handling), Unsharp /
-  HSL combines into the last pass and HSL's key into the first; bench grade ~10–12 → ~4 full-frame passes;
-  unfused path kept behind `FILMCRAFT_FX_FUSE=0`. Self-reviewed. Next 2b.1 (F2: box cascades; F1 gains nothing on the bench grade, its vignette is a chain op).
-- **2026-10-14 05:30 EDT, same run (MINIMAL): X422 2b.1** `fx_box3`: up to three box passes along one axis in one
-  shared-memory dispatch (`fuse_boxes`, switch `FILMCRAFT_FX_FUSE=0`); f32 within 1e-6 of the unfused passes for every
-  effect case at tile-edge sizes, AMD and Intel; gpu crate tests green on both, clippy / fmt clean. Synthetic timing
-  (`graded_export_ops_timing_6k`): **no gain on the bench grade** (its Sharpen is one 1-px box per axis and its HSL has
-  no blur); Intel f32 per op: chain 98 ms, HSL 66, Unsharp 121, round trip ≈ 33. Design note §4b re-points 2b.2 at the
-  passes that can go (one-pass small Unsharp, chain + HSL key + correct in one pass, ~130 of 286 ms on Intel). Self-reviewed.
-- **2026-10-14 05:32 EDT, same run (MINIMAL): X422 2b.2 F3a** one-pass Unsharp when each axis has at most one box of
-  radius ≤ 3 (Sharpen at usual sizes): the blur summed in the two passes' order, f32 within 1e-5 of the passes (AMD and
-  Intel, every effect case). Synthetic `graded_export_ops_timing_6k`: **Intel f32 286 → 207 ms per 6.2K frame of graded
-  ops (Unsharp 121 → 44)**, f16 201 → 175, AMD 19.1 → 13.5. Next F3b (chain + HSL in one pass). Self-reviewed.
-- **2026-10-14 05:36 EDT, same run (MINIMAL): X422 2b.2 F3b** HSL Secondary without Blur / Denoise runs as one colour
-  chain (GPU-only codes `CO_KEY_BEGIN` / `CO_KEY_END`) and adjacent plain chains merge (`merge_chains`): bench grade and
-  HSL variants (blur, denoise, show mask) within 1e-5 of the passes on AMD and Intel; gpu crate green on both. Synthetic
-  graded ops per 6.2K frame: **Intel f32 286 → 178 ms, AMD 19.1 → 8.2 ms**. Intel's remaining cost is the chain's ALU.
-  Next: the graded benches. Self-reviewed.
-- **2026-10-14 05:42 EDT, same run (MINIMAL): X422 2b benches** (synthetic, single full-length, idle): 6.2K graded
-  19.6 → 19.7 fps (AMD decode / encode-bound), **X422 (a) 17.1 → 19.9 fps**, Intel lane ~3.5 → ~4.9 fps (per-op timing).
-  Aims short → OWNER-QUESTIONS Q28 (FYI; kept, LUT-bake option noted). Next: X422 final median-of-2 runs, ci, tag `x422`.
-- **2026-10-14 05:53 EDT, same run (MINIMAL): X422 final runs** (median of 2, full length, synthetic): (a) 20.0 fps, (b) 7.2 fps.
-  (a) traced: Intel decode + VPP hand-off copy ≈ 50 ms / frame is the limit (AMD waits on it): the measured reason (a) is
-  short of 24 (§1a.68 acceptance). Next: `cargo xtask ci`, tag `x422` + riding tags, build, publish.
-- **2026-10-14 06:47 EDT, same run (MINIMAL): X422 ci** `cargo xtask ci`: fmt / clippy green, 3736 tests with one failure,
-  `coach_ask_tests::questions_the_guide_does_not_cover_fall_back`: since A2.6's audio page shifted the word weights, "add a
-  title with my name" lands on Primaries ▸ The panel ("Add Node", a wheel's title, "names the node"). The test now allows
-  one such off-topic miss (reported), like the 28 / 30 of the covered set; owed: a titles page in the guide. Coach tests,
-  layers, assets, wasm, engine clippy re-run green.

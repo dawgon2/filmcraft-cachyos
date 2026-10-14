@@ -5,6 +5,8 @@ others, Wayland or X11): where its files live and which desktop services it uses
 
 ## Installing: a distribution package, Flatpak, or the tarball
 
+> id: linux.install | does: the ways to install FilmCraft on Linux and what each can do | resolve: — (Linux installer) | premiere: — (no Linux version) | when: installing or choosing a package | see: linux.files
+
 **[Standard]**
 
 Why: every way of installing gives you the same editor, but they differ in what FilmCraft can
@@ -30,6 +32,8 @@ reach on your computer and in how it gets updated. None is the one right choice.
   a release, or keeping two versions side by side.
 
 ## Where FilmCraft keeps its files
+
+> id: linux.files | does: settings, data, cache and logs in the standard XDG folders | cmd: app.paths, mediaCache.info | when: backing up settings, freeing cache space | see: linux.install
 
 **[Standard]**
 
@@ -63,6 +67,8 @@ which happened.
 
 ## The window's size and title bar
 
+> id: linux.window | does: the window reopens at its size and place; the title bar can be the desktop's or FilmCraft's | when: setting up the window for your screen | see: linux.fullscreen
+
 **[Standard]**
 
 Why: an editor is usually set up once for a screen; it should open the way you left it.
@@ -84,6 +90,8 @@ FilmCraft draws a plain Adwaita-style frame with the window buttons (no title te
 window's name still shows in the overview and the dock).
 
 ## Full screen
+
+> id: linux.fullscreen | does: FilmCraft opens full screen by default, like Resolve | resolve: full-screen interface | when: wanting every pixel, or a normal window | see: linux.window
 
 **[Standard]**
 
@@ -111,6 +119,8 @@ the window covers the desktop's panels and task bar.
 
 ## The menu in the desktop's global menu
 
+> id: linux.global-menu | does: the menu bar can appear in the desktop's global menu | when: a macOS-style panel layout | see: linux.window
+
 **[Standard]**
 
 Why: with a macOS-style layout (Plasma's **Global Menu** widget in a top panel, or a title-bar
@@ -127,6 +137,8 @@ menu button) every app's menu lives in the panel; FilmCraft's should too.
   menu simply stays in the window.
 
 ## The desktop's accent colour
+
+> id: linux.accent | does: FilmCraft can use the desktop's accent colour | cmd: appearance.followSystemAccent | when: matching other apps' highlight colour | see: linux.text-size
 
 **[Standard]**
 
@@ -155,6 +167,8 @@ desktop portal), the **Highlight Color** applies. Agents can read and set it as
 
 ## Animations and reduced motion
 
+> id: linux.motion | does: interface animations follow the desktop's reduced-motion setting | cmd: appearance.motion | when: motion makes you uncomfortable, or you want it snappier | see: linux.accent
+
 **[Standard]**
 
 Why: menus, collapsing sections and scrolling to a clip slide into place for a tenth of a
@@ -180,6 +194,8 @@ Playback, scrubbing and the playhead are never affected: they show your media, n
 motion. Agents can read and set it as `appearance.motion` (`system` | `on` | `off`).
 
 ## The desktop's text size
+
+> id: linux.text-size | does: FilmCraft can follow the desktop's text size | cmd: appearance.matchDesktopTextSize | when: you made desktop text bigger | see: linux.accent
 
 **[Standard]**
 
@@ -215,6 +231,8 @@ Agents can read and set it as `appearance.matchDesktopTextSize`.
 
 ## Progress on the taskbar and a notification when a job finishes
 
+> id: linux.progress | does: export and proxy progress on the taskbar icon, and a notification when done | when: working in another app during a long export | see: linux.inhibit
+
 **[Standard] [FilmCraft]**
 
 Why: an export or a batch of proxies can take a while; you shouldn't have to keep FilmCraft in
@@ -238,6 +256,8 @@ set.
 
 ## The screen stays on while you play, the computer stays awake while you export
 
+> id: linux.inhibit | does: keeps the screen on during playback and the computer awake during exports | when: long playback or overnight exports | see: linux.progress
+
 **[Standard]**
 
 Why: watching a cut for ten minutes without touching the mouse shouldn't lock the screen, and
@@ -250,6 +270,8 @@ the computer shouldn't go to sleep halfway through a long export.
   `org.freedesktop.ScreenSaver` interface for the screen only.
 
 ## One FilmCraft at a time
+
+> id: linux.single-instance | does: a second launch hands its files to the running FilmCraft | when: double-clicking a project while FilmCraft is open | see: linux.project-files
 
 **[FilmCraft]**
 
@@ -268,6 +290,8 @@ install can run side by side. To start a second window anyway, launch with `--ne
 Agents (`--control`) always get their own.
 
 ## File dialogs: the desktop's own, and where they start
+
+> id: linux.dialogs | does: Open, Import, Save and Export use the desktop's file dialog and remember folders | cmd: file.import, file.exportMedia | when: a dialog opens in the wrong place | see: linux.files
 
 **[Standard] [FilmCraft]**
 
@@ -305,6 +329,8 @@ their folders themselves.
 
 ## Which GPU draws FilmCraft
 
+> id: linux.gpu | does: chooses which graphics card draws the interface on machines with two | ui: settings.playback.graphicsDevice | cmd: graphics.listDevices, app.settings.playback | resolve: GPU selection | premiere: GPU selection | when: laptops with two GPUs; a desktop with an iGPU | see: hardware.switches
+
 **[Standard] [FilmCraft]**
 
 Why: a laptop with integrated and discrete graphics, or a desktop with a CPU's graphics next to a
@@ -338,6 +364,8 @@ only Auto, close and reopen it. Exports choose their GPUs in the Export dialog
 `graphics.listDevices` lists the GPUs, the stored choice and the one drawing now.
 
 ## Sound when the audio device has a hiccup
+
+> id: linux.audio-device | does: playback survives an audio device that drops or changes, and reports it | cmd: app.settings.audioHardware, playback.audio | when: Bluetooth headphones, HDMI audio, device changes | see: linux.media-keys
 
 **[FilmCraft]**
 
@@ -376,6 +404,8 @@ Agents: `perf.stats` reports `playback.audio` (callbacks, underruns, missing fra
 
 ## Dragging files in from the file manager
 
+> id: linux.drag-drop | does: dropping files from the file manager, and what works instead on Wayland | cmd: file.import | when: importing by drag and drop | see: linux.paste
+
 **[FilmCraft]**
 
 Dropping files from Dolphin or Nautilus onto FilmCraft works on X11. **On Wayland it doesn't
@@ -389,6 +419,8 @@ arrives with a later winit version. Until then, on Wayland:
 3. **Import:** **File ▸ Import** (`file.import`) opens the desktop's own file dialog.
 
 ## Pasting files, typing with an input method, and the touchpad
+
+> id: linux.paste | does: pasting files and images, input methods for other scripts, touchpad gestures | cmd: edit.paste | when: importing by paste; typing Japanese or Chinese | see: linux.drag-drop
 
 **[Standard] [FilmCraft]**
 
@@ -417,6 +449,8 @@ Options for zooming the Timeline, by what suits you:
   quickest way back to the overview.
 
 ## Project files in the file manager
+
+> id: linux.project-files | does: projects get their own icon, type, thumbnail and open with a double-click | when: finding projects in the file manager | see: linux.single-instance
 
 **[Standard] [FilmCraft]**
 
@@ -448,6 +482,8 @@ open, a picture of what's in it, and a place in the desktop's recent files.
   `ffmpegthumbs`.
 
 ## Media keys and the desktop's media controls
+
+> id: linux.media-keys | does: the play / pause key and the desktop's media controls drive playback | cmd: playback.desktopMediaControls, playback.toggle | when: controlling playback from the keyboard or the lock screen | see: linux.global-shortcuts
 
 **[Standard]**
 
@@ -481,6 +517,8 @@ desktop's media controls** (`playback.desktopMediaControls`). It takes effect at
 
 ## Global shortcuts: play and mark from another window
 
+> id: linux.global-shortcuts | does: play, stop and add markers while another window has the focus | cmd: playback.desktopGlobalShortcuts, markers.add | when: logging notes while watching a cut | see: linux.media-keys
+
 **[Standard]**
 
 Why: when you log notes while watching a cut, or follow a client's comments in a browser, you
@@ -511,6 +549,8 @@ Options, and when to pick which:
   risk of a global key firing in the wrong app. They only work while FilmCraft has focus.
 
 ## Sending a file to your phone (KDE Connect)
+
+> id: linux.kdeconnect-send | does: sends an export to a phone with KDE Connect | cmd: kdeconnect.send, kdeconnect.devices | when: watching a cut on a phone | see: linux.kdeconnect-remote
 
 **[Standard]**
 
@@ -563,6 +603,8 @@ as `phone_shares`.
 
 ## Your phone as a playback remote (KDE Connect)
 
+> id: linux.kdeconnect-remote | does: a phone starts, stops and scrubs playback through KDE Connect | when: showing a cut on a TV from the sofa | see: linux.kdeconnect-send
+
 **[Standard]**
 
 Why: to start, stop and scrub a cut from the sofa while a client or the family watches it on the
@@ -591,6 +633,8 @@ Options, and when to pick which:
 - **FilmCraft's own keys** (Space, J / K / L): the most precise (shuttle speeds, marks), at the desk only.
 
 ## Logs in the system journal, and reporting a crash
+
+> id: linux.logs | does: logs go to the system journal; Help ▸ Report an Issue gathers what a developer needs | cmd: help.reportIssue | when: something went wrong | see: linux.files
 
 **[Standard] [FilmCraft]**
 

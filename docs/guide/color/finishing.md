@@ -4,12 +4,16 @@
 
 ## Why
 
+> id: color.finishing.why | does: finishing touches after a grade: grain, highlight soft clip, LUTs and checking with scopes | resolve: Film Grain, Soft Clip, LUTs, scopes | premiere: Lumetri Creative, scopes | when: the grade is done but looks too clean or clips | see: color.finishing.grain
+
 **[Fork]**
 
 Digital footage can look too clean after a heavy grade. A little grain makes shots feel alike and
 hides banding in smooth gradients.
 
 ## Film grain
+
+> id: color.finishing.grain | does: adds film-like grain on a node | ui: grade.param.grain.* | cmd: grade.setParam | resolve: Film Grain | premiere: Lumetri / Noise effect (closest) | when: shots that look too clean or must match each other | see: color.finishing.soft-clip
 
 **[Fork]**
 
@@ -33,6 +37,8 @@ The grain is monochrome, weighted by brightness, and different on every frame, b
 frame always gets the same grain, so an export matches the viewer.
 
 ## Highlight soft clip
+
+> id: color.finishing.soft-clip | does: rolls bright highlights off smoothly instead of clipping flat | ui: grade.param.hl.* | cmd: grade.setParam | resolve: Soft Clip | premiere: Lumetri Highlights / Whites (closest) | when: skies, windows and lamps that clip | see: color.color-management.output
 
 **[Resolve-style]**
 
@@ -65,6 +71,8 @@ sequence's output stage still applies its own BT.2390 tone mapping afterwards
 
 ## A LUT on a node
 
+> id: color.finishing.lut | does: applies a LUT file on a node, with a mix amount | ui: grade.lut, grade.param.lut.mix | cmd: grade.setLut, lut.import | resolve: LUT on a node | premiere: Lumetri Input LUT / Creative Look | when: a camera LUT or a look from a file | see: packs.make
+
 **[Resolve-style]**
 
 ### Why
@@ -88,6 +96,8 @@ there: put a colour space conversion before it, or use it in a Rec.709 sequence.
 missing LUT applies nothing.
 
 ## Scopes: reading exposure, balance and skin
+
+> id: color.finishing.scopes | does: waveform, parade and vectorscope readings for exposure, balance and skin | ui: scopes.*, pageToolbar.LumetriScopes | cmd: scopes.read | resolve: Scopes | premiere: Lumetri Scopes | when: checking a grade objectively | see: color.primaries.panel
 
 ### Why
 
@@ -141,6 +151,8 @@ shows them in its own scope viewer. The readings mean the same: Resolve's "Wavef
 "Vectorscope" and "Histogram" map one to one.
 
 ## If you know Resolve
+
+> id: color.finishing.resolve | does: how grain, soft clip and LUTs compare with Resolve's | resolve: Film Grain OFX, Soft Clip, LUTs | when: you come from Resolve | see: color.finishing.grain
 
 **[Resolve-style]**
 

@@ -11,6 +11,8 @@ step that adds a node is one undo step, so experiment freely: **Ctrl+Z** takes i
 
 ## 1. Turn a flat F-Log2 clip into a normal picture
 
+> id: color.recipes.flog2-normal | does: a fixed set of nodes that turns flat F-Log2 into a normal picture | ui: grade.addFirst, grade.addNode | cmd: clip.interpretFootage, sequence.colorSettings, grade.labelNode | resolve: colour-managed log normalisation | premiere: Lumetri on log with an input LUT | when: the first grade of any X-M5 clip | see: color.nodes.starter-tree
+
 **[Fork]** **[Resolve-style]**
 
 **Why:** log footage looks grey on purpose. A small fixed set of nodes, always in the same order,
@@ -39,6 +41,8 @@ to other clips (double-click the still, `stills.apply`).
 
 ## 2. Warm a shot up
 
+> id: color.recipes.warm | does: warms a cold, blue shot | ui: grade.param.temperature, grade.wheel.gain | resolve: Temp / Gain wheel | premiere: Lumetri Temperature | when: a shot feels cold | see: color.primaries.panel
+
 **[Resolve-style]**
 
 **Why:** a cold, blue-ish shot feels unfriendly; warming it is the most common creative change.
@@ -56,6 +60,8 @@ everything looks like a filter.
 Quicker but blunter: raise **Temperature** {ui:grade.param.temperature} on this node instead.
 
 ## 3. Make the sky bluer without touching skin
+
+> id: color.recipes.sky | does: deepens the sky with a qualifier and a gradient window, leaving skin alone | ui: grade.qual.pick, grade.window.add.linear | cmd: grade.pickQualifier | resolve: qualifier + linear window | premiere: Lumetri HSL Secondary + mask | when: a pale sky | see: color.secondaries.qualifier
 
 **[Resolve-style]**
 
@@ -81,6 +87,8 @@ so faces stay as they are.
 
 ## 4. Brighten a face
 
+> id: color.recipes.face | does: lifts a face a little with a soft window, without touching the background | ui: grade.window.add.ellipse, grade.window.0.softness | resolve: circle window + gamma | premiere: Lumetri mask + exposure | when: a face in shadow | see: color.secondaries.windows
+
 **[Resolve-style]**
 
 **Why:** viewers look at faces first. Lifting a face a little, without touching the background,
@@ -96,6 +104,8 @@ draws the eye and is the classic job for a soft circle.
    [secondaries](secondaries.md#tracking-a-window)) so it follows the face.
 
 ## 5. Match a wide shot and a close-up
+
+> id: color.recipes.match | does: matches two angles of one scene with a still, Shot Match and a check | ui: stills.grab, grade.match.shotMatch | cmd: grade.shotMatch, grade.compareShots | resolve: gallery wipe + Shot Match | premiere: Lumetri Comparison View + Apply Match | when: two angles that don't cut together | see: color.matching.shot-match
 
 **[Resolve-style] [Fork]**
 
@@ -116,6 +126,8 @@ between them only works when they match.
 
 ## 6. Give one grade to a whole scene
 
+> id: color.recipes.scene | does: grades one clip and copies it to the scene, then checks for the odd one out | ui: grade.match.checkScene | cmd: grade.copy, grade.paste, grade.append, grade.checkScene | resolve: copy grade, shared nodes | premiere: Paste Attributes | when: many clips in the same place and light | see: color.matching.copy-paste
+
 **[Resolve-style]**
 
 **Why:** clips shot in the same place and light can share one grade; doing it once and copying
@@ -131,6 +143,8 @@ saves time and keeps them consistent.
 
 ## 7. Finish with film grain
 
+> id: color.recipes.grain | does: adds a little grain on a last node to hide banding and tie clips together | ui: grade.param.grain.* | resolve: Film Grain | premiere: Noise / grain effect | when: skies with banding, clips from different sources | see: color.finishing.grain
+
 **[Fork]**
 
 **Why:** a little grain hides banding in skies and gradients and makes clips from different
@@ -145,6 +159,8 @@ sources feel like one film. Add it last, so nothing after it sharpens or blurs i
    grade with recipe 6 would bring this clip's other nodes along too.)
 
 ## 8. Fix grey or lifeless skin
+
+> id: color.recipes.skin | does: restores warmth and saturation in grey skin with a qualifier | ui: grade.qual.pick, grade.param.saturation | cmd: grade.pickQualifier | resolve: skin qualifier, hue vs sat | premiere: Lumetri HSL Secondary on skin | when: faces look grey under green-ish or overcast light | see: color.secondaries.qualifier
 
 **[Resolve-style]**
 
@@ -181,6 +197,8 @@ skin.
    {ui:grade.param.qual.soft} again, then go back to **Normal** {ui:grade.qual.show.0}.
 
 ## If you know Resolve
+
+> id: color.recipes.resolve | does: how the recipes follow common Resolve habits | resolve: technical nodes first, secondaries and look later | when: you come from Resolve | see: color.nodes.orders
 
 **[Resolve-style]**
 

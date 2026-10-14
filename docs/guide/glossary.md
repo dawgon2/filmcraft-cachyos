@@ -31,6 +31,8 @@ saying where the idea comes from (see [README](README.md#where-each-feature-come
 
 ## Log
 
+> id: glossary.log | does: a way of storing brightness that keeps very dark and very bright parts in the file | resolve: log (e.g. F-Log2) | premiere: log | when: footage looks flat and grey | see: color.color-management.why
+
 **[Standard]**
 
 A way a camera stores brightness so that very dark and very bright parts both fit in the file.
@@ -43,6 +45,8 @@ X-M5, **F-Log2**). See [colour management](color/color-management.md).
 
 ## Gamut
 
+> id: glossary.gamut | does: the range of colours a signal can describe | resolve: color gamut | premiere: color gamut | when: reading colour-space names | see: glossary.working-space
+
 **[Standard]**
 
 The range of colours a signal can describe. A camera gamut such as **F-Gamut** holds more
@@ -53,6 +57,8 @@ gently instead of cutting them off.
 - Resolve: gamut / colour space. Premiere: colour space.
 
 ## Working space
+
+> id: glossary.working-space | does: the colour space every clip is translated into before you grade | resolve: timeline color space | premiere: working color space | when: setting up colour management | see: color.color-management.working
 
 **[Standard] [Fork]**
 
@@ -67,6 +73,8 @@ space is converted to the output (normally Rec. 709).
 
 ## Node
 
+> id: glossary.node | does: one step of a clip's grade, holding a set of corrections | ui: grade.addNode | cmd: grade.addNode | resolve: node | premiere: — (a Lumetri effect instance, closest) | when: learning the node grader | see: color.nodes.why
+
 **[Resolve-style]**
 
 One step of a clip's grade. A node holds a set of corrections (wheels, curves, a key, a window,
@@ -80,6 +88,8 @@ node**, so you can see and undo each step separately. Nodes appear as numbered b
 
 ## Serial node
 
+> id: glossary.serial-node | does: a node that passes its result to the next one | resolve: serial node | premiere: — | when: reading a node chain | see: glossary.node
+
 **[Resolve-style]**
 
 A node that takes the picture from the node before it and hands its result to the next one:
@@ -90,6 +100,8 @@ did. Today every node in this fork is serial; parallel and layer nodes are plann
   behaves similarly.
 
 ## Wheel
+
+> id: glossary.wheel | does: a round control that pushes colour towards a hue and sets brightness | resolve: color wheel | premiere: Lumetri color wheel | when: balancing shadows, midtones, highlights | see: color.primaries.panel
 
 **[Resolve-style] [FilmCraft]**
 
@@ -103,6 +115,8 @@ brightness up or down (the slider under it). There are four: **Lift** (shadows),
 
 ## Curve
 
+> id: glossary.curve | does: a graph that maps input to output brightness, hue or saturation | resolve: curves | premiere: Lumetri curves | when: shaping contrast or one colour | see: color.curves.why
+
 **[Resolve-style] [FilmCraft]**
 
 A graph that maps input to output: drag a point up and that brightness (or hue, or saturation)
@@ -113,6 +127,8 @@ colour range at a time ("make only the blues less saturated"). See [curves](colo
   Saturation curves.
 
 ## Still
+
+> id: glossary.still | does: a saved frame with the grade that was on its clip | ui: stills.grab | cmd: stills.grab | resolve: still (Gallery) | premiere: — (reference frame) | when: keeping a reference look | see: color.matching.stills
 
 **[Resolve-style]**
 
@@ -127,6 +143,8 @@ gallery. See
 
 ## Wipe
 
+> id: glossary.wipe | does: shows a still and the current picture at once, divided by a line | cmd: compare.set | resolve: wipe | premiere: Comparison View | when: matching shots by eye | see: color.matching.compare
+
 **[Resolve-style]**
 
 A way to see a still and the current picture at once, divided by a line you can drag, so you
@@ -137,6 +155,8 @@ can judge whether two shots match. **Split** shows them side by side instead. Bo
 
 ## Key
 
+> id: glossary.key | does: a selection of part of the picture by colour or brightness | ui: grade.tab.qualifier | resolve: key (qualifier) | premiere: HSL Secondary key | when: changing one colour | see: color.secondaries.qualifier
+
 **[Standard] [Resolve-style]**
 
 A selection of part of the picture made **by its colour or brightness**, for example "the skin"
@@ -146,6 +166,8 @@ or "the sky", so a node changes only that part. This fork makes keys with the **
 - Resolve: key, made with a qualifier. Premiere: HSL Secondary key in Lumetri.
 
 ## Matte
+
+> id: glossary.matte | does: the black-and-white picture of where a key or window acts | ui: grade.qual.show.2 | resolve: matte / highlight | premiere: mask / show mask | when: checking a key | see: glossary.key
 
 **[Standard]**
 
@@ -158,6 +180,8 @@ it doesn't, grey for partly. Looking at the matte (Qualifier ▸ View ▸ **Matt
 
 ## Window
 
+> id: glossary.window | does: a selection of part of the picture by shape | ui: grade.tab.windows | resolve: Power Window | premiere: mask | when: a vignette, a face, a sky | see: color.secondaries.windows
+
 **[Resolve-style]**
 
 A selection of part of the picture made **by shape** (circle, rectangle, gradient) instead of by
@@ -167,6 +191,8 @@ colour. Windows can follow a moving object with tracking. The Windows tab is
 - Resolve: window (power window). Premiere: mask on an effect.
 
 ## LUT
+
+> id: glossary.lut | does: a file that maps every input colour to an output colour | ui: grade.lut | cmd: lut.import | resolve: LUT | premiere: LUT (Input LUT, Look) | when: camera conversions, ready-made looks | see: color.finishing.lut
 
 **[Standard]**
 
@@ -180,6 +206,8 @@ shot, so it is best used as one step in a node, not as the whole grade. **Import
 
 ## Grain
 
+> id: glossary.grain | does: fine random texture added on purpose, like film grain | ui: grade.param.grain.strength | resolve: Film Grain | premiere: grain / noise | when: hiding banding, matching sources | see: color.finishing.grain
+
 **[Standard] [Fork]**
 
 Fine random texture added on purpose, like the grain of photographic film. It hides banding,
@@ -192,6 +220,8 @@ Set on a node with **Grain strength** {ui:grade.param.grain.strength}. See
 
 ## Proxy
 
+> id: glossary.proxy | does: a smaller copy of a clip used while editing | cmd: media.createProxies, media.toggleProxies | resolve: proxy media | premiere: proxy | when: heavy footage | see: proxies.what
+
 **[FilmCraft]**
 
 A smaller, easier-to-decode copy of a clip used while editing, so playback stays smooth; the
@@ -202,6 +232,8 @@ originals. Automatic proxies for 6.2K and 4:2:2 clips are planned for Phase 6.
 - Resolve: proxy media / optimized media. Premiere: proxy.
 
 ## Render cache
+
+> id: glossary.render-cache | does: finished frames of part of a sequence saved to disk for smooth playback | cmd: sequence.renderInToOut, sequence.deleteRenderFiles | resolve: render cache | premiere: preview files | when: heavy sections that stutter | see: render-cache.why
 
 **[FilmCraft]**
 

@@ -62,6 +62,8 @@ pub struct MkvSource {
     alpha: Option<Arc<crate::webm_alpha::AlphaLayer>>,
     /// The playable audio tracks in file order: `info.audio_streams[k]` describes `audios[k]`.
     audios: Vec<MkvAudio>,
+    /// [`MediaSource::set_handoff_scale`] (f32 bits; 1.0: unscaled).
+    handoff_scale: std::sync::atomic::AtomicU32,
 }
 
 /// Audio packet start positions in source sample frames.
@@ -434,7 +436,17 @@ impl MkvSource {
             matches!(t.codec, Codec::Vp9 { .. }) && t.video.as_ref().is_some_and(|v| v.alpha_mode != 0) && t.samples.iter().any(|s| s.addition.is_some())
         });
         let alpha = alpha.map(|t| Arc::new(crate::webm_alpha::AlphaLayer::new(bytes.clone(), t.samples.iter().map(|s| (s.pts, s.addition)))));
-        Ok(Self { info, bytes, file, vtrack, ventry, video: GopCache::new(explicit_color).with_rotation(rotation), alpha, audios })
+        Ok(Self {
+            info,
+            bytes,
+            file,
+            vtrack,
+            ventry,
+            video: GopCache::new(explicit_color).with_rotation(rotation),
+            alpha,
+            audios,
+            handoff_scale: 1.0f32.to_bits().into(),
+        })
     }
 
     fn read(&self, track: usize, i: usize) -> crate::Result<Vec<u8>> {
@@ -540,6 +552,13 @@ impl VideoSamples for MkvVideo<'_> {
         self.src.read(self.track, i)
     }
     fn make_decoder(&self) -> crate::Result<Box<dyn VideoDecoder>> {
+        let s = f32::from_bits(self.src.handoff_scale.load(std::sync::atomic::Ordering::Relaxed));
+        if s < 1.0 { crate::hw::with_handoff_scale(Some(s), || self.make_decoder_unscaled()) } else { self.make_decoder_unscaled() }
+    }
+}
+
+impl MkvVideo<'_> {
+    fn make_decoder_unscaled(&self) -> crate::Result<Box<dyn VideoDecoder>> {
         let Some(e) = &self.src.ventry else {
             return Err(CodecError::Unsupported(format!("no decoder for {} video", codec_label(&self.src.file.tracks[self.track].codec))));
         };
@@ -556,6 +575,10 @@ impl VideoSamples for MkvVideo<'_> {
 impl MediaSource for MkvSource {
     fn info(&self) -> &MediaInfo {
         &self.info
+    }
+    fn set_handoff_scale(&self, scale: f32) {
+        let s = if scale.is_finite() && scale > 0.0 && scale < 1.0 { scale } else { 1.0 };
+        self.handoff_scale.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
     }
 
     fn video_frame(&self, req: FrameRequest) -> Result<Arc<VideoFrame>, MediaError> {

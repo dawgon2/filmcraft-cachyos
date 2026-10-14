@@ -1154,3 +1154,24 @@ mod pipeline {
         assert!(e.px.iter().all(|v| v.is_finite()));
     }
 }
+
+/// Fork Y3.1b: a hostile (non-finite) Ultra Key parameter keeps it off the GPU, and the CPU
+/// reference neither panics nor sizes anything from it; a 0×0 or 1×1 image is fine too.
+#[test]
+fn ultra_key_with_hostile_numbers_stays_on_the_cpu_without_panicking() {
+    for v in [f64::NAN, f64::INFINITY, -1e30, 1e30] {
+        let mut e = inst("ultra_key");
+        set(&mut e, "setting", ParamValue::Choice(3));
+        for k in ["choke", "soften", "tolerance", "pedestal", "contrast", "cc_hue"] {
+            setf(&mut e, k, v);
+        }
+        let ops = crate::gpufx::FxOp::eval(&e, &cx(), 16, 8).expect("ultra key has a GPU form");
+        if !v.is_finite() {
+            assert!(!ops.gpu_ok(), "{v}: non-finite numbers must stay on the CPU");
+        }
+        for (w, h) in [(16, 8), (1, 1), (0, 0)] {
+            let o = run("ultra_key", &e, &picture(w, h), &cx());
+            assert_eq!(o.px.len(), w * h * 4);
+        }
+    }
+}

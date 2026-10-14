@@ -1,0 +1,14 @@
+[package]
+name = "filmcraft-usershader"
+description = "FilmCraft user shader effects (fork Y3.4, ADR 0006): parses a .wgsl effect file's annotations, refuses what user code may not declare, composes it with FilmCraft's prelude and entry point and validates the result with naga"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# the version wgpu 30 uses (one naga in the tree)
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }

@@ -4,7 +4,8 @@
 //! The panel never processes audio itself. Like Premiere, it drives effects on the clip "under the
 //! hood": Reduce Rumble is a Highpass, Reduce Noise a DeNoise, DeHum a DeHummer, DeEss a DeEsser,
 //! Reduce Reverb a DeReverb, Dynamics a Dynamics Processing, EQ a Parametric Equalizer, Enhance
-//! Speech the Enhance Speech chain, Stereo Width the Stereo Width effect and Reverb a Studio
+//! Speech the Enhance Speech chain, Voice Isolation the Voice Isolation effect, the Loudness
+//! true-peak limit a Hard Limiter, Stereo Width the Stereo Width effect and Reverb a Studio
 //! Reverb. These instances carry [`EffectInstance::essential`], appear in Effect Controls (where
 //! their parameters can be keyframed) and render through the normal clip-effect path, so the
 //! mixer, playback and export need nothing special. Loudness auto-match writes clip gain, Clip
@@ -133,11 +134,16 @@ pub struct Loudness {
     pub target_lufs: Option<f64>,
     /// Gain the match applied (dB); part of the clip gain while the section is on.
     pub gain_db: f64,
+    /// Keep the clip under [`Loudness::ceiling_dbtp`] with a Hard Limiter (Clean Up Voice turns it
+    /// on).
+    pub limit: bool,
+    /// Peak ceiling after the match gain (dBTP; −1 for YouTube and most streaming services).
+    pub ceiling_dbtp: f64,
 }
 
 impl Default for Loudness {
     fn default() -> Self {
-        Loudness { enabled: true, measured_lufs: None, target_lufs: None, gain_db: 0.0 }
+        Loudness { enabled: true, measured_lufs: None, target_lufs: None, gain_db: 0.0, limit: false, ceiling_dbtp: -1.0 }
     }
 }
 
@@ -145,6 +151,8 @@ impl Default for Loudness {
 #[serde(default)]
 pub struct Repair {
     pub enabled: bool,
+    /// Voice Isolation (the DeepFilterNet model when installed, else DeNoise), amount = wet mix.
+    pub isolate: Slot,
     pub noise: Slot,
     pub rumble: Slot,
     pub dehum: Slot,
@@ -158,6 +166,7 @@ impl Default for Repair {
     fn default() -> Self {
         Repair {
             enabled: true,
+            isolate: Slot::off(10.0),
             noise: Slot::off(5.0),
             rumble: Slot::off(5.0),
             dehum: Slot::off(5.0),
@@ -355,6 +364,7 @@ impl EssentialSound {
     fn clamp(&mut self) {
         let c = |v: &mut f64, lo: f64, hi: f64, def: f64| *v = if v.is_finite() { v.clamp(lo, hi) } else { def };
         for s in [
+            &mut self.repair.isolate,
             &mut self.repair.noise,
             &mut self.repair.rumble,
             &mut self.repair.dehum,
@@ -377,6 +387,7 @@ impl EssentialSound {
         c(&mut self.pan.value, -100.0, 100.0, 0.0);
         c(&mut self.volume.level_db, -96.0, 15.0, 0.0);
         c(&mut self.loudness.gain_db, -96.0, 96.0, 0.0);
+        c(&mut self.loudness.ceiling_dbtp, -20.0, 0.0, -1.0);
     }
 
     /// Clip gain this state contributes (the Auto-Match gain while Loudness is on).
@@ -414,6 +425,9 @@ impl EssentialSound {
             let r = &self.repair;
             if r.rumble.on {
                 push("highpass", r.enabled, &[("cutoff", f(rumble_cutoff(r.rumble.amount)))]);
+            }
+            if r.isolate.on {
+                push("voice_isolate", r.enabled, &[("amount", f(r.isolate.amount * 10.0))]);
             }
             if r.noise.on {
                 push("denoise", r.enabled, &[("amount", f(r.noise.amount * 10.0))]);
@@ -470,6 +484,9 @@ impl EssentialSound {
                 );
             }
         }
+        if k.has(Section::Loudness) && self.loudness.limit {
+            push("hard_limiter", self.loudness.enabled, &[("max", f(limiter_max_db(&self.loudness))), ("boost", f(0.0))]);
+        }
         out
     }
 }
@@ -502,9 +519,34 @@ pub fn rumble_cutoff(amount: f64) -> f64 {
     30.0 + amount * 12.0
 }
 
+/// Hard Limiter ceiling for the Loudness limit. The match gain is clip gain, applied after the
+/// clip effects, so the limiter sits that far below the delivery ceiling, with 0.5 dB of headroom.
+/// The limiter can't go below [`LIMITER_FLOOR_DB`], so the match gain over a limited
+/// clip is capped at `ceiling − LIMITER_FLOOR_DB − 0.5` (Clean Up Voice keeps to that).
+pub fn limiter_max_db(l: &Loudness) -> f64 {
+    let g = if l.enabled { l.gain_db } else { 0.0 };
+    let v = l.ceiling_dbtp - g - 0.5;
+    if v.is_finite() { v.clamp(LIMITER_FLOOR_DB, 0.0) } else { -1.5 }
+}
+
+/// Lowest ceiling the Hard Limiter's processor accepts (dB).
+pub const LIMITER_FLOOR_DB: f64 = -24.0;
+
 /// Canonical processing order of the effects Essential Sound manages.
-pub const EFFECT_ORDER: &[&str] =
-    &["highpass", "denoise", "dehummer", "deesser", "dereverb", "dynamics", "parametric_eq", "speech_enhance", "stereo_width", "studio_reverb"];
+pub const EFFECT_ORDER: &[&str] = &[
+    "highpass",
+    "voice_isolate",
+    "denoise",
+    "dehummer",
+    "deesser",
+    "dereverb",
+    "dynamics",
+    "parametric_eq",
+    "speech_enhance",
+    "stereo_width",
+    "studio_reverb",
+    "hard_limiter",
+];
 
 fn rank(id: &str) -> usize {
     EFFECT_ORDER.iter().position(|e| *e == id).unwrap_or(EFFECT_ORDER.len())
@@ -746,6 +788,8 @@ pub fn with_preset(current: Option<&EssentialSound>, preset: &Preset) -> Essenti
         s.loudness.measured_lufs = c.loudness.measured_lufs;
         s.loudness.target_lufs = c.loudness.target_lufs;
         s.loudness.gain_db = c.loudness.gain_db;
+        s.loudness.limit = c.loudness.limit;
+        s.loudness.ceiling_dbtp = c.loudness.ceiling_dbtp;
         s.volume = c.volume.clone();
         s.mute = c.mute;
     }
@@ -890,5 +934,40 @@ mod tests {
         let s = &ps[3].settings;
         let back: EssentialSound = serde_json::from_value(s.to_value()).unwrap();
         assert_eq!(&back, s);
+    }
+
+    #[test]
+    fn voice_isolation_slot_and_true_peak_limit() {
+        let mut s = EssentialSound::new(AudioType::Dialogue);
+        assert!(!s.repair.isolate.on && !s.loudness.limit && s.loudness.ceiling_dbtp == -1.0);
+        s.set("repair.isolate.on", &json!(true)).unwrap();
+        s.set("repair.isolate.amount", &json!(8.0)).unwrap();
+        s.set("repair.rumble.on", &json!(true)).unwrap();
+        s.set("repair.noise.on", &json!(true)).unwrap();
+        s.set("loudness.limit", &json!(true)).unwrap();
+        s.loudness.gain_db = 6.0;
+        let fx = s.effects();
+        let order: Vec<&str> = fx.iter().map(|e| e.effect.as_str()).collect();
+        assert_eq!(order, ["highpass", "voice_isolate", "denoise", "hard_limiter"]);
+        assert_eq!(fx[1].f64_at("amount", Tick::ZERO), 80.0);
+        // −1 dBTP ceiling, +6 dB clip gain after the effects, 0.5 dB inter-sample headroom
+        assert_eq!(fx[3].f64_at("max", Tick::ZERO), -7.5);
+        for e in &fx {
+            assert!(e.def().is_some(), "unknown effect {}", e.effect);
+        }
+        // Loudness off: no match gain, so the limiter sits at the ceiling itself
+        s.loudness.enabled = false;
+        assert_eq!(limiter_max_db(&s.loudness), -1.5);
+        // hostile values clamp
+        s.set("loudness.ceilingDbtp", &json!(1e300)).unwrap();
+        assert_eq!(s.loudness.ceiling_dbtp, 0.0);
+        let l = Loudness { gain_db: f64::NAN, ..Loudness::default() };
+        assert_eq!(limiter_max_db(&l), -1.5);
+        let l = Loudness { gain_db: 90.0, ..Loudness::default() };
+        assert_eq!(limiter_max_db(&l), LIMITER_FLOOR_DB);
+        // projects saved before these settings load with them off
+        let old = json!({"kind": "Dialogue", "repair": {"enabled": true}, "loudness": {"enabled": true, "gain_db": 2.0}});
+        let back: EssentialSound = serde_json::from_value(old).unwrap();
+        assert!(!back.repair.isolate.on && !back.loudness.limit && back.loudness.ceiling_dbtp == -1.0);
     }
 }

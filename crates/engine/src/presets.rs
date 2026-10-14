@@ -107,7 +107,7 @@ impl PresetLibrary {
             }
         }
     }
-    fn persist(&self) -> std::result::Result<(), String> {
+    pub(crate) fn persist(&self) -> std::result::Result<(), String> {
         let Some(d) = &self.dir else { return Ok(()) };
         let _ = std::fs::create_dir_all(d);
         let bytes = file_bytes(&self.user);
@@ -124,12 +124,12 @@ impl PresetLibrary {
     }
 }
 
-fn file_bytes(presets: &[EffectPreset]) -> Vec<u8> {
+pub(crate) fn file_bytes(presets: &[EffectPreset]) -> Vec<u8> {
     let f = PresetFile { format: FILE_FORMAT.into(), version: 1, presets: presets.to_vec() };
     serde_json::to_vec_pretty(&f).unwrap_or_default()
 }
 
-fn parse_file(bytes: &[u8]) -> std::result::Result<Vec<EffectPreset>, String> {
+pub(crate) fn parse_file(bytes: &[u8]) -> std::result::Result<Vec<EffectPreset>, String> {
     let f: PresetFile = serde_json::from_slice(bytes).map_err(|e| format!("not an effect preset file: {e}"))?;
     if f.format != FILE_FORMAT {
         return Err(format!("not an effect preset file (format `{}`)", f.format));

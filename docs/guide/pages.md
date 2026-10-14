@@ -5,6 +5,8 @@ DaVinci Resolve (the fork's default); the Premiere workflow keeps its header and
 
 ## What a page is
 
+> id: pages.what | does: the Resolve workflow's pages, one per stage of the work | ui: page.* | cmd: page.* | resolve: pages (Media, Edit, Color, Fairlight, Deliver) | premiere: workspaces | when: choosing the Resolve workflow; finding where a tool lives | see: pages.panels
+
 **[Resolve-style]** layout, **[Fork]** mechanism
 
 ### Why
@@ -37,6 +39,8 @@ others, and every page's layout can be changed and saved (below).
 
 ## The pages and their panels
 
+> id: pages.panels | does: which panels each page shows and what Resolve calls them | ui: page.*, pageBar.* | resolve: Media Pool, Inspector, Fairlight mixer | premiere: Project panel, Effect Controls, Audio Track Mixer | when: looking for a panel on a page | see: pages.toolbar
+
 **[Resolve-style]** layouts, built from **[FilmCraft]** panels
 
 Resolve's panel names are used in this workflow (see "Terminology follows the workflow" in
@@ -57,6 +61,8 @@ not one meter per track (the per-track meters are in the Mixer); Resolve's Index
 Keyframes, ADR, LUTs and Lightbox have no FilmCraft panel yet, so their buttons are left out.
 
 ## Show and hide panels from the toolbar
+
+> id: pages.toolbar | does: the page toolbar shows and hides that page's extra panels | ui: pageToolbar.* | resolve: interface toolbar | premiere: Window menu | when: a panel you need isn't on the page | see: pages.layout
 
 **[Resolve-style]**
 
@@ -80,6 +86,8 @@ A button on the left of the toolbar opens its panel on the left of the page, one
 opens it on the right. Hiding the last panel of a page is refused (the status bar says why).
 
 ## Deliver: render settings and the render queue
+
+> id: pages.deliver | does: render settings and a render queue on the Deliver page | ui: export.*, page.deliver | cmd: export.queue.start, file.exportMedia, page.deliver | resolve: Deliver page render settings and queue | premiere: Export mode, Adobe Media Encoder queue | when: turning the timeline into files, several at once | see: pages.what
 
 **[Resolve-style]** layout, **[FilmCraft]** export settings
 
@@ -105,6 +113,8 @@ If you know Premiere: this is the Export mode's Media File settings and queue, a
 the Timeline Viewer; the Summary box is replaced by the estimated file size under the settings.
 
 ## Rearrange a page and keep it
+
+> id: pages.layout | does: moves and resizes panels on a page and saves or resets the layout | cmd: window.workspace.saveChanges, window.workspace.reset, window.workspace.delete | resolve: Workspace ▸ Reset UI Layout | premiere: Workspaces ▸ Save Changes / Reset | when: making a page fit your screen and habits | see: pages.toolbar
 
 **[FilmCraft]** workspaces, **[Fork]** page layouts
 

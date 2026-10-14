@@ -32,6 +32,82 @@ struct Ctx<'a> {
     auto: &'a mut crate::automation::Registry,
     actions: Actions,
     clips: Vec<u64>,
+    /// The takes of the one selected voice-over clip (`audio.voiceover.takes`), with waveforms.
+    takes: Vec<TakeRow>,
+}
+
+/// One recorded take in the Takes list.
+struct TakeRow {
+    item: u64,
+    take: u64,
+    duration: f64,
+    current: bool,
+    peaks: Option<std::sync::Arc<Vec<(f32, f32)>>>,
+}
+
+const TICKS_PER_SAMPLE_48K: f64 = filmcraft_time::TICKS_PER_SECOND as f64 / 48_000.0;
+
+/// The takes of `clip` when it is a voice-over recording with more than one take.
+fn takes_of(app: &mut FilmcraftApp, clip: u64) -> Vec<TakeRow> {
+    let list = filmcraft_engine::voiceover_takes::list(&app.session, filmcraft_project::ClipId(clip));
+    if list.len() < 2 {
+        return Vec::new();
+    }
+    list.into_iter()
+        .map(|t| TakeRow {
+            item: t.item.0,
+            take: u64::from(t.take),
+            duration: t.duration.map(|d| d.0 as f64).unwrap_or(0.0),
+            current: t.current,
+            peaks: crate::panels::timeline::request_peaks(app, t.item, 0),
+        })
+        .collect()
+}
+
+/// Recorded takes as waveforms; Use puts one in place of the clip (`audio.voiceover.pickTake`).
+fn takes_list(ui: &mut egui::Ui, cx: &mut Ctx, clip: u64) {
+    let t = cx.t;
+    ui.label(egui::RichText::new(tl!("Takes")).font(Tokens::semibold(12.5)).color(t.text));
+    let rows: Vec<(u64, u64, f64, bool, Option<std::sync::Arc<Vec<(f32, f32)>>>)> =
+        cx.takes.iter().map(|r| (r.item, r.take, r.duration, r.current, r.peaks.clone())).collect();
+    for (item, take, dur, current, peaks) in rows {
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+        let p = ui.painter();
+        p.rect_filled(r.shrink(1.0), 4.0, if current { t.pressed } else { t.field_bg });
+        let secs = dur / filmcraft_time::TICKS_PER_SECOND as f64;
+        p.text(pos2(r.min.x + 8.0, r.center().y), Align2::LEFT_CENTER, tlf!("Take {n}", n = take), Tokens::ui(12.0), t.text);
+        p.text(pos2(r.min.x + 8.0, r.max.y - 7.0), Align2::LEFT_BOTTOM, format!("{secs:.1} s"), Tokens::ui(10.5), t.text_dim);
+        let wave = Rect::from_min_max(pos2(r.min.x + 64.0, r.min.y + 5.0), pos2(r.max.x - 66.0, r.max.y - 5.0));
+        if let Some(peaks) = peaks.filter(|_| wave.width() > 4.0) {
+            let mid = wave.center().y;
+            let half = wave.height() * 0.5;
+            let spp = 256.0 * TICKS_PER_SAMPLE_48K;
+            let d = dur.max(1.0);
+            let mut mesh = egui::Mesh::default();
+            for x in (wave.min.x.floor() as i32)..(wave.max.x.ceil() as i32) {
+                let f0 = (x as f32 - wave.min.x) / wave.width();
+                let f1 = (x as f32 + 1.0 - wave.min.x) / wave.width();
+                let s0 = (d * f0 as f64 / spp) as usize;
+                let s1 = ((d * f1 as f64 / spp) as usize).max(s0 + 1);
+                let (lo, hi) = peaks.iter().skip(s0).take(s1 - s0).fold((0f32, 0f32), |(l, h), (a, b)| (l.min(*a), h.max(*b)));
+                if hi - lo > 0.002 {
+                    mesh.add_colored_rect(
+                        Rect::from_min_max(pos2(x as f32, mid - hi.min(1.0) * half), pos2(x as f32 + 1.0, mid - lo.max(-1.0) * half + 1.0)),
+                        t.text_dim,
+                    );
+                }
+            }
+            ui.painter().add(mesh);
+        }
+        cx.auto.add(&format!("essentialSound.take.{take}"), r, &format!("Take {take}"));
+        let br = Rect::from_min_size(pos2(r.max.x - 60.0, r.center().y - 12.0), vec2(56.0, 24.0));
+        if current {
+            ui.painter().text(br.center(), Align2::CENTER_CENTER, tl!("In use"), Tokens::ui(11.5), t.text_dim);
+        } else if button(ui, cx, br, tl!("Use"), &format!("essentialSound.take.{take}.use")) {
+            cx.run("audio.voiceover.pickTake", json!({"clip": clip, "item": item}));
+        }
+    }
+    ui.add_space(10.0);
 }
 
 impl Ctx<'_> {
@@ -53,7 +129,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         app.session.active_sequence().map(|seq| clip_ids.iter().filter_map(|c| seq.find_item(*c).map(|(_, i)| i.clone())).collect()).unwrap_or_default();
     let presets = filmcraft_engine::essential_sound::presets(&app.session);
     let tab = if app.ui.essential_sound_tab == "Browse" { "Browse" } else { "Edit" };
-    let mut cx = Ctx { t, auto: &mut app.auto, actions: Vec::new(), clips: clip_ids.iter().map(|c| c.0).collect() };
+    let takes = match clip_ids.as_slice() {
+        [c] if tab == "Edit" => takes_of(app, c.0),
+        _ => Vec::new(),
+    };
+    let mut cx = Ctx { t, auto: &mut app.auto, actions: Vec::new(), clips: clip_ids.iter().map(|c| c.0).collect(), takes };
     let painter = ui.painter().clone();
     painter.rect_filled(rect, 0.0, t.panel_bg);
     // ---- Browse | Edit
@@ -160,6 +240,9 @@ fn edit(ui: &mut egui::Ui, cx: &mut Ctx, rect: Rect, items: &[TrackItem], preset
         ui.set_max_width(ui.available_width() - 10.0);
         ui.label(egui::RichText::new(&title).font(Tokens::semibold(14.0)).color(t.text));
         ui.add_space(6.0);
+        if let (false, Some(clip)) = (cx.takes.is_empty(), cx.clips.first().copied()) {
+            takes_list(ui, cx, clip);
+        }
         match (&kinds[..], &typed) {
             ([Some(_)], Some(st)) => typed_body(ui, cx, st, items, presets, &collapsed, &expanded),
             _ => {
@@ -276,6 +359,12 @@ fn typed_body(ui: &mut egui::Ui, cx: &mut Ctx, st: &EssentialSound, items: &[Tra
             match sec {
                 Section::Loudness => loudness(ui, cx, st, items),
                 Section::Repair => {
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                    let br = Rect::from_min_size(r.min + vec2(0.0, 2.0), vec2(124.0, 24.0));
+                    if button(ui, cx, br, tl!("Clean Up Voice"), "essentialSound.cleanupVoice") {
+                        cx.run("audio.cleanupVoice", json!({}));
+                    }
+                    slot(ui, cx, tl!("Voice Isolation"), "repair.isolate", st.repair.isolate, on);
                     slot(ui, cx, tl!("Reduce Noise"), "repair.noise", st.repair.noise, on);
                     slot(ui, cx, tl!("Reduce Rumble"), "repair.rumble", st.repair.rumble, on);
                     slot(ui, cx, tl!("DeHum"), "repair.dehum", st.repair.dehum, on);
@@ -316,7 +405,7 @@ fn typed_body(ui: &mut egui::Ui, cx: &mut Ctx, st: &EssentialSound, items: &[Tra
                 Section::Ducking => ducking(ui, cx, st, on),
                 Section::Duration => {
                     ui.label(
-                        egui::RichText::new(tl!("Remixing music to a target duration is not available yet. Trim the clip and add a crossfade instead."))
+                        egui::RichText::new(tl!("To fit music to a length, select the clip and choose Clip ▸ Remix ▸ Enable Remix, then Remix Properties…."))
                             .color(t.text_faint)
                             .size(11.5),
                     );
@@ -342,6 +431,9 @@ fn loudness(ui: &mut egui::Ui, cx: &mut Ctx, st: &EssentialSound, items: &[Track
         _ => tl!("Not matched yet").to_string(),
     };
     ui.painter().text(pos2(br.max.x + 10.0, r.center().y), Align2::LEFT_CENTER, text, Tokens::ui(11.5), t.text_dim);
+    let on = st.loudness.enabled;
+    switch_row(ui, cx, tl!("Limit True Peak"), "loudness.limit", st.loudness.limit, on);
+    slider(ui, cx, tl!("Ceiling"), "loudness.ceilingDbtp", st.loudness.ceiling_dbtp, (-20.0, 0.0), 1, " dBTP", on && st.loudness.limit);
     if items.len() > 1 {
         ui.label(egui::RichText::new(tlf!("Matches each of the {n} clips on its own.", n = items.len())).color(t.text_faint).size(11.0));
     }

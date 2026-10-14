@@ -9,6 +9,8 @@ correction is limited by a **qualifier** (a colour selection) and, later in G2, 
 
 ## The qualifier: select by colour
 
+> id: color.secondaries.qualifier | does: limits a node's correction to a range of hue, saturation and brightness | ui: grade.qual.*, grade.param.qual.*, grade.tab.qualifier | cmd: grade.pickQualifier, grade.setParam | resolve: Qualifier (HSL) | premiere: Lumetri HSL Secondary | when: skin, sky, one colour to change or protect | see: color.secondaries.windows
+
 **[Resolve-style]**
 
 ### Why
@@ -87,6 +89,8 @@ limited by it, not only the secondary's own hue / saturation sliders.
 
 ## Windows: select by shape
 
+> id: color.secondaries.windows | does: limits a node's correction to a shape: ellipse, rectangle or linear gradient | ui: grade.window.*, grade.tab.windows | cmd: masks.* | resolve: Power Windows | premiere: Lumetri masks | when: vignettes, a face, a sky gradient; combined with a qualifier | see: color.secondaries.qualifier, color.secondaries.tracking
+
 **[Resolve-style]**
 
 ### Why
@@ -130,6 +134,8 @@ Windows are masks: every `masks.*` command takes `"node": <node id>` instead of 
   palette, and there is no "outside node" yet (COMPOSITOR-PLAN C2).
 
 ## Tracking a window
+
+> id: color.secondaries.tracking | does: makes a window follow its subject from frame to frame | ui: grade.window.0.track.* | cmd: masks.track | resolve: Tracker (Window) | premiere: mask tracking | when: a window on something that moves | see: color.secondaries.windows, tracking.what
 
 **[Resolve-style]** **[FilmCraft]**
 

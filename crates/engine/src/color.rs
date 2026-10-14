@@ -56,6 +56,14 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
         ),
         query("media.colorInfo", "Media Colour Info", r#"{"item":id}"#, color_info),
         spec("lut.import", "Import LUT…", &[], r#"{"path":str,"name":str?}"#, always, import),
+        spec(
+            "lut.importFolder",
+            "Import LUT Folder…",
+            &[],
+            r#"{"path":str (a folder: every .cube / .3dl directly in it, at most 512, one undo step)}"#,
+            always,
+            import_folder,
+        ),
         query("lut.list", "List LUTs", "{}", list),
         spec("lut.remove", "Remove LUT", &[], r#"{"id":str}"#, always, remove),
         query("lut.export", "Export LUT", r#"{"lut":"lib:<id>"|"builtin:<id>","path":str,"format":"cube"|"3dl"?}"#, export),
@@ -91,9 +99,19 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
 pub(crate) fn import_lut(s: &mut Session, path: &str, name: Option<&str>) -> Result<(String, Value)> {
     let text = std::fs::read_to_string(path).map_err(|e| bad("lut.import", format!("{path}: {e}")))?;
     let fmt = LutFormat::from_path(path).ok_or_else(|| bad("lut.import", "expected a .cube or .3dl file"))?;
-    let lut = Lut::parse(&text, Some(fmt)).map_err(|e| bad("lut.import", format!("{path}: {e}")))?;
     let stem = std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "LUT".into());
-    let name = name.map(str::to_string).unwrap_or(stem);
+    add_lut(s, &text, fmt, name.map(str::to_string).unwrap_or(stem), Some(path))
+}
+
+/// Add LUT text (checked by parsing it) to the project's library; identical content reuses its
+/// entry. Shared by `lut.import` and look packs (`packs.import`, fork Y3.5).
+pub(crate) fn add_lut(s: &mut Session, text: &str, fmt: LutFormat, name: String, source: Option<&str>) -> Result<(String, Value)> {
+    add_lut_as(s, text, fmt, name, source, None)
+}
+
+/// [`add_lut`], merged into one undo step with the other LUTs of the same `merge` key.
+fn add_lut_as(s: &mut Session, text: &str, fmt: LutFormat, name: String, source: Option<&str>, merge: Option<&str>) -> Result<(String, Value)> {
+    let lut = Lut::parse(text, Some(fmt)).map_err(|e| bad("lut.import", format!("{}: {e}", source.unwrap_or(&name))))?;
     // re-importing identical content reuses the entry
     if let Some(l) = s.project.luts.iter().find(|l| *l.text == *text) {
         return Ok((l.id.clone(), json!({"id": l.id, "ref": format!("lib:{}", l.id), "name": l.name, "reused": true})));
@@ -104,18 +122,63 @@ pub(crate) fn import_lut(s: &mut Session, path: &str, name: Option<&str>) -> Res
         "title": lut.title,
     });
     let mut id = String::new();
-    s.edit("Import LUT", |pr, _| {
+    let source = source.map(str::to_string);
+    let add = |pr: &mut filmcraft_project::Project, _: &mut crate::EditorState| {
         id = format!("lut{}", pr.alloc_id());
-        pr.luts.push(ProjectLut {
-            id: id.clone(),
-            name: name.clone(),
-            source_path: Some(path.to_string()),
-            format: fmt.extension().into(),
-            text: text.as_str().into(),
-        });
+        pr.luts.push(ProjectLut { id: id.clone(), name: name.clone(), source_path: source, format: fmt.extension().into(), text: text.into() });
         Ok(())
-    })?;
+    };
+    match merge {
+        Some(key) => s.edit_merged("Import LUT", key, add)?,
+        None => s.edit("Import LUT", add)?,
+    }
     Ok((id.clone(), json!({"id": id, "ref": format!("lib:{id}"), "name": name, "lut": info})))
+}
+
+/// Most LUT files one folder import takes, and the largest file read (a 65³ .cube is ~9 MB).
+const FOLDER_MAX_FILES: usize = 512;
+const LUT_MAX_BYTES: u64 = 64 << 20;
+
+/// `lut.importFolder` (fork Y3.5b): every .cube / .3dl directly in a folder, sorted by name, as one
+/// undo step. Files that don't read or parse are skipped and listed.
+fn import_folder(s: &mut Session, p: &Value) -> Result<Value> {
+    const ID: &str = "lut.importFolder";
+    let dir = str_p(p, "path").ok_or_else(|| bad(ID, "need `path`"))?.to_string();
+    let rd = std::fs::read_dir(&dir).map_err(|e| bad(ID, format!("{dir}: {e}")))?;
+    let mut files: Vec<std::path::PathBuf> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|f| f.is_file() && LutFormat::from_path(&f.to_string_lossy()).is_some())
+        .take(FOLDER_MAX_FILES * 4)
+        .collect();
+    files.sort();
+    if files.is_empty() {
+        return Err(bad(ID, format!("{dir}: no .cube or .3dl files")));
+    }
+    let more = files.len().saturating_sub(FOLDER_MAX_FILES);
+    files.truncate(FOLDER_MAX_FILES);
+    let key = format!("lut-folder-{}", s.history.undo.len());
+    s.history.merge_key = None;
+    let (mut added, mut skipped) = (Vec::new(), Vec::new());
+    for f in files {
+        let path = f.to_string_lossy().to_string();
+        let read = std::fs::metadata(&f)
+            .ok()
+            .filter(|m| m.len() <= LUT_MAX_BYTES)
+            .ok_or_else(|| "too large or unreadable".to_string())
+            .and_then(|_| std::fs::read_to_string(&f).map_err(|e| e.to_string()));
+        let (Ok(text), Some(fmt)) = (read, LutFormat::from_path(&path)) else {
+            skipped.push(json!({"path": path, "why": "can't read the file"}));
+            continue;
+        };
+        let stem = f.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "LUT".into());
+        match add_lut_as(s, &text, fmt, stem, Some(&path), Some(&key)) {
+            Ok((_, v)) => added.push(v),
+            Err(e) => skipped.push(json!({"path": path, "why": e.to_string()})),
+        }
+    }
+    s.history.merge_key = None;
+    Ok(json!({"added": added, "skipped": skipped, "notRead": more}))
 }
 
 fn import(s: &mut Session, p: &Value) -> Result<Value> {

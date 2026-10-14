@@ -4,6 +4,8 @@
 
 ## Why
 
+> id: color.coach.why | does: guided lessons, context hints and Ask the coach help you learn the node grader | resolve: — | premiere: — (Learn panel tutorials, closest) | when: learning to grade in FilmCraft | see: color.coach.start
+
 **[Fork]**
 
 The node grader can be a lot to take in at first. A lesson walks you through one task, one step
@@ -12,6 +14,8 @@ outlines the control to use, and waits until you have actually done it before mo
 learn by doing the real thing, not by reading about it.
 
 ## Start a lesson
+
+> id: color.coach.start | does: picks and starts a lesson on your own clip | ui: coach.lessons.open, coach.lessons.close | cmd: coach.start, coach.lessons, coach.showLessons | when: learning one task step by step | see: color.coach.card
 
 **[Fork]**
 
@@ -38,6 +42,8 @@ the step, its text and what it is waiting for.
 
 ## The card
 
+> id: color.coach.card | does: the lesson card: step, why, Next, Back, Skip and Exit | ui: coach.card, coach.next, coach.back, coach.skip, coach.exit, coach.close | cmd: coach.next, coach.back, coach.skip, coach.exit | when: following a lesson | see: color.coach.outline
+
 **[Fork]**
 
 - The card shows the lesson's title, "Step n of m", where the feature comes from
@@ -55,6 +61,8 @@ and do it again.
 
 ## The outline
 
+> id: color.coach.outline | does: a coloured outline marks the control a step is about | ui: coach.spotlight | when: you can't find the control a step names | see: color.coach.card
+
 **[Fork]**
 
 A coloured outline {ui:coach.spotlight} marks the control the step is about: a button, a slider,
@@ -65,6 +73,8 @@ text to reveal it. The outline is hidden while a window such as Settings is open
 
 ## Progress
 
+> id: color.coach.progress | does: finished lessons are remembered between sessions | cmd: coach.state | when: checking what you have done | see: color.coach.lessons
+
 **[Fork]**
 
 Finished lessons are remembered between sessions, in your preferences (`color.coach.completed`;
@@ -73,6 +83,8 @@ Finished lessons are remembered between sessions, in your preferences (`color.co
 Hints you have seen are remembered the same way (`color.coach.hintsSeen`, see below).
 
 ## The lessons
+
+> id: color.coach.lessons | does: the list of bundled lessons and what each teaches | when: choosing a lesson | see: color.coach.start
 
 **[Resolve-style]** **[Fork]**
 
@@ -87,6 +99,8 @@ Hints you have seen are remembered the same way (`color.coach.hintsSeen`, see be
 | `log-noise` | Clean up noise in log shadows | Noise reduction first, then lift the shadows, and compare. |
 
 ## Context hints
+
+> id: color.coach.hints | does: a one-time hint the first time you do something that needs explaining | ui: coach.hint.*, settings.color.coach.hints | cmd: coach.hint, coach.dismissHint, coach.resetHints | when: you want or don't want hints | see: color.coach.ask
 
 **[Fork]**
 
@@ -125,6 +139,8 @@ The texts of the hints and the lessons are in English only for now; the buttons 
 them follow the interface language.
 
 ## Ask the coach
+
+> id: color.coach.ask | does: answers a question with steps from this guide, every control checked | ui: coach.ask.* | cmd: coach.ask | when: you know what you want but not which tool | see: color.coach.hints
 
 **[Fork]**
 
@@ -170,6 +186,8 @@ dialog) counts as unknown, so its step is left out until you have opened that wi
 
 ## Write a hint
 
+> id: color.coach.write-hint | does: how contributors add a context hint | when: adding a hint | see: color.coach.write-lesson
+
 **[Fork]**
 
 For contributors. The hints are one data file, `assets/coach/hints.toml` (its header and
@@ -180,6 +198,8 @@ screen (`element`), or a rule the engine checks on the grade (`rule = "qualifier
 Write why before what, in plain words of your own.
 
 ## Write a lesson
+
+> id: color.coach.write-lesson | does: how contributors write a lesson file | when: adding a lesson | see: color.coach.write-hint
 
 **[Fork]**
 

@@ -2,17 +2,17 @@
 
 For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing instructions**
 §1a.1–74 incl. §1a.6 order; §5 phases; only the last ~80 lines of §7), then
-[`AI-PLAN.md`](../../AI-PLAN.md) (phase AI1, next) and `TRAINING.md` where AI1.6 needs it, then
+[`YOUTUBE-PLAN.md`](../../YOUTUBE-PLAN.md) "Phase Y3" (next) and [`PREP-Y3.md`](PREP-Y3.md), then
 [`FORK-ONLY.md`](FORK-ONLY.md), [`OWNER-QUESTIONS.md`](OWNER-QUESTIONS.md), this file. Other plan
 files (GRADE, RESOLVE-UI, YOUTUBE, AUDIO, AI, COMPOSITOR, STORAGE, H264, RAW, DECODER) only when a
-step points at them. Rewritten 2026-10-13 21:00 after the U0.2 acceptance (scheduled run).
+step points at them. Rewritten 2026-10-14 after the X422 acceptance (scheduled run).
 
-**Phase order (FORK-PLAN §1a.6, the only valid order):** … → Y1 ✓ → 6E ✓ → U0.2 ✓ → **AI1** →
-**X422** → Y3 → C1 → **AI3** (§1a.73–74; knowledge work on the Dell first) → C2 → AI2 → S1 → S2 → G3 → 7 (+ Y4) → Y2 → C3 → C4 → G4 → A3 → R1 →
+**Phase order (FORK-PLAN §1a.6, the only valid order):** … → Y1 ✓ → 6E ✓ → U0.2 ✓ → AI1 ✓ →
+X422 ✓ → **Y3** → C1 → **AI3** (§1a.73–74; knowledge work on the Dell first) → C2 → AI2 → S1 → S2 → G3 → 7 (+ Y4) → Y2 → C3 → C4 → G4 → A3 → R1 →
 R2 → D → 8. Small phases are accepted in groups (§1a.41). AI1 moved right after U0.2 and the
 4:2:2 export cases (X422) right after AI1 by the owner 2026-10-13 (§1a.69). **A2 and then
 H1 → H2 → H3 run on the Dell lane (owner 2026-10-14, §1a.72); the main runner skips them.**
-**A1 (Dell lane, §1a.60) accepted by the owner 2026-10-14 ~01:20 (§1a.71)**; its tag `audio-1` rides with the next phase group.
+**A1 (Dell lane, §1a.60) accepted by the owner 2026-10-14 ~01:20 (§1a.71)**; its tag `audio-1` is on `f8c3e788` with `x422` (2026-10-14).
 **L1 / L2 part 2 accepted by the owner (live, 2026-10-14 ~01:10; was ready 2026-10-13 22:55, Dell lane; scheduled task `filmcraft-dell-lane`,
 lock `.dell-lane.lock`):** the last two steps merged: **L1.5** `d0c68898` (upstream #260 off-thread
 file dialogs cherry-picked, Q23; dialogs parented to the window, each kind starts in its last
@@ -23,7 +23,7 @@ Checklist on the Dell (CachyOS, UHD 770, 2026-10-13): fmt ✓, clippy ✓ (works
 process ✓ (86 / 86), `native_dialogs_ui` ✓, platform lib ✓, layers ✓, wasm ✓; both steps had a
 fresh-context Opus review, findings fixed. Earlier part 2 items: Flatpak build ✓ (`18d523e4`,
 feature-checked in a virtual KWin; SDK kept on the Dell, Q17), L1.8 / L2.4 / L2.10 and the
-text-scale hint (`2e67f732`). **Tags `linux-1b` / `linux-2b` ride with the next phase group (AI1).**
+text-scale hint (`2e67f732`). **Tags `linux-1b` / `linux-2b` are on `f8c3e788` with `x422` (2026-10-14).**
 **Owed at acceptance:** on the PC: Graphics device Auto vs a chosen GPU on the RX 6700 XT + UHD 750
 (window, monitors and decode on the same GPU; `graphics.listDevices` `inUse`), Program monitor 1:1
 at fractional scale; on a real desktop: a file dialog stacked over the window (KDE portal, Wayland)
@@ -50,10 +50,10 @@ DX output) → sample-format conversion and running-format restart tests (the ca
 here); #410 ("buggy audio", no repro steps) → covered only by the soak. **Owed on the PC at
 acceptance:** the soak once on the PC's own output (`tools/fork/a1-audio-soak.sh 300`; it uses a null
 sink and the first card's profile), a listen at 1× / 2× for pitch after a default-sink change, and
-the real output latency (`perf.stats` `playback.audio`). Tag `audio-1` rides with the next group.
-**A2 in progress on the Dell lane (§1a.72; scheduled task `filmcraft-dell-lane`, lock
-`.dell-lane.lock`; worktree `.claude/worktrees/dell-lane`, branch `dell-lane` = hevc-vaapi, nothing
-unmerged).** Audit `docs/fork/PREP-A2.md` (step map §5). Merged: A2.1 `26d2e7c5` (new L2 crate
+the real output latency (`perf.stats` `playback.audio`). Tag `audio-1`: on `f8c3e788` with `x422`.
+**A2 ready for acceptance (Dell lane, 2026-10-14 ~08:30; §1a.72; scheduled task `filmcraft-dell-lane`,
+lock `.dell-lane.lock`; worktree `.claude/worktrees/dell-lane`, branch `dell-lane` = hevc-vaapi, nothing
+unmerged; tag `audio-2` rides with the next phase group).** Audit `docs/fork/PREP-A2.md` (step map §5). Merged: A2.1 `26d2e7c5` (new L2 crate
 `crates/voice`: mixed-radix FFT, DFN3 STFT / ERB / features / deep filter), A2.2 `93e0eb8b` (checked
 checkpoint loader, feature `dfn`), A2.3 `e9e95f2e` (the network as plain-Rust streaming kernels +
 `Denoiser`; parity with DeepFilterNet's own `deep-filter` 68.2 dB; real-time factor 0.071 on one
@@ -64,37 +64,73 @@ installFile / remove`, pinned package, lazy loading; app + CLI feature `voice-is
 default; real download checked end to end on the Dell), A2.5b `28edd384` (Settings ▸ Audio ▸ Voice
 isolation row, UI test in both workflows), A2.7 `3e635592` (test set + SI-SDR harness
 `voice_isolation_eval`; **on synthetic formant speech the model fails the gate (2.1 dB on clean
-speech): real speech needed, OWNER-QUESTIONS Q26 is open, recommendation (b) LibriSpeech
-test-clean subset**), A2.6 `3cb31fd0` (live in the mixer: one network step per track on the
+speech): real speech needed; **Q26 answered (b) 2026-10-14 ~06:20: LibriSpeech test-clean approved**), A2.6 `3cb31fd0` (live in the mixer: one network step per track on the
 channels' mean, 0.2 s pre-roll; Dell soak 300 s: 1 Voice Isolation track 0 underruns, 4 tracks 21
 in the first 2× shuttle's first 0.2 s; no offline cache needed). DeepFilterNet3 weights (pinned commit 82b0c7ad, SHA-256 in PREP-A2 §3) are on the Dell
 under `~/.local/share/filmcraft-fork/models/deepfilternet3/`; the oracle is
 `~/fork-oracles/target/release/deep-filter` (built from source with `RUSTC_BOOTSTRAP=1`, `time`
 pinned to 0.3.36). Dell tests: `FILMCRAFT_DFN3_CKPT=<ckpt> FILMCRAFT_DFN_ORACLE=<oracle> cargo test
--p filmcraft-voice --features dfn`. **Next: A2.8** (one-click clean-up `audio.cleanupVoice` + the written manual
-process + the gate; its loudness / true-peak half can be measured now, the SI-SDR half waits for
-Q26), then **A2.9** (per-take review). When Q26 is answered: put 48 kHz mono WAVs in a folder on the
-Dell and run `FILMCRAFT_EVAL_SPEECH=<dir> FILMCRAFT_DFN3_CKPT=<ckpt> cargo test --release -p
-filmcraft-engine --features voice-isolation voice_isolation_eval -- --ignored --nocapture`.
-**After A2 (lane order to confirm):** FORK-PLAN §1a.74 puts **AI3-PREP** on this lane after A2;
-the lane's scheduled task still lists H1 → H2 → H3 after A2 (§1a.72). The lane will take AI3-PREP
-first (the owner wants the Dell to do AI3's knowledge work "before the heavy lifting picks up"),
-then H1 → H3, unless the task file or the owner says otherwise.
-44.1 kHz sequences use the DeNoise fallback for now (resampling around the model is a later step). Q26 (FYI):
-oracle choice, formant-voice test speech. Reviews so far self-reviews (weekly usage above pace, no
-subagents); a fresh-context review of A2.1–A2.3 is owed before acceptance. **Owed on the PC at
-acceptance:** live voice isolation during playback on the i5-11600K.
+-p filmcraft-voice --features dfn`. A2.8a `5be92eab` (Clean Up Voice `audio.cleanupVoice` + Essential Sound ▸ Repair ▸ Voice Isolation
+slot + Loudness ▸ Limit True Peak / Ceiling; guide audio.md "Cleaning up a voice by hand" = the written
+manual process; loudness half of the gate passes in tests: ±0.5 LU of −14 LUFS, ≤ −1 dBTP on the
+rendered clip). A2.8b `66654f4d` (the gate on LibriSpeech, 50 utterances on the Dell under
+`~/.local/share/filmcraft-fork/voice-test/librispeech/`: **one-click passes all 15 cases** against
+the manual process; **Voice Isolation vs DeNoise misses two of its bars** (+0.8 dB at 10 dB SNR, bar
+3; clean speech 17.0 dB, bar 20), OWNER-QUESTIONS Q30 FYI, choice (a) accept with the numbers).
+A2.8c `f5eafc67` (Clean Up Voice as a background job: progress, stop, applied in one undo step on poll; `wait: true` for agents). A2.9 `f9f290ac` (per-take review: recordings tagged as takes of their record point,
+`audio.voiceover.takes` / `pickTake`, Takes with waveforms in Essential Sound, processing moves
+with the take). **Acceptance checklist (AUDIO-PLAN A2):** port = original 68.2 dB, real-time
+factor 0.071 / channel on the Dell, live in the mixer (soak: 0 underruns with 1 track) ✓;
+Voice Isolation vs DeNoise on LibriSpeech: wins all 15 cases, non-steady margin +7.1 / +4.0 dB
+at 0 / 5 dB SNR ✓ but **+0.8 dB at 10 dB (bar 3) and clean speech 17.0 dB (bar 20) ✗**
+(OWNER-QUESTIONS Q30, choice (a) accept; (b) re-measure on your own quiet-room recordings);
+one-click gate vs the written manual process: **all 15 cases pass**, −14.0 … −14.2 LUFS,
+−1.5 dBTP ✓ (no case limited to "Suggest settings"); commands `audio.voiceIsolate.*`,
+`audio.cleanupVoice`, `audio.voiceover.takes` / `pickTake`, all on the control channel ✓; guide
+`docs/guide/audio.md` written ✓. Limits: 44.1 kHz sequences use the DeNoise fallback (resampling
+around the model is a later step); the one-click path without the model (Reduce Noise) wasn't
+gated. Evals: `FILMCRAFT_EVAL_SPEECH=~/.local/share/filmcraft-fork/voice-test/librispeech
+FILMCRAFT_DFN3_CKPT=~/.local/share/filmcraft-fork/models/deepfilternet3/ckpt/DeepFilterNet3/checkpoints/model_120.ckpt.best
+cargo test --release -p filmcraft-engine --features voice-isolation <voice_isolation_eval|cleanup_gate>
+-- --ignored --nocapture` (gate ~17 min on the Dell). Reviews were self-reviews (weekly usage
+above pace, no subagents): **a fresh-context review of A2.1–A2.3 and A2.8–A2.9 is owed** before
+the tag. **Owed on the PC at acceptance:** live voice isolation during playback on the i5-11600K.
+**AI3-PREP in progress on the Dell lane** (§1a.74, task §5b, marker `.dell-ai3prep-complete`;
+same worktree / branch), then H1 → H3. Order: (1) **compact headers done** (AI3-PREP.1 … .1e, last `HEAD` of the lane): spec in
+docs/guide/README.md "Section headers (for the coach)", 183 headers on 27 pages. **Every new `##`
+guide section now needs a header** (`> id: <page id>.<slug> | does: …` under the heading), or
+`coach_ask_tests::section_headers_are_valid_unique_and_point_at_real_things` fails: main runner,
+please add one with each new section. Headers are parsed (`Section::header`) but not searched by
+today's keyword index (adding them moved the 30-question eval below its floor); AI3's retrieval
+uses them. (2) **feature pages done** (AI3-PREP.2a–2n): text, mixing, graphics, timeline, effects, media,
+shortcuts, edit-menu, trimming, export-queue, file-menu, essential-sound pages, getting-started's
+X-M5 import, voice-over recording and caption tracks; ~580 of ~700 engine commands are named
+(by family); the rest are small variants and agent-only `*.inspect` / `prefs.*` calls.
+**Keyword-index note:** the 116-question colour eval sits exactly at its floor (82); general
+pages from timeline.md on pushed it to 81, so timeline, effects, media, shortcuts, edit-menu,
+trimming, export-queue and file-menu are in `coach_ask::NOT_INDEXED` (in the guide, headed and
+checked, for AI3's retrieval; AI3 main runner: index them again when the retriever replaces the
+keyword index). New guide pages need a GUIDE_PAGES entry, a contents row, tags and headers.
+(3), practice notes. A new page needs a GUIDE_PAGES entry, a contents row,
+tags and headers; avoid new `{ui:}` ids unless the coach walk shows them; (3) **practice notes done**: 150 notes on ten pages in `docs/guide/practice/` (grading,
+editing, audio, delivery, node-trees, looks, youtube, titles, workflow, mixed-cameras; AI3-PREP.3a–3j),
+each with goal, the Resolve and Premiere way, the FilmCraft way (the mapping, AI3 0c: real
+commands, gaps said as "not yet"), why and pitfalls; own words, no source text (plan/ai3-sources.md,
+maintainer-local, records that per batch); headed and checked; NOT_INDEXED; (4) training pairs + ≥ 60-question advanced eval. Sources rule (task §5b): open licences may be
+quoted with attribution, everything else read-only, our own words; source list in
+`plan/ai3-sources.md` (maintainer-local).
 
 ## Status
 
 - **Branch** `hevc-vaapi` (never touch `master`). Tags `phase-1` … `phase-6`, `grade-0` …
   `grade-2c`, `upstream-sync-1`, the yt-1 group (`resolve-ui-1`, `resolve-ui-2`, `phase-6-7b`,
   `coach-1`, `yt-1`) and the **6E group on `d866cb4c` (2026-10-13): `phase-6e`, `linux-1a`,
-  `linux-2a`**, **`upstream-sync-2` on `e090c0c9` (2026-10-13, U0.2 + U0.2.3b)** and **`ai-1` on
-  `bcb5f713` (2026-10-14)**. Builds in `~/Apps/filmcraft-builds/`; `latest` → `ai-1`; launcher
+  `linux-2a`**, **`upstream-sync-2` on `e090c0c9` (2026-10-13, U0.2 + U0.2.3b)** and `ai-1` on
+  `bcb5f713` (2026-10-14) and the **X422 group on `f8c3e788` (2026-10-14): `x422`, `audio-1`, `linux-1b`,
+  `linux-2b`**. Builds in `~/Apps/filmcraft-builds/`; `latest` → `x422`; launcher
   `~/.local/share/applications/filmcraft-fork.desktop`. Public (§1a.33): dawgon2/filmcraft-cachyos
-  branch `fork` snapshot `6e3428fc` (of `ai-1`, parent `45ea3549` = `fork-upstream-sync-2`), tag
-  `fork-ai-1`, release `fork-ai-1` (scrubbed Dell build of `bcb5f713`, no `target-cpu` flag,
+  branch `fork` snapshot `62992ebb` (of `x422`, parent `6e3428fc` = `fork-ai-1`), tags `fork-x422`,
+  `fork-audio-1`, `fork-linux-1b`, `fork-linux-2b`, release `fork-x422` (scrubbed Dell build of `f8c3e788`,
   `strings`: only /home/user; NOTES.md).
 - **U0.2 as shipped:** one VA-API stack: upstream's H.264 / HEVC front ends on the fork's
   `va::Display` with `va_accel::ZeroCopyAccel` (zero-copy, hand-off incl. scaled, read-back mode);
@@ -157,70 +193,97 @@ acceptance:** live voice isolation during playback on the i5-11600K.
 - Cloud: CLOUD-QUEUE has C1-PREP, AI1-PREP, R1-PREP (docs only). Merge `origin/cloud-work` first
   if it has new commits.
 
-## Exact next step: X422 (FORK-PLAN §1a.68 / §1a.69), tag `x422`
+## Exact next step: Y3.4 (WGSL custom shader effects), then the yt-3 acceptance
 
-AI1 is closed (tag `ai-1`; its working notes are archived at the end of
-[`PROGRESS-LOG-ARCHIVE.md`](PROGRESS-LOG-ARCHIVE.md), "HANDOFF notes of AI1"; summary: own
-quantized forward pass in `crates/llm` with run-time AVX2, no build flag, streaming + prompt-prefix
-KV reuse + background pre-generation of node explanations, shared `crates/ml`; `smol360-v2`
-trained but not shipped, see TRAINING.md). Next per §1a.69: **X422**, then Y3 → C1 → C2 → AI2 → A2 …
+Y3 so far (2026-10-14, one scheduled run, MINIMAL mode, all self-reviewed; all results synthetic; details
+in FORK-PLAN §7):
 
-X422 = the two 6.2K 4:2:2 graded export cases (read §1a.68 in full first):
-**Next run starts here (2026-10-14 05:21):** design note done: [`DESIGN-X422-FUSED.md`](DESIGN-X422-FUSED.md) (F1 point-run fusion, F2 shared-memory box cascades, F3 combines / keys joined, F4 only if measured worth it; steps 2b.1–2b.4 in its §5). **2b.1 (F2) done 05:30:** `fx_box3` fuses box cascades (f32 within 1e-6, AMD + Intel), but the bench grade has no cascades (Sharpen = one 1-px box per axis, HSL without blur), so no gain there; measured per-op times in the design note §4b (Intel f32: chain 98 ms, HSL 66, Unsharp 121, one round trip ≈ 33). **2b.2 F3a done 05:32:** one-pass Sharpen-sized Unsharp (`OP_UNSHARP_DIRECT`): Intel f32 graded ops 286 → 207 ms, AMD 19.1 → 13.5 ms (synthetic, design note §5). **F3b done 05:36:** no-blur HSL as one chain + adjacent chains merged: graded ops per 6.2K frame Intel f32 286 → 178 ms, AMD 19.1 → 8.2 ms (synthetic `graded_export_ops_timing_6k`); Intel's rest is chain ALU (design note §5). **Benches done 05:42** (`docs/fork-benchmarks.md` "X422 2b"): 6.2K graded 19.7 fps (AMD decode / encode-bound), X422 (a) 17.1 → 19.9 fps, Intel lane ~4.9 fps; aims short → Q28 FYI (kept, go on). **Next: X422's final step**: median-of-2 full-length runs of (a) and (b) (binary `target/bench/bench-x422-2b` or a fresh build), `cargo xtask ci`, tag `x422` (+ riding tags `audio-1`, `linux-1b`, `linux-2b`), build per §1a.9, publish per §1a.33, HANDOFF rewrite. 2b.3 (F1) is optional and not needed for acceptance. Earlier (03:35): (b) is recorded (~7.3 fps, Q27 FYI) and AI1.4 is done.
-Do **2b, the fused graded passes (§1a.71)** next: first a short design note (`docs/fork/DESIGN-X422-FUSED.md`:
-which colour ops / per-pixel effects of the bench grade fuse into one full-f32 pass, how Unsharp's passes
-combine, how the existing specialised shaders from U0.2.3b c are generated, parity plan AMD / Intel), then
-build it in small committed steps with parity tests on both GPUs. Measure (a) and the Intel graded rate
-before / after (`bench --sections xm5 --only xm5-export-422 graded`, `xm5-export-6k graded`). (a) today:
-17.1 fps; its trace shows the Intel → AMD hand-off copy (~42 ms thread time per frame, Intel VPP) next to
-decode on the same Intel chip, so 2b's AMD-side gain may be capped by Intel; record that honestly.
-Then the final median-of-2 full-length runs of (a) and (b), ci, tag `x422` (+ the riding tags), build, publish.
-**Progress (2026-10-14 02:15, scheduled run):** bench cases `xm5-export-422 graded` (a) and
-`xm5-export-422 master graded` (b) added (`bench --sections xm5 --only xm5-export-422`); **(b)'s GPU
-RGB → 4:2:2 done** (`YuvPass` 4:2:2 mode, `GpuCompositor::read_yuv422`, `GpuFrames::yuv422`,
-read back, `frame_to_yuv422p10le` takes it as is; parity: ≤ 1 code vs the CPU oracle on AMD and Intel,
-both GPUs in `a_renderer_on_each_gpu`). First numbers (synthetic, `docs/fork-benchmarks.md` "X422 first
-measurements"): **(a) 17.1 fps**, **(b) 6.8 fps** (was 0.5 graded on the CPU path). AI1.4 done 03:29 (the
-final X422 benches can run). 02:35: VA upload image kept per pool
-(encoder input 145 → 126 ms/frame); **(b)'s limit is the read-back, 108 ms/frame serial under the
-compositor lock** (benchmarks doc). 02:33: read-back pipelined (waited for outside the compositor lock):
-**(b) 7.3 fps**; its limit is now the encoder thread's input, mostly Intel's `vaPutImage` (~87 ms of ~123 ms
-per frame). **(b) recorded 02:56 (Q27 FYI): ~7.3 fps, limited by the
-Intel UHD 750 (4:2:2 decode + hand-off + 4:2:2 encode); speed level, `vaDeriveImage`, non-blocking polling
-tried without gain; ProRes 422 HQ 0.5 fps (CPU render). (b)'s final median-of-2 full-length run is owed with
-(a)'s final benches (after AI1.4). Next: case (a) (overlap the hand-off copy) and 2b fused passes.**
-Tried 02:37 and reverted: Intel encoding from linear Y210 memory
-the AMD GPU allocated, filled by the CPU through its mapping: encodes, but wrong pictures (dead end in the
-benchmarks doc). Next for (b), if pursued: `vaDeriveImage` instead of `vaCreateImage` + `vaPutImage`, or two
-encoder-input threads (write surface N+1 while N encodes), then the bounded Intel levers + ProRes comparison;
-else record (b) at ~7.3 fps with the OWNER-QUESTIONS FYI; for (a): overlap the Intel → AMD
-copy (~42 ms thread time per frame) with decode, then 2b.
-1. **(a) 6.2K 4:2:2 graded → 4:2:0 file, target ≥ 24 fps.** Intel decodes (AMD can't decode
-   4:2:2) → Y210 / P210 hand-off → AMD renders + encodes. The ~104 MB frame copy must overlap
-   decode (off the serial chain). Start by measuring where the time goes today with
-   `FILMCRAFT_EXPORT_TRACE=1` / `FILMCRAFT_EXPORT_GPU_PROBE=1` on `xm5_422_2997_20s.mov` (or a
-   full-length equivalent in `target/fixtures`); relevant code: `crates/export/src/lanes/`,
-   the hand-off in `va_accel::ZeroCopyAccel` (`handoff_scales`, read-back mode).
-2. **(b) 6.2K 4:2:2 graded → 4:2:2 HEVC master:** move RGB → 4:2:2 from the CPU to the GPU first
-   (today 2.7 fps; `RenderMode::of` in `crates/export/src/job.rs`), then measure honestly. Only
-   Intel encodes 4:2:2 (`EncSlice`, no low-power Main422_10), expect ~10–15 fps. Bounded (≈ 1–2 h)
-   levers: Intel speed / quality level, two Intel encode sessions on chunks, and our CPU ProRes 422
-   HQ encoder at 6.2K for comparison. Short of 24 → OWNER-QUESTIONS FYI with numbers + ProRes.
-2b. **Fused graded passes (§1a.71; Q19 (b), Q21):** one full-f32 pass per clip for the colour chain
-   + per-pixel effects, Unsharp's passes combined; output within the AMD / Intel parity tolerance
-   of today's path. Aims: Intel 6.2K graded ~8–10 fps (from ~3.5), 6.2K graded export ≥ 24 fps
-   with both GPUs, lower render time in (a). ≈ 15–25 h. Do it after measuring (a), before (a)'s
-   final numbers.
-3. Benchmarks need an idle machine (no builds, the owner not using the app); results synthetic in
-   `docs/fork-benchmarks.md`. GPU code (WGSL RGB → 4:2:2) → GPU parity on AMD and Intel.
-4. Accept: (a) ≥ 24 fps or the measured reason it can't; (b) measured and recorded; ci; tag
-   `x422`; build + publish per §1a.9 / §1a.33 (the Dell's `~/fork-logs/release-build.sh` no longer
-   sets `target-cpu`).
+- **Y3.1 keys on the GPU ✓** `FxOp::LumaKey` / `UltraKey(Box<UltraKey>)` / `ColorKey`; GPU ops 37–41 in
+  `crates/gpu/src/fx.rs` + `fx.wgsl` (Ultra Key: matte → choke boxes → `OP_UKEY_CHOKE` → soften boxes as
+  passes before a combine, `OP_UKEY` combine; `route` binds the original as `aux` for those passes). CPU
+  references: `vfx::color::ultra_key_eval` / `ultra_key_apply`, `FxOp::apply`. Parity ≤ 6e-7 AMD + Intel.
+  4K cost (`fx_tests.rs` `gpu_key_timing_4k`, ignored): AMD Ultra Key 1.9 ms (11.2 with choke + soften);
+  Intel 10.9 / 95 ms. Guide `docs/guide/keying.md`. Color Key's Edge Thin was never implemented (gap).
+- **Y3.2 attach to a track ✓** `tracking.attach` (layer Motion follows a region in the clip below;
+  Position or P-R / P-S-R), Motion's Attach to Track row; `tracking.blurRegion` (one-click tracked blur /
+  mosaic). 0.57 px / 0.49 px + 0.08° synthetic.
+- **Y3.3 screen replacement ✓** `render/track.rs` homography fit + `track_step_perspective`;
+  `tracking.cornerPin` (+ Corner Pin's Track Surface row; source defaults to the clip below). 0.67 px.
+  Code: `crates/engine/src/tracking.rs`, tests `tracking_tests.rs`, UI test `tests/ui/tracking_ui.rs`
+  (both workflows), guide `docs/guide/tracking.md`.
+- **Y3.5 packs ✓** `packs.export` / `packs.import` (`.fcpack` zip, `crates/engine/src/packs.rs`, hostile
+  caps), `lut.importFolder`; guide `docs/guide/packs.md`.
+- Coach eval sits **exactly at its floor (82 / 116)** after keying.md: new guide pages can push it
+  under; reword (see the progress log) rather than lower the floor.
 
-**Owed from AI1 (not blocking):** Opus review of AI1.1g–AI1.5 (own SIMD kernels, KV reuse,
-streaming / prefetch concurrency in `crates/engine/src/ai_explain.rs`) when the mode allows;
-real Whisper / Kokoro timing once weights are on disk; NEON kernels (Q25, provisional: Phase 8
-item 7); AI1.4 SmolLM2-135M: **done 2026-10-14 03:29** (`smol135-v1`, catalogued as the "fast" option; TRAINING.md).
+**Y3.4 step 1 done: ADR [0006](../adr/0006-user-shader-effects.md)** (provisional, OWNER-QUESTIONS Q29 FYI):
+files in `<data dir>/Effects/*.wgsl` + `assets/effects/`, `// @param` annotations, user writes `fn effect(px)
+-> vec4` on straight sRGB colour, leaf crate `filmcraft-usershader` (naga 30) composes + validates, interned
+`&'static EffectDef` registry in `filmcraft_project::effect` (cap 4096), missing effects load and render as
+pass-through, `FxOp::User` GPU-only, slow-pass rule (3 frames > 50 ms at 1080p) + quarantine on device loss.
+**Y3.4 step 2 done:** new L2 crate `crates/usershader` (`filmcraft-usershader`, naga 30 `wgsl-in`):
+`parse(source, name_hint) -> Result<UserEffect, Vec<ShaderError>>` (annotations, forbidden constructs, `fn
+effect(` required, 256 KB / 16-param caps), `compose(fx, storage_format)` (prelude: `fx_u` uniform with
+`size.xyzw` (z = time) + `pv: array<vec4<f32>, 16>` one slot per param, `fx_src`, `fx_dst`, `size`, `time`, `P`,
+`load`, `sample`; entry `fx_user_main` 16×16; straight sRGB in/out ↔ linear premultiplied), `validate` (naga,
+errors mapped to user lines). 6 tests. **Y3.4 step 3 done:** registry in `filmcraft_project::effect` (`register_user_effects`, `user_effects`,
+`is_user_effect`, interned `&'static EffectDef`s, cap `MAX_INTERNED_USER_EFFECTS` 4096; `find_effect` falls back
+to it); engine `user_effects.rs` (`reload` at `start_autosave` and `effects.reloadUser`, `effects.listUser`,
+`Session.user_effects` statuses with the parsed `UserEffect` for the GPU stage; `EXAMPLES` empty until step 5);
+ids `user.<slug>` / `example.<slug>`. Tests: project registry (intern / refuse / drop), engine (load, line-3 error,
+size cap, apply + save, reopen without the file keeps the instance and its values, renders). **Y3.4 step 4 done (2026-10-14 08:30–09:00 EDT, MINIMAL, self-reviewed):** the registry keeps each effect's
+composed module (`UserEffectSpec.module`, `user_effect_module(id) -> (hash, Arc<str>)`; engine composes at load);
+`FxOp::User(Box<UserOp>)` (`render/gpufx.rs`: pv slots in declaration order, colour straight sRGB, point in working
+px with Auto → centre, `time` = clip seconds; CPU = pass-through; unregistered → no GPU op); GPU `fx.rs`: own
+bind group layout `ubgl` / `upl`, pipelines cached per (id, hash) built in a validation error scope (broken →
+skipped, pass-through), `user_dispatch`. **Slow-pass rule:** `wanted_features()` now includes
+`TIMESTAMP_QUERY`; each user pass runs in its own timed compute pass, timestamps resolved and read back
+non-blocking (`FxStage::after_submit`, called after the composite and `effect_image` submits); 3 frames in a row
+over 50 ms at 1080p (pixel-scaled) → turned off for the session + message
+(`GpuCompositor::take_user_effect_messages`, `set_user_effect_slow_limit`). Without timestamp queries there is no
+timing (deviation from the ADR's wall-time fallback: wall time would include unrelated passes and poll lag;
+AMD and Intel both have timestamps). Tests `crates/gpu/src/user_fx_tests.rs` (4) on AMD + Intel: full ≤ 4.2e-7,
+half ≤ 4.9e-4. **Y3.4 step 4c done (quarantine):** user passes count as in flight (`filmcraft_gpu::user_effects_in_flight`)
+from submit until `on_submitted_work_done`; a lost device (UI device in `ui-egui` `set_wgpu`, export device in
+`export_renderer.rs`) calls `filmcraft_gpu::notify_device_lost()` → the hook set by the UI →
+`filmcraft_engine::user_effects::quarantine(<Effects dir>, keys)` writes `quarantine.json` (`[{id, hash}]`, hash as
+a decimal string, ≤ 256 entries, ≤ 256 KB read, hostile files ignored); `reload` marks a quarantined (id, hash) as
+broken ("the GPU stopped while this effect was running"); a changed file (new hash) loads again;
+`effects.unquarantine {id?}` turns one / all back on. Not tested with a real GPU hang (would freeze the desktop).
+**Y3.4 step 5 done (Y3.4 complete):** four original examples in `assets/effects/` (chromatic-aberration, glitch,
+vhs, light-leak; sidecars + ATTRIBUTION.md; `EXAMPLES` in `user_effects.rs`, ids `example.<name>`, Video Effects ▸
+User ▸ Stylize); GPU test renders each (defaults, two times, full + half, AMD + Intel). UI: the Effects panel lists
+user effects under Video Effects ▸ User, broken files with ⚠ + hover error (`effects.user.broken.<id>`), a "needs
+the GPU" note without a GPU (`effects.user.needsGpu`), **Reload** / **Open Effects Folder**
+(`effects.user.reload` / `effects.user.openFolder`); Effect Controls shows "⚠ Missing effect: <id>"
+(`effectControls.missing.<id>`); slow-pass messages go to the status line. UI test `tests/ui/user_effects_ui.rs`.
+Guide `docs/guide/shader-effects.md` (headed; in GUIDE_PAGES / HEADED_PAGES; coach eval kept at its floor by
+avoiding the word "settings"). Not yet looked at on screen (no screenshot taken: MINIMAL). **Next: the yt-3
+acceptance** (below).
+Original sketch for reference: (1) ADR 0006, the user-effect
+registry (effect def shape shared with C1's nodes; how a project refers to a user effect and loads as
+"missing effect" without it; where files live: `<data dir>/Effects/*.wgsl`); (2) a leaf parser /
+validator: annotation comments → params (name, kind, default, range), naga-validated module with a fixed
+entry point and bindings, size caps, errors with line numbers; (3) runtime: the GPU effect pass runs the
+user module (one pipeline per file, cached), CPU fallback = pass-through with a warning badge; time limit
+= measured per-frame cost, disabled after N slow frames with a message; (4) four original examples
+(glitch, chromatic aberration, VHS, light leak) with `.attribution` sidecars; (5) UI + guide page. Design
+the ADR in a fresh, short step (MINIMAL: no Fable; write it yourself from PREP-Y3). Then the **yt-3
+acceptance**: quick passes per YOUTUBE-PLAN Y3 "Accept" (keys real-time at Full ✓ synthetic, text follows
+✓, face blur ✓, screen replacement ✓, a WGSL example on AMD and Intel, a broken one rejected), `cargo xtask
+ci`, tag `yt-3`, build + publish per §1a.9 / §1a.33, rewrite this file for C1.
+
+Owed from this run: a fresh-context review of the Y3 diffs (`git log 14705d16^..HEAD`) when the mode
+allows (STEADY or better); the X422 2b fusion review is also still owed.
+
+**X422 as shipped (summary):** (a) 6.2K 4:2:2 graded → 4:2:0 20.0 fps, limited by the Intel UHD 750's
+4:2:2 decode + ~104 MB hand-off copy (~50 ms / frame; AMD waits); (b) → 4:2:2 HEVC master 7.2 fps
+(Intel 4:2:2 encode, Q27); fused graded passes (2b): graded GPU work per 6.2K frame AMD 19.1 → 8.2 ms,
+Intel 286 → 178 ms, `FILMCRAFT_FX_FUSE=0` = old passes; aims short → Q28 (FYI). Owed: a titles page in
+the guide (the coach off-topic test tolerates one word-match miss since A2.6, see progress log);
+the optional 2b.3 (F1 point-run fusion) and the LUT-bake idea (Q28 (b)) only if the owner asks. A fresh-context review
+of the 2b fusion diff (`crates/gpu/src/fx.rs`, `fx.wgsl`, `colorops.wgsl`; self-reviewed in MINIMAL) is owed
+when the mode allows.
 
 ## Environment and gotchas
 

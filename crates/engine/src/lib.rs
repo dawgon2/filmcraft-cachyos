@@ -42,6 +42,7 @@ pub mod media_watch;
 pub mod mixer;
 pub mod multicam;
 pub mod narration;
+pub mod packs;
 pub mod panels;
 pub mod paste_media;
 pub mod perf;
@@ -67,10 +68,14 @@ pub mod source_monitor;
 pub mod stills;
 pub mod sync;
 pub mod tnr;
+pub mod tracking;
 pub mod transcript;
 pub mod trim;
+pub mod user_effects;
+pub mod voice_cleanup;
 pub mod voice_isolation;
 pub mod voiceover;
+pub mod voiceover_takes;
 pub mod window_state;
 
 use std::sync::Arc;
@@ -434,8 +439,16 @@ pub struct Session {
     pub media_jobs: Vec<proxies::PendingJob>,
     /// Mask tracking jobs whose keyframes are still being written.
     pub mask_jobs: Vec<masks::PendingTrack>,
+    /// Running Corner Pin tracking jobs (fork Y3.3, `tracking.cornerPin`).
+    pub pin_jobs: Vec<tracking::PendingPin>,
+    /// Running attach-to-track jobs (fork Y3.2, `tracking.attach`).
+    pub attach_jobs: Vec<tracking::PendingAttach>,
+    /// User shader effect files and their outcome (fork Y3.4, `user_effects::reload`).
+    pub user_effects: Vec<user_effects::UserEffectStatus>,
     /// Scene Edit Detection jobs whose results are applied when they finish.
     pub scene_jobs: Vec<scene_detect::PendingScene>,
+    /// Clean Up Voice jobs whose settings are applied when they finish.
+    pub cleanup_jobs: Vec<voice_cleanup::Pending>,
     /// Card offloads whose copies are imported when they finish (LINUX-PLAN L2.4).
     pub card_jobs: Vec<card_offload::PendingOffload>,
     /// Effect presets (built-in + the user's, persisted in the data directory).
@@ -560,7 +573,11 @@ impl Session {
             offline: Default::default(),
             media_jobs: Vec::new(),
             mask_jobs: Vec::new(),
+            pin_jobs: Vec::new(),
+            attach_jobs: Vec::new(),
+            user_effects: Vec::new(),
             scene_jobs: Vec::new(),
+            cleanup_jobs: Vec::new(),
             card_jobs: Vec::new(),
             presets: Default::default(),
             export_presets: Default::default(),
@@ -622,6 +639,7 @@ impl Session {
         self.presets.set_dir(&cfg.data_dir);
         self.export_presets.set_dir(&cfg.data_dir);
         self.prefs_path = Some(prefs_path);
+        user_effects::reload(self);
         #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
         fork_resolve::apply_pending(self, &cfg.data_dir);
         self.apply_media_cache();
@@ -665,7 +683,9 @@ impl Session {
     pub fn poll_persistence(&mut self) {
         proxies::poll(self);
         masks::poll(self);
+        tracking::poll(self);
         scene_detect::poll(self);
+        voice_cleanup::poll(self);
         card_offload::poll(self);
         export_tools::pump_queue(self, false);
         panels::log_jobs(self);
@@ -1254,6 +1274,8 @@ mod nest_fidelity_tests;
 #[cfg(test)]
 mod nesting_tests;
 #[cfg(test)]
+mod packs_tests;
+#[cfg(test)]
 mod panels_tests;
 #[cfg(test)]
 mod par_tests;
@@ -1306,11 +1328,17 @@ mod tnr_tests;
 #[cfg(test)]
 mod track_params_tests;
 #[cfg(test)]
+mod tracking_tests;
+#[cfg(test)]
 mod transcript_tests;
 #[cfg(test)]
 mod trim_tests;
 #[cfg(test)]
+mod user_effects_tests;
+#[cfg(test)]
 mod vfx_tests;
+#[cfg(test)]
+mod voice_cleanup_tests;
 #[cfg(test)]
 mod voice_isolation_tests;
 #[cfg(test)]

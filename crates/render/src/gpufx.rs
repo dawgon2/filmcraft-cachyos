@@ -29,6 +29,61 @@ pub struct Resample {
     pub opacity: f32,
 }
 
+/// Ultra Key's evaluated numbers (`vfx::color::ultra_key_eval`; the CPU reference is
+/// `vfx::color::ultra_key_apply`, the GPU's `fx.wgsl` `OP_UKEY*`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UltraKey {
+    /// The key colour as sRGB-encoded Rec.709 Y′CbCr.
+    pub k: [f32; 3],
+    /// |key chroma|², at least 1e-6.
+    pub kmag2: f32,
+    pub tol: f32,
+    pub gain: f32,
+    pub highlight: f32,
+    pub shadow: f32,
+    pub pedestal: f32,
+    /// Choke (0..1) and the box radii of its matte blur (empty: no blur).
+    pub choke: f32,
+    pub choke_rx: Vec<u32>,
+    pub choke_ry: Vec<u32>,
+    /// Soften: box radii of the matte blur (empty: none).
+    pub soften_rx: Vec<u32>,
+    pub soften_ry: Vec<u32>,
+    pub contrast: f32,
+    pub mid: f32,
+    pub spill: f32,
+    pub desat: f32,
+    pub range: f32,
+    pub sluma: f32,
+    /// Colour correction: saturation, hue (turns), luminance; None: identity.
+    pub cc: Option<[f32; 3]>,
+    /// The key colour's dominant channel (0 R, 1 G, 2 B).
+    pub dom: u32,
+    /// 0 Composite, 1 Alpha Channel (the matte), 2 Color Channel.
+    pub output: u32,
+}
+
+impl UltraKey {
+    fn is_finite(&self) -> bool {
+        let f = [
+            self.kmag2,
+            self.tol,
+            self.gain,
+            self.highlight,
+            self.shadow,
+            self.pedestal,
+            self.choke,
+            self.contrast,
+            self.mid,
+            self.spill,
+            self.desat,
+            self.range,
+            self.sluma,
+        ];
+        self.k.iter().chain(&f).chain(self.cc.iter().flatten()).all(|v| v.is_finite())
+    }
+}
+
 /// One evaluated effect.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FxOp {
@@ -161,6 +216,21 @@ pub enum FxOp {
         invert: bool,
         mask_only: bool,
     },
+    /// Ultra Key (fork Y3.1b; boxed: it is the largest op).
+    UltraKey(Box<UltraKey>),
+    /// Color Key: alpha ramps from 0 at `tol` to 1 at `tol + soft` of a pixel's Y′CbCr distance
+    /// from `k` (the key colour's sRGB-encoded Rec.709 Y′CbCr; luma weighs 0.15) (fork Y3.1c).
+    ColorKey {
+        k: [f32; 3],
+        tol: f32,
+        soft: f32,
+    },
+    /// Luma Key: alpha 0 at or below `cut`, 1 at or above `th` (both 0..1 on sRGB-encoded
+    /// Rec.709 luma), a linear ramp between; scales the premultiplied pixel (fork Y3.1).
+    LumaKey {
+        th: f32,
+        cut: f32,
+    },
     /// A chain of per-pixel colour operations (fork ADR 0003: input transforms, Lumetri), one
     /// pass on the GPU. Built by the renderer, not from a single effect's parameters.
     ColorChain(std::sync::Arc<[filmcraft_color::ops::ColorOp]>),
@@ -226,6 +296,56 @@ pub enum FxOp {
         motion: f32,
         inputs: Option<std::sync::Arc<TemporalInputs>>,
     },
+    /// A user WGSL shader effect (fork Y3.4, ADR 0006): runs on the GPU only; the CPU leaves the
+    /// image as it is.
+    User(Box<UserOp>),
+}
+
+/// Most parameter slots a user effect's uniform holds (`filmcraft_usershader::MAX_PARAMS`).
+pub const USER_PARAM_SLOTS: usize = 16;
+
+/// A user shader effect's evaluated pass ([`FxOp::User`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UserOp {
+    pub id: String,
+    /// The source hash (a new hash is a new pipeline).
+    pub hash: u64,
+    /// The composed module (`rgba32float` storage).
+    pub module: std::sync::Arc<str>,
+    /// One slot per parameter in declaration order: float `[v, 0, 0, 0]`, bool `[0 | 1, …]`,
+    /// colour straight sRGB `[r, g, b, 1]`, point in working pixels `[x, y, 0, 0]`.
+    pub pv: Vec<[f32; 4]>,
+    /// Seconds since the clip start.
+    pub time: f32,
+}
+
+impl UserOp {
+    /// Evaluate the registered user effect `e` at `cx` for a `w`×`h` working image. None: not a
+    /// registered user effect (missing file: the effect renders as a pass-through).
+    fn eval(e: &EffectInstance, cx: &FxCtx, w: usize, h: usize) -> Option<UserOp> {
+        use filmcraft_project::ParamKind;
+        let (hash, module) = filmcraft_project::effect::user_effect_module(&e.effect)?;
+        let def = filmcraft_project::effect::find_effect(&e.effect)?;
+        let img = Image { w, h, px: Vec::new() };
+        let pv = def
+            .params
+            .iter()
+            .take(USER_PARAM_SLOTS)
+            .map(|p| match p.kind {
+                ParamKind::Bool => [f32::from(u8::from(b(e, p.id))), 0.0, 0.0, 0.0],
+                ParamKind::Color => {
+                    let c = color(e, p.id, cx);
+                    [c[0], c[1], c[2], 1.0]
+                }
+                ParamKind::Point => {
+                    let v = point(e, p.id, cx, &img);
+                    [v.x as f32, v.y as f32, 0.0, 0.0]
+                }
+                _ => [f(e, p.id, cx), 0.0, 0.0, 0.0],
+            })
+            .collect();
+        Some(UserOp { id: e.effect.clone(), hash, module, pv, time: cx.seconds as f32 })
+    }
 }
 
 /// A neighbouring frame of [`FxOp::TemporalDenoise`].
@@ -386,6 +506,9 @@ pub const GPU_EFFECTS: &[&str] = &[
     "channel_mix",
     "color_replace",
     "alpha_adjust",
+    "luma_key",
+    "ultra_key",
+    "color_key",
     "vignette",
     "video_limiter",
 ];
@@ -657,6 +780,17 @@ impl FxOp {
                 use crate::vfx::{bv, fv};
                 FxOp::AlphaAdjust { opacity: fv(e, "opacity", cx) / 100.0, ignore: bv(e, "ignore"), invert: bv(e, "invert"), mask_only: bv(e, "mask_only") }
             }
+            "ultra_key" => FxOp::UltraKey(Box::new(crate::vfx::color::ultra_key_eval(e, cx, w, h))),
+            "color_key" => {
+                let kc = color(e, "color", cx);
+                FxOp::ColorKey {
+                    k: filmcraft_color::rgb_to_ycbcr(kc[0], kc[1], kc[2], filmcraft_color::Matrix::Bt709),
+                    tol: f(e, "tolerance", cx) / 255.0 * 0.6 + 0.01,
+                    soft: f(e, "feather", cx) / 50.0 * 0.2 + 0.01,
+                }
+            }
+            id if filmcraft_project::effect::is_user_effect(id) => FxOp::User(Box::new(UserOp::eval(e, cx, w, h)?)),
+            "luma_key" => FxOp::LumaKey { th: f(e, "threshold", cx) / 100.0, cut: f(e, "cutoff", cx) / 100.0 },
             "vignette" => {
                 use crate::vfx::{cv, fv};
                 let amt = fv(e, "amount", cx) / 100.0;
@@ -740,6 +874,9 @@ impl FxOp {
             FxOp::ChannelMix { m } => m.iter().all(|r| fin(r)),
             FxOp::ColorReplace { sim, target, replace, replace_hsl, .. } => sim.is_finite() && fin(target) && fin(replace) && fin(replace_hsl),
             FxOp::AlphaAdjust { opacity, .. } => opacity.is_finite(),
+            FxOp::LumaKey { th, cut } => fin(&[*th, *cut]),
+            FxOp::ColorKey { k, tol, soft } => fin(k) && fin(&[*tol, *soft]),
+            FxOp::UltraKey(k) => k.is_finite(),
             FxOp::HslSecondary { key, median_r, denoise, correct, .. } => {
                 use filmcraft_color::ops::{ColorOp, MAX_GPU_PROGRAM, gpu_size};
                 key.iter().chain(correct.iter()).all(ColorOp::is_finite)
@@ -760,6 +897,7 @@ impl FxOp {
             }
             FxOp::Vignette { amount, midpoint, roundness, feather, target } => fin(&[*amount, *midpoint, *roundness, *feather]) && fin(target),
             FxOp::VideoLimiter { max, comp, axis, warning_color, .. } => *axis <= 3 && max.is_finite() && comp.is_finite() && fin(warning_color),
+            FxOp::User(u) => u.pv.len() <= USER_PARAM_SLOTS && u.pv.iter().all(|v| fin(v)) && u.time.is_finite(),
             // (`denoise::params` turns any values into finite constants, as the CPU does)
             FxOp::Denoise { .. } => true,
             // (the GPU draws source frames only; flows are checked by `tnr::select` on both)
@@ -1017,6 +1155,40 @@ impl FxOp {
                     }
                 });
             }
+            FxOp::UltraKey(k) => crate::vfx::color::ultra_key_apply(img, k),
+            FxOp::ColorKey { k, tol, soft } => {
+                let (k, tol, soft) = (*k, *tol, *soft);
+                img.px.par_chunks_mut(4).for_each(|p| {
+                    if p[3] <= 0.0 {
+                        return;
+                    }
+                    let c = enc([p[0] / p[3], p[1] / p[3], p[2] / p[3]]);
+                    let ycc = filmcraft_color::rgb_to_ycbcr(c[0], c[1], c[2], filmcraft_color::Matrix::Bt709);
+                    let d = ((ycc[1] - k[1]).powi(2) + (ycc[2] - k[2]).powi(2)).sqrt() + (ycc[0] - k[0]).abs() * 0.15;
+                    let a = p[3] * ((d - tol) / soft).clamp(0.0, 1.0);
+                    let lo = dec(c);
+                    p.copy_from_slice(&[lo[0] * a, lo[1] * a, lo[2] * a, a]);
+                });
+            }
+            FxOp::LumaKey { th, cut } => {
+                let (th, cut) = (*th, *cut);
+                img.px.par_chunks_mut(4).for_each(|p| {
+                    if p[3] <= 0.0 {
+                        return;
+                    }
+                    let l = linear_to_srgb(luma709(p[0] / p[3], p[1] / p[3], p[2] / p[3]).max(0.0));
+                    let a = if l <= cut {
+                        0.0
+                    } else if l >= th.max(cut + 1e-3) {
+                        1.0
+                    } else {
+                        (l - cut) / (th - cut).max(1e-3)
+                    };
+                    for v in p.iter_mut() {
+                        *v *= a;
+                    }
+                });
+            }
             FxOp::ColorChain(ops) => img.map_rgb(|c, x, y| filmcraft_color::ops::apply_chain_at(ops, c, [x as f32, y as f32])),
             FxOp::Masked { ops, masks } => {
                 let original = img.clone();
@@ -1084,6 +1256,8 @@ impl FxOp {
                     dec(crate::vfx::lerp3(enc(c), target, edge * amt.abs()))
                 });
             }
+            // (GPU only, ADR 0006: the CPU leaves the image as it is)
+            FxOp::User(_) => {}
             FxOp::VideoLimiter { max, comp, axis, warn, warning_color } => {
                 let (max, comp, axis, warn, wc) = (*max, *comp, *axis, *warn, *warning_color);
                 if !max.is_finite() || !comp.is_finite() || !wc.iter().all(|c| c.is_finite()) {

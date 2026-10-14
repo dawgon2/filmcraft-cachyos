@@ -10,6 +10,8 @@ Status: **partial** (the Workflow section is written; the rest is to write).
 
 ## Choose your workflow: Premiere or Resolve
 
+> id: getting-started.workflow | does: one setting switches between the Premiere and Resolve layouts, names and keys | ui: page.* | cmd: settings.setWorkflow, settings.getWorkflow, app.settings.general | resolve: Resolve's pages and names | premiere: Premiere's workspaces and names | when: first launch; your hands know the other app | see: pages.what
+
 **[Resolve-style] [Fork]** on top of **[FilmCraft]**'s Premiere-style layout
 
 ### Why
@@ -146,11 +148,40 @@ always keeps its own window buttons.
 
 ## Import X-M5 clips
 
+> id: getting-started.import-xm5 | does: from a Fujifilm X-M5 card to a graded sequence: copy, import, colour, proxies, sequence | cmd: card.offload, file.import, clip.interpretFootage, sequence.colorSettings, media.createProxies | resolve: Clone tool, Media Pool import, colour-managed project | premiere: Media Browser ingest, Interpret Footage, proxies | when: every X-M5 shoot | see: cards.insert, color.color-management.input, proxies.auto
+
 **[FilmCraft]** **[Fork]**
 
-*To write.*
+1. **Copy the card.** Put the SD card in: the card bar offers a verified copy (`card.offload`,
+   see [cards.md](cards.md)). Format the card in the camera only after the copy says it is
+   verified.
+2. **Import the copy** (File ▸ Import, `file.import`): the clips are H.265 (HEVC) `.MOV` files,
+   10-bit.
+3. **Check the colour.** F-Log2 clips are meant to look flat and grey before you grade them.
+   FilmCraft reads the colour space from the file; if a clip looks wrong after grading starts,
+   set it by hand with Interpret Footage ▸ **Fujifilm F-Log2 / F-Gamut** (`clip.interpretFootage`,
+   see [color/color-management.md](color/color-management.md)).
+4. **Let the proxies build.** Heavy clips such as 6.2K get a smaller proxy in the background while
+   you work ([proxies.md](proxies.md)); nothing waits for them.
+5. **Make the sequence** and set its colour management to DaVinci Wide Gamut / Intermediate
+   (Sequence ▸ Color Management…, `sequence.colorSettings`) before grading.
+
+The two choices that matter most are made in the camera:
+
+| In the camera | Good for | Trade-offs |
+|---|---|---|
+| **H.265 4:2:0 10-bit** (main setting) | Most work; decodes on the AMD video engine, zero-copy, smooth 6.2K playback | Less colour detail for heavy keying |
+| **H.265 4:2:2 10-bit** | Green screen and strong colour work | Decoded by the Intel video engine and handed to the AMD card (see [hardware.md](hardware.md)); slower to export as 4:2:2 |
+| **6.2K 3:2 open gate** (6240 × 4160) | Reframing: one recording gives a 16:9 wide shot, a 9:16 vertical cut and a 3:2 photo-style frame | Large files; a 16:9 sequence leaves out the top and bottom |
+| **16:9 (4K or 6.2K 16:9)** | Straight-to-YouTube projects | No room to reframe vertically |
+
+For the sequence itself: a **4K 16:9 (3840 × 2160)** sequence with the open-gate clips scaled to
+fill (Clip ▸ Scale to Frame Size, then Motion ▸ Position to reframe) is the usual YouTube setup;
+a **6240 × 4160** sequence keeps the whole frame for vertical and photo-style exports.
 
 ## What the hardware path does
+
+> id: getting-started.hardware | does: decoding, display, grade and H.265 export run on the graphics card | resolve: GPU decode and processing | premiere: Mercury Playback Engine GPU | when: wondering why 6.2K plays smoothly, or doesn't | see: hardware.why
 
 **[Fork]**
 

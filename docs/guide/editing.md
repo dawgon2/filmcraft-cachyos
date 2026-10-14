@@ -15,6 +15,8 @@ If playback stutters while you cut heavy footage, don't fight it here: let FilmC
 
 ## There is no single right order
 
+> id: editing.orders | does: common ways to cut a film, from assembling everything first to cutting scene by scene | resolve: Cut and Edit pages | premiere: Editing workspace | when: starting an edit | see: editing.cutting
+
 **[Fork]**
 
 People cut in very different ways, and all of them work. Two common ones:
@@ -29,6 +31,8 @@ People cut in very different ways, and all of them work. Two common ones:
 Mixing the two is normal. Try both on a short project and keep what feels natural.
 
 ## Cutting clips on the timeline
+
+> id: editing.cutting | does: splits a clip so a part can be removed, moved or trimmed | cmd: tool.razor, sequence.addEdit, sequence.addEditAllTracks, edit.rippleDelete, sequence.lift, sequence.extract | resolve: Blade, Split Clip | premiere: Razor, Add Edit | when: removing a part of a clip | see: editing.trimming
 
 ### Why
 
@@ -70,6 +74,8 @@ their own yet, so run them from the Sequence (Timeline) menu or the command pale
 
 ## Three-point editing
 
+> id: editing.three-point | does: sets three of the four In / Out points and lets FilmCraft work out the fourth | cmd: markers.markIn, markers.markOut, source.insert, source.overwrite | resolve: three-point editing, Insert / Overwrite | premiere: three-point editing, Insert / Overwrite | when: placing exactly the part of a clip you want | see: editing.jkl
+
 ### Why
 
 **[FilmCraft]**
@@ -97,6 +103,8 @@ part of a clip into the edit.
 (`markers.clearInOut`) clears both marks.
 
 ## JKL: playing and shuttling with three keys
+
+> id: editing.jkl | does: J, K and L play backwards, stop and play forwards, faster with each press | cmd: playback.reverse, playback.stop, playback.forward, playback.toggle | resolve: JKL | premiere: JKL | when: finding frames fast without the mouse | see: editing.three-point
 
 ### Why
 
@@ -126,6 +134,8 @@ step and a slow shuttle (K+L held). FilmCraft has slow shuttle while trimming (S
 in trim mode, quarter speed, below) but not as K+L on normal playback.
 
 ## Trimming
+
+> id: editing.trimming | does: moves edit points with ripple, roll, slip and slide | cmd: tool.ripple, tool.rolling, tool.slip, tool.slide, trim.forward, trim.backward, trim.edit | resolve: Trim edit mode | premiere: Ripple, Rolling, Slip and Slide tools | when: tightening a cut without cutting again | see: editing.cutting
 
 ### Why
 
@@ -160,6 +170,8 @@ the blade, so the trim tools are reached from the toolbar or the command palette
 5. Undo (Cmd+Z) puts the whole trim back in one step.
 
 ## Multicam
+
+> id: editing.multicam | does: puts several cameras of one moment in one clip and cuts between angles live | cmd: clip.createMulticam, multicam.switchAngle, multicam.cut, multicam.recordToggle, clip.multicamFlatten | resolve: Multicam clips | premiere: Multi-Camera Source Sequence | when: interviews, events, music filmed with several cameras | see: proxies.what
 
 ### Why
 

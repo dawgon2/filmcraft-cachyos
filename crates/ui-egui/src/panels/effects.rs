@@ -34,6 +34,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     bui.set_clip_rect(body);
     let filter = q.to_lowercase();
     let defs = filmcraft_project::effect_defs();
+    // user shader effects (ADR 0006): Video Effects ▸ User
+    let user_defs = filmcraft_project::effect::user_effects();
+    let mut user_action: Option<&str> = None;
     // folder tree: top-level categories in Premiere's order
     let tops = filmcraft_project::vtransition::EFFECT_TOP_FOLDERS;
     let mut apply: Option<String> = None;
@@ -54,7 +57,12 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 }
                 continue;
             }
-            let mut items: Vec<_> = defs.iter().filter(|d| d.category.first() == Some(&top)).filter(|d| crate::i18n::matches_query(d.name, &filter)).collect();
+            let mut items: Vec<_> = defs
+                .iter()
+                .chain(user_defs.iter().copied())
+                .filter(|d| d.category.first() == Some(&top))
+                .filter(|d| crate::i18n::matches_query(d.name, &filter))
+                .collect();
             // Premiere lists effect folders and effects alphabetically (obsolete ones last)
             if top == "Video Effects" || top == "Legacy" {
                 items.sort_by_key(|d| (d.category.get(1) == Some(&"Obsolete"), d.category.get(1).copied().unwrap_or(""), d.name.to_ascii_lowercase()));
@@ -115,6 +123,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                         apply = Some(d.id.to_string());
                     }
                 }
+                if top == "Video Effects" && s == "User" {
+                    user_action = user_rows(app, ui).or(user_action);
+                }
             }
         }
     });
@@ -131,12 +142,67 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     if let Some((cmd, name)) = preset_action {
         crate::panels::presets::run(app, &cmd, &name);
     }
+    match user_action {
+        Some("reload") => {
+            if let Err(e) = app.session.execute("effects.reloadUser", json!({})) {
+                app.ui.status = e.to_string();
+            }
+        }
+        Some("open") => match filmcraft_engine::user_effects::folder(&app.session) {
+            Some(dir) => {
+                let made = std::fs::create_dir_all(&dir);
+                let ctx = ui.ctx().clone();
+                if let Err(e) = made.map_err(|e| e.to_string()).and_then(|()| crate::panels::menu_dialogs::open_path(app, &ctx, &dir.to_string_lossy(), false))
+                {
+                    app.ui.status = format!("{}: {e}", dir.display());
+                }
+            }
+            None => app.ui.status = tl!("No data folder for user effects in this session").to_string(),
+        },
+        _ => {}
+    }
     if let Some(id) = apply {
         let r = app.session.execute("effects.apply", json!({"effect": id}));
         if let Err(e) = r {
             app.ui.status = e.to_string();
         }
     }
+}
+
+/// Under Video Effects ▸ User: the files that didn't load (with why), a note when effects render
+/// on the CPU (user effects need the GPU), and Reload / Open Effects Folder. The action clicked.
+fn user_rows(app: &mut FilmcraftApp, ui: &mut egui::Ui) -> Option<&'static str> {
+    let t = app.tokens;
+    let broken: Vec<(String, String, String)> =
+        app.session.user_effects.iter().filter_map(|o| Some((o.id.clone(), o.name.clone(), o.error.clone()?))).collect();
+    for (id, name, why) in broken {
+        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+        let label = format!("⚠ {name}");
+        ui.painter().text(pos2(r.min.x + 46.0, r.center().y), Align2::LEFT_CENTER, &label, Tokens::ui(12.0), t.text_dim);
+        resp.on_hover_text(&why);
+        app.auto.add(&format!("effects.user.broken.{id}"), r, &label);
+    }
+    if app.gpu.is_none() {
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+        let note = tl!("Needs the GPU: on the CPU these effects leave the picture unchanged");
+        ui.painter().text(pos2(r.min.x + 46.0, r.center().y), Align2::LEFT_CENTER, note, Tokens::ui(11.0), t.text_faint);
+        app.auto.add("effects.user.needsGpu", r, note);
+    }
+    let mut out = None;
+    ui.horizontal(|ui| {
+        ui.add_space(40.0);
+        let reload = ui.small_button(tl!("Reload"));
+        app.auto.add("effects.user.reload", reload.rect, "Reload");
+        if reload.clicked() {
+            out = Some("reload");
+        }
+        let open = ui.small_button(tl!("Open Effects Folder"));
+        app.auto.add("effects.user.openFolder", open.rect, "Open Effects Folder");
+        if open.clicked() {
+            out = Some("open");
+        }
+    });
+    out
 }
 
 fn folder_row(app: &mut FilmcraftApp, ui: &mut egui::Ui, key: &str, depth: usize, filter: &str) -> bool {

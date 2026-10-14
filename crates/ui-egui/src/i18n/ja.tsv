@@ -879,7 +879,7 @@
 	Mix	ミックス
 	Reverb	リバーブ
 	Stereo Width	ステレオ幅
-	Remixing music to a target duration is not available yet. Trim the clip and add a crossfade instead.	音楽を目標の長さにリミックスする機能は、まだ利用できません。代わりにクリップをトリムして、クロスフェードを追加してください。
+	To fit music to a length, select the clip and choose Clip ▸ Remix ▸ Enable Remix, then Remix Properties….	音楽を目標の長さに合わせるには、クリップを選択して クリップ ▸ リミックス ▸ リミックスを有効にする を選び、続けて リミックスのプロパティ… を開きます。
 	Pan	パン
 	Auto-Match	自動マッチ
 	Not matched yet	まだマッチしていません
@@ -3599,3 +3599,15 @@
 	Dismiss Camera Card	カメラのカードを閉じる
 	Card	カード
 	Match the desktop's text size	デスクトップの文字サイズに合わせる
+	Clean Up Voice	音声をクリーンアップ
+	Limit True Peak	トゥルーピークを制限
+	Ceiling	上限
+	Takes	テイク
+	Take {n}	テイク {n}
+	In use	使用中
+	Use	使用
+	Missing effect	見つからないエフェクト
+	Needs the GPU: on the CPU these effects leave the picture unchanged	GPU が必要です：CPU ではこれらのエフェクトは画像を変更しません
+	No data folder for user effects in this session	このセッションにはユーザーエフェクト用のデータフォルダーがありません
+	Open Effects Folder	エフェクトフォルダーを開く
+	Reload	再読み込み
