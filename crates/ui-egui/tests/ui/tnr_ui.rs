@@ -179,6 +179,21 @@ fn tnr_rows_in_effect_controls_and_the_noise_tab_agree() {
         d.click("tnr.luma.anim");
         let got = d.exec("tnr.get", json!({"clip": clip}));
         assert!(got["params"]["luma"]["keyframes"].as_array().is_some_and(|k| !k.is_empty()), "{tag}: animated: {got}");
+        // its keyframe shows in the lane on the row (no marker before this step)
+        d.frames(2);
+        let kf = d.ids("tnr.luma.keyframe.");
+        assert_eq!(kf.len(), 1, "{tag}: one lane keyframe marker: {kf:?}");
+        // dragging it moves the keyframe in time (one tnr.moveKeyframe)
+        let kf_time = |d: &mut Driver| d.exec("tnr.get", json!({"clip": clip}))["params"]["luma"]["keyframes"][0]["time"].as_i64();
+        let before = kf_time(&mut d);
+        let [x, y, w, h] = d.element(&kf[0]).unwrap();
+        let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+        d.ok("ui.drag", json!({"from": {"x": cx, "y": cy}, "to": {"x": cx + 40.0, "y": cy}, "steps": 6}));
+        d.frames(2);
+        let after = kf_time(&mut d);
+        assert!(after.is_some() && after > before, "{tag}: the drag moved the keyframe later ({before:?} → {after:?})");
+        d.exec("edit.undo", json!({}));
+        assert_eq!(kf_time(&mut d), before, "{tag}: one undo puts it back");
         d.exec("edit.undo", json!({}));
         d.click("tnr.enabled");
         assert_eq!(d.exec("tnr.get", json!({"clip": clip}))["enabled"], json!(false), "{tag}");

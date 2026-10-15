@@ -91,3 +91,76 @@ U0.2.3b d). Full `cargo xtask ci` at the next boundary.
 **Cloud's exact next step:** CLOUD-QUEUE item 9 **R1-PREP** (`docs/fork/PREP-R1.md`, docs only),
 then item 10 **TEARDOWN-FLAKE** (`tests/ui/teardown_ui.rs`, needs 3 parallel runs of the ui test
 binary with `RUST_TEST_THREADS=12`; long build, start it early).
+
+## 2026-10-14 17:17–18:05 UTC (cloud run; stopped because the PC heartbeat came back)
+
+origin/cloud-work was already merged into hevc-vaapi, so cloud-work was fast-forwarded to
+`9c7f81a5`. Worked CLOUD-QUEUE items 9, 12, 13, 14 and diagnosed 10:
+
+- `682d7c16` **USHADER-HOSTILE (item 12)**: `crates/usershader/tests/hostile.rs`, a xorshift
+  generator (no new dependency) feeding `parse` 2 000 mutated files (random / truncated / repeated
+  `@param` lines, huge / NaN / inf numbers, non-ASCII and `fx_` names, nested and unterminated
+  comments, 16+ params, CRLF, BOM, forbidden tokens, empty files, truncated files). Checks: no
+  panic, every error line is inside the file (or absent), every accepted effect validates and has
+  finite in-range defaults, ≤ 16 params, no `fx_` names; and that both paths are exercised
+  (151 accepted / 1 849 rejected). **No bug found.** 0.2 s; no wall-clock assertion (it would
+  flake under the parallel ci run), the time is printed instead.
+- `7fcae72f` **R1-PREP (item 9)**: `docs/fork/PREP-R1.md`. Nothing RAW-specific exists yet (no
+  DNG / TIFF-tag parser, LJ92, Bayer type or demosaic). Notable: `still.rs` sniffs TIFF magic as an
+  ordinary still, so a `.dng` would take the generic `image` TIFF path today; `ImageSequenceSource`
+  is RGBA8 only; the develop stage needs `filmcraft-color`, so it can't live in the L0 `dng` crate
+  (the doc proposes a separate L1 crate). R1 itself still waits for the owner (§1a.22).
+- `e82421cd` **USERFX-FOLDER (item 13)**: the folder scan and per-file parsing were split out of
+  `user_effects::reload` into `scan(dir)` / `statuses(found)` (pure, so the new test doesn't touch
+  the process-wide registry and can't race `user_effects_load_register_and_survive_a_missing_file`).
+  Fixes: a **directory named `x.wgsl`** was listed as a broken effect ("Is a directory"), now
+  skipped; a **FIFO / device named `x.wgsl`** would have **blocked the reload (and app start)
+  forever** on read, now refused as "not a regular file"; a non-UTF-8 file now says "the file is
+  not UTF-8 text"; reads are capped at `MAX_SOURCE` + 1 bytes even if the file grows after the
+  size check. Tested: directory, empty file, Latin-1 file, `My Glow.wgsl` vs `my-glow.wgsl` (first
+  sorted loads, second names the id), `SHOUT.WGSL`, symlink loop, dangling symlink, FIFO (via
+  `mkfifo`, skipped where it is missing), 300 files → the first 256 sorted, missing folder.
+- `d2cb0c2c` **GUIDE-SHADER-COOKBOOK (item 14)**: "Recipes: three effects to copy" in
+  `docs/guide/shader-effects.md` (Soft Vignette, Duotone, Pulse; [Fork], compact header
+  `shader-effects.recipes`), README row updated; engine test
+  `the_guide_examples_parse_and_validate` parses and validates every ```wgsl block of the page
+  (the Warm Spot sample too), so the page can't drift from the parser.
+- **TEARDOWN-FLAKE (item 10): diagnosed, not fixed (shelved when the PC came back; nothing
+  committed).** Reproduced here without the full ci run: 8 copies of
+  `ui teardown_ui --test-threads 1` started at once on 4 cores fail 7 of 8 with 8 / 10 / 16
+  references left after the 3 s settle; alone it passes 3 / 3. `took` stays < 6 s, so `Drop` gives
+  up after `CLOSE_WAIT`. A `/proc/self/task` listing at the failure showed only the
+  `filmcraft-background` thread and rayon threads (unnamed threads inherit that name on Linux)
+  besides the test, i.e. the **frame workers had exited; the holder is the render-cache job**
+  (`CacheJob` → `Exporter::step`). Its `PoolProvider` lives in the job. In `crates/export/src/job.rs`
+  `encode_batch` already checks cancellation between frames and `render_batch` per frame, so the
+  long uncancellable piece is inside one frame or one step: candidates (not yet confirmed) are
+  `CacheJob::start` → `Exporter::new` / the loudness measure, `rayon::in_place_scope` waiting for the
+  look-ahead batch render (per-frame cancel only), and one software ProRes frame encode under 8× load.
+  The refs do drop a few seconds later (with a gdb attach delaying the check, 0 / 8 failed), so it
+  is slow work, not a leak. Also found: the timeline's **nested-sequence peaks mix**
+  (`panels/timeline.rs::request_sequence_peaks`) runs on a detached `std::thread::spawn` holding a
+  `PoolProvider` with no cancellation; not the cause here (the demo has no nest), but the same
+  class of problem. gdb attach from inside the test hung under load; don't repeat that.
+
+**Verified on CPU:** `cargo test -p filmcraft-usershader --test hostile` (2 ok), `cargo test -p
+filmcraft-engine --lib user_effects` (3 ok), `cargo test -p filmcraft-engine --lib coach` (43 ok,
+incl. the header / provenance / eval-floor checks), `cargo clippy -p filmcraft-usershader` and
+`-p filmcraft-engine --all-targets -D warnings`, `cargo fmt --check`. No dependency changes
+(`xtask layers` unaffected).
+
+**UNVERIFIED ON GPU / owed by the PC:** render the three recipes (Soft Vignette, Duotone, Pulse)
+once on AMD and Intel (Effects ▸ User after copying them into the Effects folder); full `cargo xtask
+ci` at the next boundary (engine `user_effects` changed). No GPU code was changed.
+
+**Questions for the owner:** none.
+
+**Known problems:** TEARDOWN-FLAKE still open (above). `effects.listUser` doesn't list files past
+the 256 cap (only the log does), unchanged.
+
+**Cloud's exact next step:** TEARDOWN-FLAKE. Reproduce with the 8-concurrent-copies loop above (no
+full ci needed), add a timer around each `CacheJob::step` phase (start / render / encode / scope wait)
+logged when `stop` was requested, find the step that outlives `CLOSE_WAIT`, then make it see
+cancellation (e.g. have `CacheJob` forward the worker's cancel flag into `Progress::cancel` and
+check it inside the long piece), and give `request_sequence_peaks` a cancel flag the app's `Drop`
+sets. Done = 3 / 3 runs of the 8-copies loop and the queue's `RUST_TEST_THREADS=12` check.

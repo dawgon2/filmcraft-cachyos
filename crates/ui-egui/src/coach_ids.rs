@@ -28,8 +28,8 @@ pub const MAX_SEEN: usize = 50_000;
 #[rustfmt::skip]
 pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "about.*", "about.credits.header.*", "about.credits.names.*", "about.tab.*", "addTracks.*.amount", "addTracks.*.placement",
-    "addTracks.*.placement.option.*", "addTracks.*.type", "addTracks.*.type.option.*", "align.*", "audioGain.*", "audioGain.*.value",
-    "audioMeters.channel.*", "clipMixer.*", "clips.card.*", "clips.split.*", "coach.ask.step.*", "coach.lessons.item.*", "comp.param.*", "comp.wheel.*", "comp.curve.*", "comp.param.*.stopwatch", "comp.mask.*", "comp.mask*.*", "colorDialog.par.*", "colorDialog.space.*", "colorDialog.working.*",
+    "addTracks.*.placement.option.*", "addTracks.*.type", "addTracks.*.type.option.*", "align.*", "assistant.lesson.*", "assistant.line.*.*", "assistant.step.*.*", "assistant.turn.*", "audioGain.*", "audioGain.*.value",
+    "audioMeters.channel.*", "clipMixer.*", "clips.card.*", "clips.split.*", "coach.ask.assistLine.*", "coach.ask.step.*", "coach.lessons.item.*", "comp.param.*", "comp.wheel.*", "comp.curve.*", "comp.param.*.stopwatch", "comp.mask.*", "comp.mask*.*", "colorDialog.par.*", "colorDialog.space.*", "colorDialog.working.*",
     "deleteTracks.*", "deleteTracks.*.option.*", "deleteTracks.*.option.empty", "deleteTracks.*.target", "display.*", "dock.gutter.*",
     "editCameras.enabled.*", "editCameras.name.*", "editCameras.thumb.*", "effectControls.*.*", "effectControls.*.*.eyedropper",
     "effectControls.*.*.graphs", "effectControls.*.*.keyframe.*", "effectControls.*.*.reset", "effectControls.*.*.stopwatch",
@@ -84,7 +84,7 @@ pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "timeline.track.*.keyframes.*", "timeline.track.*.keyframes.clip", "timeline.track.*.lane", "timeline.track.*.lane.kf.*",
     "timeline.track.*.locked", "timeline.track.*.muted", "timeline.track.*.solo", "timeline.track.*.sourcePatch",
     "timeline.track.*.syncLock", "timeline.track.*.target", "timeline.track.*.voiceover", "timeline.transition.*",
-    "timeline.transition.*.in", "timeline.transition.*.out", "tools.*", "tools.select.*", "view.*", "view.display.*",
+    "timeline.transition.*.in", "timeline.transition.*.out", "tnr.*", "tnr.*.keyframe.*", "tools.*", "tools.select.*", "view.*", "view.display.*",
     "view.magnification.*", "voiceover.input.*", "voiceover.source.*", "window.panel.*", "window.workspace.*", "workspaces.edit.row.*",
 ];
 

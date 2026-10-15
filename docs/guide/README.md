@@ -24,7 +24,7 @@ own solver and explanations).
 
 | Page | Covers | Status |
 |---|---|---|
-| [getting-started.md](getting-started.md) | Install, the two workflows (Settings ▸ General ▸ Workflow: Premiere / Resolve), importing X-M5 clips, what the hardware path does | partial (workflow, X-M5 import; install to write) |
+| [getting-started.md](getting-started.md) | Install, the two workflows (Settings ▸ General ▸ Workflow: Premiere / Resolve), importing X-M5 clips, what the hardware path does | written |
 | [pages.md](pages.md) | The Resolve workflow's pages (RS3): the page bar, each page's layout and toolbar, Deliver's render settings and queue, saving a page layout | written (RS3) |
 | [projects.md](projects.md) | The Project Manager home screen (RS2): the projects folder, opening and making projects, sort / search / views, rename / duplicate / trash, export / import, At startup show | written (RS2) |
 | [color/README.md](color/README.md) | How colour works in this fork, start here | written (G0–G1) |
@@ -35,7 +35,7 @@ own solver and explanations).
 | [color/secondaries.md](color/secondaries.md) | Qualifier, windows, tracking (G2) | written (G2.1–G2.3) |
 | [color/noise.md](color/noise.md) | Spatial noise reduction on a node (G2.4), temporal per clip (6.7 / 6.7b) | written (G2.4 spatial, 6.7b temporal) |
 | [color/matching.md](color/matching.md) | Stills, wipe / split, copy / paste / append grades, "same grade?", shot comparison, Shot Match, node explainer, AI explanations | written (G0–G2b) |
-| [compositor.md](compositor.md) | Comps: nodes, New Comp Clip, Open in Compositor, Convert to Comp Clip, two starter comps, what is cached | partial (C1: inspector, node viewer and Fusion page to come) |
+| [compositor.md](compositor.md) | Comps: nodes, New Comp Clip, Open in Compositor, Convert to Comp Clip, two starter comps, what is cached | done for C1 (comp size, Media In source and node names are commands only) |
 | [color/finishing.md](color/finishing.md) | Grain, highlight soft clip, node LUTs, scopes (noise reduction: noise.md) | written (grain, soft clip, LUT; scopes GUIDE-8) |
 | [color/lumetri.md](color/lumetri.md) | Lumetri Color (Premiere-style) and how it relates to the node grader | written (cloud) |
 | [color/coach.md](color/coach.md) | Grading Coach: guided lessons (the lesson list, card buttons, outline, progress, the seven lessons, writing a lesson file), context hints (the list, the switch, writing a hint) and Ask the coach | written (G2.12) |
@@ -56,7 +56,7 @@ own solver and explanations).
 | [text.md](text.md) | Transcripts and editing by text, speech models, removing pauses and filler words, captions (from the transcript, import, edit, style, export, burn-in), text-to-speech narration vs recording | written (AI3-PREP) |
 | [audio.md](audio.md) | Audio clean-up (AUDIO-PLAN A2): Voice Isolation (DeepFilterNet3) and its model, the manual voice clean-up process, Clean Up Voice (one click), reviewing voice-over takes | written (A2) |
 | [keying.md](keying.md) | Green screen and other keys (Ultra Key, show matte, cleanup, spill, Luma Key, Color Key) | written (Y3.1) |
-| [shader-effects.md](shader-effects.md) | Shader effects: the bundled examples, writing your own WGSL effect, broken / slow / quarantined / missing effects | written (Y3.4) |
+| [shader-effects.md](shader-effects.md) | Shader effects: the bundled examples, writing your own WGSL effect, three recipes to copy (vignette, duotone, pulse), broken / slow / quarantined / missing effects | written (Y3.4; recipes: cloud) |
 | [packs.md](packs.md) | Look packs: presets, LUTs and graphics templates in one shareable file | written (Y3.5) |
 | [proxies.md](proxies.md) | Automatic proxies (which clips get them, the background worker, badges, Auto / On / Off, cancelling, relinked media) | written (6.2) |
 | [export.md](export.md) | Export presets, hardware HEVC and its fallbacks, bitrate vs constant quality (CRF), HDR → Main 10 | written (cloud; YouTube / Shorts specifics to add with Y phases) |

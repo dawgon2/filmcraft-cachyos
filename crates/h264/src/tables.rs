@@ -6,6 +6,18 @@ pub const ZIGZAG4: [u8; 16] = [0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14,
 /// 8x8 frame zig-zag scan: scan position -> raster index (row * 8 + col).
 pub const ZIGZAG8: [u8; 64] = zigzag8();
 
+/// 4x4 field scan (Table 8-13, field macroblocks): scan position -> raster index.
+pub const FIELD_SCAN4: [u8; 16] = [0, 4, 1, 8, 12, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15];
+
+/// 8x8 field scan (Table 8-13, field macroblocks): scan position -> raster index.
+#[rustfmt::skip]
+pub const FIELD_SCAN8: [u8; 64] = [
+    0, 8, 16, 1, 9, 24, 32, 17, 2, 25, 40, 48, 56, 33, 10, 3,
+    18, 41, 49, 57, 26, 11, 4, 19, 34, 42, 50, 58, 27, 12, 5, 20,
+    35, 43, 51, 59, 28, 13, 6, 21, 36, 44, 52, 60, 29, 14, 22, 37,
+    45, 53, 61, 30, 7, 15, 38, 46, 54, 62, 23, 31, 39, 47, 55, 63,
+];
+
 const fn zigzag8() -> [u8; 64] {
     let mut out = [0u8; 64];
     let mut k = 0;
@@ -156,6 +168,21 @@ mod tests {
             seen[z as usize] = true;
         }
         assert!(seen.iter().all(|&s| s));
+    }
+
+    #[test]
+    fn field_scans_are_permutations() {
+        let perm = |s: &[u8]| {
+            let mut seen = vec![false; s.len()];
+            for &z in s {
+                seen[z as usize] = true;
+            }
+            seen.iter().all(|&s| s)
+        };
+        assert!(perm(&FIELD_SCAN4) && perm(&FIELD_SCAN8));
+        // column-first: the field scans start down the first column
+        assert_eq!(&FIELD_SCAN4[..4], &[0, 4, 1, 8]);
+        assert_eq!(&FIELD_SCAN8[..3], &[0, 8, 16]);
     }
 
     #[test]

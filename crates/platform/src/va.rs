@@ -85,10 +85,13 @@ pub struct Display {
     profiles: Vec<(sys::VAProfile, Vec<sys::VAEntrypoint>)>,
 }
 
-// SAFETY: a VADisplay may be used from any thread: libva serialises calls per display, and both
-// drivers FilmCraft uses do too: Mesa's VA frontend (radeonsi, AMD) holds a per-display mutex and
-// Intel's iHD media driver a per-display context mutex around every entry point (the 4:2:2
-// display, fork 6.1b). FilmCraft never shares a context between threads without its own lock.
+// SAFETY: a VADisplay may be used from any thread when its driver serialises its entry points:
+// libva itself takes no per-display lock, so this rests on the driver. Both drivers FilmCraft is
+// built and tested on do: Mesa's VA frontend (radeonsi, AMD) holds a per-display mutex and Intel's
+// iHD media driver a per-display context mutex around every entry point (the 4:2:2 display, fork
+// 6.1b). Other drivers (nvidia-vaapi-driver, the old i965) are not checked for this, so
+// `open_raw` refuses them (`driver_is_thread_safe`) unless `FILMCRAFT_VAAPI_ANY_DRIVER=1`; they
+// then decode in software. FilmCraft never shares a context between threads without its own lock.
 unsafe impl Send for Display {}
 // SAFETY: as for `Send`; `&Display` only issues thread-safe libva calls.
 unsafe impl Sync for Display {}
@@ -268,6 +271,7 @@ impl Display {
     /// one run in four once upstream's always-open display was gone). A handful at most: one per
     /// render node per kind of use.
     fn open(lib: &'static sys::Va, node: &str) -> Result<Arc<Display>, String> {
+        const KEPT_MAX: usize = 64;
         static KEPT: Mutex<Vec<Arc<Display>>> = Mutex::new(Vec::new());
         // one at a time: drivers load and initialise their global state in vaInitialize, and the
         // start-up probes open displays on several threads at once
@@ -277,8 +281,12 @@ impl Display {
         let d = Arc::new(Display::open_raw(lib, node)?);
         drop((opening, busy));
         let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
-        if kept.len() < 64 {
+        // a bound against a runaway caller (today's callers open at most 8); a display past it is
+        // terminated when its last user drops it, the hazard above, so say so
+        if kept.len() < KEPT_MAX {
             kept.push(d.clone());
+        } else {
+            log::warn!("VA-API: more than {KEPT_MAX} displays opened; {node} is not kept open for the process's life");
         }
         Ok(d)
     }
@@ -314,6 +322,16 @@ impl Display {
         // SAFETY: non-null pointers from vaQueryVendorString are NUL-terminated strings owned by libva.
         let vendor = if vp.is_null() { String::new() } else { unsafe { CStr::from_ptr(vp) }.to_string_lossy().into_owned() };
         let mut d = Display { lib, dpy, _file: file, node: node.to_string(), vendor, profiles: Vec::new() };
+        // the `Send` / `Sync` impls above rest on the driver's own per-display lock; `d` drops
+        // (vaTerminate) while `OPENING` is still held by `open`
+        if !driver_is_thread_safe(&d.vendor) && std::env::var("FILMCRAFT_VAAPI_ANY_DRIVER").ok().as_deref() != Some("1") {
+            log::warn!(
+                "VA-API: {node} ({}) is not a driver FilmCraft has checked for thread safety; using software decoding \
+                 (FILMCRAFT_VAAPI_ANY_DRIVER=1 uses it anyway)",
+                d.vendor
+            );
+            return Err(format!("{node}: VA-API driver not supported ({})", d.vendor));
+        }
         d.profiles = d.query_profiles()?;
         Ok(d)
     }
@@ -604,6 +622,8 @@ impl Context {
         if !Arc::ptr_eq(&target.pool.display, d) || tw < self.size.0 || th < self.size.1 {
             return Err(format!("a {tw}x{th} target surface for a {}x{} context", self.size.0, self.size.1));
         }
+        // the process doesn't exit (drivers' destructors) in the middle of a picture (review 2026-10-15)
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         // SAFETY: a valid context and surface of this display.
         d.check(unsafe { d.lib.vaBeginPicture(d.dpy, self.id, target.id) }, "vaBeginPicture")?;
         let mut ids: Vec<sys::VABufferID> = buffers.iter().map(|b| b.id).collect();
@@ -664,6 +684,7 @@ impl Context {
                 std::mem::size_of::<sys::VAProcPipelineParameterBuffer>(),
             )
         }?;
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         // SAFETY: a valid context and target surface of this display.
         d.check(unsafe { d.lib.vaBeginPicture(d.dpy, self.id, target.id) }, "vaBeginPicture (video processing)")?;
         let mut ids = [buffer.id];
@@ -772,6 +793,7 @@ impl Context {
         ids.push(pb.id);
         ids.push(sb.id);
         let n = i32::try_from(ids.len()).map_err(|_| "too many buffers")?;
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         // SAFETY: a valid context and source surface of this display.
         d.check(unsafe { d.lib.vaBeginPicture(d.dpy, self.id, source.id) }, "vaBeginPicture")?;
         // SAFETY: `ids` holds `n` buffers created on this context; libva reads them during the call.
@@ -807,6 +829,7 @@ impl CodedBuffer {
     /// source surface). Error when it overflowed the buffer. `&mut`: one mapping at a time (the
     /// driver keeps one per buffer).
     pub fn read(&mut self) -> Result<Vec<u8>, String> {
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         let d = &self.display;
         let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         // SAFETY: a coded buffer of this display, mapped into a valid out-pointer.
@@ -1217,7 +1240,8 @@ static BUSY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::ne
 static EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// VA-API work the process must not exit in the middle of (U0.2.4): opening a display, the
-/// start-up probes. Exiting while a thread was inside Intel's driver initialisation ran the
+/// start-up probes, each picture's submit (decode, video processing, encode), and the surface work
+/// outside a submit (sync, image reads / writes, DMA-BUF export, coded-buffer maps). Exiting while a thread was inside Intel's driver initialisation ran the
 /// driver's destructors under it and corrupted the heap (`filmcraft-cli help` aborted in a few
 /// percent of runs); exit now waits for such work (up to 3 s, [`wait_for_va_work`]).
 pub(crate) struct Busy(());
@@ -1229,6 +1253,7 @@ impl Busy {
         BUSY.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if EXITING.load(std::sync::atomic::Ordering::SeqCst) {
             BUSY.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            REFUSED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return None;
         }
         Some(Busy(()))
@@ -1239,6 +1264,15 @@ impl Drop for Busy {
     fn drop(&mut self) {
         BUSY.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
+}
+
+/// VA-API work refused because the process was exiting ([`Busy::enter`]).
+static REFUSED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many VA-API operations (display opens, probes, picture submits) were refused because the
+/// process was exiting (diagnostics and tests).
+pub fn work_refused_while_exiting() -> usize {
+    REFUSED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Run by `exit()` before the shared libraries' destructors: no new VA-API work, and the work in
@@ -1276,6 +1310,13 @@ static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::
 /// The number of VA displays this process has opened.
 pub fn displays_opened() -> usize {
     OPENED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether a VA-API driver, by its vendor string, serialises its entry points per display (the
+/// `Send` / `Sync` impls of [`Display`] rest on that): Mesa's Gallium frontend and Intel's iHD
+/// media driver. Not the old i965 driver or nvidia-vaapi-driver (unchecked).
+fn driver_is_thread_safe(vendor: &str) -> bool {
+    vendor.starts_with("Mesa Gallium driver") || vendor.starts_with("Intel iHD driver")
 }
 
 /// PCI vendor ids of DRM render nodes.
@@ -1405,6 +1446,8 @@ impl SurfacePool {
     /// may still be sampled by GPU work already submitted when it comes back, and the decoder
     /// overwrites it on reuse; the longer it rests, the more surely that work has finished.
     pub fn get(self: &Arc<Self>) -> Result<Surface, String> {
+        // (syncs a spare or creates a surface: driver work exit must wait for, U0.2 owed 4)
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         let spare = {
             let mut free = self.free.lock().unwrap_or_else(PoisonError::into_inner);
             if free.is_empty() { None } else { Some(free.remove(0)) }
@@ -1553,6 +1596,7 @@ impl Surface {
         {
             return Ok(e.clone());
         }
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         let d = &self.pool.display;
         let mut desc = sys::VADRMPRIMESurfaceDescriptor::default();
         let access = if writable { sys::VA_EXPORT_SURFACE_READ_WRITE } else { sys::VA_EXPORT_SURFACE_READ_ONLY };
@@ -1612,6 +1656,8 @@ impl Surface {
 
     /// Wait until the decode into this surface has finished.
     pub fn sync(&self) -> Result<(), String> {
+        // a sync outside a picture submit is driver work too: exit waits for it (U0.2 owed 4)
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         let d = &self.pool.display;
         // SAFETY: a valid surface of this display.
         d.check(unsafe { d.lib.vaSyncSurface(d.dpy, self.id) }, "vaSyncSurface")
@@ -1622,6 +1668,7 @@ impl Surface {
     /// interleaved chroma; `Y210`: one packed plane), which is then copied into the surface. The surface must not be in use
     /// by the GPU.
     pub fn write(&self, f: impl FnOnce(&mut [u8], [usize; 2], [usize; 2]) -> Result<(), String>) -> Result<(), String> {
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         let d = &self.pool.display;
         let l = d.lib;
         let (w, h) = self.pool.size;
@@ -1745,6 +1792,8 @@ impl Surface {
         if self.pool.fourcc == sys::VA_FOURCC_Y210 && x % 2 != 0 {
             return Err(format!("a Y210 rectangle at odd x {x}"));
         }
+        // held across the sync and the image copy / map (U0.2 owed 4)
+        let _busy = Busy::enter().ok_or("the process is exiting")?;
         self.sync()?;
         // over imported (foreign) memory iHD's vaGetImage reads zeros: map the memory instead
         if matches!(self.pool.linear, Some(LinearAlloc::Imported(_))) {
@@ -1802,6 +1851,16 @@ impl Surface {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_drivers_checked_for_thread_safety_are_shared() {
+        use super::driver_is_thread_safe as ok;
+        assert!(ok("Mesa Gallium driver 26.2.4-arch3.1 for AMD Radeon RX 6700 XT (radeonsi, navi22, ACO)"));
+        assert!(ok("Intel iHD driver for Intel(R) Gen Graphics - 26.3.5 ()"));
+        assert!(!ok("Intel i965 driver for Intel(R) Haswell Desktop - 2.4.1"));
+        assert!(!ok("VA-API NVDEC driver [direct backend]"));
+        assert!(!ok(""));
+    }
+
     use super::{Config, Context, Display, SurfacePool, rect_fits, sys};
     use std::sync::Arc;
 

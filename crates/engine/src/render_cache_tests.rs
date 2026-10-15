@@ -726,3 +726,34 @@ fn a_source_rewritten_in_place_changes_the_hash() {
     let _ = std::fs::remove_file(&file);
     let _ = std::fs::remove_dir_all(s.previews.dir().unwrap());
 }
+
+/// Phase 6 owed: `cache.claimFolder` makes files of no known project this project's, so Delete
+/// Unused can clean them; another project's files stay theirs; no folder is refused.
+#[test]
+fn claim_folder_takes_only_files_of_no_known_project() {
+    let (mut s, _, _, _) = session("claim", 64, 36);
+    let dir = s.previews.dir().unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    let name = |c: char| format!("{}-0-48.mov", c.to_string().repeat(32));
+    let (theirs, unknown) = (name('a'), name('c'));
+    for n in [&theirs, &unknown] {
+        std::fs::write(dir.join(n), vec![0u8; 1000]).unwrap();
+    }
+    let idx = json!({"version": HASH_VERSION, "files": {theirs.clone(): {"lastUsed": 1, "project": "/other/Proj.fcp"}}});
+    std::fs::write(dir.join(INDEX_FILE), serde_json::to_vec(&idx).unwrap()).unwrap();
+    s.path = Some("/mine/Proj.fcp".into());
+    s.previews.set_dir(Some(dir.clone()));
+    assert_eq!(status_json(&s)["unknownFiles"], 1);
+    let v = s.execute("cache.claimFolder", json!({})).unwrap();
+    assert_eq!((v["claimed"].as_u64(), v["bytes"].as_u64()), (Some(1), Some(1000)), "{v}");
+    assert_eq!(status_json(&s)["unknownFiles"], 0);
+    assert_eq!(read_index(&dir).unwrap().files[&unknown].project.as_deref(), Some("/mine/Proj.fcp"));
+    // claiming again changes nothing; Delete Unused now cleans the claimed file, never theirs
+    assert_eq!(s.execute("cache.claimFolder", json!({})).unwrap()["claimed"], 0);
+    assert_eq!(s.execute("cache.clearUnused", json!({})).unwrap()["deleted"], 1);
+    assert!(!dir.join(&unknown).exists() && dir.join(&theirs).exists());
+    let _ = std::fs::remove_dir_all(&dir);
+    // no folder: refused
+    s.previews.set_dir(None);
+    assert!(s.execute("cache.claimFolder", json!({})).is_err());
+}

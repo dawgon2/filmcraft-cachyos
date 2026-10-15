@@ -21,6 +21,8 @@
 #[cfg(feature = "infer")]
 pub mod forward;
 pub mod gguf;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 #[cfg(feature = "infer")]
 pub mod kquant;
 pub mod models;

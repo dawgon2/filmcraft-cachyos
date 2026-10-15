@@ -665,6 +665,10 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                                 ),
                             );
                             line(ui, tl!("Colour"), s(&x["color"]));
+                            // fork H3.2b: which decoder decodes the clip (VA-API or FilmCraft's own)
+                            if let Some(dec) = v.get("decoder") {
+                                line(ui, tl!("Decoder"), if dec.is_null() { tl!("chosen when the clip first plays").to_string() } else { s(dec) });
+                            }
                         }
                         if v["audio"].is_object() {
                             let x = &v["audio"];

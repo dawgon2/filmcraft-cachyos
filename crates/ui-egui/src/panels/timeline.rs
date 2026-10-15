@@ -10,6 +10,7 @@
 //! drawn as GPU meshes by egui's wgpu backend and culled to the visible range.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use egui::{Align2, Color32, CursorIcon, Pos2, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
@@ -54,6 +55,9 @@ pub struct TlState {
     /// from, and the key worked out for the session revision last seen.
     seq_peak_keys: Arc<Mutex<HashMap<ItemId, u64>>>,
     seq_keys_seen: HashMap<ItemId, (u64, u64)>,
+    /// Set to stop the background mixes of [`request_sequence_peaks`] (app closed, project
+    /// changed): they then drop their media provider at the next chunk instead of mixing on.
+    peaks_cancel: Arc<AtomicBool>,
     /// Source peak of each cached peak list (keyed by the list's address), for the waveform
     /// display gain: scanning the whole source per clip per frame cost more than drawing.
     peak_max: HashMap<PeakKey, (usize, f32)>,
@@ -63,13 +67,20 @@ pub struct TlState {
 impl TlState {
     /// Forget cached waveform peaks: they are keyed by item id, and ids repeat across projects
     /// (opening another project would otherwise show the old project's waveforms). Peak jobs
-    /// still running finish into the old maps and are dropped.
+    /// still running finish into the old maps and are dropped (nested-sequence mixes stop early).
     pub fn reset_media_caches(&mut self) {
+        self.cancel_peak_jobs();
+        self.peaks_cancel = Default::default();
         self.peaks = Default::default();
         self.peaks_pending = Default::default();
         self.seq_peak_keys = Default::default();
         self.seq_keys_seen.clear();
         self.peak_max.clear();
+    }
+
+    /// Stop the waveform mixes still running for nested sequences (at their next chunk).
+    pub fn cancel_peak_jobs(&self) {
+        self.peaks_cancel.store(true, Ordering::Relaxed);
     }
 }
 
@@ -939,29 +950,11 @@ fn request_sequence_peaks(app: &mut FilmcraftApp, item: ItemId) -> Option<Arc<Ve
     let (peaks, keys, pending) = (app.tl.peaks.clone(), app.tl.seq_peak_keys.clone(), app.tl.peaks_pending.clone());
     let project = app.session.project.clone();
     let provider = app.session.media.provider(project.clone(), app.session.services.clone());
+    let cancel = app.tl.peaks_cancel.clone();
     let run = move || {
         // a panic in the mix must not take the app down with it, nor leave the item pending for good
-        let mixed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let seq = project.sequence(item)?;
-            let sr = seq.settings.sample_rate.max(1);
-            let total = seq.duration().to_units_floor(sr as i64).max(0) as usize;
-            // one peak per 256 samples at 48 kHz, whatever the sequence's own rate
-            let bucket = ((256u64 * sr as u64) / 48_000).max(1) as usize;
-            let chunk = (bucket * 750).max(1);
-            let mut out = Vec::with_capacity(total / bucket + 1);
-            let mut s = 0usize;
-            while s < total {
-                let n = chunk.min(total - s);
-                let buf = filmcraft_render::audio::mix_sequence(&project, seq, s as i64, n, &provider);
-                let ch = buf.channels.first()?;
-                for c in ch.chunks(bucket) {
-                    let (lo, hi) = c.iter().fold((0f32, 0f32), |(l, h), v| (l.min(*v), h.max(*v)));
-                    out.push((lo, hi));
-                }
-                s += n;
-            }
-            Some(out)
-        }));
+        let mixed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sequence_peaks(&project, item, &provider, &cancel)));
+        drop(provider);
         if let Ok(Some(out)) = mixed {
             peaks.lock().unwrap_or_else(|e| e.into_inner()).insert(pkey, Arc::new(out));
             keys.lock().unwrap_or_else(|e| e.into_inner()).insert(item, key);
@@ -973,6 +966,37 @@ fn request_sequence_peaks(app: &mut FilmcraftApp, item: ItemId) -> Option<Arc<Ve
     #[cfg(target_arch = "wasm32")]
     run();
     have
+}
+
+/// Min/max peaks of sequence `item`'s mix (one per 256 samples at 48 kHz, whatever the sequence's
+/// own rate). `None` when there is no such sequence or `cancel` is set (checked before each chunk).
+fn sequence_peaks(
+    project: &filmcraft_project::Project,
+    item: ItemId,
+    provider: &dyn filmcraft_render::SourceProvider,
+    cancel: &AtomicBool,
+) -> Option<Vec<(f32, f32)>> {
+    let seq = project.sequence(item)?;
+    let sr = seq.settings.sample_rate.max(1);
+    let total = seq.duration().to_units_floor(sr as i64).max(0) as usize;
+    let bucket = ((256u64 * sr as u64) / 48_000).max(1) as usize;
+    let chunk = (bucket * 750).max(1);
+    let mut out = Vec::with_capacity(total / bucket + 1);
+    let mut s = 0usize;
+    while s < total {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        let n = chunk.min(total - s);
+        let buf = filmcraft_render::audio::mix_sequence(project, seq, s as i64, n, provider);
+        let ch = buf.channels.first()?;
+        for c in ch.chunks(bucket) {
+            let (lo, hi) = c.iter().fold((0f32, 0f32), |(l, h), v| (l.min(*v), h.max(*v)));
+            out.push((lo, hi));
+        }
+        s += n;
+    }
+    Some(out)
 }
 
 /// Min/max peaks (one per 256 samples at 48 kHz) of audio stream `stream` of `src`, `dur` long.
@@ -2846,6 +2870,28 @@ mod trim_preview_tests {
         let (mut out, mut edited) = (HashMap::new(), HashMap::new());
         preview_drag(&app, &seq, &mut out, &mut edited);
         assert!(edited.is_empty() && out.contains_key(&left.id));
+    }
+}
+
+#[cfg(test)]
+mod sequence_peaks_tests {
+    use super::*;
+
+    /// PEAKS-CANCEL: a cancelled nested-sequence mix stops and returns no peaks (so the closing
+    /// app's job drops its media provider at once); an uncancelled one covers the whole sequence.
+    #[test]
+    fn a_cancelled_sequence_mix_returns_without_peaks() {
+        let mut s = filmcraft_engine::Session::default();
+        s.execute("file.openDemoProject", serde_json::json!({})).unwrap();
+        let item = s.state.active_sequence.unwrap();
+        let provider = s.media.provider(s.project.clone(), s.services.clone());
+        let cancel = AtomicBool::new(true);
+        assert!(sequence_peaks(&s.project, item, &provider, &cancel).is_none());
+        cancel.store(false, Ordering::Relaxed);
+        let seq = s.project.sequence(item).unwrap();
+        let total = seq.duration().to_units_floor(seq.settings.sample_rate.max(1) as i64).max(0) as usize;
+        let peaks = sequence_peaks(&s.project, item, &provider, &cancel).unwrap();
+        assert!(total > 0 && !peaks.is_empty(), "demo sequence has sound to mix");
     }
 }
 

@@ -566,6 +566,11 @@ fn hardware_decoding_setting_drives_the_decoder_switch() {
     assert_eq!(s.prefs.playback.hardware_decoding, "auto", "Auto by default");
     set(&mut s, "playback.hardwareDecoding", json!("off"));
     assert!(!filmcraft_codecs::hw::hardware_decoding(), "Off reaches the decoder registry");
+    // another session's unrelated setting leaves the switch alone (it re-applied "auto" on every
+    // prefs.set: a parallel-test flake, and wrong for the CLI / control channel too)
+    let mut other = Session::default();
+    set(&mut other, "timeline.dropImportToTimeline", json!(false));
+    assert!(!filmcraft_codecs::hw::hardware_decoding(), "an unrelated prefs.set keeps Off");
     assert!(s.execute("prefs.set", json!({"key": "playback.hardwareDecoding", "value": "gpu"})).is_err());
     set(&mut s, "playback.hardwareDecoding", json!("auto"));
     assert!(filmcraft_codecs::hw::hardware_decoding());

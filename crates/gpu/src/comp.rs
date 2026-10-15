@@ -17,9 +17,13 @@ use filmcraft_render::plan::{FramePlan, LayerFx, PlanLayer};
 
 use crate::{GpuCompositor, Uploaded};
 
-/// Most GPU memory one comp's slot textures may take (bytes); above it the comp runs on the CPU.
-/// Provisional: 2 GB holds a 6.2K comp's three live pictures and the scratch slot four times over.
+/// Most GPU memory the comps' slot textures may take together (bytes, every slot set held); a comp
+/// that would go above it runs on the CPU. Provisional: 2 GB holds a 6.2K comp's three live
+/// pictures and the scratch slot four times over.
 pub const COMP_VRAM_BUDGET: u64 = 2 << 30;
+
+/// Top-level draws without a comp after which the comps' textures are let go.
+pub(crate) const COMP_IDLE_FRAMES: u32 = 120;
 
 /// Most comp layers one frame runs on the GPU (the rest run on the CPU).
 const MAX_COMP_SETS: usize = 8;
@@ -37,6 +41,11 @@ pub(crate) struct Slot {
 }
 
 impl Slot {
+    /// GPU memory its texture takes (0 before the first draw).
+    fn bytes(&self) -> u64 {
+        self.target.as_ref().map_or(0, |(_, _, (w, h))| u64::from(*w).saturating_mul(u64::from(*h)).saturating_mul(SLOT_TEXEL_BYTES))
+    }
+
     fn new(w: u32, h: u32) -> Slot {
         let frame = VideoFrame { width: w, height: h, data: PixelData::RgbaF32(Arc::new(Vec::new())), ..VideoFrame::rgba_f32(1, 1, vec![0.0; 4]) };
         Slot { target: None, frame: Arc::new(frame) }
@@ -62,6 +71,33 @@ impl GpuCompositor {
         out
     }
 
+    /// After a top-level draw: a comp-free stretch of [`COMP_IDLE_FRAMES`] draws lets the comps'
+    /// textures go (`had_comps` restarts the count).
+    pub(crate) fn comp_frame_done(&mut self, had_comps: bool) {
+        if had_comps {
+            self.comp_idle = 0;
+            return;
+        }
+        self.comp_idle = self.comp_idle.saturating_add(1);
+        if self.comp_idle == COMP_IDLE_FRAMES {
+            self.comp_sets.clear();
+            self.comp_slots.clear();
+            self.comp_output = None;
+            self.comp_backdrop = None;
+        }
+    }
+
+    /// Registers set `set`'s output slot `out` in the upload cache again (right before the frame
+    /// draws the comp's result: later comps' uploads may have evicted it).
+    pub(crate) fn refresh_comp_output(&mut self, set: usize, out: usize) {
+        let Some(slots) = self.comp_sets.get_mut(set) else { return };
+        std::mem::swap(&mut self.comp_slots, slots);
+        self.register_slot(out);
+        if let Some(slots) = self.comp_sets.get_mut(set) {
+            std::mem::swap(&mut self.comp_slots, slots);
+        }
+    }
+
     fn run_comp_in_slots(&mut self, p: &Program) -> Option<Arc<VideoFrame>> {
         let w = u32::try_from(p.size.0).ok()?.max(1);
         let h = u32::try_from(p.size.1).ok()?.max(1);
@@ -78,10 +114,17 @@ impl GpuCompositor {
         if p.passes.iter().any(|pass| matches!(pass, Pass::Layers { layers, .. } if layers.iter().any(|l| l.comp.is_some()))) {
             return None;
         }
+        // a picture of another size than the comp is stored as it is by the CPU oracle (the GPU
+        // slots are all comp-sized): the CPU runs such a comp
+        if p.passes.iter().any(|pass| matches!(pass, Pass::Image { image, .. } if (image.w, image.h) != p.size)) {
+            return None;
+        }
         // the program's slots and one scratch slot
         let n = usize::from(p.textures).saturating_add(1);
         let bytes = (n as u64).saturating_mul(u64::from(w)).saturating_mul(u64::from(h)).saturating_mul(SLOT_TEXEL_BYTES);
-        if bytes > COMP_VRAM_BUDGET {
+        // the other comps' slot sets are held too (this one's are swapped out of `comp_sets`)
+        let held = self.comp_sets.iter().flatten().map(Slot::bytes).fold(0u64, u64::saturating_add);
+        if bytes.saturating_add(held) > self.comp_vram_budget {
             log::warn!("a comp of {w}x{h} with {n} pictures doesn't fit the GPU budget; it renders on the CPU");
             return None;
         }
@@ -94,10 +137,9 @@ impl GpuCompositor {
         for pass in &p.passes {
             match pass {
                 Pass::Image { dst, image } => {
+                    // (same size as the comp: checked above)
                     let frame = self.image_frame(image);
-                    let fits = (image.w, image.h) == p.size;
-                    let layers = if fits { vec![PlanLayer::new(frame, Affine::IDENTITY, 1.0, Blend::Normal)] } else { Vec::new() };
-                    self.slot_draw(usize::from(*dst), layers, true, (w, h));
+                    self.slot_draw(usize::from(*dst), vec![PlanLayer::new(frame, Affine::IDENTITY, 1.0, Blend::Normal)], true, (w, h));
                     mark(&mut written, usize::from(*dst));
                 }
                 Pass::Layers { dst, layers } => {
@@ -221,8 +263,13 @@ impl GpuCompositor {
         let Some(slot) = self.comp_slots.get_mut(i) else { return };
         let mut target = slot.target.take();
         std::mem::swap(&mut self.accum, &mut target);
+        // the comp's own output / backdrop: the frame's keep their size (no reallocation per frame)
+        std::mem::swap(&mut self.output, &mut self.comp_output);
+        std::mem::swap(&mut self.backdrop, &mut self.comp_backdrop);
         let plan = FramePlan::Layers { width: w as usize, height: h as usize, layers, output: None };
         self.render_plan(&plan, None, clear, false);
+        std::mem::swap(&mut self.backdrop, &mut self.comp_backdrop);
+        std::mem::swap(&mut self.output, &mut self.comp_output);
         std::mem::swap(&mut self.accum, &mut target);
         if let Some(slot) = self.comp_slots.get_mut(i) {
             slot.target = target;

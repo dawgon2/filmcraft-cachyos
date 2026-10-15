@@ -3,10 +3,12 @@
 //! source may answer larger, never smaller; so a source only an export reads can have its
 //! hardware decoder scale each picture while copying it to the compositing GPU, to the most any
 //! clip of the export asks for. Media whose request can change (keyframed Motion), that temporal
-//! noise reduction reads at full size, or that a nested sequence shows, keep their full size, as
-//! does all media under Maximum Render Quality.
+//! noise reduction reads at full size, or that a nested sequence or a comp shows, keep their full
+//! size, as does all media under Maximum Render Quality (and all media of a sequence where a comp
+//! reads a track: it renders the tracks below at the comp's scale).
 
 use crate::RenderOptions;
+use filmcraft_project::comp::{CompKind, MediaInSource};
 use filmcraft_project::{ItemId, ItemKind, Project, Sequence, TrackItem};
 
 /// The hand-off scale of each media item (resolved: the item a source is opened for) that
@@ -18,10 +20,20 @@ pub fn handoff_scales(project: &Project, seq: ItemId, opts: RenderOptions) -> Ve
     }
     let Some(q) = project.sequence(seq) else { return scales };
     for it in q.video_tracks.iter().flat_map(|t| &t.items) {
-        if let Some(ItemKind::Sequence(_)) = project.item(it.item).map(|p| &p.kind) {
-            full_size_inside(project, it.item, 0, &mut scales);
-        } else if let Some((media, _, _)) = project.resolve_media(it.item) {
-            note(&mut scales, media, item_scale(project, q, it, opts.scale));
+        match project.item(it.item).map(|p| &p.kind) {
+            Some(ItemKind::Sequence(_)) => full_size_inside(project, it.item, 0, &mut scales),
+            Some(ItemKind::Comp(_)) => {
+                if full_size_in_comp(project, it.item, 0, &mut scales) {
+                    // a comp reading a track: those tracks render at the comp's scale (can
+                    // be more than their clips ask for): everything keeps its full size
+                    return Vec::new();
+                }
+            }
+            _ => {
+                if let Some((media, _, _)) = project.resolve_media(it.item) {
+                    note(&mut scales, media, item_scale(project, q, it, opts.scale));
+                }
+            }
         }
     }
     scales.retain(|s| s.1 < 1.0);
@@ -33,12 +45,43 @@ pub fn handoff_scales(project: &Project, seq: ItemId, opts: RenderOptions) -> Ve
 fn full_size_inside(project: &Project, seq: ItemId, depth: u32, scales: &mut Vec<(ItemId, f32)>) {
     let Some(q) = project.sequence(seq).filter(|_| depth < crate::MAX_NEST_DEPTH) else { return };
     for it in q.video_tracks.iter().flat_map(|t| &t.items) {
-        if let Some(ItemKind::Sequence(_)) = project.item(it.item).map(|p| &p.kind) {
-            full_size_inside(project, it.item, depth.saturating_add(1), scales);
-        } else if let Some((media, _, _)) = project.resolve_media(it.item) {
-            note(scales, media, 1.0);
+        full_size_item(project, it.item, depth.saturating_add(1), scales);
+    }
+}
+
+/// `item` (media, a nest or a comp) shown at full size.
+fn full_size_item(project: &Project, item: ItemId, depth: u32, scales: &mut Vec<(ItemId, f32)>) {
+    match project.item(item).map(|p| &p.kind) {
+        Some(ItemKind::Sequence(_)) => full_size_inside(project, item, depth, scales),
+        // (a track it reads is inside this nest: already full size)
+        Some(ItemKind::Comp(_)) => {
+            full_size_in_comp(project, item, depth, scales);
+        }
+        _ => {
+            if let Some((media, _, _)) = project.resolve_media(item) {
+                note(scales, media, 1.0);
+            }
         }
     }
+}
+
+/// Every item a comp's Media In nodes read keeps its full size (the comp's own size and Motion
+/// decide what it asks for); true when one reads a track of the sequence the comp sits in.
+fn full_size_in_comp(project: &Project, comp: ItemId, depth: u32, scales: &mut Vec<(ItemId, f32)>) -> bool {
+    let Some(ItemKind::Comp(c)) = project.item(comp).map(|p| &p.kind) else { return false };
+    if depth >= crate::MAX_NEST_DEPTH {
+        // (too deep to render either)
+        return false;
+    }
+    let mut reads_track = false;
+    for n in &c.nodes {
+        match &n.kind {
+            CompKind::MediaIn { source: MediaInSource::Layer { .. }, .. } => reads_track = true,
+            CompKind::MediaIn { source: MediaInSource::Item { item }, .. } => full_size_item(project, *item, depth.saturating_add(1), scales),
+            _ => {}
+        }
+    }
+    reads_track
 }
 
 fn note(scales: &mut Vec<(ItemId, f32)>, media: ItemId, s: f32) {
@@ -181,5 +224,30 @@ mod tests {
         p.sequence_mut(outer).unwrap().video_tracks[0].items.push(nest);
         assert!(handoff_scales(&p, outer, RenderOptions::default()).is_empty(), "also shown in a nest");
         assert_eq!(handoff_scales(&p, ItemId(u64::MAX), RenderOptions::default()), vec![], "no such sequence");
+    }
+
+    /// Review 2026-10-15: media a comp reads (Media In of an item, or of a track below the comp)
+    /// was handed off at the fitted clip's scale, so the comp got an undersized picture.
+    #[test]
+    fn media_a_comp_reads_keeps_full_size() {
+        use filmcraft_project::comp::{Comp, CompNode};
+        use std::sync::Arc;
+        let comp_of = |p: &mut Project, source: MediaInSource| {
+            let mut c = Comp::new(3840, 2160, FPS, Tick(10 * TICKS_PER_SECOND));
+            c.nodes.push(CompNode::new(2, CompKind::MediaIn { source, offset: Tick::ZERO }));
+            p.add_item("comp", Label::Iris, ItemKind::Comp(Arc::new(c)), None)
+        };
+        for source in ["item", "track"] {
+            let mut p = Project::new("h");
+            let big = media(&mut p, "big", 6240, 4160);
+            let s = uhd(&mut p);
+            place(&mut p, s, big, 0, true);
+            assert_eq!(handoff_scales(&p, s, RenderOptions::default()).len(), 1, "{source}: the fitted clip alone");
+            let src = if source == "item" { MediaInSource::Item { item: big } } else { MediaInSource::Layer { track: 0 } };
+            let comp = comp_of(&mut p, src);
+            let ti = p.make_track_item(comp, TrackKind::Video, Tick(5 * TICKS_PER_SECOND), TimeRange::new(Tick::ZERO, FPS.tick_of(24)), FPS).unwrap();
+            p.sequence_mut(s).unwrap().video_tracks[0].items.push(ti);
+            assert!(handoff_scales(&p, s, RenderOptions::default()).is_empty(), "{source}: also read by a comp");
+        }
     }
 }

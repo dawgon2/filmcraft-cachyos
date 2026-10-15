@@ -123,7 +123,7 @@ pub fn analyse(item: &TrackItem, sr: u32, sources: &dyn SourceProvider, stop: &A
         if stop.load(Ordering::Relaxed) {
             return None;
         }
-        let n = (a1 - pos).min(i64::from(sr)) as usize;
+        let n = a1.saturating_sub(pos).min(i64::from(sr)) as usize;
         let [l, r] = filmcraft_render::audio::clip_signal(item, pos, n, sr, sources)?;
         let m: Vec<f32> = l.iter().zip(&r).map(|(a, b)| 0.5 * (a + b)).collect();
         if mono {
@@ -190,7 +190,7 @@ pub fn model_snr(raw: &TrackItem, mt: filmcraft_time::Tick, sr: u32, sources: &d
         if stop.load(Ordering::Relaxed) {
             return None;
         }
-        let n = (a1 - pos).min(i64::from(sr)) as usize;
+        let n = a1.saturating_sub(pos).min(i64::from(sr)) as usize;
         let [l, r] = filmcraft_render::audio::clip_signal(raw, pos, n, sr, sources)?;
         let [vl, vr] = filmcraft_render::audio::clip_signal(&vi, pos, n, sr, sources)?;
         for (((a, b), c), d) in l.iter().zip(&r).zip(&vl).zip(&vr) {
@@ -263,7 +263,7 @@ pub fn measure(item: &TrackItem, sr: u32, sources: &dyn SourceProvider, stop: &A
         if stop.load(Ordering::Relaxed) {
             return None;
         }
-        let n = (a1 - pos).min(i64::from(sr)) as usize;
+        let n = a1.saturating_sub(pos).min(i64::from(sr)) as usize;
         let [l, r] = filmcraft_render::audio::clip_signal(item, pos, n, sr, sources)?;
         if mono {
             let m: Vec<f32> = l.iter().zip(&r).map(|(a, b)| 0.5 * (a + b)).collect();
@@ -443,8 +443,12 @@ fn cleanup_voice(s: &mut Session, p: &Value) -> Result<Value> {
     let result = job.result.clone();
     s.jobs.push(job);
     if !wait {
+        // spawn first: a failed spawn must not leave the sequence "already running" forever
+        if let Err(e) = std::thread::Builder::new().name("filmcraft-cleanup-voice".into()).spawn(run) {
+            s.jobs.retain(|j| j.id != id);
+            return Err(EngineError::Other(e.to_string()));
+        }
         s.cleanup_jobs.push(Pending { job: id, seq: seq_id, plans });
-        std::thread::Builder::new().name("filmcraft-cleanup-voice".into()).spawn(run).map_err(|e| EngineError::Other(e.to_string()))?;
         return Ok(json!({"job": id, "clips": n}));
     }
     run();

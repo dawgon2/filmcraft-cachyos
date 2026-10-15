@@ -16,7 +16,8 @@ step that adds a node is one undo step, so experiment freely: **Ctrl+Z** takes i
 **[Fork]** **[Resolve-style]**
 
 **Why:** log footage looks grey on purpose. A small fixed set of nodes, always in the same order,
-gives every clip the same starting point and makes later shots quicker.
+gives every clip the same starting point and makes later shots quicker. Start here when grading
+any log clip.
 
 1. Make sure the clip is read as F-Log2 (Clip ▸ Modify ▸ **Interpret Footage…**,
    `clip.interpretFootage`, see [colour management](color-management.md)) and that the sequence
@@ -115,7 +116,8 @@ between them only works when they match.
 1. Grade the shot you like best (usually the wide) first.
 2. Park the playhead on it and press **Grab Still** {ui:stills.grab}.
 3. Move to the close-up and click the still's thumbnail: a wipe appears. Drag the divider
-   {ui:compare.divider} across a part both shots share (a wall, skin, the sky).
+   {ui:compare.divider} across a part both shots share: a face if there is one (match skin
+   first, then the rest), otherwise a wall or the sky.
 4. Select the close-up, open the **Match** tab {ui:grade.tab.match}, choose the wide shot as
    **Reference** {ui:grade.match.reference} and click **Shot Match**
    {ui:grade.match.shotMatch} (`grade.shotMatch`). A node labelled "Shot Match" is added.

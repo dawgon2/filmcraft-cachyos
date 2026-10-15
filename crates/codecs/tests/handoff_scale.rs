@@ -73,3 +73,12 @@ fn mkv_scale_reaches_decoder_creation() {
 fn mxf_scale_reaches_decoder_creation() {
     check("handoff_dnxhr.mxf", &["-c:v", "dnxhd", "-profile:v", "dnxhr_lb", "-pix_fmt", "yuv422p"]);
 }
+
+/// A panic while a decoder is made (caught further up, as on a shared worker) doesn't leave this
+/// thread's later decoders scaled.
+#[test]
+fn a_panic_inside_restores_the_scale() {
+    let r = std::panic::catch_unwind(|| hw::with_handoff_scale(Some(0.5), || panic!("decoder creation failed")));
+    assert!(r.is_err());
+    assert_eq!(hw::handoff_scale(), 1.0);
+}

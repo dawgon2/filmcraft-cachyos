@@ -198,6 +198,49 @@ fn compositor_round_trip(workflow: Workflow) {
     assert_ne!(masks_of(&mut d)[0]["path"], before, "{workflow:?}: the drag moved the mask");
     let undo1 = d.exec("history.list", json!({}))["undo"].as_array().map_or(0, Vec::len);
     assert!(undo1 <= undo0 + 1, "{workflow:?}: one undo step for the drag ({undo0} → {undo1})");
+    // dragging a point's Bézier handle bends the curve; the opposite handle mirrors it (a smooth point)
+    fn vertices(v: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+        v.get("vertices").and_then(|x| x.as_array()).or_else(|| v.as_object()?.values().find_map(vertices))
+    }
+    let xy = |v: &serde_json::Value| (v["x"].as_f64().unwrap_or(0.0), v["y"].as_f64().unwrap_or(0.0));
+    let g = d.exec("comp.get", json!({"comp": comp}));
+    let (cw, ch) = (g["width"].as_f64().unwrap(), g["height"].as_f64().unwrap());
+    let m0 = masks_of(&mut d)[0]["path"].clone();
+    let v0 = vertices(&m0).and_then(|v| v.first()).cloned().unwrap_or_else(|| panic!("a mask path: {m0}"));
+    let ((px, py), (ox, oy)) = (xy(&v0["p"]), xy(&v0["t_out"]));
+    let (rx, ry, rw, rh) = (r[0].as_f64().unwrap(), r[1].as_f64().unwrap(), r[2].as_f64().unwrap(), r[3].as_f64().unwrap());
+    let (hx, hy) = (rx + (px + ox) * rw / cw, ry + (py + oy) * rh / ch);
+    d.ok("ui.drag", json!({"from": {"x": hx, "y": hy}, "to": {"x": hx, "y": hy + 20.0}, "steps": 5}));
+    d.frames(3);
+    let m1 = masks_of(&mut d)[0]["path"].clone();
+    let v1 = vertices(&m1).and_then(|v| v.first()).cloned().unwrap_or_else(|| panic!("a mask path: {m1}"));
+    let ((qx, qy), (o1x, o1y), (i1x, i1y)) = (xy(&v1["p"]), xy(&v1["t_out"]), xy(&v1["t_in"]));
+    assert_eq!((qx, qy), (px, py), "{workflow:?}: a handle drag leaves its point where it is");
+    assert!(o1y > oy + 1.0 && (o1x - ox).abs() < 1e-6, "{workflow:?}: the out handle followed the pointer: {v0} → {v1}");
+    assert!((i1x + o1x).abs() < 1e-6 && (i1y + o1y).abs() < 1e-6, "{workflow:?}: the in handle mirrors it: {v1}");
+    let undo2 = d.exec("history.list", json!({}))["undo"].as_array().map_or(0, Vec::len);
+    assert!(undo2 <= undo1 + 1, "{workflow:?}: one undo step for the handle drag ({undo1} → {undo2})");
+    // Alt-click the point: smooth → corner (its handles go)
+    d.ok("ui.click", json!({"x": rx + px * rw / cw, "y": ry + py * rh / ch, "modifiers": {"alt": true}}));
+    d.frames(3);
+    let m2 = masks_of(&mut d)[0]["path"].clone();
+    let vs = vertices(&m2).cloned().unwrap_or_default();
+    assert_eq!(vs.len(), 4, "{m2}");
+    assert_eq!((xy(&vs[0]["t_in"]), xy(&vs[0]["t_out"])), ((0.0, 0.0), (0.0, 0.0)), "{workflow:?}: Alt-click made a corner: {m2}");
+    // Ctrl-click halfway along the first edge adds a point there; Ctrl-click on it deletes it
+    let ((ax, ay), (bx, by), (bix, biy)) = (xy(&vs[0]["p"]), xy(&vs[1]["p"]), xy(&vs[1]["t_in"]));
+    let (mx, my) = ((ax * 4.0 + 3.0 * (bx + bix) + bx) / 8.0, (ay * 4.0 + 3.0 * (by + biy) + by) / 8.0);
+    let ctrl = json!({"ctrl": true, "command": true});
+    d.ok("ui.click", json!({"x": rx + mx * rw / cw, "y": ry + my * rh / ch, "modifiers": ctrl}));
+    d.frames(3);
+    let m3 = masks_of(&mut d)[0]["path"].clone();
+    let vs = vertices(&m3).cloned().unwrap_or_default();
+    assert_eq!(vs.len(), 5, "{workflow:?}: Ctrl-click on the edge added a point: {m3}");
+    let (nx, ny) = xy(&vs[1]["p"]);
+    assert!((nx - mx).abs() < 2.0 && (ny - my).abs() < 2.0, "{workflow:?}: the new point is where the click was: {m3}");
+    d.ok("ui.click", json!({"x": rx + nx * rw / cw, "y": ry + ny * rh / ch, "modifiers": ctrl}));
+    d.frames(3);
+    assert_eq!(vertices(&masks_of(&mut d)[0]["path"]).map(Vec::len), Some(4), "{workflow:?}: Ctrl-click on the point deleted it");
     d.ok("ui.click", json!({"id": "comp.mask0.inverted"}));
     d.frames(3);
     assert_eq!(masks_of(&mut d)[0]["inverted"], json!(true));

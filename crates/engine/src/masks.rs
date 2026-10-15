@@ -440,18 +440,7 @@ fn move_vertex(s: &mut Session, p: &Value) -> Result<Value> {
             "in" | "out" => {
                 let cur = if handle == "in" { v.p + v.t_in } else { v.p + v.t_out };
                 let target = to.unwrap_or_else(|| cur + delta.unwrap_or_default());
-                let tan = target - v.p;
-                if handle == "in" {
-                    v.t_in = tan;
-                    if !broken {
-                        v.t_out = tan * -1.0;
-                    }
-                } else {
-                    v.t_out = tan;
-                    if !broken {
-                        v.t_in = tan * -1.0;
-                    }
-                }
+                v.set_tangent(handle == "out", target - v.p, broken);
             }
             _ => {
                 v.p = to.unwrap_or_else(|| v.p + delta.unwrap_or_default());
@@ -476,59 +465,13 @@ fn translate(s: &mut Session, p: &Value) -> Result<Value> {
 fn add_vertex(s: &mut Session, p: &Value) -> Result<Value> {
     let after = u64_p(p, "after").ok_or_else(|| bad("masks.addVertex", "need `after`"))? as usize;
     let at = p.get("at").and_then(pt).ok_or_else(|| bad("masks.addVertex", "need `at`"))?;
-    edit_mask(s, p, "Add Mask Vertex", move |m, t| {
-        if m.shape == MaskShape::Linear {
-            return Err(bad("masks.addVertex", "a linear mask has just its start and end points"));
-        }
-        let n = m.path_at(t).vertices.len();
-        // clamp against the length before any insertion, so the index stays valid in the grown path
-        let i = (after + 1).min(n);
-        if m.path.is_animated() && m.path.keyframes.len() > 1 {
-            if n == 0 {
-                return Err(bad("masks.addVertex", "the animated mask path has no vertices to insert after"));
-            }
-            // keep every keyframe interpolable: insert the vertex into all of them
-            for k in &mut m.path.keyframes {
-                if let ParamValue::Path(path) = &mut k.value {
-                    let len = path.vertices.len();
-                    if len == 0 {
-                        continue;
-                    }
-                    let at_i = i.min(len);
-                    let a = path.vertices[after.min(len - 1)].p;
-                    let b = path.vertices[at_i % len].p;
-                    path.vertices.insert(at_i, MaskVertex::corner(a.lerp(b, 0.5)));
-                }
-            }
-        }
-        let mut path = m.path_at(t);
-        if m.path.keyframes.len() > 1 {
-            if let Some(v) = path.vertices.get_mut(i) {
-                *v = MaskVertex::corner(at);
-            }
-        } else {
-            path.vertices.insert(i.min(path.vertices.len()), MaskVertex::corner(at));
-        }
-        set_path_at(m, t, path);
-        Ok(())
-    })?;
+    edit_mask(s, p, "Add Mask Vertex", move |m, t| m.add_vertex(after, at, t).map_err(|e| bad("masks.addVertex", e)))?;
     Ok(Value::Null)
 }
 
 fn remove_vertex(s: &mut Session, p: &Value) -> Result<Value> {
     let vi = u64_p(p, "vertex").ok_or_else(|| bad("masks.removeVertex", "need `vertex`"))? as usize;
-    edit_mask(s, p, "Delete Mask Vertex", move |m, t| {
-        if m.path_at(t).len() <= 3 {
-            return Err(bad("masks.removeVertex", "a mask keeps at least 3 vertices"));
-        }
-        let drop = |path: &mut MaskPath| {
-            if vi < path.vertices.len() {
-                path.vertices.remove(vi);
-            }
-        };
-        drop_all(m, t, drop);
-        Ok(())
-    })?;
+    edit_mask(s, p, "Delete Mask Vertex", move |m, t| m.remove_vertex(vi, t).map_err(|e| bad("masks.removeVertex", e)))?;
     Ok(Value::Null)
 }
 
@@ -551,19 +494,8 @@ fn toggle_smooth(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad("masks.toggleVertexSmooth", "a linear mask's points have no curve handles"));
         }
         let mut path = m.path_at(t);
-        let n = path.vertices.len();
-        if vi >= n {
+        if !path.toggle_smooth(vi) {
             return Err(bad("masks.toggleVertexSmooth", format!("no vertex {vi}")));
-        }
-        let v = path.vertices[vi];
-        if v.is_corner() {
-            // smooth: tangent along the neighbours' direction, a third of the way to them
-            let prev = path.vertices[(vi + n - 1) % n].p;
-            let next = path.vertices[(vi + 1) % n].p;
-            let dir = (next - prev) * (1.0 / 6.0);
-            path.vertices[vi] = MaskVertex::smooth(v.p, dir);
-        } else {
-            path.vertices[vi] = MaskVertex::corner(v.p);
         }
         set_path_at(m, t, path);
         Ok(())

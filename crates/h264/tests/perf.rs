@@ -50,3 +50,20 @@ fn perf_4k_422_10() {
         }
     }
 }
+
+/// 1080i MBAFF (fork H2.6): software decode speed of interlaced HD, after checking it bit-exact
+/// against ffmpeg's decode (`cargo test --release -p filmcraft-h264 --test perf perf_1080i_mbaff
+/// -- --ignored --nocapture`).
+#[test]
+#[ignore]
+fn perf_1080i_mbaff() {
+    let f = common::fixture("bench_1080i_mbaff");
+    let Some((h264, _)) = common::ensure(f) else { return };
+    common::check_fixture("bench_1080i_mbaff").unwrap();
+    let data = std::fs::read(h264).unwrap();
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    for threads in [1, cores.min(16)] {
+        let (frames, secs) = bench(&data, threads, 3);
+        println!("1080i MBAFF CRF18 ({} KB): {threads} thread(s): {frames} frames in {secs:.3}s = {:.1} fps", data.len() / 1024, frames as f64 / secs);
+    }
+}

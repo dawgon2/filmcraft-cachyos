@@ -2362,6 +2362,7 @@ impl Drop for FilmcraftApp {
     /// work kept rendering for seconds, holding its frames and media in memory; the UI test
     /// binary (one app per test) piled them up until it ran out of memory (fork, 2026-10-13).
     fn drop(&mut self) {
+        self.tl.cancel_peak_jobs();
         if !self.session.background.stop_and_wait(CLOSE_WAIT) {
             log::warn!("closing: a background job did not stop within {CLOSE_WAIT:?}");
         }

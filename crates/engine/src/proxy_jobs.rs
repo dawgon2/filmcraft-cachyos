@@ -87,16 +87,47 @@ pub fn large(v: &VideoStreamInfo) -> bool {
     u64::from(v.width).saturating_mul(u64::from(v.height)) >= 3840 * 2160
 }
 
-/// Whether a 4:2:2 H.265 clip shows "4:2:2: software decode, proxies recommended": it decodes in
-/// software (no 4:2:2 hardware decoder, or it failed this session; fork 6.1b). Not while the
-/// hardware probe is still running (no warning that might vanish a moment later).
-pub fn software_422(info: &MediaInfo) -> bool {
-    info.video.as_ref().is_some_and(|v| is_hevc(v) && is_422(v)) && filmcraft_codecs::hw::hevc_422_in_hardware() == Some(false)
+/// The stream is H.264 (AVC).
+pub fn is_h264(v: &VideoStreamInfo) -> bool {
+    let c = v.codec.to_ascii_lowercase();
+    c.starts_with("h.264") || c.starts_with("h264") || c.starts_with("avc")
 }
 
-/// Hardware 4:2:2 decoding failed earlier in this session (the badge says so; fork 6.1b).
-pub fn hardware_422_failed() -> bool {
-    filmcraft_codecs::hw::hevc_422_failed()
+/// H.264 High 4:2:2 / High 10 decode in software here: no AMD / Intel / NVIDIA video engine has
+/// those profiles (VA-API, NVDEC, Media Foundation). Not claimed under VideoToolbox, whose Apple
+/// silicon may take them.
+fn h264_pro_profiles_in_software() -> bool {
+    filmcraft_codecs::hw::hw_backend() != Some("VideoToolbox")
+}
+
+/// The bit depth in the pixel-format label ("YUV 4:2:0 10-bit" → 10), if it names one.
+pub fn bit_depth(v: &VideoStreamInfo) -> Option<u32> {
+    let p = v.pixel_format.to_ascii_lowercase();
+    let head = p.get(..p.find("-bit")?)?;
+    let (start, _) = head.char_indices().rev().take_while(|(_, c)| c.is_ascii_digit()).last()?;
+    head.get(start..)?.parse().ok()
+}
+
+/// Whether a 4:2:2 clip shows "4:2:2: software decode, proxies recommended": it decodes in
+/// software. H.265: no 4:2:2 hardware decoder, or it failed this session (fork 6.1b); not while
+/// the hardware probe is still running (no warning that might vanish a moment later). H.264
+/// High 4:2:2: always, except under VideoToolbox (fork H3.2, [`h264_pro_profiles_in_software`]).
+pub fn software_422(info: &MediaInfo) -> bool {
+    let Some(v) = info.video.as_ref() else { return false };
+    is_422(v) && ((is_h264(v) && h264_pro_profiles_in_software()) || (is_hevc(v) && filmcraft_codecs::hw::hevc_422_in_hardware() == Some(false)))
+}
+
+/// Whether a 4:2:0 H.264 clip of more than 8 bits (High 10) shows "H.264 10-bit: software
+/// decode": FilmCraft's own decoder takes it (fork H2.2, H3.2; [`h264_pro_profiles_in_software`]).
+/// 4:2:2 ones get the 4:2:2 badge instead ([`software_422`]).
+pub fn software_h264_high_bit_depth(info: &MediaInfo) -> bool {
+    info.video.as_ref().is_some_and(|v| is_h264(v) && !is_422(v) && bit_depth(v).is_some_and(|b| b > 8)) && h264_pro_profiles_in_software()
+}
+
+/// Hardware 4:2:2 decoding of this H.265 clip's kind failed earlier in this session (the badge
+/// says so; fork 6.1b). Never for H.264, which has no 4:2:2 hardware path to fail.
+pub fn hardware_422_failed(info: &MediaInfo) -> bool {
+    info.video.as_ref().is_some_and(is_hevc) && filmcraft_codecs::hw::hevc_422_failed()
 }
 
 /// Whether (and why) a clip gets an automatic proxy under `prefs`.

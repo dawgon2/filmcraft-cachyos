@@ -2794,6 +2794,8 @@
 	Action Safe Area	Zona segura de acción
 	Total Duration	Duración total
 	Average Data Rate	Velocidad de datos media
+	Decoder	Decodificador
+	chosen when the clip first plays	se elige cuando el clip se reproduce por primera vez
 	Colour	Color
 	{codec} · {rate} Hz · {n} channel(s)	{codec} · {rate} Hz · {n} canal(es)
 	Media Name:	Nombre del medio:
@@ -3793,6 +3795,7 @@
 	Cache	Caché
 	The size limit is reached: raise it, or Delete Unused, to cache more.	El límite de tamaño se ha alcanzado: auméntalo, o usa Eliminar no usados, para almacenar más.
 	4:2:2: software decode (hardware 4:2:2 decode failed earlier in this session), proxies recommended	4:2:2: decodificación por software (la decodificación 4:2:2 por hardware falló antes en esta sesión), se recomiendan proxies
+	H.264 10-bit: software decode	H.264 10 bits: decodificación por software
 	WB picker	Selector BB
 	WB Selector	Selector BB
 	Auto balance	Balance automático
@@ -3870,6 +3873,7 @@
 	Set Temporal NR Parameter	Definir parámetro de RR temporal
 	Enable / Disable Temporal NR	Activar / desactivar RR temporal
 	Toggle Temporal NR Parameter Animation	Alternar animación de parámetro de RR temporal
+	Move Temporal NR Keyframe	Mover fotograma clave de RR temporal
 	Reset Temporal NR	Restablecer RR temporal
 	Remove Temporal NR	Quitar RR temporal
 	Copy Temporal NR	Copiar RR temporal
@@ -4028,3 +4032,37 @@
 	Mask Opacity	Opacidad de máscara
 	Mask Expansion	Expansión de máscara
 	View Node	Ver nodo
+	Also ask the assistant (slow: runs on this computer)	Preguntar también al asistente de IA (lento: se ejecuta en este equipo)
+	The assistant is reading the guide…	El asistente de IA está leyendo la guía…
+	Assistant	Asistente de IA
+	Not checked against the guide yet.	Aún no se ha comprobado con la guía.
+	The assistant can't run here yet (its model isn't installed or this build has none), so the guide's answer above is all there is.	El asistente de IA aún no puede ejecutarse aquí (su modelo no está instalado o esta compilación no lo incluye), así que la respuesta de la guía de arriba es todo lo que hay.
+	The assistant's answer named things FilmCraft doesn't have, so it was left out; the guide's answer above is checked.	La respuesta del asistente de IA nombraba cosas que FilmCraft no tiene, así que se omitió; la respuesta de la guía de arriba está comprobada.
+	The assistant couldn't answer this time; the guide's answer above still stands.	El asistente de IA no pudo responder esta vez; la respuesta de la guía de arriba sigue siendo válida.
+	Sources: {list}	Fuentes: {list}
+	{n} lines left out: they named controls, commands or shortcuts the guide doesn't have.	Se omitieron {n} líneas: nombraban controles, comandos o atajos que la guía no tiene.
+	New topic	Tema nuevo
+	The next question won't follow up on this answer.	La siguiente pregunta no continuará esta respuesta.
+	The guide has nothing on this, so the assistant didn't guess.	La guía no dice nada sobre esto, así que el asistente no ha intentado adivinar.
+	The assistant says the guide doesn't cover this; the guide's closest answer is above.	El asistente dice que la guía no trata esto; arriba está la respuesta más cercana de la guía.
+	Show me: {title}	Muéstramelo: {title}
+# fork §1a.78: coach buttons in the page bar, Assistant panel
+	Answers come from FilmCraft's guide and run on this computer.	Las respuestas salen de la guía de FilmCraft y se generan en este ordenador.
+	Ask how to do something in FilmCraft: grading, editing, audio, compositing, export…	Pregunta cómo hacer algo en FilmCraft: etalonaje, edición, audio, composición, exportación…
+	Ask the assistant…	Pregunta al asistente…
+	Ask the guide how to do something.	Pregunta a la guía cómo hacer algo.
+	Chat with the assistant: a panel you can float anywhere or dock beside any panel.	Chatea con el asistente: un panel que puedes dejar flotando en cualquier lugar o acoplar junto a cualquier panel.
+	Clear the chat; the next question starts a new topic.	Borra el chat; la siguiente pregunta empieza un tema nuevo.
+	New chat	Chat nuevo
+	Send	Enviar
+	Step-by-step lessons.	Lecciones paso a paso.
+	Stopped.	Detenido.
+	The assistant can't run here yet (its model isn't installed or this build has none). The guide's answer:	El asistente aún no puede funcionar aquí (su modelo no está instalado o esta versión no lo incluye). La respuesta de la guía:
+	The assistant couldn't answer this time. The guide's answer:	El asistente no ha podido responder esta vez. La respuesta de la guía:
+	The assistant says the guide doesn't cover this; the guide's closest answer:	El asistente dice que la guía no trata esto; la respuesta más cercana de la guía:
+	The assistant's answer named things FilmCraft doesn't have, so it was left out. The guide's answer:	La respuesta del asistente nombraba cosas que FilmCraft no tiene, así que se ha omitido. La respuesta de la guía:
+	There's no panel to open the Assistant beside.	No hay ningún panel junto al que abrir el asistente.
+	e.g. how do I make the sky bluer without changing skin?	p. ej., ¿cómo hago el cielo más azul sin cambiar la piel?
+	Claim Files of No Known Project	Reclamar archivos sin proyecto conocido
+	Claimed {n} render cache file(s)	Se reclamaron {n} archivo(s) de la caché de procesamiento
+	Claim Render Cache Files of No Known Project	Reclamar archivos de la caché de procesamiento sin proyecto conocido

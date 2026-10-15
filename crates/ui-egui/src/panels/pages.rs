@@ -1,7 +1,8 @@
 //! Resolve workflow page bar (fork GRADE-PLAN G1.8, restyled by RESOLVE-UI-PLAN RS3): the app
 //! name on the left; Media, Edit, Color, Fairlight and Deliver centred, each an icon over its
-//! label, the current one lit and underlined in the accent; Home (the Project Manager) and
-//! Settings on the right. Each page is a built-in workspace ([`crate::dock::PAGE_WORKSPACES`],
+//! label, the current one lit and underlined in the accent; Lessons, Ask the coach and Assistant
+//! (fork, [`crate::panels::coach::bar_buttons`]), Home (the Project Manager) and Settings on the
+//! right. Each page is a built-in workspace ([`crate::dock::PAGE_WORKSPACES`],
 //! Color is Color Grading), so its panels can be rearranged and saved like any workspace. Shown
 //! only when Settings ▸ General ▸ Workflow is DaVinci Resolve.
 //!
@@ -103,11 +104,14 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     icons::paint(&p, mark, Icon::Film, t.text);
     let name = p.text(pos2(mark.max.x + 8.0, rect.center().y), Align2::LEFT_CENTER, "FilmCraft", Tokens::semibold(13.0), t.text);
     app.auto.add("pageBar.app", mark.union(name), "FilmCraft");
-    // the pages, centred: icon over label; the current one lit with an accent underline
+    // the coach's buttons left of Home (FORK-PLAN §1a.78)
+    let pills = crate::panels::coach::bar_buttons(app, ui, rect.max.x - 92.0, rect.center().y);
+    // the pages, centred: icon over label; the current one lit with an accent underline; moved
+    // left on a narrow window so they stay clear of the coach's buttons (never over the name)
     let cur = current(app);
     let w = 102.0;
     let total = w * PAGES.len() as f32;
-    let mut x = rect.center().x - total / 2.0;
+    let mut x = (rect.center().x - total / 2.0).min(pills - 12.0 - total).max(name.max.x + 12.0);
     let mut clicked = None;
     for (id, label, _, icon) in PAGES {
         let r = Rect::from_min_size(pos2(x, rect.min.y + 1.0), vec2(w, rect.height() - 1.0));

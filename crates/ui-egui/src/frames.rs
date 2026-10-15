@@ -725,6 +725,12 @@ impl FrameServer {
         self.shared.workers
     }
 
+    /// Worker threads that have not exited yet (each holds the shared state until it does); unlike
+    /// [`Self::stop_and_wait`] this only looks.
+    pub fn live_workers(&self) -> usize {
+        Arc::strong_count(&self.shared).saturating_sub(1)
+    }
+
     /// (cached images, their bytes, cached GPU plans, their bytes).
     pub fn cache_entries(&self) -> (usize, usize, usize, usize) {
         let (n, b) = {

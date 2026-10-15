@@ -5,8 +5,9 @@
 //! slices with wavefront parallel processing, weighted prediction, transform skip and AMP; 1080p /
 //! 2160p) must be identical (bit-exact planes, colour, pixel aspect, pts and presentation
 //! order), also after `reset` + reseek and a mid-stream `flush`; a forced mid-stream failure must
-//! continue in software with the software decoder's exact output; what the hardware path does not
-//! take (interlaced and 10-bit H.264, 4:2:2 HEVC without a 4:2:2 display) is declined; damaged samples and parameter sets give
+//! continue in software with the software decoder's exact output; interlaced (MBAFF) H.264 matches
+//! ffmpeg's decoder (a test oracle only; fork H1); what the hardware path does not take (10-bit
+//! H.264, 4:2:2 HEVC without a 4:2:2 display) is declined; damaged samples and parameter sets give
 //! errors or fall back, never crash or hang. Skips without ffmpeg (fixture generator) or without a
 //! VA-API driver.
 #![cfg(target_os = "linux")]
@@ -326,17 +327,16 @@ fn mid_stream_failure_continues_in_software() {
     }
 }
 
-/// What the hardware path does not take is declined (the software decoders keep it): interlaced
-/// and 10-bit H.264, and HEVC 4:2:2 without a display that has Main 4:2:2 10.
+/// What the hardware path does not take is declined (the software decoders keep it): 10-bit
+/// H.264, and HEVC 4:2:2 without a display that has Main 4:2:2 10. (Interlaced H.264 is taken
+/// since fork H1: [`interlaced_h264_matches_ffmpeg`].)
 #[test]
 fn declines_what_the_hardware_path_does_not_take() {
     let _engine = engine_shared();
     let ff = filmcraft_testkit::require_ffmpeg!();
     let src = "testsrc2=s=640x360:r=24:d=1";
-    let cases: [(&str, Vec<&str>); 2] = [
-        ("va_h264_interlaced.mp4", vec!["-f", "lavfi", "-i", src, "-c:v", "libx264", "-x264-params", "interlaced=1:keyint=12", "-pix_fmt", "yuv420p"]),
-        ("va_h264_10bit.mp4", vec!["-f", "lavfi", "-i", src, "-c:v", "libx264", "-profile:v", "high10", "-pix_fmt", "yuv420p10le"]),
-    ];
+    let cases: [(&str, Vec<&str>); 1] =
+        [("va_h264_10bit.mp4", vec!["-f", "lavfi", "-i", src, "-c:v", "libx264", "-profile:v", "high10", "-pix_fmt", "yuv420p10le"])];
     for (name, args) in cases {
         // an ffmpeg whose x264 lacks 10-bit leaves the fixture out
         let Some(path) = fixture(&ff, name, &args) else { continue };
@@ -359,6 +359,180 @@ fn declines_what_the_hardware_path_does_not_take() {
     let off = filmcraft_platform::vaapi_factory(&s.entry).is_none();
     filmcraft_codecs::hw::set_hardware_decoding(true);
     assert!(off, "declined while hardware decoding is Off");
+}
+
+/// Fork H1: interlaced H.264 on the hardware path. MBAFF streams from libx264 (top and bottom
+/// field first, B-pyramids, several references, weighted prediction, CAVLC and CABAC) decode to
+/// ffmpeg's pictures exactly (ffmpeg's decoder as the oracle, independent of our own software
+/// decoder, which decodes interlaced since H2.5 / H2.6), every picture in presentation order.
+/// PAFF (field pictures) needs streams no free encoder writes: the ITU-T set covers it
+/// (`interlaced_conformance_streams_match_reference`), the recorder tests the front end's logic.
+#[test]
+fn interlaced_h264_matches_ffmpeg() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let src = "testsrc2=s=640x360:r=25:d=2";
+    let cases = [
+        ("va_h264_mbaff_tff.mp4", "high", "interlaced=1:tff=1:keyint=12:bframes=3:b-pyramid=normal:ref=4:scenecut=0"),
+        ("va_h264_mbaff_bff.mp4", "high", "interlaced=1:bff=1:keyint=10:bframes=2:ref=2:scenecut=0:weightp=2"),
+        ("va_h264_mbaff_cavlc.mp4", "main", "interlaced=1:keyint=8:bframes=1:ref=3:cabac=0:scenecut=0"),
+    ];
+    for (name, profile, params) in cases {
+        let args = ["-f", "lavfi", "-i", src, "-c:v", "libx264", "-profile:v", profile, "-preset", "fast", "-x264-params", params, "-pix_fmt", "yuv420p"];
+        let Some(path) = fixture(&ff, name, &args) else { continue };
+        let s = read_stream(&path);
+        let Some(mut hw) = hardware(&s) else { return };
+        let frames = decode_all(hw.as_mut(), &s.samples);
+        assert_eq!(frames.len(), s.samples.len(), "{name}: every picture");
+        matches_ffmpeg(&ff, name, &path, &frames);
+    }
+}
+
+/// Every decoded picture equals ffmpeg's decode of `path` (8-bit 4:2:0, presentation order).
+fn matches_ffmpeg(ff: &std::path::Path, name: &str, path: &std::path::Path, frames: &[filmcraft_codecs::DecodedFrame]) {
+    let out = std::process::Command::new(ff)
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(["-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{name}: ffmpeg decode");
+    let mut oracle = out.stdout.as_slice();
+    for f in frames {
+        let planar = f.frame.to_planar();
+        let pic = planar.as_ref().unwrap_or(&f.frame);
+        let PixelData::Yuv8 { planes, .. } = &pic.data else { panic!("{name}: 8-bit planar") };
+        let (w, h) = (pic.width as usize, pic.height as usize);
+        for (i, (pw, ph)) in [(w, h), (w.div_ceil(2), h.div_ceil(2)), (w.div_ceil(2), h.div_ceil(2))].into_iter().enumerate() {
+            assert!(oracle.len() >= pw * ph, "{name}: ffmpeg made fewer pictures");
+            let (want, rest) = oracle.split_at(pw * ph);
+            oracle = rest;
+            assert!(planes[i].as_slice() == want, "{name}: pts {} plane {i} differs from ffmpeg's", f.pts);
+        }
+    }
+    assert!(oracle.is_empty(), "{name}: ffmpeg made more pictures");
+}
+
+/// H1.5b: 1080i MBAFF (the AVCHD camcorder shape: 1920x1080, 29.97 frames / s, top field first,
+/// B-pyramid) decodes on VA-API exactly as ffmpeg's decoder does, and fast enough to play: at
+/// least twice real time through the VA-API decoder, so a playback cadence has headroom.
+/// Ignored (timing); the zero-drop check in the app is made at acceptance on the PC's two GPUs.
+#[test]
+#[ignore]
+fn interlaced_1080i_is_bit_exact_and_faster_than_real_time() {
+    let _engine = engine_exclusive();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let src = "testsrc2=s=1920x1080:r=30000/1001:d=6,noise=alls=10:allf=t";
+    let params = "interlaced=1:tff=1:keyint=30:bframes=3:b-pyramid=normal:ref=4:scenecut=0";
+    let args = ["-f", "lavfi", "-i", src, "-c:v", "libx264", "-profile:v", "high", "-preset", "veryfast", "-x264-params", params, "-pix_fmt", "yuv420p"];
+    let name = "va_h264_1080i_mbaff.mp4";
+    let Some(path) = fixture(&ff, name, &args) else { return };
+    let s = read_stream(&path);
+    let Some(mut hw) = hardware(&s) else { return };
+    // a warm-up pass (driver and surface setup), then the timed one
+    let _ = decode_all(hw.as_mut(), &s.samples);
+    hw.reset();
+    let started = std::time::Instant::now();
+    let frames = decode_all(hw.as_mut(), &s.samples);
+    let secs = started.elapsed().as_secs_f64();
+    assert_eq!(frames.len(), s.samples.len(), "{name}: every picture");
+    let fps = frames.len() as f64 / secs.max(1e-9);
+    eprintln!("{name}: {} pictures in {secs:.2} s = {fps:.1} fps on {}", frames.len(), hw.name());
+    assert!(fps >= 2.0 * 30000.0 / 1001.0, "{name}: {fps:.1} fps is under twice real time");
+    matches_ffmpeg(&ff, name, &path, &frames);
+}
+
+/// H1.5: the interlaced streams of the ITU-T H.264.1 conformance set (field pictures, MBAFF and
+/// both mixed; the 8-bit 4:2:0 ones the hardware path takes) decode on VA-API exactly as the
+/// archives' reference decodes. Ignored: needs the set (`FILMCRAFT_H264_CONFORMANCE_DIR`, one
+/// directory per archive; downloaded on the Dell only, never committed) and ffmpeg to put the raw
+/// streams into MP4 (a fixture generator only).
+#[test]
+#[ignore]
+fn interlaced_conformance_streams_match_reference() {
+    let _engine = engine_shared();
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let Some(root) = std::env::var_os("FILMCRAFT_H264_CONFORMANCE_DIR").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: FILMCRAFT_H264_CONFORMANCE_DIR not set");
+        return;
+    };
+    let mut dirs: Vec<_> = std::fs::read_dir(&root).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
+    dirs.sort();
+    let is_stream = |p: &std::path::Path| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| ["264", "h264", "jsv", "26l", "avc", "jvt", "bit", "bits"].contains(&e.to_ascii_lowercase().as_str()))
+    };
+    let (mut pass, mut skip, mut failures) = (0, 0, Vec::new());
+    for dir in &dirs {
+        let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+        let files: Vec<_> = std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+        let (Some(stream), Some(reference)) = (files.iter().find(|p| is_stream(p)), files.iter().find(|p| p.extension().is_some_and(|e| e == "yuv"))) else {
+            continue;
+        };
+        let input = stream.to_string_lossy().into_owned();
+        let Some(path) = fixture(&ff, &format!("conformance-{name}.mp4"), &["-i", &input, "-c:v", "copy"]) else { continue };
+        let s = read_stream(&path);
+        if !NalStreamInfo::from_entry(&s.entry).and_then(Result::ok).is_some_and(|i| i.interlaced) {
+            continue;
+        }
+        // the VA-API front itself (the hybrid decoder may start a stream that opens on a non-IDR
+        // picture in software)
+        let Some(info) = NalStreamInfo::from_entry(&s.entry).and_then(Result::ok) else { continue };
+        let mut hw = match VaDecoder::new(info) {
+            Ok(hw) => hw,
+            Err(e) => {
+                println!("SKIP     {name}: declined by the hardware path: {e}");
+                skip += 1;
+                continue;
+            }
+        };
+        let mut frames = Vec::new();
+        let mut error = None;
+        for (sample, pts) in &s.samples {
+            match hw.decode(sample, *pts) {
+                Ok(f) => frames.extend(f),
+                Err(e) => {
+                    error = Some(e.to_string());
+                    break;
+                }
+            }
+        }
+        if let Some(e) = error {
+            failures.push(format!("{name}: decode error after {} pictures: {e}", frames.len()));
+            continue;
+        }
+        frames.extend(hw.flush());
+        let want = std::fs::read(reference).unwrap_or_default();
+        let mut at = 0usize;
+        let mut bad = None;
+        'pictures: for (i, f) in frames.iter().enumerate() {
+            let planar = f.frame.to_planar();
+            let pic = planar.as_ref().unwrap_or(&f.frame);
+            let PixelData::Yuv8 { planes, .. } = &pic.data else {
+                bad = Some(format!("picture {i}: not 8-bit planar"));
+                break;
+            };
+            for p in planes.iter().take(3) {
+                if want.get(at..at + p.len()) != Some(p.as_slice()) {
+                    bad = Some(format!("picture {i} (pts {}) differs", f.pts));
+                    break 'pictures;
+                }
+                at += p.len();
+            }
+        }
+        match bad {
+            None if at == want.len() => {
+                println!("PASS     {name} ({} pictures)", frames.len());
+                pass += 1;
+            }
+            None => failures.push(format!("{name}: {} pictures decoded, the reference has more", frames.len())),
+            Some(b) => failures.push(format!("{name}: {b}")),
+        }
+    }
+    println!("interlaced conformance on VA-API: {pass} pass, {skip} skipped, {} failed", failures.len());
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// Run `f` on a thread; fail if it panics or takes longer than `limit`.

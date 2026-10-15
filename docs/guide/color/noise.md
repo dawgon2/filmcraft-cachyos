@@ -64,16 +64,19 @@ clip without it (from the render cache once that part is rendered).
      the node's spatial rows. It is headed with the clip's name because it belongs to the clip,
      whichever node is selected.
 3. Make sure **Enabled** {ui:tnr.enabled} is on.
-4. Raise **Temporal NR luma** {ui:tnr.luma} (brightness noise) and **Temporal NR chroma**
-   {ui:tnr.chroma} (colour noise). 0.5 is a good start; 1.0 is strong.
-5. **Temporal NR frames** {ui:tnr.frames} is how many frames on each side are averaged: 1
+4. Raise **Luma** {ui:tnr.luma} (brightness noise) and **Chroma**
+   {ui:tnr.chroma} (colour noise) in that section. 0.5 is a good start; 1.0 is strong.
+5. **Frames** {ui:tnr.frames} is how many frames on each side are averaged: 1
    (three frames in all) or 2 (five frames, cleaner and slower).
-6. **Temporal NR motion** {ui:tnr.motion} (0 … 1, default 0.5) is how much disagreement in the
+6. **Motion** {ui:tnr.motion} (0 … 1, default 0.5) is how much disagreement in the
    motion estimate is accepted. Lower it if moving edges leave a faint ghost; raise it for more
    cleaning on difficult but slow motion.
 7. Pause the Program monitor on the shot and wait a moment: the paused frame renders with
    temporal noise reduction (the frame without it shows meanwhile). Each control has a reset
-   button ({ui:tnr.luma.reset} and the like) and can be keyframed.
+   button ({ui:tnr.luma.reset} and the like) and can be keyframed. In Effect Controls
+   (Inspector) the keyframes show as diamonds in the keyframe area on the control's row: click
+   one to move the playhead there, drag one to move it in time (it snaps to a frame; one undo
+   step, `tnr.moveKeyframe`). Change a keyframe's value at the playhead with the row's controls.
 8. The render bar marks the clip for rendering; let the render cache build it, or export.
 
 To use the same settings on other clips: **Clip ▸ Temporal NR ▸ Copy Temporal NR** (`tnr.copy`),
@@ -154,4 +157,4 @@ only at export, in the render cache and on the paused frame (Resolve renders it 
 system keeps up). Parameters for scripts: `nr.luma`, `nr.chroma` (0…1), `nr.size` (σ in source
 pixels), set with `grade.setParam`; temporal: `luma`, `chroma` (0…1), `frames` (1 or 2), `motion`
 (0…1), set with `tnr.set` (for example `{"param": "luma", "value": 0.5}`), plus `tnr.toggle`,
-`tnr.reset`, `tnr.toggleAnimation`, `tnr.get`. `grade.setParam` refuses the old `tnr.*` keys.
+`tnr.reset`, `tnr.toggleAnimation`, `tnr.moveKeyframe`, `tnr.get`. `grade.setParam` refuses the old `tnr.*` keys.

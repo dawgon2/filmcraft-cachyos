@@ -69,7 +69,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let title = if app.session.is_dirty() { tlf!("{name} - Edited", name = app.session.project.name) } else { app.session.project.name.clone() };
     // Right cluster: icons at ~38 pt pitch, then workspace name in caps.
     // (left of the window buttons when FilmCraft draws the title bar)
-    let right = rect.max.x - crate::window_chrome::reserved_width(app);
+    let right = rect.max.x - crate::window_chrome::reserved_width(app, ui.ctx());
     let mut rx = right - 14.0;
     let mut btn = |ui: &mut egui::Ui, icon: Icon, id: &str, tip: &str, app: &mut FilmcraftApp| -> egui::Response {
         let r = Rect::from_center_size(pos2(rx - 14.0, rect.center().y), vec2(28.0, 28.0));
@@ -112,6 +112,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         crate::panels::settings::cycle_appearance(app, ui.ctx());
     }
     let ws_resp = btn(ui, Icon::Workspaces, "workspaces", tl!("Workspaces"), app);
+    // the coach's buttons (FORK-PLAN §1a.78), then the workspace name left of them
+    rx = crate::panels::coach::bar_buttons(app, ui, rx - 4.0, rect.center().y) - 26.0;
     // workspace name (caps)
     let ws = crate::i18n::t(&app.ui.workspace).to_uppercase();
     let wg = p.layout_no_wrap(ws.clone(), Tokens::ui(11.0), t.text_dim);

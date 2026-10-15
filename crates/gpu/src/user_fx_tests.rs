@@ -264,7 +264,8 @@ fn user_effects_in_flight_reach_the_device_lost_hook() {
 }
 
 /// The bundled examples (`assets/effects`, ADR 0006) render on the GPU with their defaults (and
-/// over time): finite, inside 0..1 premultiplied, and they change the picture.
+/// over time): finite, inside 0..1 premultiplied, and they change the picture; so do the guide's
+/// sample and Recipes (docs/guide/shader-effects.md).
 #[test]
 fn bundled_examples_render() {
     let Some((dev, q)) = device() else {
@@ -277,13 +278,21 @@ fn bundled_examples_render() {
         ("vhs", include_str!("../../../assets/effects/vhs.wgsl")),
         ("light-leak", include_str!("../../../assets/effects/light-leak.wgsl")),
     ];
+    // the guide's Warm Spot sample and Recipes (docs/guide/shader-effects.md): a recipe may sit
+    // still at one of the two times (Pulse at t = 0), so it only has to change the picture at one
+    let guide = include_str!("../../../docs/guide/shader-effects.md");
+    let recipes: Vec<(&str, &str)> = guide.split("```wgsl\n").skip(1).filter_map(|b| b.split("```").next()).map(|b| ("guide", b)).collect();
+    assert!(recipes.len() >= 4, "the sample and the three recipes: {}", recipes.len());
+    let all: Vec<(&str, &str, bool)> = examples.iter().map(|&(n, s)| (n, s, false)).chain(recipes.iter().map(|&(n, s)| (n, s, true))).collect();
     let (w, h) = (96u32, 64u32);
     let frame = VideoFrame::rgba_f32(w, h, picture(w, h));
     for half in [false, true] {
         let mut c = if half { GpuCompositor::with_fx_format(&dev, &q, fx::FX_FORMAT_HALF) } else { full_precision(&dev, &q) };
         let (_, _, base) = c.effect_image(&frame, &LayerFx { size: (w, h), decimation: 1, ops: vec![] }).expect("working image");
-        for (name, src) in examples {
+        for &(name, src, recipe) in &all {
             let fx = filmcraft_usershader::parse(src, name).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            let name = if recipe { fx.name.as_str() } else { name };
+            let mut changed_at = 0;
             // defaults: float / bool / colour (sRGB) / point (Auto: the centre)
             let pv: Vec<[f32; 4]> = fx
                 .params
@@ -313,8 +322,13 @@ fn bundled_examples_render() {
                     .count();
                 assert_eq!(bad, 0, "{name} half={half} t={time}: {bad} pixels out of range");
                 let changed = got.chunks(4).zip(base.chunks(4)).filter(|(a, b)| worst(a, b) > 2e-3).count();
-                assert!(changed > (w * h / 50) as usize, "{name} half={half} t={time}: only {changed} pixels changed");
+                if changed > (w * h / 50) as usize {
+                    changed_at += 1;
+                } else {
+                    assert!(recipe, "{name} half={half} t={time}: only {changed} pixels changed");
+                }
             }
+            assert!(changed_at > 0, "{name} half={half}: the picture never changed");
         }
     }
 }

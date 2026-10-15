@@ -332,6 +332,16 @@ const STOPWORDS: &[&str] = &[
 /// Beginner words → the guide's terms (each side tokenised like everything else).
 const SYNONYMS: &[(&str, &str)] = &[
     ("sky", "qualifier sky"),
+    ("audio", "sound"),
+    ("laptop", "computer move export import archive"),
+    ("stutters", "smooth playback proxies render cache"),
+    ("stutter", "smooth playback proxies render cache"),
+    ("choppy", "smooth playback proxies render cache"),
+    ("blacks", "black point"),
+    ("colourist", "interchange otio fcpxml"),
+    ("colorist", "interchange otio fcpxml"),
+    ("placed", "three point insert overwrite"),
+    ("send", "handoff interchange"),
     ("gray", "qualifier matte hue"),
     ("blue", "qualifier"),
     ("bluer", "qualifier"),
@@ -428,6 +438,11 @@ const SYNONYMS: &[(&str, &str)] = &[
     ("optimized", "proxy"),
     ("smart", "render cache"),
     ("comparison", "wipe split compare"),
+    // AI3.6 adv-audio-voice-fast: the guide writes "clean up" / "clean-up" and "fast"
+    ("cleanup", "clean up"),
+    ("quickest", "fast quick"),
+    // adv-edit-tighten-cut: "the cut is a few frames late" is a trim
+    ("late", "trim roll ripple"),
     // typos and cut-off words from real questions
     ("qualifer", "qualifier"),
     ("stil", "still"),
@@ -1039,6 +1054,94 @@ fn rank_terms(question: &str, terms: &[(String, f64)]) -> Vec<(usize, f64)> {
     ranked
 }
 
+// ---------- AI3 retrieval (fork AI-PLAN AI3 item 2) ----------
+
+/// Most sections [`retrieve`] returns.
+pub const MAX_RETRIEVE: usize = 12;
+/// A header's `does:` words count this many times in the assistant index (like a second title).
+const HEADER_WEIGHT: usize = 2;
+/// Up to this much more for a section whose heading words are all in the question.
+const ASSIST_HEADING_MATCH: f64 = 0.5;
+/// This much more for a section whose header `when:` quotes an example question whose words are
+/// all in the question (`when: "make it look like film"`). Unquoted `when:` text describes a
+/// situation ("interviews and documentaries") and gets no boost.
+const ASSIST_WHEN_MATCH: f64 = 0.5;
+
+/// The assistant's index: every guide page (the general and practice pages the keyword coach
+/// leaves out included), searching each section's compact header too. Separate from the coach's
+/// own index, whose weights are tuned to the colour eval.
+struct Assist {
+    sections: Vec<Section>,
+    headers: Vec<Option<Header>>,
+    /// Each section's heading words.
+    heading_terms: Vec<Vec<String>>,
+    /// Each section's quoted header `when:` example terms (empty without one).
+    when_terms: Vec<Vec<String>>,
+    index: Index,
+}
+
+fn assist() -> &'static Assist {
+    static A: OnceLock<Assist> = OnceLock::new();
+    A.get_or_init(|| {
+        let sections: Vec<Section> = GUIDE_PAGES.iter().filter(|(p, _)| *p != "README.md").flat_map(|(p, src)| split_page(p, src)).collect();
+        let headers: Vec<Option<Header>> = sections.iter().map(|s| s.header.as_deref().and_then(|h| parse_header(h).ok())).collect();
+        let index = Index::build(sections.iter().zip(&headers).map(|(s, h)| {
+            let does = h.as_ref().map(|h| [h.does.as_str()].repeat(HEADER_WEIGHT).join(". ")).unwrap_or_default();
+            let words = h.as_ref().map(Header::search_text).unwrap_or_default();
+            (s.heading.clone(), format!("{does}\n{words}\n{}\n{}\n{}", s.page_title, s.intro, s.body))
+        }));
+        let heading_terms = sections.iter().map(|s| tokenize(&s.heading, 512)).collect();
+        let when_terms =
+            headers.iter().map(|h| h.as_ref().and_then(|h| h.when.as_deref()).and_then(quoted).map(|w| tokenize(w, 512)).unwrap_or_default()).collect();
+        Assist { sections, headers, heading_terms, when_terms, index }
+    })
+}
+
+/// The text between the first pair of double quotes, if any.
+fn quoted(s: &str) -> Option<&str> {
+    let (_, rest) = s.split_once('"')?;
+    rest.split_once('"').map(|(q, _)| q)
+}
+
+/// One section [`retrieve`] found.
+#[derive(Clone, Debug)]
+pub struct Retrieved {
+    pub section: &'static Section,
+    /// Its compact header, when it has a valid one (what a model is sent first).
+    pub header: Option<&'static Header>,
+    pub score: f64,
+}
+
+/// The `k` (at most [`MAX_RETRIEVE`]) guide sections best matching a question, best first, from
+/// every page: what the assistant's model is given. BM25 with the coach's synonyms; a "how …"
+/// question favours sections with numbered steps.
+pub fn retrieve(question: &str, k: usize) -> Vec<Retrieved> {
+    let a = assist();
+    let terms = query_terms(question);
+    let how = question.chars().take(MAX_QUESTION_CHARS).collect::<String>().to_lowercase().split(|c: char| !c.is_alphanumeric()).any(|w| w == "how");
+    let mut ranked = a.index.rank(&terms);
+    for (i, s) in &mut ranked {
+        if how && a.sections.get(*i).is_some_and(|sec| !numbered_list(&sec.body).is_empty()) {
+            *s *= HOW_BOOST;
+        }
+        // a section whose heading words the question names ("Shot Match", "Film grain")
+        if let Some(h) = a.heading_terms.get(*i).filter(|h| !h.is_empty()) {
+            let hit = h.iter().filter(|t| terms.iter().any(|(q, w)| *w >= 1.0 && q == *t)).count();
+            *s *= 1.0 + ASSIST_HEADING_MATCH * hit as f64 / h.len() as f64;
+        }
+        // a section whose `when:` the question says in full
+        if a.when_terms.get(*i).is_some_and(|w| !w.is_empty() && w.iter().all(|t| terms.iter().any(|(q, wt)| *wt >= 1.0 && q == t))) {
+            *s *= 1.0 + ASSIST_WHEN_MATCH;
+        }
+    }
+    ranked.sort_by(|x, y| y.1.total_cmp(&x.1).then(x.0.cmp(&y.0)));
+    ranked
+        .into_iter()
+        .take(k.min(MAX_RETRIEVE))
+        .filter_map(|(i, score)| Some(Retrieved { section: a.sections.get(i)?, header: a.headers.get(i).and_then(Option::as_ref), score }))
+        .collect()
+}
+
 // ---------- steps ----------
 
 /// One step of an answer.
@@ -1165,11 +1268,15 @@ fn numbered(line: &str) -> Option<&str> {
     t.get(digits..)?.strip_prefix(". ")
 }
 
-/// The first numbered list of a section, one string per item (continuation lines joined).
+/// The first numbered list of a section, one string per item (continuation lines joined). As in
+/// CommonMark, a list that interrupts a paragraph must start at 1: a wrapped line that happens to
+/// begin "100. …" is prose, not a step.
 pub fn numbered_list(body: &str) -> Vec<String> {
     let mut items: Vec<String> = Vec::new();
     let mut blank = false;
     let mut fence = false;
+    // the previous line is prose (no list started yet)
+    let mut in_para = false;
     for line in body.lines() {
         if line.trim_start().starts_with("```") {
             fence = !fence;
@@ -1181,7 +1288,7 @@ pub fn numbered_list(body: &str) -> Vec<String> {
         if fence {
             continue;
         }
-        if let Some(rest) = numbered(line) {
+        if let Some(rest) = numbered(line).filter(|_| !(items.is_empty() && in_para && !line.trim_start().starts_with("1. "))) {
             if items.len() >= MAX_STEPS {
                 break;
             }
@@ -1189,7 +1296,10 @@ pub fn numbered_list(body: &str) -> Vec<String> {
             blank = false;
             continue;
         }
-        let Some(last) = items.last_mut() else { continue };
+        let Some(last) = items.last_mut() else {
+            in_para = !line.trim().is_empty() && heading_level(line).is_none();
+            continue;
+        };
         if line.trim().is_empty() {
             blank = true;
             continue;
@@ -1400,6 +1510,38 @@ fn coverage_in(index: &Index, terms: &[(String, f64)], docs: &[usize], optional:
     hit as f64 / own.len() as f64
 }
 
+/// The bundled lesson closest to `terms`, as (id, title), when its relative score is at least `min`
+/// and it covers enough of the terms.
+fn best_lesson(terms: &[(String, f64)], min: f64) -> Option<(String, String)> {
+    let g = guide();
+    let ceiling = g.lessons.ceiling(terms);
+    g.lessons
+        .rank(terms)
+        .first()
+        .filter(|(i, _)| coverage_in(&g.lessons, terms, &[*i], &[]) >= MIN_COVERAGE)
+        .map(|(i, score)| (*i, if ceiling > 0.0 { score / ceiling } else { 0.0 }))
+        .filter(|(_, c)| *c >= min)
+        .and_then(|(i, _)| crate::coach::bundled().get(i))
+        .map(|l| (l.id.clone(), l.title.clone()))
+}
+
+/// The lesson for an assistant answer ("Show me", AI3.5): ranked on the question, with the words of
+/// the section ids the answer cites (`color.nodes.why` → "color nodes why") as a lighter hint that
+/// doesn't count towards coverage, as (id, title).
+pub fn lesson_for(question: &str, cited: &[String]) -> Option<(String, String)> {
+    let mut terms = query_terms(question);
+    let words: String = cited.iter().take(MAX_RETRIEVE).flat_map(|id| id.split(['.', '-', '_'])).take(64).collect::<Vec<_>>().join(" ");
+    for (t, _) in query_terms(&words) {
+        if terms.len() >= MAX_QUERY_TERMS {
+            break;
+        }
+        if !terms.iter().any(|(x, _)| *x == t) {
+            terms.push((t, 0.5));
+        }
+    }
+    best_lesson(&terms, MIN_LESSON)
+}
+
 /// Answer a question from the guide, checking every id it names.
 pub fn ask(question: &str, checks: &Checks) -> Answer {
     let g = guide();
@@ -1428,14 +1570,7 @@ pub fn ask(question: &str, checks: &Checks) -> Answer {
         explain: what_for(question) || question.split(|c: char| !c.is_alphanumeric()).next().is_some_and(|w| w.eq_ignore_ascii_case("why")),
     };
     // the closest lesson, when it is relevant enough
-    let lesson_ceiling = g.lessons.ceiling(&terms);
-    let lesson = g
-        .lessons
-        .rank(&terms)
-        .first()
-        .filter(|(i, _)| coverage_in(&g.lessons, &terms, &[*i], &[]) >= MIN_COVERAGE)
-        .map(|(i, score)| (*i, if lesson_ceiling > 0.0 { score / lesson_ceiling } else { 0.0 }));
-    let pick = |min: f64| lesson.filter(|(_, c)| *c >= min).and_then(|(i, _)| crate::coach::bundled().get(i)).map(|l| (l.id.clone(), l.title.clone()));
+    let pick = |min: f64| best_lesson(&terms, min);
     // a question the guide doesn't cover gets a lesson only when that lesson is clearly about it
     a.lesson = pick(2.0 * MIN_LESSON);
     let Some(&(best, top)) = ranked.first() else { return a };
@@ -1502,6 +1637,186 @@ pub fn ask(question: &str, checks: &Checks) -> Answer {
     }
     a.fallback = a.steps.is_empty();
     a
+}
+
+// ---------- grounding a model's answer (fork AI-PLAN AI3 item 4) ----------
+
+/// Longest model answer checked, in characters.
+pub const MAX_ANSWER_CHARS: usize = 16_000;
+/// Most lines of a model answer kept.
+pub const MAX_ANSWER_LINES: usize = 80;
+
+/// One line of a checked model answer.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GroundedLine {
+    /// Plain text (markdown and `{ui:…}` taken out, citations kept).
+    pub text: String,
+    /// Marked by the model as advice the guide doesn't state (`General advice:`): never a FilmCraft step.
+    pub general: bool,
+    /// Controls named (`{ui:…}`), all known.
+    pub ui: Vec<String>,
+    /// Command ids named, all registered.
+    pub commands: Vec<String>,
+}
+
+/// A model's answer after [`ground`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Grounded {
+    pub lines: Vec<GroundedLine>,
+    /// Sections cited (`[id]`) that were among the sources sent, in order of first use.
+    pub cited: Vec<String>,
+    /// Lines left out because they named a control or command that doesn't exist.
+    pub removed_lines: usize,
+    /// The unknown ids (at most 16).
+    pub removed_ids: Vec<String>,
+    /// Citations of sections that weren't sent (taken out of the text).
+    pub invented_citations: Vec<String>,
+}
+
+/// `[id]` citations in a line: (the line without the ones `keep` refuses, every cited id).
+fn citations(line: &str, keep: &dyn Fn(&str) -> bool) -> (String, Vec<String>) {
+    let mut out = String::new();
+    let mut ids = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find('[') {
+        let (before, from) = rest.split_at(start);
+        out.push_str(before);
+        let inner = from.get(1..).unwrap_or("");
+        let end = inner.find(']').filter(|e| *e <= 120);
+        let id = end.and_then(|e| inner.get(..e)).map(str::trim).unwrap_or("");
+        // `[text](link)` is a link, not a citation
+        let link = end.and_then(|e| inner.get(e + 1..)).is_some_and(|r| r.starts_with('('));
+        if let Some(e) =
+            end.filter(|_| !link && !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || "._-#/ ".contains(c)) && id.contains(['.', '#']))
+        {
+            if ids.len() < 16 {
+                ids.push(id.to_string());
+            }
+            if keep(id) {
+                out.push_str(from.get(..e + 2).unwrap_or(""));
+            }
+            rest = inner.get(e + 1..).unwrap_or("");
+        } else {
+            out.push('[');
+            rest = inner;
+        }
+    }
+    out.push_str(rest);
+    (out, ids)
+}
+
+/// Check a model's answer: a line that names a control or command that doesn't exist is left
+/// out (a line in a command namespace that isn't a registered command is an invented step), a
+/// citation of a section that wasn't in `sources` is taken out, and lines starting
+/// `General advice:` are marked. Bounded by [`MAX_ANSWER_CHARS`] / [`MAX_ANSWER_LINES`].
+pub fn ground(answer: &str, sources: &[String], checks: &Checks) -> Grounded {
+    let mut g = Grounded::default();
+    let text: String = answer.chars().take(MAX_ANSWER_CHARS).collect();
+    let sent = |id: &str| sources.iter().any(|s| s == id);
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if g.lines.len() >= MAX_ANSWER_LINES {
+            break;
+        }
+        let raw = plain(line, &|_| true);
+        let bad_cmd = raw.code.iter().filter(|c| c.split('.').next().is_some_and(|ns| (checks.namespace)(ns)) && !(checks.command)(c));
+        let bad_ui = raw.ui.iter().filter(|u| checks.ui.is_some_and(|f| !f(u)));
+        let bad: Vec<&String> = bad_cmd.chain(bad_ui).collect();
+        if !bad.is_empty() {
+            g.removed_lines += 1;
+            for id in bad {
+                if g.removed_ids.len() < 16 && !g.removed_ids.contains(id) {
+                    g.removed_ids.push(id.clone());
+                }
+            }
+            continue;
+        }
+        let (kept, ids) = citations(line, &sent);
+        for id in ids {
+            let list = if sent(&id) { &mut g.cited } else { &mut g.invented_citations };
+            if list.len() < 16 && !list.contains(&id) {
+                list.push(id);
+            }
+        }
+        let p = plain(&kept, &|id| (checks.command)(id));
+        let t = p.text.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let general = t.to_ascii_lowercase().starts_with("general advice:");
+        let ui = if checks.ui.is_some() { p.ui } else { Vec::new() };
+        g.lines.push(GroundedLine { text: truncate(t, MAX_STEP_TEXT.saturating_mul(2)), general, ui, commands: p.code });
+    }
+    g
+}
+
+/// Words that make a line an instruction to operate something.
+const ACTION_WORDS: &[&str] =
+    &["click", "press", "select", "choose", "open", "tick", "drag", "find", "pick", "go", "use", "insert", "tap", "type", "hold", "enable", "turn"];
+
+/// The labels a line names as things to operate: `**bold**` and `"quoted"` spans in a line that
+/// says to click / open / press … something, plus keyboard shortcuts (`Ctrl+N`, `Shift+Alt+K`).
+fn named_labels(line: &str) -> Vec<String> {
+    let lower = line.to_lowercase();
+    let action = lower.split(|c: char| !c.is_alphanumeric()).any(|w| ACTION_WORDS.contains(&w));
+    let mut out = Vec::new();
+    if action {
+        for (open, close) in [("**", "**"), ("\"", "\""), ("\u{201c}", "\u{201d}")] {
+            let mut rest = line;
+            while let Some(a) = rest.find(open) {
+                let after = rest.get(a + open.len()..).unwrap_or("");
+                let Some(b) = after.find(close) else { break };
+                let label = after.get(..b).unwrap_or("").trim().trim_matches(|c: char| c == '"' || c == '*').trim();
+                if !label.is_empty() && label.chars().count() <= 60 && out.len() < 16 {
+                    out.push(label.to_string());
+                }
+                rest = after.get(b + close.len()..).unwrap_or("");
+            }
+        }
+    }
+    // shortcuts: a modifier word, `+`, a key
+    for w in line.split(|c: char| c.is_whitespace() || "(),;".contains(c)) {
+        let parts: Vec<&str> = w.split('+').collect();
+        if parts.len() >= 2
+            && parts.iter().rev().skip(1).all(|m| ["ctrl", "cmd", "alt", "shift", "option", "super", "meta"].contains(&m.to_lowercase().as_str()))
+            && parts.last().is_some_and(|k| !k.is_empty() && k.chars().count() <= 6)
+            && out.len() < 16
+        {
+            out.push(w.trim_matches(|c: char| !c.is_alphanumeric()).to_string());
+        }
+    }
+    out
+}
+
+/// [`ground`] plus a check of the controls a line names in plain words: each label from
+/// [`named_labels`] must appear (case-insensitively) in `sent_text`, the guide text the model was
+/// given; a line naming one that doesn't is left out (an invented button, panel or shortcut).
+pub fn ground_with_text(answer: &str, sources: &[String], sent_text: &str, checks: &Checks) -> Grounded {
+    let sent = sent_text.to_lowercase();
+    let mut kept = String::new();
+    let mut extra_removed = Vec::new();
+    let mut removed = 0usize;
+    for line in answer.chars().take(MAX_ANSWER_CHARS).collect::<String>().lines() {
+        let unknown: Vec<String> = named_labels(line).into_iter().filter(|l| !sent.contains(&l.to_lowercase())).collect();
+        if unknown.is_empty() {
+            kept.push_str(line);
+            kept.push('\n');
+        } else {
+            removed = removed.saturating_add(1);
+            for l in unknown {
+                if extra_removed.len() < 16 && !extra_removed.contains(&l) {
+                    extra_removed.push(l);
+                }
+            }
+        }
+    }
+    let mut g = ground(&kept, sources, checks);
+    g.removed_lines = g.removed_lines.saturating_add(removed);
+    for l in extra_removed {
+        if g.removed_ids.len() < 16 && !g.removed_ids.contains(&l) {
+            g.removed_ids.push(l);
+        }
+    }
+    g
 }
 
 // ---------- the command ----------

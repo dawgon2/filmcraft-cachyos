@@ -36,5 +36,16 @@ no plugin, however broken, may take FilmCraft down or corrupt a project.
   memory; a crash there costs one frame or one effect, never the app. Large and `unsafe`-heavy
   (FFI confined to its own crate with an ADR); only with the owner.
 
+## Native plugins: the owner's decisions (explained live 2026-10-15)
+
+Hosting VST3 / CLAP / LV2 (audio) or OpenFX (video) means loading other people's compiled code.
+Before any of it starts, the owner decides: (1) **whether and when** (after which phase);
+(2) **which format(s)**: VST3 (largest catalogue; Steinberg's SDK is MIT-licensed since 3.8,
+2025), CLAP (open, MIT, good on Linux) or LV2 (open, ISC, the Linux-native one); (3) **an
+exception to the pure-Rust / no-`unsafe` rules** for one new FFI crate with an ADR, and plugins
+running in a **separate helper process** so a crashing plugin can't take the project down (costs
+some latency and work); (4) plugins are **outside FilmCraft's control**: they aren't reviewed,
+some are paid, many VST3s are Windows / macOS only.
+
 ## Rough size
 P1 ≈ 30–50 h · P2 ≈ 25–45 h · P3 ≈ 50–100 h.

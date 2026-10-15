@@ -278,3 +278,36 @@ fn mp2_in_mp4_and_mov_matches_ffmpeg() {
         assert!(mid <= 1e-4 && all <= 1e-4, "{name}: differs from ffmpeg by {mid} (mid) / {all} (whole)");
     }
 }
+
+thread_local! {
+    /// The hand-off scale each decoder creation on this thread saw.
+    static HANDOFF_SEEN: std::cell::RefCell<Vec<f32>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn handoff_recorder(_: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft_codecs::Result<Box<dyn filmcraft_codecs::VideoDecoder>>> {
+    HANDOFF_SEEN.with(|s| s.borrow_mut().push(filmcraft_codecs::hw::handoff_scale()));
+    None
+}
+
+/// A clean aperture is cut in full-size coordinates, so a source with one ignores a hand-off
+/// scale (a half-size picture was cut at the full-size box: wrong part, wrong aspect).
+#[test]
+fn a_clean_aperture_keeps_the_hand_off_unscaled() {
+    let ff = filmcraft_testkit::require_ffmpeg!();
+    let src = ["-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=0.2", "-c:v", "libx264", "-pix_fmt", "yuv420p"];
+    let Some(plain) = fixture(&ff, "handoff_clap_plain_x264.mp4", &src) else {
+        eprintln!("SKIPPED: ffmpeg without libx264");
+        return;
+    };
+    let path = dir().join("handoff_clap.mp4");
+    std::fs::write(&path, with_clap(&bytes(&plain), (280, 200, 0, 0))).unwrap();
+    filmcraft_codecs::register_video_decoder(handoff_recorder);
+    for (name, file, want) in [("plain", plain.clone(), 0.5), ("clap", path, 1.0)] {
+        let src = filmcraft_codecs::open_bytes(file.file_name().unwrap().to_str().unwrap(), bytes(&file)).unwrap();
+        src.set_handoff_scale(0.5);
+        HANDOFF_SEEN.with(|s| s.borrow_mut().clear());
+        assert!(src.video_frame(filmcraft_media::FrameRequest::full(filmcraft_time::Tick::ZERO)).is_ok(), "{name}");
+        let seen = HANDOFF_SEEN.with(|s| s.take());
+        assert!(!seen.is_empty() && seen.iter().all(|&s| s == want), "{name}: {seen:?}");
+    }
+}

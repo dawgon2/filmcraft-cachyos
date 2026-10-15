@@ -47,10 +47,16 @@ pub fn set_thread_handoff_scale(scale: Option<f32>) {
 /// `f` with this thread's hand-off scale set to `scale` ([`set_thread_handoff_scale`]), the
 /// previous one restored after.
 pub fn with_handoff_scale<R>(scale: Option<f32>, f: impl FnOnce() -> R) -> R {
-    let before = HANDOFF_SCALE.with(|h| h.replace(scale));
-    let r = f();
-    HANDOFF_SCALE.with(|h| h.set(before));
-    r
+    /// Puts the previous scale back when dropped, also when `f` unwinds (a caught panic on a
+    /// shared worker must not leave its later decoders scaled).
+    struct Restore(Option<f32>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            HANDOFF_SCALE.with(|h| h.set(self.0));
+        }
+    }
+    let _restore = Restore(HANDOFF_SCALE.with(|h| h.replace(scale)));
+    f()
 }
 
 /// The scale hand-off copies are made at: this thread's ([`set_thread_handoff_scale`]), else the

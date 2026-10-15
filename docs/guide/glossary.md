@@ -227,7 +227,8 @@ Set on a node with **Grain strength** {ui:grade.param.grain.strength}. See
 A smaller, easier-to-decode copy of a clip used while editing, so playback stays smooth; the
 export still uses the original. Clip ▸ Proxy ▸ **Create Proxies…** (`media.createProxies`)
 makes them and View ▸ **Toggle Proxies** (`media.toggleProxies`) switches between proxies and
-originals. Automatic proxies for 6.2K and 4:2:2 clips are planned for Phase 6.
+originals. FilmCraft also makes them on its own, in the background, for 4K and larger long-GOP
+clips ([automatic proxies](proxies.md#automatic-proxies)).
 
 - Resolve: proxy media / optimized media. Premiere: proxy.
 

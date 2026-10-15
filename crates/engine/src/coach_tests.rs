@@ -286,7 +286,7 @@ fn bad_coach_preferences_reset_only_themselves() {
     good.auto_save.interval_minutes = 7;
     good.color.hdr_graphics_white = "300".into();
     let mut v = good.to_value();
-    v["color"]["coach"] = json!({"completed": 5, "hints": "yes"});
+    v["color"]["coach"] = json!({"completed": 5, "hints": "yes", "assistant": "yes"});
     std::fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
     let p = crate::autosave::Preferences::load(&path);
     assert_eq!(p.auto_save.interval_minutes, 7, "other settings survive");

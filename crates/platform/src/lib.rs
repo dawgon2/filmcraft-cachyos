@@ -7,9 +7,10 @@
 //! Windows; NVDEC ([`nvdec`], NVIDIA's driver) and VA-API on Linux for H.264 and HEVC:
 //! upstream's in-process H.264 / HEVC decoder ([`vaapi`]; with the fork's zero-copy output first,
 //! [`va_accel`]: frames left on the GPU, HEVC 4:2:2 handed from the decoding GPU to the
-//! compositing one; then reading pictures back) and the system ffmpeg run as a child process
-//! ([`vaapi_pipe`]) behind it (the fork's own HEVC decoder, `va_hevc`, left the chain in U0.2.3
-//! and the code in U0.2.5); on other systems (and on Linux with none of these) registration
+//! compositing one; then reading pictures back) and, for HEVC only, the system ffmpeg run as a
+//! child process ([`vaapi_pipe`]) behind it (H.264 never uses it since fork H3.1: what VA-API
+//! declines decodes in FilmCraft's own decoder; the fork's own HEVC decoder, `va_hevc`, left the
+//! chain in U0.2.3 and the code in U0.2.5); on other systems (and on Linux with none of these) registration
 //! does nothing and reports [`Availability::Unavailable`]. It also registers a hardware H.264
 //! encoder factory (`filmcraft_export::register_encoder`) that only acts when an export asks for
 //! it (`ExportSettings::hardware_encoding` = `Auto`), see [`hardware_encode`]; on macOS, on Windows
@@ -240,7 +241,11 @@ pub fn hardware_decoder_for(entry: &filmcraft_isobmff::SampleEntry) -> bool {
             if nvdec::NvDecoder::new(info.clone()).is_ok() {
                 return true;
             }
-            vaapi::VaDecoder::zero_copy(info.clone()).is_ok() || vaapi::VaDecoder::new(info.clone()).is_ok() || vaapi_pipe::VaapiDecoder::new(info).is_ok()
+            vaapi_chain(info.codec).iter().any(|step| match step {
+                VaStep::ZeroCopy => vaapi::VaDecoder::zero_copy(info.clone()).is_ok(),
+                VaStep::ReadBack => vaapi::VaDecoder::new(info.clone()).is_ok(),
+                VaStep::FfmpegPipe => vaapi_pipe::VaapiDecoder::new(info.clone()).is_ok(),
+            })
         })
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -302,6 +307,29 @@ pub fn media_foundation_factory(entry: &filmcraft_isobmff::SampleEntry) -> Optio
     }
 }
 
+/// One decoder of the VA-API chain ([`vaapi_chain`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VaStep {
+    /// The in-process front end, pictures left on the GPU.
+    ZeroCopy,
+    /// The in-process front end, pictures read back.
+    ReadBack,
+    /// The system ffmpeg as a child process ([`vaapi_pipe`]).
+    FfmpegPipe,
+}
+
+/// The VA-API decoders tried for a stream, in order (the first that takes it decodes, the rest
+/// are its fallbacks before FilmCraft's software decoder). H.264 never goes through ffmpeg (fork
+/// H3.1): what the in-process front end declines, FilmCraft's own decoder takes (High 10,
+/// 4:2:2, interlaced: fork H2), with or without ffmpeg installed. HEVC keeps the pipe until
+/// Phase 7.7 removes it.
+pub fn vaapi_chain(codec: filmcraft_codecs::hw::NalCodec) -> &'static [VaStep] {
+    match codec {
+        filmcraft_codecs::hw::NalCodec::H264 => &[VaStep::ZeroCopy, VaStep::ReadBack],
+        filmcraft_codecs::hw::NalCodec::Hevc => &[VaStep::ZeroCopy, VaStep::ReadBack, VaStep::FfmpegPipe],
+    }
+}
+
 /// The VA-API factory: a [`HybridDecoder`] around the first of the VA-API decoders that takes the
 /// stream, with the next ones as its fallbacks (ADR 0002's chain) before software:
 ///
@@ -314,7 +342,8 @@ pub fn media_foundation_factory(entry: &filmcraft_isobmff::SampleEntry) -> Optio
 ///    removed in U0.2.5);
 /// 2. the same front ends with pictures read back ([`vaapi::VaDecoder::new`], H.264 and HEVC
 ///    4:2:0; `ZeroCopyAccel::new_read_back` since U0.2.4);
-/// 3. the ffmpeg pipe ([`vaapi_pipe::VaapiDecoder`], H.264 and HEVC).
+/// 3. HEVC only: the ffmpeg pipe ([`vaapi_pipe::VaapiDecoder`]); H.264 skips it since fork H3.1
+///    ([`vaapi_chain`]).
 ///
 /// `None` when none takes the stream (other codecs keep the software decoders, and every stream
 /// while Hardware decoding is Off).
@@ -337,7 +366,16 @@ pub fn vaapi_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft
         vaapi_pipe::VaapiDecoder::new(info).map(|d| Box::new(d) as Box<dyn filmcraft_codecs::VideoDecoder>)
     };
     // the chain, first taker first; the ones after it become the hybrid's fallbacks
-    let mut chain: Vec<Box<dyn FnOnce(filmcraft_codecs::hw::NalStreamInfo) -> Hw + Send>> = vec![Box::new(zero_copy), Box::new(upstream), Box::new(pipe)];
+    let mut chain: Vec<Box<dyn FnOnce(filmcraft_codecs::hw::NalStreamInfo) -> Hw + Send>> = vaapi_chain(info.codec)
+        .iter()
+        .map(|step| -> Box<dyn FnOnce(filmcraft_codecs::hw::NalStreamInfo) -> Hw + Send> {
+            match step {
+                VaStep::ZeroCopy => Box::new(zero_copy),
+                VaStep::ReadBack => Box::new(upstream),
+                VaStep::FfmpegPipe => Box::new(pipe),
+            }
+        })
+        .collect();
     let mut whys = Vec::new();
     let mut primary: Option<Box<dyn filmcraft_codecs::VideoDecoder>> = None;
     while primary.is_none() && !chain.is_empty() {
@@ -384,5 +422,21 @@ pub fn nvdec_factory(entry: &filmcraft_isobmff::SampleEntry) -> Option<filmcraft
             }
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod chain_tests {
+    use super::{VaStep, vaapi_chain};
+    use filmcraft_codecs::hw::NalCodec;
+
+    /// Fork H3.1: H.264 never decodes through the ffmpeg pipe; HEVC keeps it behind the
+    /// in-process front end until Phase 7.7.
+    #[test]
+    fn h264_chain_has_no_ffmpeg_step() {
+        assert_eq!(vaapi_chain(NalCodec::H264), &[VaStep::ZeroCopy, VaStep::ReadBack]);
+        assert!(!vaapi_chain(NalCodec::H264).contains(&VaStep::FfmpegPipe));
+        assert_eq!(vaapi_chain(NalCodec::Hevc).last(), Some(&VaStep::FfmpegPipe));
+        assert_eq!(vaapi_chain(NalCodec::Hevc).first(), Some(&VaStep::ZeroCopy));
     }
 }

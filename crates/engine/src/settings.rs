@@ -1053,7 +1053,13 @@ static CATEGORIES: &[Category] = &[
                 ],
             ),
             Row::Note("For color management parameters, go to the Settings tab in the Lumetri Color panel."),
-            Row::Group("Grading Coach", &[b("color.coach.hints", "Show Grading Coach hints", false)]),
+            Row::Group(
+                "Grading Coach",
+                &[
+                    b("color.coach.hints", "Show Grading Coach hints", false),
+                    b("color.coach.assistant", "Also ask the assistant (slow: runs on this computer)", false),
+                ],
+            ),
             Row::Group("AI explanations", &[b("color.ai.enabled", "Explain nodes in plain words with a local AI model", true), Row::Custom("aiExplanations")]),
         ],
     },

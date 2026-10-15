@@ -459,6 +459,36 @@ pub struct CoachAsk {
     pub clicks: u64,
     /// The lesson list is open (Lessons button, Help ▸ Grading Lessons…, `coach.showLessons`).
     pub lessons: bool,
+    /// The assistant's question being answered (`coach.assist` id), polled every frame.
+    pub assist_id: Option<u64>,
+    /// The assistant's last `coach.assistResult` (pending with `partial`, or done).
+    pub assist: Option<serde_json::Value>,
+    /// The question the assistant is answering (for the follow-up memory).
+    pub assist_question: String,
+    /// The last question the assistant answered and its checked lines: sent with the next
+    /// question as a follow-up (`previousQuestion` / `previousAnswer`) until the box closes or
+    /// "New topic" is clicked.
+    pub last_exchange: Option<(String, String)>,
+}
+
+/// The Assistant panel's chat (fork AI3, FORK-PLAN §1a.78). Never saved.
+#[derive(Clone, Debug, Default)]
+pub struct AssistantChat {
+    /// The question being typed.
+    pub input: String,
+    /// Questions and their answers, oldest first (at most `panels::assistant::MAX_TURNS`).
+    pub turns: Vec<ChatTurn>,
+    /// The `coach.assist` id of the question being answered (the last turn's), polled while the
+    /// panel is drawn.
+    pub running: Option<u64>,
+}
+
+/// One question in the Assistant panel and its `coach.assistResult` (pending with `partial`, or
+/// done; `None` before the first poll or when it could not start).
+#[derive(Clone, Debug, Default)]
+pub struct ChatTurn {
+    pub question: String,
+    pub result: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -538,6 +568,9 @@ pub struct UiState {
     /// The Grading Coach's "Ask the coach" box (question, answer, highlighted step). Never saved.
     #[serde(skip)]
     pub coach_ask: CoachAsk,
+    /// The Assistant panel's chat (fork AI3). Never saved.
+    #[serde(skip)]
+    pub assistant: AssistantChat,
     /// Effect Controls: the selected keyframes, highlighted in the keyframe lane (a click selects one).
     #[serde(default)]
     pub keyframe_selection: Vec<KeyframeRef>,
@@ -1058,6 +1091,7 @@ impl Default for UiState {
             wb_picker: None,
             grade_rename: None,
             coach_ask: CoachAsk::default(),
+            assistant: AssistantChat::default(),
             keyframe_selection: Vec::new(),
             essential_sound_tab: "Edit".into(),
             tts: Default::default(),

@@ -82,7 +82,7 @@ agent session (code + tests + guide page), not the plan's ranges.
 ## 2. Phase L2, item by item
 
 ### L2.1 XDG base directories — **Partly**
-- Have: data dir follows `XDG_DATA_HOME`; `dev_icon.rs` too. Missing: config (`prefs.json` sits in the data dir), cache (`Media Cache`, Previews, Proxies, model downloads under data), state (logs, crash logs, graphics-start state); no `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` / `XDG_STATE_HOME` anywhere (`grep` of engine / app). `cache.claimFolder` is still owed from Phase 6 (HANDOFF).
+- Have: data dir follows `XDG_DATA_HOME`; `dev_icon.rs` too. Missing: config (`prefs.json` sits in the data dir), cache (`Media Cache`, Previews, Proxies, model downloads under data), state (logs, crash logs, graphics-start state); no `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` / `XDG_STATE_HOME` anywhere (`grep` of engine / app). `cache.claimFolder` done 2026-10-15 (Settings ▸ Media Cache ▸ Render Cache ▸ Claim Files of No Known Project).
 - Route: one `filmcraft_engine::dirs` module (no new crate; `dirs 6.0` is already in the tree if wanted, MIT/Apache-2.0) returning `{data, config, cache, state}` with the same `FILMCRAFT_DATA_DIR` / portable overrides collapsing all four; `media_cache_dir` default → `$XDG_CACHE_HOME/filmcraft`; logs + crash logs + graphics state → state dir; a one-time migration that **moves** `prefs.json` and leaves caches (rebuilt) — never deletes; `Help ▸ Reveal Log Files` follows. Mind the fork launcher's `--data-dir ~/.local/share/filmcraft-fork` (§1a.9): the override must keep everything under that one folder. **5 h.** Risk: tests that assume `<data>/Logs`.
 
 ### L2.2 File associations, Dolphin, thumbnails — **Partly**

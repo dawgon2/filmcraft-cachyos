@@ -277,7 +277,10 @@ impl Features {
 
     /// ERB feature: band power in dB, minus its running mean, / 40. `false` on wrong lengths.
     pub fn erb(&mut self, spec: &[C32], widths: &[usize], out: &mut [f32]) -> bool {
-        if out.len() != self.mean_norm.len() || widths.len() != out.len() || widths.iter().sum::<usize>() > spec.len() {
+        if out.len() != self.mean_norm.len()
+            || widths.len() != out.len()
+            || widths.iter().try_fold(0usize, |a, w| a.checked_add(*w)).is_none_or(|t| t > spec.len())
+        {
             return false;
         }
         let a = self.alpha;
@@ -322,7 +325,7 @@ impl Features {
 
 /// Multiply every bin by its ERB band's gain. `false` (untouched) on wrong lengths.
 pub fn apply_band_gains(spec: &mut [C32], gains: &[f32], widths: &[usize]) -> bool {
-    if gains.len() != widths.len() || widths.iter().sum::<usize>() > spec.len() {
+    if gains.len() != widths.len() || widths.iter().try_fold(0usize, |a, w| a.checked_add(*w)).is_none_or(|t| t > spec.len()) {
         return false;
     }
     let mut start = 0;

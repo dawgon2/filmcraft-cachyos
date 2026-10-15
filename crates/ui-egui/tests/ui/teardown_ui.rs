@@ -29,16 +29,41 @@ fn dropping_the_app_stops_its_workers_and_frees_its_media() {
         std::thread::sleep(Duration::from_millis(20));
     }
     let media = std::sync::Arc::downgrade(&h.state().session.media);
+    // keep a handle on the frame server to count what its workers do after the close (it only
+    // looks: stopping them is the app's drop's job)
+    let frames = std::sync::Arc::clone(&h.state().frames);
+    let workers = frames.workers() as u64;
+    let jobs_before = frames.stats().jobs;
     let t = Instant::now();
     drop(h);
     let took = t.elapsed();
-    // every frame worker and background job holds the media pool while it runs. Closing waits a
-    // bounded time for the frame in hand; on a loaded machine (the parallel ci run) that frame can
-    // still be finishing, so allow it a moment more, far less than the 5–15 s the work used to run on
-    let settle = Instant::now() + Duration::from_secs(3);
-    while media.strong_count() > 0 && Instant::now() < settle {
+    assert!(took < Duration::from_secs(6), "closing waited {took:?}");
+    // How long the frames in hand take to notice the cancellation depends on the machine: in the
+    // parallel ci run a hundred other tests' workers share the cores and the last frame can take
+    // many seconds (the 3 s bound this test had failed there, 2026-10-15). So the deterministic
+    // check is what ran, not how long: only the frames in hand at the close may finish, nothing
+    // queued starts; the time limit only catches work that never stops.
+    let limit = Instant::now() + Duration::from_secs(120);
+    while frames.live_workers() > 0 && Instant::now() < limit {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(frames.live_workers(), 0, "frame workers still running 2 min after the close; threads alive: {}", live_threads());
+    let ran = frames.stats().jobs.saturating_sub(jobs_before);
+    // + 1: a worker can pick up one more job between reading the count and the close
+    assert!(ran <= workers + 1, "{ran} frame jobs ran after the close ({workers} workers): queued work was not dropped");
+    drop(frames);
+    // every frame worker and background job (the render cache) holds the media pool while it runs
+    while media.strong_count() > 0 && Instant::now() < limit {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert_eq!(media.strong_count(), 0, "work of the dropped app is still running");
-    assert!(took < Duration::from_secs(6), "closing waited {took:?}");
+    assert_eq!(media.strong_count(), 0, "work of the dropped app is still running 2 min after the close; threads alive: {}", live_threads());
+}
+
+/// The names of this process's threads (Linux; empty elsewhere), so a failure says whose work
+/// outlived the app.
+fn live_threads() -> String {
+    let Ok(dir) = std::fs::read_dir("/proc/self/task") else { return String::new() };
+    let mut names: Vec<String> = dir.flatten().filter_map(|e| std::fs::read_to_string(e.path().join("comm")).ok()).map(|n| n.trim().to_owned()).collect();
+    names.sort();
+    names.join(", ")
 }

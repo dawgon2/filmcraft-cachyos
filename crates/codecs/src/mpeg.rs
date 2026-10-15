@@ -764,6 +764,9 @@ impl VideoSamples for MpegVideo<'_> {
 }
 
 impl MediaSource for MpegSource {
+    fn decoder_name(&self) -> Option<String> {
+        self.gop.decoder_name()
+    }
     fn info(&self) -> &MediaInfo {
         &self.info
     }

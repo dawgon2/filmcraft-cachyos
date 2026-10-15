@@ -2777,6 +2777,8 @@
 	Action Safe Area	动作安全区域
 	Total Duration	总时长
 	Average Data Rate	平均数据速率
+	Decoder	解码器
+	chosen when the clip first plays	首次播放剪辑时选择
 	Colour	颜色
 	{codec} · {rate} Hz · {n} channel(s)	{codec} · {rate} Hz · {n} 声道
 	Media Name:	媒体名称：
@@ -3787,6 +3789,7 @@
 	Cache	缓存
 	The size limit is reached: raise it, or Delete Unused, to cache more.	已达到大小上限：提高上限或删除未使用的文件即可缓存更多内容。
 	4:2:2: software decode (hardware 4:2:2 decode failed earlier in this session), proxies recommended	4:2:2：软件解码（本次会话中 4:2:2 硬件解码曾失败），建议使用代理
+	H.264 10-bit: software decode	H.264 10 位：软件解码
 	WB picker	白平衡吸管
 	WB Selector	白平衡选择器
 	Auto balance	自动平衡
@@ -3864,6 +3867,7 @@
 	Set Temporal NR Parameter	设置时域降噪参数
 	Enable / Disable Temporal NR	启用 / 停用时域降噪
 	Toggle Temporal NR Parameter Animation	切换时域降噪参数动画
+	Move Temporal NR Keyframe	移动时域降噪关键帧
 	Reset Temporal NR	重置时域降噪
 	Remove Temporal NR	移除时域降噪
 	Copy Temporal NR	复制时域降噪
@@ -4022,3 +4026,37 @@
 	Mask Opacity	遮罩不透明度
 	Mask Expansion	遮罩扩展
 	View Node	查看节点
+	Also ask the assistant (slow: runs on this computer)	同时询问 AI 助手（较慢：在本机运行）
+	The assistant is reading the guide…	AI 助手正在阅读指南…
+	Assistant	AI 助手
+	Not checked against the guide yet.	尚未与指南核对。
+	The assistant can't run here yet (its model isn't installed or this build has none), so the guide's answer above is all there is.	AI 助手暂时无法在此运行（模型未安装或此版本不含模型），因此只有上方指南的回答。
+	The assistant's answer named things FilmCraft doesn't have, so it was left out; the guide's answer above is checked.	AI 助手的回答提到了 FilmCraft 没有的内容，已被省略；上方指南的回答已经过核对。
+	The assistant couldn't answer this time; the guide's answer above still stands.	AI 助手这次无法回答；上方指南的回答仍然有效。
+	Sources: {list}	来源：{list}
+	{n} lines left out: they named controls, commands or shortcuts the guide doesn't have.	省略了 {n} 行：它们提到了指南中没有的控件、命令或快捷键。
+	New topic	新话题
+	The next question won't follow up on this answer.	下一个问题不会接着这个回答。
+	The guide has nothing on this, so the assistant didn't guess.	指南中没有相关内容，所以助手没有猜测。
+	The assistant says the guide doesn't cover this; the guide's closest answer is above.	助手表示指南未涉及此问题；上方是指南中最接近的答案。
+	Show me: {title}	演示给我看：{title}
+# fork §1a.78: coach buttons in the page bar, Assistant panel
+	Answers come from FilmCraft's guide and run on this computer.	回答来自 FilmCraft 的指南，并在这台电脑上生成。
+	Ask how to do something in FilmCraft: grading, editing, audio, compositing, export…	询问如何在 FilmCraft 中完成某件事：调色、剪辑、音频、合成、导出…
+	Ask the assistant…	询问 AI 助手…
+	Ask the guide how to do something.	向指南询问如何完成某件事。
+	Chat with the assistant: a panel you can float anywhere or dock beside any panel.	与 AI 助手对话：此面板可浮动在任意位置，或停靠在任意面板旁。
+	Clear the chat; the next question starts a new topic.	清空对话；下一个问题将开始新话题。
+	New chat	新对话
+	Send	发送
+	Step-by-step lessons.	分步课程。
+	Stopped.	已停止。
+	The assistant can't run here yet (its model isn't installed or this build has none). The guide's answer:	AI 助手暂时无法在此运行（未安装其模型，或此版本不包含模型）。指南的回答：
+	The assistant couldn't answer this time. The guide's answer:	AI 助手这次未能回答。指南的回答：
+	The assistant says the guide doesn't cover this; the guide's closest answer:	AI 助手表示指南未涉及此内容；指南中最接近的回答：
+	The assistant's answer named things FilmCraft doesn't have, so it was left out. The guide's answer:	AI 助手的回答提到了 FilmCraft 没有的内容，因此已省略。指南的回答：
+	There's no panel to open the Assistant beside.	没有可在其旁打开 AI 助手的面板。
+	e.g. how do I make the sky bluer without changing skin?	例如：如何让天空更蓝而不改变肤色？
+	Claim Files of No Known Project	认领无已知项目的文件
+	Claimed {n} render cache file(s)	已认领 {n} 个渲染缓存文件
+	Claim Render Cache Files of No Known Project	认领无已知项目的渲染缓存文件

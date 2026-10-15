@@ -614,6 +614,10 @@ fn walked() -> (Driver, BTreeSet<String>) {
     d.click("coach.lessons.open");
     snap(&mut d, &mut seen);
     d.click("coach.lessons.close");
+    // the Assistant panel (opened floating from the header, then closed)
+    d.click("assistant.open");
+    snap(&mut d, &mut seen);
+    d.click("assistant.open");
     d.click("stills.grab");
     snap(&mut d, &mut seen);
     let still = d.exec("stills.list", json!({}))["stills"][0]["id"].as_u64().expect("a still");
@@ -720,6 +724,19 @@ const NOT_WALKED: &[(&str, &str)] = &[
         "export.video.hevcMain10Note",
         "Export page: only for an 8-bit HEVC export of an HDR sequence when this PC's H.265 encoder can write HDR (a hardware probe)",
     ),
+    (
+        "coach.ask.assistStop",
+        "Ask the coach box: only while the assistant model is writing (coach_ask_box_shows_the_assistant_answer_or_why_not covers the box)",
+    ),
+    (
+        "coach.ask.assistDontKnow",
+        "Ask the coach box: only when the assistant model says the guide doesn't cover the question (coach_ask_box_shows_the_assistant_answer_or_why_not covers it)",
+    ),
+    (
+        "coach.ask.assistLesson",
+        "Ask the coach box: only when the assistant's lesson differs from the guide answer's (coach_ask_box_shows_the_assistant_answer_or_why_not clicks it)",
+    ),
+    ("coach.ask.newTopic", "Ask the coach box: only after the assistant model has answered (coach_ask_box_shows_the_assistant_answer_or_why_not clicks it)"),
     ("project.card.copy", "Project panel card bar: only while the desktop has a camera card mounted (L2.4)"),
     ("project.card.eject", "Project panel card bar: only after a card's copy is verified (L2.4)"),
     ("project.card.dismiss", "Project panel card bar: only while the desktop has a camera card mounted (L2.4)"),
@@ -863,6 +880,121 @@ fn coach_ask_box_answers_and_spotlights_a_step() {
     assert!(d.element("coach.ask.input").is_none());
 }
 
+/// A model backend for the assistant tests: ready or not, one fixed reply.
+struct ScriptedAssistant {
+    ready: bool,
+    reply: &'static str,
+}
+
+impl filmcraft_engine::ai_explain::ExplainBackend for ScriptedAssistant {
+    fn ready(&self, _: &filmcraft_engine::ai_explain::ModelInfo) -> Result<(), (filmcraft_engine::ai_explain::Fallback, String)> {
+        if self.ready { Ok(()) } else { Err((filmcraft_engine::ai_explain::Fallback::NotInstalled, "not installed".into())) }
+    }
+    fn generate(&self, _: &filmcraft_engine::ai_explain::ModelInfo, _: &str, _: &str, _: filmcraft_engine::ai_explain::GenOptions) -> Result<String, String> {
+        Ok(self.reply.to_string())
+    }
+}
+
+/// Ask the box with the assistant switched on, and wait until its answer is in.
+fn ask_assistant(d: &mut Driver, question: &str) {
+    d.harness.state_mut().ui.coach_ask.input = question.into();
+    d.frames(1);
+    d.click("coach.ask.go");
+    for _ in 0..200 {
+        d.frames(1);
+        if d.harness.state().ui.coach_ask.assist_id.is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    d.frames(2);
+}
+
+/// Fork AI3.5c: "Also ask the assistant" adds the model's checked lines and their sources below
+/// the guide's answer; without a model the box says why and keeps the guide's answer; unticking
+/// stops and clears it.
+#[test]
+fn coach_ask_box_shows_the_assistant_answer_or_why_not() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    d.click("coach.ask.open");
+    assert!(!d.harness.state().session.prefs.color.coach.assistant, "off by default (slow on the CPU)");
+    // off: only the keyword coach answers
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply: "x" }));
+    d.harness.state_mut().ui.coach_ask.input = "why use several nodes?".into();
+    d.frames(1);
+    d.click("coach.ask.go");
+    d.frames(2);
+    assert!(d.harness.state().ui.coach_ask.assist_id.is_none() && d.harness.state().ui.coach_ask.assist.is_none());
+    // on, with no model: the guide's answer stays and the assistant says why
+    d.click("coach.ask.assistant");
+    d.frames(1);
+    assert!(d.harness.state().session.prefs.color.coach.assistant, "a preference");
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: false, reply: "" }));
+    ask_assistant(&mut d, "why use several nodes?");
+    let a = d.harness.state().ui.coach_ask.assist.clone().expect("an assistant result");
+    assert_eq!(a["state"], "done", "{a}");
+    assert_eq!(a["source"], "coach", "{a}");
+    assert!(d.element("coach.ask.assistLine.1").is_none());
+    assert!(d.harness.state().ui.coach_ask.answer.is_some(), "the guide's answer stays");
+    // with a model: its checked lines are listed
+    // (the box asks in the pick style: the model names guide steps by key, Q35)
+    let reply = "A1 B1";
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply }));
+    ask_assistant(&mut d, "why use several nodes?");
+    let a = d.harness.state().ui.coach_ask.assist.clone().expect("an assistant result");
+    assert_eq!(a["source"], "model", "{a}");
+    assert!(d.element("coach.ask.assistLine.1").is_some(), "{a}");
+    assert!(d.element("coach.ask.assistStop").is_none(), "no Stop once it's done");
+    assert!(d.element("coach.ask.assistDontKnow").is_none(), "{a}");
+    // the answer is remembered for a follow-up; "New topic" forgets it
+    let (q, a) = d.harness.state().ui.coach_ask.last_exchange.clone().expect("remembered");
+    assert_eq!(q, "why use several nodes?");
+    assert!(!a.trim().is_empty(), "{a}");
+    d.click("coach.ask.newTopic");
+    assert!(d.harness.state().ui.coach_ask.last_exchange.is_none());
+    // "Show me": the assistant's answer offers its lesson unless the guide's answer above already does
+    let reply = "A1 A2";
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply }));
+    ask_assistant(&mut d, "how do I fix skin with a qualifier?");
+    let a = d.harness.state().ui.coach_ask.assist.clone().expect("an assistant result");
+    assert_eq!(a["lesson"]["id"], "fix-skin", "{a}");
+    assert!(d.element("coach.ask.lesson").is_some() && d.element("coach.ask.assistLesson").is_none(), "offered once, above");
+    if let Some(g) = d.harness.state_mut().ui.coach_ask.answer.as_mut() {
+        g["lesson"] = serde_json::Value::Null;
+    }
+    d.frames(2);
+    d.click("coach.ask.assistLesson");
+    assert!(d.harness.state().session.coach.active.is_some(), "the lesson started");
+    d.exec("coach.exit", json!({}));
+    d.click("coach.ask.newTopic");
+    // the model says the guide doesn't cover it: its lines stay, with a pointer to the guide's answer
+    let reply = "NONE";
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply }));
+    ask_assistant(&mut d, "why use several nodes?");
+    let a = d.harness.state().ui.coach_ask.assist.clone().expect("an assistant result");
+    assert_eq!((a["source"].as_str(), a["dontKnow"].as_bool()), (Some("model"), Some(true)), "{a}");
+    assert!(d.element("coach.ask.assistDontKnow").is_some(), "{a}");
+    d.click("coach.ask.newTopic");
+    // unticking clears it
+    d.click("coach.ask.assistant");
+    d.frames(2);
+    assert!(d.harness.state().ui.coach_ask.assist.is_none());
+    assert!(d.element("coach.ask.assistLine.1").is_none());
+    // closing the box stops a question still being answered
+    d.click("coach.ask.assistant");
+    d.harness.state_mut().ui.coach_ask.input = "why use several nodes?".into();
+    d.frames(1);
+    d.click("coach.ask.go");
+    assert!(d.harness.state().ui.coach_ask.assist_id.is_some() || d.harness.state().ui.coach_ask.assist.is_some(), "asked");
+    // (the box grows upwards as the answer comes in: let it settle before clicking ×)
+    d.frames(3);
+    d.click("coach.ask.close");
+    assert!(d.element("coach.ask.input").is_none(), "closed");
+    assert!(d.harness.state().ui.coach_ask.assist_id.is_none() && d.harness.state().ui.coach_ask.assist.is_none());
+}
+
 // ---------- context hints and the lesson list (G2.12 part 3) ----------
 
 fn hint_id(d: &mut Driver) -> Value {
@@ -885,10 +1017,10 @@ fn coach_hint_card_shows_dismisses_links_and_turns_off() {
     assert_eq!(hint_id(&mut d), json!("first-node"));
     assert!(d.element("coach.hint.card").is_some());
     assert!(d.element("coach.hint.lesson").is_some(), "the hint links its lesson");
-    // the Ask / Lessons buttons sit above the card
+    // the Ask / Lessons buttons are in the header (FORK-PLAN §1a.78), never over the card
     let card = d.element("coach.hint.card").unwrap();
     let ask = d.element("coach.ask.open").unwrap();
-    assert!(ask[1] + ask[3] <= card[1] + 1.0, "buttons {ask:?} above the hint {card:?}");
+    assert!(ask[1] + ask[3] <= 40.0 && ask[1] + ask[3] <= card[1], "buttons {ask:?} in the header, above the hint {card:?}");
     d.click("coach.hint.dismiss");
     assert!(d.element("coach.hint.card").is_none());
     assert_eq!(hint_id(&mut d), json!(null));
@@ -937,7 +1069,7 @@ fn coach_lessons_list_lists_and_starts_lessons() {
     // from the Help menu, in any workspace
     d.ok("ui.set", json!({"workspace": "Editing"}));
     d.frames(2);
-    assert!(d.element("coach.lessons.open").is_none(), "the buttons belong to the Color Grading workspace");
+    assert!(d.element("coach.lessons.open").is_some(), "the buttons are in the header in every workspace");
     d.exec("coach.showLessons", json!({}));
     d.frames(2);
     assert!(d.element("coach.lessons").is_some());
@@ -953,4 +1085,75 @@ fn coach_lessons_list_lists_and_starts_lessons() {
     d.frames(2);
     let v = d.ok("ui.elements", json!({"prefix": "coach.lessons.item.nodes-and-flow"}));
     assert_eq!(v.as_array().map(Vec::len), Some(1), "{v}");
+}
+
+/// Wait until the Assistant panel's answer is in.
+fn wait_for_chat(d: &mut Driver) {
+    for _ in 0..200 {
+        d.frames(1);
+        if d.harness.state().ui.assistant.running.is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    d.frames(2);
+}
+
+/// Fork §1a.78: the Assistant button opens the chat as a floating panel; questions are answered
+/// with checked lines, or the guide's answer and why when the model can't run; the panel docks
+/// between other panels like any panel; New chat clears it and the button closes it.
+#[test]
+fn assistant_panel_floats_answers_docks_and_closes() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    assert!(d.element("panel.Assistant").is_none());
+    let shown_before = d.harness.state().ui.dock.clone();
+    d.click("assistant.open");
+    d.frames(2);
+    assert!(d.harness.state().ui.floating.iter().any(|g| g.panels.contains(&filmcraft_ui_egui::dock::PanelKind::Assistant)), "opens floating");
+    assert_eq!(d.harness.state().ui.dock, shown_before, "the docked panels and their shown tabs are unchanged");
+    assert!(d.element("panel.Assistant").is_some() && d.element("assistant.input").is_some());
+    // no model: the guide's answer and why
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: false, reply: "" }));
+    d.harness.state_mut().ui.assistant.input = "why use several nodes?".into();
+    d.frames(1);
+    d.click("assistant.send");
+    wait_for_chat(&mut d);
+    let turns = d.harness.state().ui.assistant.turns.clone();
+    assert_eq!(turns.len(), 1);
+    let a = turns[0].result.clone().expect("a result");
+    assert_eq!((a["state"].clone(), a["source"].clone()), (json!("done"), json!("coach")), "{a}");
+    assert!(d.element("assistant.turn.1").is_some());
+    // with a model: its checked lines (pick style: guide step keys)
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply: "A1 B1" }));
+    d.harness.state_mut().ui.assistant.input = "why use several nodes?".into();
+    d.frames(1);
+    d.click("assistant.send");
+    wait_for_chat(&mut d);
+    let a = d.harness.state().ui.assistant.turns.last().and_then(|t| t.result.clone()).expect("a result");
+    assert_eq!(a["source"], "model", "{a}");
+    assert!(d.element("assistant.line.2.1").is_some(), "{a}");
+    assert!(d.element("assistant.stop").is_none(), "Send again once it's done");
+    // docked between two panels, like any panel (here: left of Curves)
+    let ctx = d.harness.ctx.clone();
+    filmcraft_ui_egui::menus::invoke(d.harness.state_mut(), &ctx, "window.dockPanel", json!({"panel": "Assistant", "anchor": "ColorCurves", "zone": "left"}))
+        .expect("docks");
+    d.frames(3);
+    assert!(d.harness.state().ui.dock.contains(filmcraft_ui_egui::dock::PanelKind::Assistant), "docked");
+    let (chat, curves) = (d.element("panel.Assistant").expect("on screen"), d.element("panel.ColorCurves").expect("on screen"));
+    assert!(chat[0] + chat[2] <= curves[0] + 1.0, "{chat:?} left of {curves:?}");
+    assert_eq!(d.harness.state().ui.assistant.turns.len(), 2, "the chat survives the move");
+    // New chat, then the button closes the panel
+    // everything fits a narrow docked panel
+    let chat = d.element("panel.Assistant").unwrap();
+    for id in ["assistant.new", "assistant.input", "assistant.send"] {
+        let r = d.element(id).unwrap_or_else(|| panic!("{id} on screen"));
+        assert!(r[0] >= chat[0] - 1.0 && r[0] + r[2] <= chat[0] + chat[2] + 1.0, "{id} {r:?} inside {chat:?}");
+    }
+    d.click("assistant.new");
+    assert!(d.harness.state().ui.assistant.turns.is_empty());
+    d.click("assistant.open");
+    d.frames(2);
+    assert!(d.element("panel.Assistant").is_none());
 }

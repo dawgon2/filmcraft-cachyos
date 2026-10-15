@@ -180,12 +180,12 @@ mod linux {
         count: usize,
     }
 
-    /// The common checks: 4:2:0 (HEVC: or 4:2:2, fork U0.2.3), one bit depth, progressive; the
-    /// output geometry.
+    /// The common checks: 4:2:0 (HEVC: or 4:2:2, fork U0.2.3), one bit depth, progressive (H.264:
+    /// or interlaced, fork H1); the output geometry.
     fn geometry(info: &NalStreamInfo) -> std::result::Result<Geometry, String> {
         let bits = info.bit_depth_luma;
         let chroma_ok = info.chroma_format_idc == 1 || (info.chroma_format_idc == 2 && info.codec == NalCodec::Hevc);
-        if !chroma_ok || info.bit_depth_chroma != bits || info.interlaced {
+        if !chroma_ok || info.bit_depth_chroma != bits || (info.interlaced && info.codec != NalCodec::H264) {
             return Err(format!(
                 "{} chroma format {} at {bits}/{}-bit is not taken",
                 if info.interlaced { "interlaced" } else { "progressive" },
@@ -203,7 +203,8 @@ mod linux {
         let profiles = h264_profiles(info.profile_idc).ok_or_else(|| format!("H.264 profile_idc {} is not taken", info.profile_idc))?;
         let rbsp = parameter_set(&info.parameter_sets, 1, |h| h & 0x1f == 7).ok_or("no SPS")?;
         let sps = filmcraft_h264::params::Sps::parse(&rbsp).map_err(|e| e.to_string())?;
-        sps.check_supported().map_err(|e| e.to_string())?;
+        // field pictures and MBAFF are taken (fork H1; the software decoder too since H2.5 / H2.6)
+        sps.check_coding_tools().map_err(|e| e.to_string())?;
         Ok(H264Setup {
             profiles,
             size: (sps.width(), sps.height()),

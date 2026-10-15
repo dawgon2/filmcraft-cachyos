@@ -148,7 +148,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             let (hr, _) = bui.allocate_exact_size(vec2(body.width(), 18.0), Sense::hover());
             let heading = if *kind == TrackKind::Video { tl!("Video") } else { tl!("Audio") };
             bui.painter().text(pos2(hr.min.x + 8.0, hr.center().y), Align2::LEFT_CENTER, heading, Tokens::semibold(11.5), t.text_dim);
-            let mt_now = it.source_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+            let mt_now = it.source_time_at(ph.clamp(it.start, it.end() - Tick(1)));
             // Premiere lists the fixed effects (Motion, Opacity, Time Remapping / Volume…) first.
             let mut order: Vec<usize> = (0..it.effects.len()).collect();
             order.sort_by_key(|i| !it.effects[*i].def().is_some_and(|d| d.intrinsic));
@@ -474,7 +474,7 @@ fn tnr_section(app: &mut FilmcraftApp, ui: &mut egui::Ui, body: Rect, lane: &Rec
         return;
     }
     let ph = app.session.playhead();
-    let mt = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+    let mt = it.effect_time_at(ph.clamp(it.start, it.end() - Tick(1)));
     let merge = format!("ec-{}", crate::panels::grade::gesture(ui));
     let mut cmds: Vec<(&'static str, Value)> = Vec::new();
     let mut autos: Vec<(String, Rect, String)> = Vec::new();
@@ -487,6 +487,47 @@ fn tnr_section(app: &mut FilmcraftApp, ui: &mut egui::Ui, body: Rect, lane: &Rec
         });
     });
     ui.add_space(4.0);
+    // keyframes in the lane, on their rows: diamonds (click: playhead there; drag: move it, one
+    // `tnr.moveKeyframe` on release, snapped to a frame as an effect's keyframe is)
+    if lane.width() > 1.0 {
+        let dur = it.duration.0.max(1) as f64;
+        let rate = app.session.sequence_rate();
+        for (key, param) in it.temporal_nr.iter().flat_map(|n| n.params.iter()).filter(|(_, p)| p.is_animated()) {
+            let row_id = format!("tnr.{key}");
+            let Some(y) = autos.iter().find(|(id, ..)| *id == row_id).map(|(_, r, _)| r.center().y) else { continue };
+            for k in &param.keyframes {
+                let tl = it.start + Tick(((k.time - it.source_in).0 as f64 / it.speed.abs().max(1e-6)) as i64);
+                let f = ((tl - it.start).0 as f64 / dur) as f32;
+                if !(-0.01..=1.01).contains(&f) {
+                    continue;
+                }
+                let id = egui::Id::new(("tnr-kf", clip.0, key.as_str(), k.time.0));
+                let drag_off: Option<f32> = ui.data(|d| d.get_temp(id));
+                let kr = Rect::from_center_size(pos2(lane.min.x + f * lane.width() + drag_off.unwrap_or(0.0), y), vec2(15.0, 15.0));
+                let resp = ui.interact(kr.expand(2.0), id, Sense::click_and_drag());
+                let col = if resp.hovered() || resp.dragged() { t.hot_text } else { Color32::from_rgb(0xb0, 0xb0, 0xb0) };
+                icons::paint(ui.painter(), kr, Icon::Keyframe, col);
+                autos.push((format!("tnr.{key}.keyframe.{}", k.time.0), kr, "keyframe".to_string()));
+                if resp.dragged() {
+                    let off = drag_off.unwrap_or(0.0) + resp.drag_delta().x;
+                    ui.data_mut(|d| d.insert_temp(id, off));
+                }
+                if resp.drag_stopped() {
+                    let off = drag_off.unwrap_or(0.0);
+                    ui.data_mut(|d| d.remove::<f32>(id));
+                    let new_tl =
+                        rate.snap_nearest(it.start + Tick(((f + off / lane.width()) as f64 * dur) as i64)).clamp(it.start, it.end() - rate.frame_duration());
+                    let new_media = it.source_in + Tick(((new_tl - it.start).0 as f64 * it.speed.abs()) as i64);
+                    if new_media != k.time {
+                        cmds.push(("tnr.moveKeyframe", json!({"clip": clip.0, "param": key, "mediaTime": k.time.0, "to": new_media.0})));
+                    }
+                }
+                if resp.clicked() {
+                    cmds.push(("playhead.set", json!({"time": tl.0})));
+                }
+            }
+        }
+    }
     // (rows scrolled out of the panel aren't clickable, so they don't register)
     let visible = ui.clip_rect();
     for (id, rect, label) in autos {
@@ -1106,7 +1147,7 @@ pub fn properties_panel(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         && section(&mut bui, app, "Audio", it.effects.iter().position(|e| e.effect == "volume").map(|i| (i, clip.0)), &mut actions)
     {
         let clip = *clip;
-        let mt = it.source_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+        let mt = it.source_time_at(ph.clamp(it.start, it.end() - Tick(1)));
         let val = |eid: &str, p: &str| it.effect(eid).and_then(|e| e.param(p)).map(|p| p.value_at(mt));
         let r = row(&mut bui, tl!("Level"));
         let mut vui = bui.new_child(

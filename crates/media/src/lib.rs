@@ -160,6 +160,12 @@ pub trait MediaSource: Send + Sync {
     /// to the compositing GPU scaled by `scale` ((0, 1]): only for a source no request will ask
     /// more of (an export's own sources). Sources without such decoders ignore it (the default).
     fn set_handoff_scale(&self, _scale: f32) {}
+    /// The name of the video decoder that decoded this source's last frames ("VA-API H.264 (in
+    /// process)", "FilmCraft H.264", …), `None` before the first frame or for sources without
+    /// one (fork H3.2b: the Properties dialog's Decoder line). Must not wait for a decode.
+    fn decoder_name(&self) -> Option<String> {
+        None
+    }
     /// The frame displayed at media time `req.time`.
     fn video_frame(&self, req: FrameRequest) -> Result<Arc<VideoFrame>>;
     /// `frames` audio frames starting at sample index `start` (at `sample_rate`, media time).

@@ -7,12 +7,27 @@ For a fresh session. Read `FORK-PLAN.md` first (§1 fork rules, **§1a standing 
 files (GRADE, RESOLVE-UI, YOUTUBE, AUDIO, AI, COMPOSITOR, STORAGE, H264, RAW, DECODER) only when a
 step points at them. Rewritten 2026-10-14 after the X422 acceptance (scheduled run).
 
+**NOW (owner, live 2026-10-15 ~05:20, FORK-PLAN §1a.79): ship, then pause.** (1) H1 / H2 / H3 accepted: run their owed
+PC checks, tag `h264-1/2/3` (+ `audio-2` after A2's owed fresh-context review), build (§1a.9), publish (§1a.33).
+(2) AI3 to acceptance now: GPU inference to < 1 s first words / < 10 s typical answer, AI-PLAN AI3 accept list, no tune,
+tag `ai-3`, build, publish. Work at STEADY or better for this regardless of the weekly line (owner override); keep only
+the 5-hour hard stop. (3) Then create `.fork-paused`, message the live session "Progress since 1:30 pm" that it's shipped,
+and stop. Don't start C2.
+
 **Phase order (FORK-PLAN §1a.6, the only valid order):** … → Y1 ✓ → 6E ✓ → U0.2 ✓ → AI1 ✓ →
-X422 ✓ → **Y3** → C1 → **AI3** (§1a.73–74; knowledge work on the Dell first) → C2 → AI2 → S1 → S2 → G3 → 7 (+ Y4) → Y2 → C3 → C4 → G4 → A3 → R1 →
+X422 ✓ → **Y3** → C1 → **AI3** (§1a.73–74; knowledge work on the Dell first) → C2 → AI2 → **A3** (§1a.76) → S1 → S2 → G3 → **UPD** (§1a.77, update check) → 7 (+ Y4) → Y2 → C3 → C4 → G4 → R1 →
 R2 → D → 8. Small phases are accepted in groups (§1a.41). AI1 moved right after U0.2 and the
 4:2:2 export cases (X422) right after AI1 by the owner 2026-10-13 (§1a.69). **A2 and then
 H1 → H2 → H3 run on the Dell lane (owner 2026-10-14, §1a.72); the main runner skips them.**
 **Owner, live 2026-10-14 ~12:55 (§1a.75):** AI3 trains on **all of editing**, the Compositor (C1) included, not only grading; only features built by the tune, later phases add pages / pairs / eval questions and the tune is refreshed. **Q30 (a) accepted** (A2's numbers stand). **Q31 (a) yes:** the Dell lane may download the ITU-T H.264.1 conformance streams (Dell only, never committed) for H1.5 PAFF and H2. Q29 ok.
+**Owner, live 2026-10-15 ~00:35 (§1a.78), done (AI3.5f `8cedc686`, merged):** Lessons / Ask the coach / **Assistant** are pills in
+the Resolve page bar left of Home (Premiere: the header's right side; `coach::bar_buttons`); the Ask box only opens from them. AI3's
+chat is `PanelKind::Assistant` (`panels/assistant.rs`): the button opens it floating (left of the coach's card column), dockable like
+any panel; chat turns in `UiState::assistant` (never saved), follow-ups from the last model answer, New chat, Stop, clickable lines →
+spotlight, Show me; fallback shows the keyword coach's steps. Tests: `coach_ui::assistant_panel_floats_answers_docks_and_closes`,
+`pages_ui` placement checks; guide color/coach.md "The Assistant panel". **Next for the chat (main runner):** it uses the same
+`coach.assist` path, so GPU inference speeds both; a Settings ▸ Color row to install the model from the panel when `notReady` would help.
+Known flake (not from this change, fails on the base too under load): `panels_ui::scopes_of_colour_bars` in a parallel run.
 **A1 (Dell lane, §1a.60) accepted by the owner 2026-10-14 ~01:20 (§1a.71)**; its tag `audio-1` is on `f8c3e788` with `x422` (2026-10-14).
 **L1 / L2 part 2 accepted by the owner (live, 2026-10-14 ~01:10; was ready 2026-10-13 22:55, Dell lane; scheduled task `filmcraft-dell-lane`,
 lock `.dell-lane.lock`):** the last two steps merged: **L1.5** `d0c68898` (upstream #260 off-thread
@@ -52,7 +67,7 @@ here); #410 ("buggy audio", no repro steps) → covered only by the soak. **Owed
 acceptance:** the soak once on the PC's own output (`tools/fork/a1-audio-soak.sh 300`; it uses a null
 sink and the first card's profile), a listen at 1× / 2× for pitch after a default-sink change, and
 the real output latency (`perf.stats` `playback.audio`). Tag `audio-1`: on `f8c3e788` with `x422`.
-**A2 ready for acceptance (Dell lane, 2026-10-14 ~08:30; §1a.72; scheduled task `filmcraft-dell-lane`,
+**A2 accepted by the owner (live, 2026-10-15 ~00:15, §1a.76; tag `audio-2` after the owed review below); its Voice Isolation quality work moves into A3.** Was: **A2 ready for acceptance (Dell lane, 2026-10-14 ~08:30; §1a.72; scheduled task `filmcraft-dell-lane`,
 lock `.dell-lane.lock`; worktree `.claude/worktrees/dell-lane`, branch `dell-lane` = hevc-vaapi, nothing
 unmerged; tag `audio-2` rides with the next phase group).** Audit `docs/fork/PREP-A2.md` (step map §5). Merged: A2.1 `26d2e7c5` (new L2 crate
 `crates/voice`: mixed-radix FFT, DFN3 STFT / ERB / features / deep filter), A2.2 `93e0eb8b` (checked
@@ -117,29 +132,25 @@ for hardware fronts, `check_supported` still refuses interlaced for software) an
 `crates/h264/src/dpb.rs`: H1.2a `7158790c` per-field marks / POCs, `Dpb::store` with `FieldPocs`,
 `is_second_field` pairing (ask it before `idr()` / gap fill), field sliding window and MMCOs; H1.2b `c61fcb00`
 `build_field_ref_lists` (to_ref gets entry + `Parity`); H1.2c `e9294236` `Poc::picture`) merged, self-reviewed
-(weekly usage above pace). **H1.3 + H1.4 are built but NOT merged**: local branch **`dell-lane-h1-3`**
-(`52cdb73b` H1.3, `1c6c8243` H1.4, on top of `585b4bd6`; also on the Dell's scratch repo), waiting only for the
-**fresh-context Opus review** the platform rule requires (weekly usage above pace: no subagents this run).
-H1.3: `vaapi/mod.rs` `geometry()` takes interlaced H.264 (HEVC still refused) and `h264_setup` calls
-`check_coding_tools`; `vaapi/h264.rs`: `check_coding_tools`, no `field_pic` refusal, a second field
-(`Dpb::is_second_field`) decodes into its first field's surface without IDR / gap handling, CurrPic and
-reference entries carry `VA_PICTURE_H264_TOP/BOTTOM_FIELD` (new consts in `ffi.rs`, no new `unsafe`) with only
-their own fields' order counts, field slices use `build_field_ref_lists`, the frame list goes by
-`DpbEntry::is_reference`, storage through `Dpb::store` with both field POCs (equivalent for frames); recorder
-tests: synthetic PAFF stream (pairing, flags, lists by 8.2.4.2.5), MBAFF, hostile field sequences + 200 bit-flip
-rounds; the Recorder now allows a second field's target to be listed as its first field alone. H1.4:
-`tests/vaapi.rs::interlaced_h264_matches_ffmpeg`: three libx264 MBAFF fixtures (tff / bff, B-pyramid, 4 refs,
-weightp, CAVLC) **bit-exact vs ffmpeg's decode on the Dell's UHD 770**; interlaced dropped from the decline test;
-guide `hardware.md` row. Gates on the Dell green (fmt, clippy, h264 + platform tests incl. hardware, layers,
-wasm, engine coach tests). **Review points:** the second-field surface reuse vs the zero-copy accelerator's
-held frames (a first field is never read out before its pair, so it can't be held); a mid-stream hardware
-failure on an interlaced stream can't continue in software (the software decoder refuses interlaced until H2),
-so it errors as before H1; the ffmpeg-pipe path (`vaapi_pipe.rs`) still declines interlaced. **Next run with
-subagent room:** review `git diff 585b4bd6 dell-lane-h1-3` (Opus, fresh context), fix, rebase onto
-hevc-vaapi, re-run the platform tests on the Dell, fast-forward merge; then H1.5 (PAFF real files: **Q31**
-open; zero-drop playback check; "H1 ready for acceptance"). AMD checks (MBAFF / PAFF on VCN) owed on the PC at
-acceptance.
-**H2 started in parallel** (H1 waits only for its review; sequencing choice logged here): audit
+(weekly usage above pace). **H1 ready for acceptance (Dell lane, 2026-10-14 ~18:50; tag `h264-1` rides with the main runner's next phase
+group).** Merged: H1.3 `b728822d` (VA-API front takes PAFF and MBAFF: `vaapi/h264.rs` field flags / per-field order
+counts / second field into its first field's surface / field reference lists, `geometry()` takes interlaced H.264),
+H1.4 `50f2a402` (`tests/vaapi.rs::interlaced_h264_matches_ffmpeg`, libx264 MBAFF fixtures), H1.5 `995b48ab`
+(`interlaced_conformance_streams_match_reference`, ignored; ITU-T set via `FILMCRAFT_H264_CONFORMANCE_DIR`), H1.5b
+`81addcfd` (`interlaced_1080i_is_bit_exact_and_faster_than_real_time`, ignored). **Review:** fresh-context Opus review
+done in this run's own session (it had never seen the diff; no subagent, weekly usage above pace, Q33 note); no
+new `unsafe` (ffi.rs gains two flag constants only), so no Fable review needed. No blocking findings; non-blocking: an
+unpaired field (its partner lost) leaves the other field's lines from the surface's previous picture on hardware (the
+software path copies the field; never a crash). **Checklist on the Dell (UHD 770, Mesa iHD):** fmt ✓, clippy
+platform + h264 ✓, platform tests ✓ (24 + 1080i), layers ✓; **ITU-T interlaced set 65 bit-exact (PAFF, MBAFF, mixed;
+CAVLC / CABAC; High 8x8), 3 declined (MR6/7/8_BT_B: Extended profile), 0 failed; 1080i29.97 MBAFF (tff, B-pyramid, 4
+refs) bit-exact vs ffmpeg, 549.8 fps decode (18× real time).** Finding for acceptance: the hybrid decoder starts
+streams that open on a non-IDR I picture in software (24 of the conformance set); with H2 merged the software path
+decodes them too (bit-exact), but such files (broadcast captures cut mid-GOP) then decode on the CPU until the hybrid
+moves to hardware. ~~AMD VCN interlaced~~ ✓ 2026-10-14 18:40 (RX 6700 XT, `FILMCRAFT_VAAPI_DEVICE=/dev/dri/renderD129`,
+release: `interlaced_h264_matches_ffmpeg` (3 MBAFF cases) + 1080i29.97 MBAFF bit-exact vs ffmpeg at 378 fps, synthetic;
+the 32 GB conformance set stays on the Dell). **Still owed on the PC at acceptance:** the in-app zero-drop playback of a 1080i file on both GPUs.
+**H2 started in parallel** (sequencing choice logged here): audit
 **docs/fork/PREP-H2.md** (H2.0 `e29d8814`: parsing and the field DPB are done, frame threading exists, everything
 below the slice header is 8-bit 4:2:0 frame coding; step map H2.1–H2.8; conformance vectors ride on **Q31** a).
 **H2.1 (sample-type groundwork) done** (2026-10-14 ~11:45, self-reviewed: weekly usage above pace, PREP-H2 §4 allows
@@ -197,7 +208,7 @@ conformance_vectors -- --ignored --nocapture`); `f65643cb` (merged) crops refere
 accepts references that repeat pictures / mix fields per the pic_struct SEI (CVSE2 / CVSE3 / CVSEFDFT3) when both
 fields of every decoded picture appear in order. **hevc-vaapi (2026-10-14 14:40): 125 pass, 92 unsupported (all
 interlaced, FMO, SP/SI, monochrome), 1 skipped (alpha), 0 failed.**
-**H2.5 (PAFF in software) built and green, NOT merged** — branch **`dell-lane-h2-5`** (local + the Dell's scratch
+**H2.5 (PAFF in software) merged 2026-10-14 ~19:20** (`d94bb1e8` and before; was branch `dell-lane-h2-5`) (local + the Dell's scratch
 repo; on top of): H2.5a field-aware `Frame`; H2.5b intra field pictures (first /
 second field, interleave after the second, unpaired field filled by copying); H2.5c inter fields (reference
 fields, chroma offset, field scans and CABAC field contexts, field deblocking); H2.5d direct prediction in
@@ -210,23 +221,86 @@ unsupported (42 MBAFF, 3 FMO, 2 SP/SI, 2 monochrome) / 1 skipped / 0 failed (+43
 8-bit progressive perf_1080p 1 thread −0.9 % (96.4 vs 97.3 fps, alignment-pinned A/B, inside layout noise).**
 Engine test `ai_explain_tests::panic_error_and_timeout_fall_back` failed once under full-workspace load and passes
 alone (timing; not touched here). Self-reviewed only (weekly usage above pace, no subagents).
-**H2.6a–c (MBAFF intra, inter, direct) built and green, NOT merged** — branch **`dell-lane-h2-6`** (on top of
-`dell-lane-h2-5`): design PREP-H2 §7 (merged); H2.6a pair addressing, mb_field_decoding_flag (read ahead /
-inferred), the Table 6-4 neighbour mapping behind every neighbour lookup, field-MB reconstruction (line step 2),
-MBAFF as a const generic of `SliceDecoder` (progressive perf parity 97.1 vs 97.2 fps); H2.6b field-MB references
-(refIdx >> 1 frame, refIdx & 1 parity), weights, MC, motion neighbours by luma sample (C / D from the line above);
-H2.6c direct with MBAFF colocated pairs (per-MB field flags + field reference ids in published rows), temporal
-over field POCs. **Conformance 177 pass / 40 unsupported (33 = MBAFF with the loop filter, 3 FMO, 2 SP/SI, 2
-monochrome) / 0 failed** (+9 MBAFF streams over H2.5; every loop-filter-off MBAFF stream bit-exact). Lessons: two
-recalled Table 6-4 details were wrong and the conformance streams (and the Toshiba `mv_trace` MVP files) decided;
-Dell-only tools `crates/h264/examples/fc_*.rs` on the scratch repo (untracked, never committed).
-**Next:** H2.6d MBAFF deblocking (33 streams as the oracle), H2.6e accept MBAFF by default (hook off), guide rows.
-**Next run with subagent room:** fresh-context **Opus** review of `git diff f65643cb dell-lane-h2-5` and then
-`dell-lane-h2-5..dell-lane-h2-6` (decoder.rs
-field picture lifecycle / unpaired fields / job threading, slicedec.rs colocated mapping, deblock.rs, picture.rs),
-fix, fast-forward merge; also still owed: the H1.3 + H1.4 review (`dell-lane-h1-3`). Then **H2.6 MBAFF** (42
-conformance streams as the oracle; flip `set_field_pictures` default when done) and H1.5. Dell leftovers: A/B
-worktree `~/Projects/fc-base` (at `9c7f81a5`) + `~/Projects/fc-perf-*` targets (≈0.5 GB, reusable for perf A/B).
+**H2.6 (MBAFF) merged 2026-10-14 ~19:20** (through H2.7b `346c0cc1`; was branch `dell-lane-h2-6`) (on top of `dell-lane-h2-5`; both
+on this PC and the Dell's scratch repo): H2.6a pair addressing / mb_field_decoding_flag / Table 6-4 neighbours /
+field-MB reconstruction (MBAFF a const generic of `SliceDecoder`); H2.6b field-MB references, weights, MC; H2.6c
+direct with MBAFF colocated pairs; H2.6d MBAFF deblocking (pair order, mixed edges line by line, field-mode top
+edge), chroma DC per-half availability; H2.6e interlaced accepted by default (hook gone), guide `hardware.md` row;
+PREP-H2 §6 / §7 "As built" notes. **Branch results on the Dell: fmt, workspace clippy, h264 / codecs / media tests,
+layers, wasm green; ITU-T conformance (218 archives) 210 pass / 7 unsupported (2 monochrome, 3 FMO, 2 SP/SI:
+outside H2) / 1 skipped / 0 failed — every PAFF and MBAFF stream bit-exact; 8-bit progressive perf_1080p 1 thread
+98.4 vs 97.4 fps (base `9c7f81a5`); H2.7b (same branch): x264 1080i MBAFF bit-exact vs ffmpeg, 31.9 fps on 1 thread,
+144.7 fps on 16 (fork-benchmarks.md).** Dell-only debug tools in `~/fork-logs/fc-tools/` (never committed).
+**Reviewed and merged (2026-10-14 ~19:20, Dell lane):** fresh-context Opus review in the run's own session (Q33
+update; no subagent): no blocking findings (H2.5's duplicated colocated comment was already fixed in H2.6; unpaired
+first fields are filled on the decoder thread, which waits for that field's job: latency, not a hang; MBAFF neighbour
+indices stay inside the even pair geometry, and any slip is caught per picture as gray). Rebased onto hevc-vaapi
+(guide `hardware.md`: one interlaced H.264 row, VA-API first, own decoder as fallback). **Gates on the Dell after the
+rebase:** fmt ✓, workspace clippy ✓, h264 / codecs / platform / media tests ✓, layers ✓, wasm ✓, **ITU-T conformance
+210 pass / 7 unsupported (monochrome, FMO, SP/SI) / 1 skipped / 0 failed.**
+**H2 ready for acceptance (Dell lane, 2026-10-14 ~19:55; tag `h264-2` rides with the main runner's next phase
+group).** All of H2.1–H2.6, H2.7a / H2.7b and H2.8a / H2.8b are merged (last: H2.8b `0f929430`). Checklist (Dell,
+i5-13500T): **ITU-T H.264.1 conformance 210 pass / 7 unsupported (2 monochrome, 3 FMO, 2 SP/SI: outside scope) / 1
+skipped (alpha) / 0 failed** (every in-scope profile: Baseline / Main / Extended-as-Main / High / High 10 / Hi422 /
+Hi10 Intra / Hi422 Intra, progressive, PAFF and MBAFF); the fixture matrix (x264, plus VideoToolbox streams on macOS) 57 bit-exact vs ffmpeg (incl. High
+10, High 4:2:2 8 / 10-bit Intra and Long-GOP, and since H2.8b four interlaced MBAFF ones: CABAC, CAVLC bff, High 10,
+High 4:2:2 10-bit); never-crash rounds (bit flips incl. parameter sets, truncation, depth / chroma switches,
+damaged synthetic field / MBAFF streams, damaged x264 MBAFF streams; 1 and 4 threads): no panic, no hang; 4K 10-bit
+4:2:2 25p (H2.7a): Long-GOP 43.2 fps, Intra 632 Mbit/s 26.8 fps with 16 threads (1 thread 8.5 / 3.3); 1080i MBAFF 31.9
+fps on 1 thread, 144.7 on 16; guide `hardware.md` rows. **Deferred (FYI):** slice-level threads (Q32; frame
+threading carries 4K 4:2:2). **Owed on the PC at acceptance:** fps on the i5-11600K (`cargo test --release -p
+filmcraft-h264 --test perf -- --ignored --nocapture perf_4k_422_10 perf_1080i_mbaff`), the H2.7 profile of the
+−2.3 % 8-bit 4:2:0 slowdown (no `perf` on the Dell), the 4K 4:2:2 fixtures and a 1080i file played in the app
+(a real camcorder 1080i file if the owner has one).
+**H3.0 audit merged** (`ed98d5c5`, docs/fork/PREP-H3.md, 2026-10-14 15:45): once H1 / H2 merge, ffmpeg is already
+unnecessary for every in-scope H.264 stream; choice (c): H3.1 drops the ffmpeg pipe from the chain for H.264 only
+(HEVC left to Phase 7.7), H3.2 clip badge / Decoder line, H3.3 ffmpeg-hidden + hardware-pulled harness, H3.4 playback
+check + guide. H1 and H2.5 / H2.6 are merged, so H3 code can start (after H3.2a's review).
+**H3.2a merged** (`e63c6410`, 2026-10-14 ~19:35, reviewed in-run, gates green on the Dell after the rebase; was branch `dell-lane-h3-2`)
+(`git diff origin/hevc-vaapi...dell-lane-h3-2`; local + the Dell's scratch repo): the Project panel says when
+H.264 decodes in software: High 4:2:2 gets the 4:2:2 badge (never "hardware failed", which is HEVC-only now),
+High 10 4:2:0 an amber "10" badge "H.264 10-bit: software decode"; not claimed under VideoToolbox (Apple silicon may
+take those profiles). `proxy_jobs::{is_h264, bit_depth, software_h264_high_bit_depth}`, `hardware_422_failed(info)`;
+engine tests (hostile pixel-format labels) + UI test `media_ui::h264_software_decode_badges` (Premiere and Resolve);
+es / zh-cn; guide `hardware.md` options table (edit the original / proxy / intra export). Dell gates: fmt, workspace
+clippy, engine proxy_jobs + coach, ui media_ui + coach + i18n, layers, wasm green. Joins the Q33 review queue (a
+low-risk UI diff: a Sonnet review is enough). **H3.2b** merged (below).
+**H3.1 + H3.3 + H3.4a merged** (`66ef1c63` / `34a843f7` / `9fdbc1b3`, 2026-10-14 ~19:00, in-run fresh-context
+review of `crates/platform` (no new `unsafe`; no blocking findings: the chain's closures, the pipe-name check and the
+guide's "H.264 never uses ffmpeg" hold; H.265 export is the only other ffmpeg user); was branch `dell-lane-h3-1`):
+**H3.1** H.264 never decodes through the ffmpeg pipe (`vaapi_chain` in `crates/platform/src/lib.rs`: zero-copy →
+read-back → FilmCraft's own decoder; HEVC keeps the pipe until 7.7; `hardware_decoder_for` follows it), **Q34** (FYI,
+choice c); **H3.3** `crates/platform/tests/ffmpeg_free.rs` (ignored): the product's chain in child processes with
+ffmpeg hidden, hardware / Hardware decoding Off / VA driver pulled × 7 fixtures (H.264 progressive, High 10, 4:2:2
+10-bit, MBAFF, MBAFF 4:2:2 10-bit; HEVC Main, Main 10): **all pass on the Dell's UHD 770, every picture identical to
+the software decoder, none through the pipe**; **H3.4a** guide `hardware.md` § "H.264 without ffmpeg". Base had moved
+by docs only, so the branch's Dell gates stand (fmt, clippy, platform tests incl. VA-API hardware, coach, layers).
+**H3.2b merged** (`8253a5a5`, 2026-10-14 ~19:15, self-reviewed: weekly usage above pace): File ▸ Get Media File
+Properties for ▸ Selection… has a **Decoder** line (the decoder that decoded the file last, e.g. "VA-API H.264 (in
+process)" / "FilmCraft H.264"; follows a hybrid's mid-stream fallback; "chosen when the clip first plays" before the
+first frame; files only). `GopCache::decoder_name` (a leaf lock, never waits on a decode; intra decoders recorded when
+made, outside the race window `intra_frames_decode_in_parallel_once_each` measures), `MediaSource::decoder_name`
+(default `None`; mp4 / mkv / mxf / mpeg / apv and the unreadable-slate wrapper forward it), `decoder` in
+`file.mediaProperties`; codecs + engine + UI tests (`media_ui::media_properties_decoder_line`, Premiere and Resolve);
+es / zh-cn; guide `hardware.md`. Dell gates: fmt, workspace clippy, codecs gop / media / engine project_tools +
+media_pool + coach / ui media_ui + menus_ui + coach + i18n, layers, wasm green (re-run after the rebase onto AI3.6a).
+`intra_frames_decode_in_parallel_once_each` failed once under full load in the first gate (6 / 6 alone; then the
+record moved out of its window). **H3.4b done (2026-10-14 ~19:30, no code):** the release app in a virtual KWin on the Dell (`kwin_wayland --virtual`,
+1920×1080), ffmpeg hidden (`FILMCRAFT_FFMPEG=/nonexistent`, PATH without it; log: "ffmpeg not usable"), `--empty`,
+control channel: four 10 s 1080p25 x264 clips (High, High 10, High 4:2:2 10-bit, MBAFF tff), each its own sequence,
+9 s of playback each. **Played 220–224 frames, 0 dropped**, except **1 dropped on the first software-decoded play of a
+session** (High 10 or 4:2:2, whichever plays first; 0 on every later play: warm-up, not codec-specific; noted, not
+fixed). High and MBAFF: `hardware.frames` 236, `backends` only "VA-API H.264 (in process)"; High 10 and 4:2:2 (proxies
+off): `softwareFrames` 237 / 239, no backend; with Automatic proxies on, the 4:2:2 clip played from its proxy (HEVC on
+VA-API). **No stream went through the ffmpeg pipe.** Properties dialog (screenshots): "Decoder: FilmCraft H.264" /
+"Decoder: VA-API H.264 (in process)". Scripts / logs on the Dell: `~/fork-logs/h3-4b-{run,run2,drive}.*`.
+**H3 ready for acceptance (Dell lane, 2026-10-14 ~19:35; H264-PLAN H3; tag `h264-3` rides with the main runner's next
+phase group).** Merged: H3.0 audit `ed98d5c5`, H3.1 `66ef1c63` (H.264 never through the ffmpeg pipe), H3.2a `e63c6410`
+(software-decode badges), H3.2b `8253a5a5` (Decoder line), H3.3 `34a843f7` (ffmpeg-free harness: 7 fixtures × 3
+setups pass on the UHD 770), H3.4a `9fdbc1b3` (guide "H.264 without ffmpeg"), H3.4b above. **Owed on the PC at
+acceptance:** `cargo test --release -p filmcraft-platform --test ffmpeg_free -- --ignored --nocapture` on the RX 6700 XT;
+the same in-app playback (ffmpeg hidden) on both GPUs; H1's 1080i zero-drop playback; H2.7's profile. Dell leftovers: A/B worktree `~/Projects/fc-base` (at
+`9c7f81a5`) + `~/Projects/fc-perf-*` targets (≈0.5 GB, reusable for perf A/B).
 
 ## Status
 
@@ -235,10 +309,10 @@ worktree `~/Projects/fc-base` (at `9c7f81a5`) + `~/Projects/fc-perf-*` targets (
   `coach-1`, `yt-1`) and the **6E group on `d866cb4c` (2026-10-13): `phase-6e`, `linux-1a`,
   `linux-2a`**, **`upstream-sync-2` on `e090c0c9` (2026-10-13, U0.2 + U0.2.3b)** and `ai-1` on
   `bcb5f713` (2026-10-14) and the **X422 group on `f8c3e788` (2026-10-14): `x422`, `audio-1`, `linux-1b`,
-  `linux-2b`** and **`yt-3` on `db7c1d0d` (2026-10-14)**. Builds in `~/Apps/filmcraft-builds/`; `latest` → `yt-3`; launcher
+  `linux-2b`** and **`yt-3` on `db7c1d0d` (2026-10-14)** and **`comp-1` on `236c1c0c` (2026-10-14)**. Builds in `~/Apps/filmcraft-builds/`; `latest` → `comp-1`; launcher
   `~/.local/share/applications/filmcraft-fork.desktop`. Public (§1a.33): dawgon2/filmcraft-cachyos
-  branch `fork` snapshot `9abdf285` (of `yt-3`, parent `62992ebb` = `fork-x422`), tag `fork-yt-3`,
-  release `fork-yt-3` (scrubbed Dell build; NOTES.md); earlier tags `fork-x422`, `fork-audio-1`,
+  branch `fork` snapshot `ca059e2e` (of `comp-1`, parent `9abdf285` = `fork-yt-3`), tag `fork-comp-1`,
+  release `fork-comp-1` (scrubbed Dell build; NOTES.md); earlier tags `fork-yt-3`, `fork-x422`, `fork-audio-1`,
   `fork-linux-1b`, `fork-linux-2b`.
 - **U0.2 as shipped:** one VA-API stack: upstream's H.264 / HEVC front ends on the fork's
   `va::Display` with `va_accel::ZeroCopyAccel` (zero-copy, hand-off incl. scaled, read-back mode);
@@ -266,12 +340,31 @@ worktree `~/Projects/fc-base` (at `9c7f81a5`) + `~/Projects/fc-perf-*` targets (
   path, and not a name inside prose): use `user` in test fixtures and never write the owner's user
   name in docs.
 - **Owed (not blocking):**
-  - *U0.2:* Opus review of U0.2.3b d (per-source hand-off scale, `handoff_scales`, decode-only lane)
-    and U0.2.4 / .5 (display layer, `Busy` / `quiesce`) when the usage mode allows (STEADY / LEAN);
-    `teardown_ui` fails under the full parallel ci run (8 references left after 3 s) but passes alone
-    (known flake since 6E: make it deterministic); hand-off scale only for MP4 / MOV sources (MKV
-    etc. ignore `set_handoff_scale`); U0.2.3 owed (ii) re-grey test needs failure injection, (v)
-    `va_dual_export::two_gpus_keep_the_colours_of_one` with the Intel device forced.
+  - *U0.2:* ~~Opus review of U0.2.3b d and U0.2.4 / .5~~ ✓ 2026-10-15: fixed (1) an MP4 clean aperture was cut in full-size
+    coordinates from a scaled hand-off picture (wrong part / aspect): such sources hand off unscaled (`GopCache::crops`, test
+    `a_clean_aperture_keeps_the_hand_off_unscaled`); (3) `with_handoff_scale` restores on unwind (drop guard, test
+    `a_panic_inside_restores_the_scale`). ~~(2) comp items in `handoff_scales`~~ ✓ (media a comp's Media In reads keeps full size, a comp reading a track keeps the whole sequence at full size; test `media_a_comp_reads_keeps_full_size`). **Left:**
+    (4) `quiesce()` vs live decode / encode threads: ✓ in part 2026-10-15 (each picture submit — decode, video processing,
+    encode — holds `Busy`, so exit waits for one in flight and refuses new ones; test `crates/platform/tests/va_exit.rs`,
+    diagnostic `va::work_refused_while_exiting`); ✓ 2026-10-15 04:10: surface work outside a submit (sync, image read / write,
+    DMA-BUF export, new / spare surfaces, coded-buffer maps) holds it too (test `crates/platform/tests/va_exit_sync.rs`, failed before);
+    (5) ~~`va.rs` Send / Sync comment~~ corrected 2026-10-15; ~~drivers other than Mesa / iHD shared unchecked~~ ✓ 2026-10-15 05:12 EDT:
+    `Display::open_raw` refuses them (`driver_is_thread_safe`: vendor string starts "Mesa Gallium driver" / "Intel iHD driver"),
+    software decode instead, `FILMCRAFT_VAAPI_ANY_DRIVER=1` overrides (Q36; per-display serialisation for NVIDIA = Phase 8);
+    ~~(6) nit: `KEPT` cap 64 unreachable today~~ ✓ 2026-10-15 04:33 EDT (named `KEPT_MAX`, a display past it is logged as not kept);
+    ~~`teardown_ui` flake~~ ✓ 2026-10-15 (reproduced with `teardown_ui timeline text title trim`
+    at 6 threads: other tests' ~100 frame / background threads starve the closed app's last frame; the test now
+    checks that no queued frame job runs after the close and that everything exits within 2 min, via
+    `FrameServer::live_workers`; a missing stop still fails it). **Left:** render-cache cancel latency inside one frame (CLOUD-QUEUE item 10, cloud
+    diagnosis); the 2 min bound is only a never-stops check for it. Thread names in its failure list are
+    inherited: unnamed threads started from a `filmcraft-background` / `filmcraft-frames-N` thread (rayon pool,
+    decoder threads) carry that name on Linux, so ~38 "filmcraft-backg" is not one worker per session; ~~hand-off scale only for MP4 / MOV sources~~ (MKV and MXF implement
+    `set_handoff_scale` now, test `crates/codecs/tests/handoff_scale.rs`); U0.2.3 owed (ii) re-grey test needs failure injection, ~~(v)
+    `va_dual_export::two_gpus_keep_the_colours_of_one` with the Intel device forced~~ run 2026-10-15
+    (`FILMCRAFT_VAAPI_DEVICE=/dev/dri/renderD128`): colours kept (worst mean chroma shift 0.06, bound 1.0), but its PSNR bound
+    fails: 2.15 dB (bound 0.5), because the second lane is then AMD, whose encoder gives lower chroma PSNR than Intel's at the
+    same settings; with AMD primary (the default) the second lane is the better encoder. Not a colour bug; if Intel-primary
+    dual exports matter, compare against the weaker GPU's single export in that test.
   - *6E:* Intel lane barely helps graded exports (retired); `Rgba16Float` effect stage on
     integrated GPUs would let it; a hung lane can still be the slow-lane comparison until the
     watchdog; (`perf.stats` lanes now report `retired` apart from `failed`, 2026-10-13);
@@ -286,9 +379,9 @@ worktree `~/Projects/fc-base` (at `9c7f81a5`) + `~/Projects/fc-perf-*` targets (
   - *Y1:* idle zero-copy slots not trimmed / counted; AMD open-GOP-seek parity covers the I
     picture only; the fork HEVC pool may share the iHD context-lifetime hazard; Dell run of
     `tests/vaapi.rs` (U0.2.3 has a Dell run anyway).
-  - *Earlier:* 6.7b TNR keyframe markers / label width; RS3 cramped Color page, Markers vs Index,
+  - *Earlier:* ~~6.7b TNR keyframe markers / label width~~ ✓ 2026-10-15 (lane diamonds: click seeks, drag = `tnr.moveKeyframe`); RS3 cramped Color page, Markers vs Index,
     missing panels, Fairlight strip, home-screen screenshot compare; Phase 6 frame-server proxy
-    hint, `cache.claimFolder`, decode-to-screen fps with hardware 4:2:2, software 4:2:2 memory cap
+    hint, ~~`cache.claimFolder`~~ ✓ 2026-10-15, decode-to-screen fps with hardware 4:2:2, software 4:2:2 memory cap
     (ask first), TNR / cache / proxy 6.2K bench cases.
 - **DC1 done (2026-10-13):** `fork/dell-ci/` installed on the Dell (user timer, every 2 min, only
   while the owner is logged in: Linger=no). Use: `git push ssh://dell~/Projects/filmcraft-main
@@ -301,82 +394,206 @@ worktree `~/Projects/fc-base` (at `9c7f81a5`) + `~/Projects/fc-perf-*` targets (
 - Cloud: CLOUD-QUEUE has C1-PREP, AI1-PREP, R1-PREP (docs only). Merge `origin/cloud-work` first
   if it has new commits.
 
-## Exact next step: C1 (COMPOSITOR-PLAN, simplified node compositor), step 1
+## Exact next step: §1a.79 order: (1) H group acceptance (owed PC checks → tags h264-1/2/3 → build → publish), (2) AI3 to acceptance (GPU inference, STEADY+), (3) `.fork-paused`
 
-**yt-3 accepted 2026-10-14** (Y3.1 GPU keys, Y3.2 attach to track / tracked blur, Y3.3 screen replacement,
-Y3.4 user WGSL shader effects + 4 examples, Y3.5 look packs; all synthetic). The Y3 working notes are
-archived at the end of `docs/fork/PROGRESS-LOG-ARCHIVE.md` ("HANDOFF notes for Y3"). Owed from Y3 (not
-blocking): a fresh-context review of the Y3 diffs (`git log 14705d16^..yt-3`, the GPU user-effect pass in
-`crates/gpu/src/fx.rs` and the device-lost hook especially) when the mode allows (STEADY or better); the
-X422 2b fusion review; the MKV 4K-from-6.2K Intel export check (cloud MKV-HANDOFF); Color Key Edge Thin;
-a look at the Effects ▸ User folder on screen (not screenshotted).
+**2026-10-15 05:50 (scheduled run):** H group in progress: `ffmpeg_free` on the RX 6700 XT and H2 perf on the i5-11600K
+running; then in-app 1080i / 4K 4:2:2 playback on both GPUs (ffmpeg hidden), tags, build, publish. AI3 notes below stay valid. **Done 05:55:** H3 ffmpeg_free on AMD ✓, H2 perf ✓, in-app 1080i zero drops on AMD + Intel ✓, 4K 4:2:2 H.264 plays at
+9–24 / 25 fps (recorded; proxies recommended; burstiness → Open problems). Done since: A2 review + fixes `a8c708b9`, ci (AMD VCN fault, Q37; Intel + Dell green), tags
+`h264-1/2/3` + `audio-2`. Left for (1): build `~/Apps/filmcraft-builds/h264-3` (§1a.9) → publish (§1a.33).
 
-**C1 plan:** `docs/fork/DESIGN-C1.md` (2026-10-12) is the design; §7 has the 13 steps, lanes and the
-critical path 1 → 2 → 3 → 5 → 7 → 10 → 13. **Done:** step 1 (ADR **0007** `docs/adr/0007-node-graph.md`,
-provisional) and step 2 (`crates/project/src/dag.rs`: `validate`, `Order { steps }`, `Order::last_use`,
-`DagError`, caps; 12 tests) and step 3a (`crates/project/src/comp.rs`: types, `params(kind)`,
-`sanitize`, `impl DagNode`; the Text node holds the `graphic_text` `EffectInstance`, not a
-`LayerSpec`) and step 3b (`ItemKind::Comp(Arc<Comp>)` everywhere; `nest_cycle` follows comps; format
-sanitizes comps on load; a comp clip renders transparent until step 5). Step 4 done (schema v18, fuzz test). Step 5a done (`crates/render/src/comp/mod.rs`: `compile`,
-`Program` / `Pass`, liveness slots, `execute_cpu`, `render_cpu`, `CompSources`, gradient; 12 golden /
-scheduling tests). Step 5b done (comp clips render on the CPU path and through the frame plan as CPU layers;
-`comp/project.rs` `ProjectSources`; `comp_clip_tests.rs`). Step 6 done (Text node via
-`graphic_clip::render_graphic_layers`, comp B shape test). Step 11 started 2026-10-14: `docs/guide/compositor.md` (partial: basics, making, convert, the two recipes, speed; in `GUIDE_PAGES` + `NOT_INDEXED`; the coach UI walk opens the Compositor) — add the inspector / viewer / Fusion page sections with 10b. **Next** (any order; critical path is 7, a large GPU step best done in STEADY or better with a Fable/Opus builder):
-**step 7: 7a done 2026-10-14** (`PlanLayer.comp`, not a `PlanStep::Comp`: keeps `FramePlan::Layers` so GPU export
-stays on the GPU; `render::comp_plan_layer`; the GPU still runs the program on the CPU in `render_plan`'s fallback).
-**Step 13 progress 2026-10-14:** bench comp-1080 / comp-2160 half real time; 30-min comp soak passed (0 drops / errors,
-RSS plateau); architecture §5 + ADR 0007 as-built written. 10b done 2026-10-14 (Color node fully editable; Mask shapes dragged on the Program monitor,
-no Bézier handles yet). Still for acceptance: screenshots in both workflows (looked at 2026-10-14, both fine; redo at the tag), an Opus review of `gpu/src/comp.rs` (LEAN+), `cargo xtask ci`, tag `comp-1`,
-build / publish. **7d done 2026-10-14 (comps real time: comp-1080 / comp-2160 half 192 / 0 drops, synthetic; Item Media In sources still
-CPU images: give them `media_in_layers` too when a bench shows it).** Was: bench (`bench --section playback --only comp`, scenarios `comp-1080` /
-`comp-2160`) shows 75 % / 91 % drops: ~400 ms CPU per frame because Media In nodes render their source on the CPU
-(`comp::project::ProjectSources::media_in` → CPU image → `Pass::Image`, uploaded every frame). Plan: a new
-`Pass::Layers { dst, layers: Vec<PlanLayer> }` that `compile` emits for Media In when the sources can give plan
-layers (`CompSources::media_in_layers`, default None → today's image path): `ProjectSources` builds them with the
-frame-plan code (`push_item` for the Media In item / the track's items at comp time, scaled to the comp size);
-`execute_cpu` runs `plan::execute_layers` into a blank image; the GPU `slot_draw`s the layers (decoded / hardware
-frames, zero-copy). Then re-bench. **7b + 7c done 2026-10-14** (`crates/gpu/src/comp.rs` `run_comp`, `comp_tests.rs`, AMD + Intel parity; owed: an Opus
-review of `comp.rs` in LEAN or better; `backdrop` / `post` reallocate when comp and frame sizes alternate: pool per
-size if the step-13 bench shows it). The design as built (kept for the review): in `crates/gpu` (new `comp.rs`), `GpuCompositor::run_comp(&Program) -> Arc<VideoFrame>`:
-slots = `Option<(Texture, View, (w, h))>` per `Tex` + scratch, created like `Self::target` with ACCUM_FORMAT and
-`COPY_SRC | COPY_DST`; each slot has a stable placeholder frame (`RgbaF32(Arc::new(Vec::new()))`, program size) and is
-**registered in `self.uploads`** under that frame's key (`Uploaded { views: [slot view, dummy ×3], kind: 1,
-code_scale 1, texel_scale 1, alpha_scale 0, chroma (w, h), last_used: clock }`) right before every use (the LRU
-evicts at 24; never let `upload` see a placeholder unregistered: its empty pixels would be uploaded). Passes:
-Image = `render_plan(Layers [PlanLayer::new(image frame, IDENTITY, 1, Normal)], clear)` into the slot (swap
-`self.accum` with the slot as transitions do, lib.rs `transition_inputs`); Fill = a 1×1 `rgba_f32` frame scaled by
-`Affine::scale(w, h)`; Copy = `copy_texture_to_texture`; Draw / Over = one slot layer with `xform` (Draw: clear
-true; Over: clear false, `mode`, `opacity`; hq → `with_quality`); src == dst or Fx = draw into scratch and swap
-slot handles; Fx = the slot layer with `fx: Some(LayerFx { size: program size, decimation: 1, ops })`, identity.
-Then in `render_plan`, before the accumulator is taken, replace each comp layer's frame with `run_comp`'s out
-frame (drop its CPU fallback branch). VRAM: `textures × w × h × 8 B` over `fx::FX_VRAM_BUDGET` → keep the CPU
-fallback (log once). Sizes alternate (comp vs frame) so `backdrop` / `post` reallocate: pool them per size if it
-shows in the bench. **7c:** parity tests in `crates/gpu/src/tests.rs` per pass kind + comps A / B vs `execute_cpu`
-(≤ 1e-3 rel) on AMD and Intel (`MESA_VK_DEVICE_SELECT`, see memory `machine-gpu-render-nodes`).
-(Was: **step 7** GPU `PlanStep::Comp` (Draw / Fx / Over on pooled canvases, VRAM check → CPU
-fallback, AMD + Intel parity; a Fable/Opus builder per §1a.44 when the mode allows, else do it here);
-step 9 done (`widgets/node_canvas.rs`, generic canvas + 5 tests); step 10a done
-(`panels/comp.rs`, `PanelKind::Compositor`, `tests/ui/comp_ui.rs` both workflows); **step 10b**: node
-inspector (schema rows done 2026-10-14: `panels/comp.rs::inspector` with the shared
-`transition_controls::param_widget`, ids `comp.param.<key>`; still owed: Color node = grade tab widgets, Text rows done (layer params, text field), Mask = mask list done 2026-10-14 (`panels/comp.rs::mask_rows`: Add ellipse / rectangle, Inverted, Delete → `comp.setMasks`; ids `comp.mask.{ellipse,rect}`, `comp.mask<k>.{inverted,delete}`), feather / opacity / expansion rows `comp.mask<k>.<param>` done; still owed: viewer shape editor (Color needs `grade.rs::palette` refactored to target a comp node instead of a clip: do it in STEADY or better); the per-row stopwatch `comp.param.<key>.stopwatch` is done), `Target::CompNode` viewer (render side done 2026-10-14: `filmcraft_render::render_comp_node(project, seq, clip, node, t, opts, sources)` = the clip's comp with `output = node`, at comp time; `Target::CompNode(seq, clip, node)` in `frames.rs`, `panels/comp.rs::viewer_target` used by the Program monitor while the Compositor is open and a non-output node is viewed (`canvas.viewed`: double-click / node menu View / UI command `comp.view {node?}`) done 2026-10-14, not screenshotted; the "Show: Media Out / <node>" combo `comp.viewer` done too; Compositing workspace + Fusion page between Edit and Color done 2026-10-14: `dock.rs` "Compositing", `pages.rs` `fusion`, Fusion toolbar; not screenshotted)
-(done 2026-10-14: Open in Compositor = `comp.open`, and the timeline node-count badge `timeline.rs::comp_badge`,
-not yet looked at on screen); step 8a done (`engine/src/comp.rs`: 15 core `comp.*` commands + `comp_tests.rs`); step 8b part done (`comp.newClip`, `comp.setMasks`, and `comp.convertToCompClip` 2026-10-14: stacked clips
-only, same start / end, strict refusals per DESIGN-C1 §9; same-track sequences and animated Motion / Opacity are
-refused for now, relax in C4; the step-11 guide page must cover it); `comp.open` done 2026-10-14 (UI command in `panels/comp.rs::route`, Clip ▸ Compositor ▸ Open in Compositor, by `clip` / `comp` / selection; an opened comp holds until the selection changes, `opened_with` in the panel state); **rest of 8b**: none (`comp.view` done as a UI command). `tools/comp-accept.json` done 2026-10-14 (the `command_batch` args building comp A on
-V2 and comp B on V3 over V1 footage via Media In `track: 0`; node ids are fixed: 1 = Media Out, then 2, 3, … in
-add order; engine test `the_acceptance_batch_builds_comps_a_and_b` runs it step by step as the MCP server does). Static-subgraph cache (DESIGN-C1 §3.2) done 2026-10-14:
-`comp::compile_cached` (used by `render_cpu`; step 7's GPU path should call it too, its cached pictures arrive as
-`Pass::Image`), `static_tops`, 256 MB LRU `StaticCache`; Color nodes and Media In are never static, any keyframe
-makes a node dynamic. **C1 item 7 (AI help for Fusion)** part done 2026-10-14: `comp.explain` (`engine/src/comp_explain.rs`, template
-sentences per node; no UI button yet); 8 compositing eval questions added and `compositor.md` indexed (eval 93/124, floor 93; 6 compositing misses
-left); lesson `first-comp` (Text / Transform / Merge / Media Out, walk test
-`coach_first_comp_end_to_end`); and `key-comp` (Media In / Key / Solid / Merge / Color,
-`coach_key_comp_end_to_end`); assistant plan §4a written: **item 7 done**. **Step 12 / C1 item 6 (Coach fixes)** part done 2026-10-14: what-for, x-vs-y, order and not-yet routes + typo stand-in in
-`coach_ask` (eval 91/116, floor 91); heading-idf weight measured useless (dead end); and the why-first summary (`Answer::explain`):
-**C1 item 6 done** (`docs/fork/coach-eval/DIAGNOSIS.md` §4). In
-MINIMAL mode do the integrator steps yourself, no lanes; lanes A–D / T only when the mode allows
-builders. The user-effect registry (`filmcraft_project::effect::UserEffectSpec` / `user_effect_module`)
-is the shape a later "Shader" comp node can reuse (ADR 0006 consequences).
+**2026-10-15 03:58 (scheduled run, LEAN):** the owed C1 GPU-comp review and U0.2 review are done (fixes + tests, leftovers
+listed under Status › Owed). Token-light leftovers are now thin. **Next = GPU (wgpu) inference for AI3.3b**: step 1 (Q4_K matvec) ✓ 05:45 in MINIMAL, see "AI3.3b GPU step 1" below for
+steps (a)–(e); the bigger ones (attention, forward path) best once the mode is
+STEADY or better (Opus / Fable designer + builder per §1a.44); CLOUD-QUEUE item 14 (AI3-GPU-PREP) asks the cloud for the
+design prep `docs/fork/PREP-AI3-GPU.md`: read it first if it has landed. In LEAN / MINIMAL meanwhile: the in-app AMD + Intel
+look at a comp reading an F-Log2 clip (C1 owed); ~~C2's design note~~ ✓ 05:21 (`docs/fork/DESIGN-C2.md`) (`vaSyncSurface` outside submits ✓ 2026-10-15 04:10). Comp mask Bézier handles ✓ 2026-10-15 04:27 EDT; Ctrl-click add / delete points on comp masks ✓ 2026-10-15 04:32 EDT.
+
+**Order fix 2026-10-14 16:50 (scheduled run):** this section said "C2 next", but FORK-PLAN §1a.74 puts
+**AI3 between C1 and C2** (… C1 → AI3 → C2 → AI2 …). AI3 is the current phase; the C2 plan below waits.
+AI3-PREP (items 0a–0d, 6) is done on the Dell (see above). **Main-runner step map** (AI-PLAN items 1–6):
+- **AI3.2a ✓** (2026-10-14): `coach_ask::retrieve(question, k)` (≤ `MAX_RETRIEVE` 12): a second BM25 index
+  over **every** guide page (NOT_INDEXED practice / general pages included; README.md left out) that also
+  searches each section's compact header (`does:` ×2, `when` / `resolve` / `premiere`); the coach's own index
+  is unchanged (colour eval floor untouched). `retrieval_finds_the_advanced_sets_sources`: **recall@5 60 / 63**
+  on advanced.toml (floor 60; misses `adv-grain-where`, `adv-shot-match-limits`, `adv-black-point`),
+  `retrieval_survives_hostile_questions`.
+- **AI3.2b ✓** (2026-10-14): `coach_assist::assistant_prompt(question, &AssistContext, budget_chars)` → `AssistPrompt { system, user, sources }` (6 sections, best 2 with full text when they fit, others header + steps; budget in chars, default 12 000, max 64 000; markers sanitised; 3 tests). Token-exact budgeting waits for AI3.3 (the model's tokenizer).
+- **AI3.2c ✓** (2026-10-14): heading-word boost in `retrieve` (`ASSIST_HEADING_MATCH` 0.5); `adv-grain-where` also accepts `color.nodes.starter-tree` (it states grain goes on the last node); `practice.grading.black-white-points` header `when:` names blacks / whites. **recall@5 62 / 63** (floor 62; `adv-black-point` "how far down should my blacks go?" still misses, left honest).
+- **AI3.4a ✓** (2026-10-14, done before AI3.3 because it needs no model): `coach_ask::ground(answer, &sources, &Checks) -> Grounded` checks a model answer line by line (a line naming an unknown control / a command-namespace id that isn't registered is dropped, ids listed; `[id]` citations of sections not sent are taken out as `invented_citations`; `General advice:` lines marked; ≤ 80 lines / 16 000 chars); 2 tests. Sources list in the UI ✓ (AI3.5c). **"I don't know" ✓ (2026-10-14 18:58 EDT):** no section found → `AssistFallback::NothingFound` (model not asked); the model saying the sections don't cover it → `AssistAnswer::dont_know` / JSON `dontKnow` (lines kept, keyword coach's answer alongside, UI note `coach.ask.assistDontKnow`); tests `the_assistant_says_when_it_does_not_know` + the box test.
+- **AI3.3a ✓** (2026-10-14): **SmolLM3-3B runs on our runtime.** `Family::SmolLm3` (GGUF arch `smollm3`;
+  `Config::no_rope_step` 4: layers 3, 7, 11 … skip the rotary embedding, as llama.cpp; interleaved rope like
+  `llama`; tied output; end-of-text `<|end_of_text|>`), `chat_prompt` follows the published template in
+  `/no_think` mode (metadata header, **no `<|im_end|>` after the system block when there are no tools** —
+  that is what the template writes —, empty think block; "Today Date" left out), catalogue entry
+  `smollm3-3b-q4km` pinned to `ggml-org/SmolLM3-3B-GGUF@4965cb60` Q4_K_M (1 915 305 312 B, sha256 verified)
+  + base-repo tokenizer `@a07cc9a0`. Test `smollm3_skips_the_rotary_embedding_on_its_nope_layers`. **Real
+  model** (`tests/model.rs` with `FILMCRAFT_LLM_DIR=target/ai3-models/root`, files in
+  `target/ai3-models/smollm3-3b/`, never committed): coherent answer, verify 1.3 s, load 1.1 s, **~5.9 tok/s**
+  generation, prefill 981 tokens in 24.4 s (~40 tok/s), first words 1.8 s with the system prompt cached
+  (release build, this PC, synthetic). Guide `color/matching.md` names the model.
+- **AI3.3c ✓** (2026-10-14, ahead of 3b): `coach_assist::answer(backend, model, question, ctx, checks) ->
+  AssistAnswer` (blocking; run off the UI thread): prompt → `ExplainBackend::generate` (400 tokens, 90 s) →
+  `ground`; the keyword coach answers with `AssistFallback::{NotReady, Error, Ungrounded}` otherwise. Test with
+  a scripted backend.
+- **AI3.3d ✓** (2026-10-14): commands **`coach.assist {question, page?, selection?, gradeFacts?, model?}`** →
+  `{id, model}` and **`coach.assistResult {id, wait?}`** → `{state: pending|done|unknown, source: model|coach,
+  sources, lines[{text, general, ui, commands}], cited, removedLines, removedIds, inventedCitations, fallback,
+  coach}`. `Session::assist: coach_assist::AssistJobs` (background thread `filmcraft-assist` under
+  `catch_unwind`, one model answer at a time, ≤ `MAX_PENDING` 4 waiting, 32 kept; command ids snapshotted for
+  the worker; no backend (no `llm` feature / wasm) → the coach answers at once). Model: `ASSIST_MODEL`
+  `smollm3-3b-q4km` or `model` param (an "Assistant model" pref comes with the UI). Test
+  `coach_assist_commands_answer_in_the_background`. **Streaming ✓** (2026-10-14 evening): `answer_streaming`, pending results carry `partial` (unchecked text so
+  far; a stop → coach fallback; an evicted question stops the model). **Forget ✓:** `coach.assistForget {id}` stops / drops an answer. **Not yet:** a real-model end-to-end run of
+  `coach.assist` (do it with AI3.3b's smaller budget).
+- **AI3.4b ✓** (2026-10-14): `coach_ask::ground_with_text(answer, sources, sent_text, checks)`: in a line with
+  an action word (click / press / open / select / find / use …) every `**bold**` / "quoted" label, and every
+  shortcut (`Ctrl+N`) anywhere, must appear in the guide text sent (`AssistPrompt::sent_text`), else the line
+  goes; `answer` uses it. System prompt: "not in FilmCraft yet → say so, no steps"; name controls only as the
+  sections write them. Test from the real hallucination. Ignored real-model test
+  `real_assistant_answers_advanced_questions` (`ASSIST_BUDGET`, `FILMCRAFT_LLM_DIR`).
+- **Real-model findings (SmolLM3-3B Q4_K_M, budget 3 500 chars ≈ 1 000 tokens, 400 max new tokens,
+  2026-10-14, synthetic):** 48–70 s per answer (target < 10 s); answers are long (300–400 tokens); **no
+  citations** in 2 of 3; on the gap question "how do I add a parallel node like in Resolve?" it **invents the
+  feature** ("Parallel Mixer", `Ctrl+N`, a "+" button, File ▸ New Project ▸ "Node Tree") even with the rule;
+  the label check removes 4 lines, the rest (unlabelled steps) survives. **So:** (1) gap questions need a
+  deterministic route before the model — if the best sections say "not yet" / "not available" for the
+  question's topic, answer from the coach's `not-yet` route or state it up front in the user message;
+  (2) shorter answers (max ~150 tokens, "at most 6 steps") and streaming; (3) the eval (AI3.6) will likely
+  need the tune on training-pairs.jsonl (human review sample first → OWNER-QUESTIONS when it starts);
+  (4) a Fable / Opus design pass on (1)+(3) when the mode allows (MINIMAL today).
+- **AI3.4c ✓** (2026-10-14): gap route. `assistant_prompt` finds a gap in the **best** section (`gap_line`: a
+  "**FilmCraft:** … no / not … yet" first clause, or "Planned: …") → `AssistPrompt::gap`, an "Important, what
+  FilmCraft doesn't have yet [id]: …" note before the question; `answer` caps it at `GAP_ANSWER_TOKENS` 150
+  and opens with the guide's gap line + citation when the model didn't say it. On advanced.toml: **6 / 7 gap
+  questions found, 1 other hit** (`adv-bleach-bypass`, a real partial gap); top-2 / top-3 gave harmful false
+  hits (adjustment layer, reference look). Tests `gap_questions_are_told_…`, `gap_detection_matches_…`.
+- **AI3.3b part 1 ✓** (2026-10-14): shorter by default: `DEFAULT_BUDGET_CHARS` 4 500 (≈ 1 100 tokens),
+  `FULL_TEXT` 1, `MAX_ANSWER_TOKENS` 200, system prompt "at most 6 steps, no headings". Estimate on this PC:
+  ~25 s prefill + ~33 s answer: still far from the acceptance (first words < 1 s, typical answer < 10 s).
+  **The numbers say CPU is too slow for 3B** (AI-PLAN item 3: "GPU inference (wgpu) only if CPU is too slow
+  for a 3–4B model: a separate, bigger step, decide on the numbers"): runner's call, **next big step = wgpu
+  inference for the Q4_K / Q6_K matmuls** (RX 6700 XT / Intel; CPU stays the fallback), a Fable designer +
+  builder per §1a.44 once the mode allows (STEADY or better); in MINIMAL keep to AI3.5 UI / streaming work.
+  Also cheap first: re-measure with the new defaults (`real_assistant_answers_advanced_questions`).
+- **AI3.5c ✓** (2026-10-14 evening): **chat UI, first part.** The Ask the coach box has a
+  **Also ask the assistant (slow: runs on this computer)** checkbox (`coach.ask.assistant`, off by
+  default, provisional until GPU inference): the keyword coach answers at once, then `coach.assist`
+  runs; the box polls `coach.assistResult` each frame (repaint 250 ms) and shows the partial text
+  ("Not checked against the guide yet.") with **Stop** (`coach.ask.assistStop` → `coach.assistForget`),
+  then the grounded lines (`coach.ask.assistLine.{n}`, "General advice" dimmer), **Sources** (cited, else
+  given) and lines left out; a fallback says why in one line. Closing / unticking / a new question stops
+  it. Test `coach_ask_box_shows_the_assistant_answer_or_why_not` (scripted backend); es / zh-cn strings;
+  guide `color/coach.md` › "Also ask the assistant". Side fix: the new section flipped a near-tie in the
+  coach eval (`owner-1-para-d` at the floor 94), fixed guide-side ("Start here when grading any log clip"
+  in `recipes.md` › 1). **Still owed for AI3.5:** follow-up questions (conversation context),
+  "Show me" → lesson from an assistant answer, an "Assistant model" choice. **AI3.5d ✓:** the checkbox is the
+  preference `color.coach.assistant` (default off, lenient: a bad value is off; also Settings ▸ Color ▸ Grading Coach).
+  **AI3.5e ✓ follow-ups:** `coach.assist` takes `previousQuestion` / `previousAnswer` (each ≤ `MAX_PREVIOUS_CHARS`
+  800, sanitised; "Earlier in this conversation" block before the sections; retrieval reads both questions);
+  the box remembers the last checked model exchange (`CoachAsk::last_exchange`) until **New topic**
+  (`coach.ask.newTopic`), close or untick. Test `a_follow_up_carries_the_earlier_exchange`. **AI3.5 left:**
+  "Show me" ✓ (2026-10-14 19:06 EDT, `coach_ask::lesson_for`, `coach.ask.assistLesson`), an "Assistant model"
+  choice (with more models), a real-model end-to-end run of the box (with GPU inference).
+- **AI3.6a ✓ (2026-10-14 19:11 EDT): eval scorer.** `coach_assist::{parse_eval_set, score_case, summarize}`: per case
+  `model_answered` (not the coach / "I don't know"), `cites_source` (a cited id among the case's `sources`), `invented`
+  (removed lines + invented citations: any one fails), `states_gap` for `gap` cases; `auto_pass` is an upper bound
+  (the `must` facts come back in `review` for a reader). Test `eval_scores_sources_inventions_and_gaps`; ignored
+  runner `real_assistant_eval_on_the_advanced_set` (`ASSIST_EVAL_LIMIT`, writes `target/ai3-eval.json`; ~1 min/case
+  on CPU, run on an idle machine or the Dell as a soak). **AI3.6 left:** the `must`-fact check (reader or a judge
+  pass), the run itself (best after GPU inference), tune only if the 85 % floor is missed.
+  **Baseline run 2026-10-14 20:18 EDT (SmolLM3-3B Q4_K_M, CPU, default budget, synthetic): 7 / 85 auto-pass
+  (8 %)**, 19 cite an expected source, 60 had lines / citations removed (real inventions, e.g. "use a Key-Mixer node"
+  on the parallel-node gap), 20–57 s per answer, 63 min total. Floor 85 % → far off: **OWNER-QUESTIONS Q35** (tune on
+  training-pairs.jsonl needs the owner's sample review; provisional: assistant stays off by default, next = GPU
+  inference, meanwhile try (b) extractive answers: the model picks / orders / shortens guide steps only). Report
+  `target/ai3-eval.json` (not committed; carries `removedIds` / `inventedCitations` from the next run on).
+- **AI3.6d ✓ (2026-10-14 20:39 EDT): pick-the-steps style** (Q35 (b)): `AssistStyle::Pick` / `coach.assist {style: "pick"}`, default
+  still `free`; the model only names step keys, the answer is guide text word for word (no inventions by design, ~40
+  tokens out instead of 200). **Full eval ({D}, synthetic): 69 / 85 (81 %), 0 invented** (free: 7 / 85) →
+  pick is now `DEFAULT_STYLE` of `coach.assist` / the box (Q35 update; `style: "free"` kept). Next cheap steps for
+  the 85 % floor (report `target/ai3-eval.json`, not committed): the 4 gap questions that don't state the gap
+  (in pick mode the gap line is only prepended when the reply picks nothing or the first line lacks it: check
+  `adv-outside-node` etc.), the 10 without an expected source (retrieval / which sections fit the budget), the 4
+  "NONE". Then GPU inference (speed) as before.
+  **AI3.6e ✓ ({D}):** scorer accepts "no … yet"; bullet lists split into steps; **fresh run 76 / 85 (89.4 %), 0
+  invented** (synthetic) → floor met on the automatic checks, no tune needed (Q35 update). Left for AI3.6: the `must`
+  facts read (a reader / judge pass over `target/ai3-eval.json`, not committed). **Next big step: GPU (wgpu) inference
+  for AI3.3b** (Fable / Opus designer once the mode is STEADY or better). **`must`-fact read ✓ (2026-10-14 22:30 EDT,
+  [`coach-eval/AI3-MUST-READ.md`](coach-eval/AI3-MUST-READ.md)): 53 / 85 (62 %) state every `must` fact, 73 / 85 (86 %)
+  counting partial answers**, 3 auto-passes miss the point; ~15 answers padded with off-topic picks (the model picks
+  runs of keys from the top sections). A prompt line against padding was tried (73 / 85, padding unchanged) and
+  reverted; the eval runner now defaults to `DEFAULT_STYLE` (pick). **Padding filter ✓ (2026-10-15):**
+  `PICK_MIN_RELEVANCE` 0.5 in `parse_picks` (each `PickStep` carries its section's score / best); replayed on the
+  22:14 answers: 39 / 322 lines dropped, no auto-pass lost (0.6 lost two). `adv-export-size` retrieval fixed guide-side (header `when:`). In MINIMAL meanwhile: the remaining misses (+ ~~`adv-edit-tighten-cut`~~ ✓ 2026-10-15: synonym `late` → trim roll ripple: editing.trimming rank 3 → 1, recall@1 70 / 85, floor raised; `adv-qualifier-chatter` looked at 2026-10-15: the answer sits in `color/secondaries.md` › Tips, the guide's only `### Tips` block, which pick mode doesn't offer (numbered steps only, ≤ `PICK_STEPS` 8, already full there); the `practice.grading.qualify-skin` pitfall bullet was offered and not picked: a model limit, left as is) (~~adv-film-look~~ ✓ 2026-10-15: a **quoted** header `when:` example question whose words are all in the question ranks its section ×1.5 (`ASSIST_WHEN_MATCH`; unquoted `when:` text is a description and isn't boosted: "exporting HDR", "interviews and documentaries" stole rank 1 when tried); `practice.looks.film-curve` rank 2 → 1, recall@1 65 → 66 / 85 (new floor `RETRIEVAL_FLOOR_FIRST`), recall@5 85 / 85; pick prompt now offers its toe / shoulder step first; not re-run on the model; adv-lut-wrong-camera looked at 2026-10-15: its answer (normalise-log A4 / A6 pitfall) was offered as rank 1 and the model replied NONE, a model limit; ~~adv-aces~~ ✓ 2026-10-15: new guide section `practice.delivery.aces` (gap in the first clause, so the gap note fires; quoted `when:`), added to the case's sources, ~~adv-grain-where~~ ✓ 2026-10-15 (`practice.grading.grain-finish` `does:` now says "last node of the tree, after the look": not retrieved → rank 1; recall@1 67 / 85, floor raised; the model had picked the glossary although starter-tree B6 was offered), ~~adv-check-scene~~ ✓ 2026-10-15 (`numbered_list` bug: a wrapped line "100. **Check scene** …" in color/matching.md was taken as the list, so pick mode offered one prose line instead of steps 1–3; now a list interrupting a paragraph must start at 1, as CommonMark; test `a_number_at_the_start_of_a_wrapped_line_is_not_a_step`),
+  adv-edit-proxy-export (looked at 2026-10-15: `proxies.what` A1 states "an export always reads the original files", offered first; the model replied NONE — same pattern as adv-lut-wrong-camera: **yes/no questions get NONE although the first step answers them**; idea for the next model run: a PICK_SYSTEM line "a step that answers a yes / no question counts", measure on those two + a few others; glossary › Proxy had a stale "planned for Phase 6" line, fixed), ~~adv-audio-voice-fast~~ ✓ 2026-10-15 (synonyms `cleanup` → clean up, `quickest` → fast quick: audio.voice-isolation / audio.cleanup-voice rank 1 / 2, were 2 / absent; recall@1 69 / 85, floor raised; coach eval 94 / 124 unchanged), ~~adv-gfx-lower-third-series~~ ✓ 2026-10-15 (quoted `when:` "the same lower third in every episode" on graphics.templates: rank 2 → 1, recall@1 71 / 85, floor raised), ~~adv-media-dual-system-sound~~ (2026-10-15: its answer section `practice.editing.sync-sound` ranks 1 and is correct; added to the case's sources; the model still skipped its Merge Clips / Synchronize step A1 and padded with multicam).
+- **Model re-check ✓ (2026-10-15 ~01:05 EDT, SmolLM3-3B Q4_K_M, CPU, pick style, synthetic):** the 8 cases fixed on 2026-10-15
+  pass 7 / 8 (adv-check-scene answered right from `color.recipes.scene`, now in its sources); the yes / no NONE pattern is fixed by a
+  `PICK_SYSTEM` line ("a step that answers a yes / no question by saying what FilmCraft does counts as an answer"): a second run
+  of lut-wrong-camera, proxy-export, check-scene, film-look, aces and the gap cases outside-node / parallel-nodes: **7 / 7, 0
+  invented**. A full 85-case re-run with the new line is worth doing at the next idle hour (~60 min CPU, few tokens; reports
+  `target/ai3-eval.json`, last full run 76 / 85).
+  **Full re-run ✓ (2026-10-15 01:19–02:00 EDT, pick style, SmolLM3-3B Q4_K_M, CPU, synthetic): 83 / 85 auto-pass
+  (97.6 %), 0 invented, 85 / 85 model-answered**, median 25.6 s per answer (max 90.7 s); misses `adv-mixed-light` and
+  `adv-interview-match` (no expected source cited). Report `target/ai3-eval.json` (not committed; previous 76 / 85 run in
+  `ai3-eval-prev.json`). Misses looked at (2026-10-15 02:20): `adv-interview-match` answered from `color.recipes.match` (rank 1, a correct how-to) → added to the case's sources, and that recipe's wipe step now says "match skin first"; `adv-mixed-light` retrieves its section at rank 1, the model picked day-for-night bullets instead: a model limit, left honest. **Smaller pick prompt ✓ (2026-10-15 02:15–02:43):** `pick_prompt` leaves out sections below `PICK_MIN_RELEVANCE` (their picks were dropped anyway): 3 682 → 3 064 chars on average (test `pick_prompts_leave_out_sections_whose_picks_would_be_dropped`); full re-run **84 / 85 (98.8 %), 0 invented, median 21.5 s (was 25.6), max 32.4 s (was 90.7), 28 min total (was 40)**, only `adv-mixed-light` misses (synthetic). Still far from < 10 s: GPU inference stays the next big step. The `must`-fact read (AI3-MUST-READ.md) was on the 76 / 85 run; re-reading it is optional.
+- **AI3.3b GPU step 1 ✓ (2026-10-15 05:45 EDT, MINIMAL, done in the main run):** `filmcraft-llm` feature `gpu`
+  (`crates/llm/src/gpu.rs`, `gpu_matvec.wgsl`): `GpuContext::{new, upload_q4k, upload_q6k, matvec}` → `GpuMatrix`, Q4_K and Q6_K × f32 matvec (Q6_K ✓ 05:55, 212 B
+  blocks, d as f32), parity with `dequantize_q4k` / `dequantize_q6k` on AMD + Intel. Design choices made without the PREP note (provisional, cheap to change): a `gpu` feature on
+  `filmcraft-llm` rather than a new crate; activations stay f32 on the GPU (no Q8_K); blocks 152 B (scales unpacked).
+  **Next GPU steps (small, in order):** ~~(a) Q6_K matvec~~ ✓; (b) time both on a
+  SmolLM3-sized matrix (11 008 × 2 048) vs `kquant::matvec_q4k`; per-call buffers → persistent x / y buffers; (c) RMSNorm,
+  rope (NoPE layers), SiLU-gate, attention over a GPU KV cache; (d) a `forward.rs` GPU path behind the feature with a
+  logits parity test on the real model (`FILMCRAFT_LLM_DIR`); (e) tiled matmul for prefill. CPU stays the fallback.
+- **AI3.3b (open):** speed (GPU inference, above; prefill profiling). **Prefill checked 2026-10-14 18:20:** already batched
+  (`forward.rs` `PREFILL_CHUNK` 64 → `Weight::matmul` → `quant::rows_at`: rayon tasks of 32 weight rows, AVX2 `dot4_v3`
+  over 4 activation rows, each weight row read once per chunk); 981 tokens in 24 s ≈ 240 GFLOP/s effective, so no cheap
+  CPU fix left (llama.cpp-class tiling might give ≤ 2–3×, still far from < 1 s): **GPU inference stays the next step**,
+  with a Fable / Opus designer once the mode is STEADY or better. In MINIMAL meanwhile: ~~`compositor.md` guide gaps (§1a.75)~~ ✓ 2026-10-14 18:21 (every `comp.*` command documented;
+  advanced.toml + 6 compositing questions ✓ (recall@5 68 / 69, floor 68);
+  + 8 editing / trimming / audio / export ✓ (misses adv-black-point,
+  adv-edit-three-point; audio → sound synonym added; + 8 titles / media / playback / project questions: 80 / 85, floor 80; misses adv-media-send-to-colourist, adv-play-heavy-timeline, adv-proj-move-computer; AI3.2e synonyms 2026-10-14 18:35–18:45: **85 / 85, floor 85**), or the cheap real-model re-measure (`real_assistant_answers_advanced_questions`, needs an idle machine). Acceptance wants first words < 1 s and a typical answer < 10 s: a 3 000-token
+  prompt would take ~75 s of prefill at 40 tok/s, so (1) cache the fixed system prompt's KV (already
+  cached across calls) and keep the per-question part small (≈ 800 tokens: headers + steps, full text only
+  for the top 1; `DEFAULT_BUDGET_CHARS` down to ~3 500), (2) profile the prefill (matmul batch path in
+  `weights.rs`; is Q4_K prefill using the batched kernel?), (3) then wire `assistant_prompt` → `Model` in
+  `crates/engine` behind the `llm` feature (a `coach.assist` command returning the grounded answer). (Was AI3.2b:) prompt assembly in `crates/engine` (no model yet): `assistant_prompt(question, grade facts,
+  on-screen context) -> Prompt` sending header + numbered steps of the top-k first, the full body only for the
+  top 1–2, under a token budget (count with `crates/llm` tokenizer when a model is loaded, else chars / 4);
+  tests: budget respected, every section id cited, hostile input. Then look at the 3 misses (synonyms or
+  header `when:` words, guide-side fixes only if the text really lacks the answer).
+- AI3.3 model: SmolLM3-3B (approved §1a.74) on the AI1 runtime (`crates/llm`: gguf / kquant / forward);
+  download needs no further yes for SmolLM3; check the architecture (SmolLM3 = Llama-style with NoPE layers)
+  against `forward.rs`; tokens/s on this PC. AI3.4 grounding checker (every `{ui:}` / command in an answer
+  checked against the live app, unknown ones removed; "general advice" marking). AI3.5 chat UI (follow-ups,
+  streaming, Show me → lesson; model-free coach as fallback). AI3.6 eval of model + retrieval on advanced.toml
+  (≥ 85 %, no invented controls); tune only if the floor is missed (training-pairs.jsonl needs a human review
+  sample first: ask via OWNER-QUESTIONS). AI3.1 / §1a.75: finish `compositor.md` and fill feature-page gaps.
+- MINIMAL mode: do it yourself in small steps; with STEADY+ a builder for AI3.3 (decoder state → Fable per §1a.44).
+
+## After AI3: C2 (COMPOSITOR-PLAN, parallel / layer nodes in the grader), step 1
+
+**comp-1 accepted 2026-10-14** (C1: comp clips, node canvas + inspector, Compositor panel / Compositing workspace /
+Fusion page, GPU comps via `PlanLayer.comp` + `crates/gpu/src/comp.rs`, Media In tracks as `Pass::Layers`, coach
+routes (item 6), `comp.explain` + comp lessons (item 7); bench comp-1080 / comp-2160 half 192 / 0 drops, 30-min soak
+clean; all synthetic). The C1 working notes are archived at the end of `docs/fork/PROGRESS-LOG-ARCHIVE.md` ("HANDOFF
+notes for C1"). **Cloud work merged 2026-10-14 ~16:45** (USHADER-HOSTILE, R1-PREP, USERFX-FOLDER, GUIDE-SHADER-COOKBOOK; guide recipes render on AMD + Intel); full `cargo xtask ci` owed at the next boundary. TEARDOWN-FLAKE stays open (cloud diagnosis in CLOUD-LOG: render-cache `CacheJob` holds the pool past `CLOSE_WAIT`). **Owed from C1 (not blocking):** ~~an Opus review of `crates/gpu/src/comp.rs` + the `render_plan` comp
+hook and `plan::track_layers`~~ ✓ 2026-10-15 03:33 (bug fixed: a later comp's uploads evicted an earlier comp's result from the 24-entry upload cache → it drew transparent; `refresh_comp_output` re-registers every result before the draw, test `a_busy_later_comp_does_not_evict_an_earlier_result`, failed before. **Left from the review:** ~~(2) comp VRAM~~ ✓ 2026-10-15 (`COMP_VRAM_BUDGET` now covers every held slot set, sets a frame no longer uses are dropped, all comp textures go after `COMP_IDLE_FRAMES` 120 comp-free draws; test `comps_share_one_budget_and_their_textures_are_let_go`); ~~(3) effect-pool churn from the nested slot draws~~ ✓ 2026-10-15 (one pool frame per top-level `render_plan`, `fx_frame_open`; test `comp_and_frame_effects_keep_their_pooled_textures`, failed before); ~~(4) `Pass::Image` of another size~~ ✓ 2026-10-15 (such a comp runs on the CPU, test in `a_comp_too_wide_for_a_texture_falls_back_to_the_cpu`); (5) `track_layers` nested `scale` > 1: left as is (2026-10-15: it only changes graphics / captions, which then rasterise at the comp's size, sharper than the CPU's upscale; media frames are already capped at full size; sizes stay within the texture limit)); ~~Item-source Media In still CPU pictures~~ ✓ 2026-10-15 02:56 (media items / subclips: one plan layer via `plan::media_frame_layer`, fitted as `fit`; log / HDR Y'CbCr gets the input transform as layer colour ops; RGB frames needing management, nested sequences and comps stay CPU; tests `an_item_source_compiles_to_a_plan_layer`, `a_media_frame_layer_fits_the_canvas`; owed: an AMD + Intel look at a comp reading an F-Log2 clip in the app); Mask shapes on the monitor have no Bézier handles / add-point; ~~`backdrop` / `post` reallocate when comp and frame sizes alternate~~ ✓ 2026-10-15 (it was `output` + `backdrop`, 2 new targets per frame; comp slot draws now swap in their own `comp_output` / `comp_backdrop`; test `a_comp_of_another_size_leaves_the_frames_targets_alone`, AMD + Intel); ~~the `settings_tests::hardware_decoding_setting_drives_the_decoder_switch`
+parallel flake (seen once)~~ ✓ 2026-10-15 (`set_prefs` re-applied the process-wide decoder switch on every `prefs.set`, so another test's unrelated setting turned it back on; now only when Hardware decoding / Memory change; deterministic check in the test); the compositing coach-eval misses (`comp-*` in `docs/fork/coach-eval/questions.toml`): 4 fixed 2026-10-15 (COMP-EVAL), `comp-what-is` left. **Next in MINIMAL** (2026-10-15 03:25): token-light leftovers are thin; GPU (wgpu) inference for AI3.3b wants STEADY (Fable / Opus designer); TEARDOWN-FLAKE needs instrumented 8-copy repro runs of the ui test binary (CLOUD-LOG); ~~mask Bézier handles~~ ✓ 2026-10-15 04:27 EDT (comp mask overlay: smooth points show handles, drag bends (mirrored, Alt breaks), Alt-click smooth ⇄ corner; shared `MaskVertex::set_tangent` / `MaskPath::toggle_smooth`; test in `comp_ui.rs`); Ctrl-click add / delete points ✓ 2026-10-15 04:32 EDT, shared `Mask::add_vertex` / `remove_vertex`) (Item-source Media In ✓ 02:56).
+
+**C2 plan (COMPOSITOR-PLAN §C2):** 1 grade model → DAG (`Grade` keeps node ids, gains inputs per node; serial grades
+load unchanged: schema bump + migration test; reuse `crates/project/src/dag.rs` `DagNode` / `validate` / `Order`),
+2 node types (Parallel mixer, Layer mixer, Splitter / Combiner, key mixer, key inputs / outputs, Outside node),
+3 evaluation (CPU reference graph first, then GPU passes reusing C1's scheduler: `render::comp`'s `Program` / slots
+and `gpu::comp::run_comp` are the model; per-node `ColorOp` chains as today), 4 UI (the Color page node strip
+becomes `widgets/node_canvas.rs`; add Parallel / Layer / Outside from the menu; Resolve keymap shortcuts from the
+public manual), 5 the node explainer (G2.10–11) explains branches, 6 Coach lessons for each branch type (the lesson
+engine + walk tests as `first-comp` / `key-comp` do: `crates/ui-egui/tests/ui/coach_ui.rs` `walk` with
+`Do::WorkspaceNamed` / `{comp}`). **Design note written 2026-10-15 05:21 EDT: `docs/fork/DESIGN-C2.md`** (edges + node `kind` on `Grade`, serial = implicit
+chain and compiles exactly as today, virtual source id 0, schema v19, `FxOp::GradeGraph` program mirroring C1's, CPU oracle,
+lanes); ADR 0004 / 0007 point to it. Start at its §5 lane 1 (model + schema v19). In MINIMAL mode do it yourself; with STEADY+ a Fable / Opus designer for the note and
+builders per lane. **Accept:** each new lesson completes end to end; skin + background on parallel nodes, a look on a
+layer node and an outside node render identically on CPU and GPU, round-trip save / load, and graded 6.2K plays in
+the quick pass without regression. Tag `comp-2`.
 
 ## Environment and gotchas
 
@@ -487,6 +704,15 @@ is the shape a later "Shader" comp node can reuse (ADR 0006 consequences).
   for ~9 plans (fewer than the prefetch window); it charges 16 MB per GPU frame.
 
 ## Open problems
+- **AMD VCN stuck (2026-10-15 06:40, Q37):** `Fence fallback timer expired on ring vcn_dec_0` since ci's VA-API tests;
+  VCN page fault at 07:28. Until the owner reboots, run VA-API checks on Intel / the Dell. Open question: can our hostile
+  hardware-input tests (`damaged_samples_and_parameter_sets_never_crash_or_hang`) trigger this driver fault? After the
+  reboot: run the AMD `vaapi` binary alone and watch `journalctl -k`.
+- **A2 review leftovers (non-blocking):** (2) `audio.voiceIsolate.installFile` loads weights on the command thread;
+  (3) `Denoiser::reset` allocates (may run on the audio thread); (7) `apply:false` / `wait:true` cleanup renders on the
+  command thread; (10) `takes_of` scans every item each frame.
+- 4K 10-bit 4:2:2 H.264 in-app playback is bursty (2026-10-15, synthetic): decoder alone 36.5 fps (12 threads), app shows
+  9–24 / 25 fps, p95 decode jobs 500–600 ms (frame-threading latency vs the frame workers' deadlines?). Proxies cover it today.
 
 - 6.2K cuts every few seconds drop frames on original media (decoder-bound) → Phase 6.
 - 4× on this synthetic stream (51 % reference pictures, open GOP) runs at the decoder's limit

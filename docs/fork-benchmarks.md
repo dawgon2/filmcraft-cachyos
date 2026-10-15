@@ -791,3 +791,11 @@ perf_4k_422_10 -- --ignored --nocapture`. x264 `high422` / `yuv422p10le`, 3840×
 
 Owed on the i5-11600K at acceptance. Same run, 8-bit 4:2:0 1080p (`perf_1080p`): ~97 fps 1 thread (2.3 % below
 pre-H2.3 in alignment-pinned A/B builds; see HANDOFF).
+
+### H2.6: interlaced 1080i in software (Dell lane, 2026-10-14, synthetic, branch `dell-lane-h2-6`)
+
+Same machine, `cargo test --release -p filmcraft-h264 --test perf perf_1080i_mbaff -- --ignored --nocapture`:
+x264 `high`, 1920×1080 MBAFF (`interlaced=1:tff=1`, keyint 25, 3 B-frames with B-pyramid, CRF 18, 50 frames of
+`testsrc2` + noise; 9.2 MB), checked bit-exact against ffmpeg's decode first. **31.9 fps on 1 thread, 144.7 fps on
+16 threads** (1080i50 needs 25 frames/s). 8-bit progressive `perf_1080p` on the same branch: 98.4 fps 1 thread
+(base `9c7f81a5`: 97.4; alignment-pinned A/B builds). Owed on the i5-11600K at acceptance.

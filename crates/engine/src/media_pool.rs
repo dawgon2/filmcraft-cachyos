@@ -594,6 +594,9 @@ impl MediaSource for UnsupportedAsSlate {
     fn info(&self) -> &MediaInfo {
         self.inner.info()
     }
+    fn decoder_name(&self) -> Option<String> {
+        self.inner.decoder_name()
+    }
     fn video_frame(&self, req: FrameRequest) -> filmcraft_media::Result<Arc<VideoFrame>> {
         match self.inner.video_frame(req) {
             Err(MediaError::Unsupported(why)) => {

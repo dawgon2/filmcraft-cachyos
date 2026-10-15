@@ -148,6 +148,9 @@ impl VideoSamples for ApvVideo<'_> {
 }
 
 impl MediaSource for ApvSource {
+    fn decoder_name(&self) -> Option<String> {
+        self.video.decoder_name()
+    }
     fn info(&self) -> &MediaInfo {
         &self.info
     }

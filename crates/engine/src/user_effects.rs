@@ -138,33 +138,58 @@ fn spec_of(id: &str, fx: &UserEffect) -> UserEffectSpec {
     }
 }
 
-/// Read, validate and register every user effect; the outcome per file.
-pub fn reload(s: &mut Session) -> Vec<UserEffectStatus> {
-    // (id, file, name hint, source or why it couldn't be read)
-    type Found = (String, Option<String>, String, std::result::Result<String, String>);
-    let mut found: Vec<Found> =
-        EXAMPLES.iter().map(|(stem, src)| (format!("example.{}", slug(stem)), None, (*stem).to_string(), Ok((*src).to_string()))).collect();
-    if let Some(dir) = folder(s)
-        && let Ok(rd) = std::fs::read_dir(&dir)
-    {
-        let mut files: Vec<std::path::PathBuf> =
-            rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("wgsl"))).take(MAX_FILES * 4).collect();
-        files.sort();
-        let more = files.len().saturating_sub(MAX_FILES);
-        if more > 0 {
-            log::warn!("{}: {more} effect file(s) past the first {MAX_FILES} ignored", dir.display());
-        }
-        for f in files.into_iter().take(MAX_FILES) {
-            let stem = f.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
-            let text = match std::fs::metadata(&f) {
-                Ok(m) if m.len() > filmcraft_usershader::MAX_SOURCE as u64 => {
-                    Err(format!("the file is larger than {} KB", filmcraft_usershader::MAX_SOURCE / 1024))
-                }
-                _ => std::fs::read_to_string(&f).map_err(|e| e.to_string()),
-            };
-            found.push((format!("user.{}", slug(&stem)), Some(f.to_string_lossy().to_string()), stem, text));
-        }
+/// One file found: (id, file, name hint, source or why it couldn't be read).
+pub(crate) type Found = (String, Option<String>, String, std::result::Result<String, String>);
+
+/// The `.wgsl` files of the Effects folder `dir` (any case of the extension; directories, even
+/// ones named `x.wgsl`, are not files and are skipped; an unreadable file is kept with its reason),
+/// sorted, at most [`MAX_FILES`].
+pub(crate) fn scan(dir: &std::path::Path) -> Vec<Found> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut files: Vec<std::path::PathBuf> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("wgsl")) && !p.is_dir())
+        .take(MAX_FILES * 4)
+        .collect();
+    files.sort();
+    let more = files.len().saturating_sub(MAX_FILES);
+    if more > 0 {
+        log::warn!("{}: {more} effect file(s) past the first {MAX_FILES} ignored", dir.display());
     }
+    files
+        .into_iter()
+        .take(MAX_FILES)
+        .map(|f| {
+            let stem = f.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+            (format!("user.{}", slug(&stem)), Some(f.to_string_lossy().to_string()), stem, read_source(&f))
+        })
+        .collect()
+}
+
+/// An effect file's text, or why it can't be used. Only regular files are read (a FIFO or device
+/// named `x.wgsl` would block or never end), at most [`filmcraft_usershader::MAX_SOURCE`] bytes.
+fn read_source(f: &std::path::Path) -> std::result::Result<String, String> {
+    use std::io::Read;
+    let too_large = || format!("the file is larger than {} KB", filmcraft_usershader::MAX_SOURCE / 1024);
+    let m = std::fs::metadata(f).map_err(|e| e.to_string())?;
+    if !m.is_file() {
+        return Err("not a regular file".into());
+    }
+    if m.len() > filmcraft_usershader::MAX_SOURCE as u64 {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(f).and_then(|h| h.take(filmcraft_usershader::MAX_SOURCE as u64 + 1).read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
+    if bytes.len() > filmcraft_usershader::MAX_SOURCE {
+        // it grew after the size check
+        return Err(too_large());
+    }
+    String::from_utf8(bytes).map_err(|_| "the file is not UTF-8 text".to_string())
+}
+
+/// Parse each found file; a later file whose id is taken is refused, naming the id.
+pub(crate) fn statuses(found: Vec<Found>) -> Vec<UserEffectStatus> {
     let mut out: Vec<UserEffectStatus> = Vec::new();
     for (id, path, hint, text) in found {
         let status = if out.iter().any(|o| o.id == id) {
@@ -179,6 +204,17 @@ pub fn reload(s: &mut Session) -> Vec<UserEffectStatus> {
         };
         out.push(status);
     }
+    out
+}
+
+/// Read, validate and register every user effect; the outcome per file.
+pub fn reload(s: &mut Session) -> Vec<UserEffectStatus> {
+    let mut found: Vec<Found> =
+        EXAMPLES.iter().map(|(stem, src)| (format!("example.{}", slug(stem)), None, (*stem).to_string(), Ok((*src).to_string()))).collect();
+    if let Some(dir) = folder(s) {
+        found.extend(scan(&dir));
+    }
+    let mut out = statuses(found);
     let quarantined = folder(s).map(|d| read_quarantine(&d)).unwrap_or_default();
     for o in out.iter_mut() {
         if let Some(fx) = &o.effect

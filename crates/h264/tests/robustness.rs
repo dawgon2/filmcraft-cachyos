@@ -155,3 +155,34 @@ fn corrupted_high_bit_depth_and_422_streams_do_not_panic() {
         }
     }
 }
+
+/// Fork H2.8b: damaged interlaced (MBAFF) streams from a real encoder, 8-bit, High 10 and
+/// High 4:2:2, never panic or hang, single- and frame-threaded; some rounds also damage the
+/// parameter sets.
+#[test]
+fn corrupted_interlaced_streams_do_not_panic() {
+    for (n, name) in ["mbaff_cabac_bpyramid", "mbaff_cavlc_bff_weightp", "mbaff_high10", "mbaff_422_10"].into_iter().enumerate() {
+        let Some((h264, _)) = common::ensure(common::fixture(name)) else { return };
+        let data = std::fs::read(h264).unwrap();
+        let mut seed = 0x5eed_1a7e_4ced_0b0bu64 ^ n as u64;
+        for round in 0..10 {
+            let mut d = data.clone();
+            let from = if round % 3 == 0 { 4 } else { 64 };
+            for _ in 0..(1 + round * 3) {
+                let pos = from + (xorshift(&mut seed) as usize) % (d.len() - from);
+                d[pos] ^= 1 << (xorshift(&mut seed) % 8);
+            }
+            if round % 4 == 3 {
+                d.truncate(d.len() * 2 / 3);
+            }
+            for threads in [1, 4] {
+                let mut dec = Decoder::with_threads(threads);
+                for au in common::split_access_units(&d) {
+                    let _ = dec.decode(au, 0);
+                }
+                let _ = dec.flush();
+                let _ = dec.take_error();
+            }
+        }
+    }
+}

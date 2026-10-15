@@ -22,8 +22,9 @@ learn by doing the real thing, not by reading about it.
 Pick a lesson from the list. It works on your own clip, so open the project you want to practise
 on first.
 
-1. Open the Color Grading workspace. Click **Lessons** {ui:coach.lessons.open} at the bottom right
-   (next to **Ask the coach**), or choose **Help ▸ Grading Lessons…** from any workspace.
+1. Click **Lessons** {ui:coach.lessons.open}: in the Resolve workflow it is in the page bar at the
+   bottom, left of the Home icon; in the Premiere workflow, on the right of the header at the top
+   (next to **Ask the coach** and **Assistant**). Or choose **Help ▸ Grading Lessons…**.
 2. The list shows every lesson with a one-line summary; a tick marks the ones you have finished.
    Click **Start** (**Again** for a finished one) next to the lesson you want. Close the list
    with **×** {ui:coach.lessons.close}.
@@ -157,8 +158,9 @@ steps, it says so and offers the closest lesson instead. Every control and comma
 names is checked against the app you are running; a step that names one this app doesn't have
 is left out (the box says how many, and whether controls or commands).
 
-1. Open the Color Grading workspace (or start a lesson). Click **Ask the coach**
-   {ui:coach.ask.open} at the bottom right.
+1. Click **Ask the coach** {ui:coach.ask.open} in the page bar at the bottom, left of Home
+   (Premiere workflow: the header at the top right). The box opens at the bottom right; click the
+   button again to close it.
 2. Type your question in the box {ui:coach.ask.input} in your own words, then press Enter or
    **Ask** {ui:coach.ask.go}.
 3. Read the steps. Click a step that names a control (its id is `coach.ask.step.<n>`, from 1):
@@ -244,3 +246,83 @@ expect = { command = ["grade.addNode", "grade.insertNode"] }
 4. Write in your own words, plain language, why before how. Never copy a manual.
 5. Limits: 64 KiB per file, 40 steps, 1 200 characters per text, patterns at most 6 deep and 64
    values. Unknown fields are refused.
+
+## Also ask the assistant
+
+> id: color.coach.assistant | does: adds an answer written by a small language model on this computer, checked against the guide | ui: coach.ask.assistant, coach.ask.assistStop | cmd: coach.assist, coach.assistResult, coach.assistForget | when: the guide's steps don't quite fit your question | see: color.coach.ask
+
+**[Fork]**
+
+The keyword coach repeats the guide's own steps; the assistant (a small language model on your
+computer; nothing leaves it) writes an answer in its own words from the sections that fit.
+It is **slow** (about a minute per answer on a desktop CPU today), so it is off until you tick it,
+and the guide's answer is always shown above it. Resolve and Premiere have nothing like it.
+
+1. In the **Ask the coach** box, tick **Also ask the assistant (slow: runs on this computer)**
+   {ui:coach.ask.assistant}. It stays ticked next time (the same switch is in Settings ▸ Color ▸
+   Grading Coach).
+2. Ask as usual. The guide's answer appears at once; below it, under **Assistant**, the
+   assistant's text appears as it is written, marked "Not checked against the guide yet."
+3. Changed your mind? Click **Stop** {ui:coach.ask.assistStop}. Closing the box, unticking the
+   box or asking a new question also stops it.
+4. When it finishes, the text is checked: a line that names a button, command or shortcut the
+   guide sections don't have is left out (the box says how many). Lines marked
+   "General advice:" are shown dimmer: they aren't from the guide. **Sources** lists the guide
+   sections the answer used (or was given).
+5. Ask a follow-up ("and how do I undo that?"): the assistant gets your last question and its
+   answer too. To start over, click **New topic** {ui:coach.ask.newTopic} (closing the box does
+   the same).
+6. Want to see it done? When a lesson shows what the assistant described and the guide's answer
+   above doesn't already offer it, click **Show me: …** {ui:coach.ask.assistLesson} to start that
+   lesson (the lesson is picked from your question and the sections the answer cites).
+
+No model installed, or nothing passed the check: one line says so and the guide's answer stays.
+"I don't know" beats a guess: when no guide section matches the question at all, the assistant
+isn't asked ("The guide has nothing on this, so the assistant didn't guess."); when it says the
+sections don't cover your question, its answer (naming the closest section) is kept and a line
+{ui:coach.ask.assistDontKnow} points you to the guide's closest answer above. Scripts see
+`dontKnow: true`, or `fallback.kind` `nothingFound`.
+The model is **SmolLM3 3B (4-bit)**, about 2 GB. Scripts: `coach.assist {question}` → `{id}`;
+`coach.assistResult {id}` (`pending` + `partial`, or `done`); `coach.assistForget {id}` stops it.
+The assistant answers by **picking the guide's own steps**: the model only chooses and orders
+the numbered steps of the sections it was given, and FilmCraft shows those steps word for word
+with their section, so it can't make up a button or a menu. Steps it picks from a section that
+matches your question much less well than the best one (under half its score) are left out, because
+the small model tends to pad answers with unrelated steps. It reads less like a conversation
+than a written answer. Scripts can ask for `style: "free"` (the model writes its own answer, then
+lines naming unknown controls are taken out); in tests it invented far more, so `pick` is the
+default. [Fork]
+
+## The Assistant panel
+
+> id: color.coach.assistant-panel | does: a chat with the assistant in a panel you can float anywhere or dock beside any panel | ui: assistant.open, assistant.input, assistant.send, assistant.new | cmd: coach.assist, coach.assistResult, coach.assistForget | when: you want to ask several questions in a row while you work | see: color.coach.assistant
+
+**[Fork]**
+
+The same assistant as **Also ask the assistant**, as a chat that stays open while you work.
+It answers about all of FilmCraft (grading, editing, audio, compositing, export), from this guide,
+on your computer.
+
+1. Click **Assistant** {ui:assistant.open} in the page bar at the bottom, left of Home (Premiere
+   workflow: the header at the top right). The panel opens floating, left of where the coach's
+   cards appear.
+2. Type a question in the box at the bottom {ui:assistant.input} and press Enter or **Send**
+   {ui:assistant.send} (Shift+Enter starts a new line). The answer appears as it is written, then
+   is checked the same way as in the Ask box; **Stop** ends it early.
+3. Click an answer line that names a control: the control is outlined (click it again to remove
+   the outline). **Show me: …** starts the lesson for it.
+4. Each question follows up on the last answer. **New chat** {ui:assistant.new} clears the chat
+   and starts a new topic.
+5. Put it where it suits you. Drag the panel by its **Assistant** tab: drop it in the middle of
+   another panel to make it a tab there, or on a panel's edge to split that space. For example,
+   on the Color page between **Curves** and **Primaries**, beside the **Clips** strip, or on the
+   Fusion page between the timeline and the media pool. Drag the tab out again to float it.
+   Saving the workspace (or the page layout) keeps it there.
+6. Click **Assistant** again to close the panel (an answer being written stops). The chat isn't
+   saved with the project.
+
+Options: the Ask box is quicker for a single question and shows the guide's steps at once; the
+panel suits a conversation, or keeping answers next to the controls they name. A beginner may
+find a floating panel easiest; docking it beside the panels you use most keeps it out of the way
+of the picture. When the model isn't installed, each answer says so and shows the guide's own
+answer instead.

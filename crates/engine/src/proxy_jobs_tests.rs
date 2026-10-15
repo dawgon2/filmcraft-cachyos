@@ -15,7 +15,7 @@ use crate::background::BackgroundJob;
 use crate::media_pool::{ProxyMode, with_motion};
 use crate::media_test_util::{make_movie, session_with, tmp_dir};
 use crate::proxies::{HEVC_HALF, preset};
-use crate::proxy_jobs::{self, ProxyJob, ProxyState, Reason, auto_reason, proxy_file_name, proxy_fingerprint, software_422};
+use crate::proxy_jobs::{self, ProxyJob, ProxyState, Reason, auto_reason, proxy_file_name, proxy_fingerprint, software_422, software_h264_high_bit_depth};
 
 const W: u32 = 160;
 const H: u32 = 96;
@@ -115,7 +115,34 @@ fn which_clips_get_automatic_proxies() {
     prefs.proxies = ProxyMode::Off;
     assert_eq!(auto_reason(&hevc422, &prefs), None, "nothing while proxies are off");
     assert!(software_422(&hevc422));
-    assert!(!software_422(&avc422) && !software_422(&prores) && !software_422(&hevc62k));
+    assert!(software_422(&avc422), "H.264 High 4:2:2 has no hardware decoder anywhere (H3.2)");
+    assert!(!software_422(&prores) && !software_422(&hevc62k) && !software_422(&uhd));
+    assert!(!proxy_jobs::hardware_422_failed(&avc422), "no H.264 4:2:2 hardware path to fail");
+}
+
+#[test]
+fn h264_high_bit_depth_clips_say_software_decode() {
+    let high10 = info("H.264 (High 10)", "YUV 4:2:0 10-bit", 1920, 1080);
+    let high = info("H.264 (High)", "YUV 4:2:0 8-bit", 1920, 1080);
+    let avc422 = info("H.264 (High 4:2:2)", "YUV 4:2:2 10-bit", 1920, 1080);
+    let hevc10 = info("HEVC", "YUV 4:2:0 10-bit", 1920, 1080);
+    assert!(software_h264_high_bit_depth(&high10));
+    assert!(!software_h264_high_bit_depth(&high), "8-bit H.264 decodes in hardware");
+    assert!(!software_h264_high_bit_depth(&avc422), "4:2:2 gets the 4:2:2 badge instead");
+    assert!(!software_h264_high_bit_depth(&hevc10), "10-bit HEVC decodes in hardware");
+    // hostile / odd labels: no panic, no badge
+    for label in ["", "-bit", "YUV 4:2:0 99999999999-bit", "10", "YUV 4:2:0 -bit 10"] {
+        let mut v = high10.clone();
+        if let Some(s) = v.video.as_mut() {
+            s.pixel_format = label.into();
+        }
+        assert!(!software_h264_high_bit_depth(&v), "{label:?}");
+    }
+    let bits = |p: &str| high10.video.as_ref().map(|v| VideoStreamInfo { pixel_format: p.into(), ..v.clone() }).and_then(|v| proxy_jobs::bit_depth(&v));
+    assert_eq!(bits("YUV 4:2:0 10-bit"), Some(10));
+    assert_eq!(bits("YUV 4:2:2 8-bit"), Some(8));
+    assert_eq!(bits("YUV 4:2:0 ✓10-bit"), Some(10), "multi-byte characters before the digits");
+    assert_eq!(bits("RGB"), None);
 }
 
 #[test]

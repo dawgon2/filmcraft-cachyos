@@ -864,6 +864,10 @@ fn media_properties(s: &mut Session, p: &Value) -> Result<Value> {
         let mut v = info_json(&name, file_path(m), &m.info);
         v["item"] = json!(id.0);
         v["offline"] = json!(m.offline || s.media.offline_status(mid).is_some());
+        // fork H3.2b: the decoder that decoded the file's last frames (null before it first plays)
+        if v["video"].is_object() && file_path(m).is_some() {
+            v["decoder"] = json!(s.media.cached(mid).and_then(|src| src.decoder_name()));
+        }
         out.push(v);
     }
     if out.is_empty() {

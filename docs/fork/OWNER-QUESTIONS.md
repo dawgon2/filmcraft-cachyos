@@ -591,6 +591,10 @@ drop recordings there. Nothing to undo.
 **Owner answer (live, 2026-10-14 ~12:55): (a) accepted.** "Yeah for now that's fine. We can train it
 better later." Re-measure if own-voice recordings appear.
 
+**Owner, live 2026-10-15 ~00:15:** A2 accepted; the quality work goes into **A3** (moved before
+S1): amount / attenuation limit, own-voice re-measure, a stronger model only with a download yes
+(AUDIO-PLAN A3, FORK-PLAN §1a.76).
+
 
 ## Q31 (2026-10-14, H1 audit, Dell lane): test files for interlaced H.264 field pictures (PAFF) (question; MBAFF goes ahead)
 
@@ -617,3 +621,102 @@ on one core) and only on streams coded with several slices; a safe-Rust version 
 of the picture (a large refactor of the slice decoder). Options: (a) defer slice threads until a real
 file shows the single-frame wait matters; (b) build them now. **Choice: (a)**, revisit at H2.8 with
 real 4:2:2 / interlaced files and the i5-11600K numbers. Nothing to undo.
+
+
+## Q33 (2026-10-14, H2.5 / H2.6, Dell lane): interlaced H.264 is built but waits for its code reviews (FYI, choice made)
+
+Interlaced H.264 now decodes in FilmCraft's own software decoder, both kinds (PAFF and MBAFF), and
+matches the official ITU-T test streams exactly: 210 of the 217 in-scope ones (the other 7 use
+features outside H2: monochrome, FMO, SP/SI). The work sits on two branches (`dell-lane-h2-5`,
+`dell-lane-h2-6`, plus H1.3/H1.4 on `dell-lane-h1-3`) because the lane's rule is a fresh-context
+Opus review before merging decoder code, and reviews use subagents, which the lane skips while the
+weekly usage is above its pacing line (it has been all day: 41 % vs ~21 %). Options: (a) keep
+building on branches and run the reviews as soon as the weekly line allows (or when you say so);
+(b) review now despite the pace (about one Opus review per branch); (c) merge with self-review only.
+**Choice: (a).** Nothing to undo; the branches are on this PC and on the Dell.
+**Update 2026-10-14 ~18:50 (Dell lane):** a new scheduled run starts with a context that has never seen these
+branches, so the lane now does the fresh-context Opus review in the run itself (no subagent, about the same cost as
+reading the diff) and merges after it. H1.3 / H1.4 / H1.5 were reviewed and merged this way; H2.5, H2.6 and H3.2a
+follow in later runs, one branch per run.
+
+## Q34 (2026-10-14, H3.1, Dell lane): H.264 stops using the system ffmpeg (FYI, choice made)
+
+H264-PLAN H3 wants H.264 to decode without ffmpeg. The plan's wording suggests a Settings switch
+"Use ffmpeg for H.264" (off by default), but FORK-PLAN §1a.24 removes ffmpeg from the product in
+Phase 7.7 anyway, so that switch would be a setting with nothing behind it a few phases later.
+Options: (a) the switch; (b) leave the ffmpeg pipe in the chain and only prove that H.264 also
+works without it; (c) take the pipe out of the H.264 chain now (HEVC keeps it until 7.7).
+**Choice: (c)** (PREP-H3 §2). Effect: with or without ffmpeg installed, H.264 decodes on the
+graphics card through VA-API, and whatever VA-API declines decodes in FilmCraft's own decoder
+(correct, but on the CPU). Nothing to undo: it is one function, `vaapi_chain` in
+`crates/platform/src/lib.rs`.
+
+## Q35 (2026-10-14, AI3.6): the assistant model fails the eval; may it be tuned on the guide? (question; choice made for now)
+
+The first full run of the grading assistant (SmolLM3-3B, as downloaded, on this PC's CPU) on the
+85 advanced questions (`docs/fork/coach-eval/advanced.toml`) passed only **7 of 85 (8 %)** on the
+automatic checks alone (the plan's floor is 85 %): it cited a right guide section in 19 answers,
+and in 60 answers the checker had to remove made-up controls, buttons or section names (for
+example, asked for a Resolve-style parallel node it says FilmCraft doesn't have one, then tells you
+to "use a Key-Mixer node", which doesn't exist either). Answers took 20–57 s each. All synthetic.
+
+AI-PLAN says the fix for a model that misses the floor is a short tune on the guide
+(`docs/fork/coach-eval/training-pairs.jsonl`, the same pipeline as the explainer), and that a
+person must look at a sample of that training data first. Options:
+- **(a) Tune it:** you read a sample of ~30 training pairs (I'll put them in one short file; about
+  20 minutes), say yes, and the run tunes SmolLM3-3B on the guide. Most likely to reach the floor;
+  costs GPU time and a review of the data by you.
+- **(b) No tune, stricter answers:** the assistant may only pick, order and shorten the guide's own
+  steps (no free-written steps). No invented controls by design, answers less conversational.
+- **(c) A bigger model** (7–8B): needs GPU inference first and another download yes; slower.
+**Choice for now:** the assistant stays **off by default** (as today: Settings ▸ Color ▸ Grading
+Coach), the next step is GPU inference (needed whatever you pick), and (b) is tried meanwhile
+because it needs nothing from you. The tune waits for your answer to (a). Nothing to undo.
+
+**Update 2026-10-14 21:34 EDT (scheduled run): option (b) built and measured.** In the new "pick" style the model only
+names guide steps by key (A1, B3 …) and FilmCraft shows those steps word for word. On the same 85
+questions: **69 of 85 (81 %) pass the automatic checks, nothing invented in any answer**, 81 answered by
+the model, 75 cite a right section, median 23 s per answer (CPU, synthetic). Misses: 10 cite no expected
+section, 4 gap questions don't say the feature is missing, 4 say "I don't know". **Choice for now:** pick is
+the default style of `coach.assist` and the Ask the coach box (constant `DEFAULT_STYLE` in
+`crates/engine/src/coach_assist.rs`; scripts can still ask for `style: "free"`); the assistant itself stays
+off by default until GPU inference makes it fast. To undo: set `DEFAULT_STYLE` back to `AssistStyle::Free`.
+The tune (a) may no longer be needed: the remaining gap to 85 % looks like retrieval / gap-route work, not
+model knowledge. Your answer to (a) is still welcome but nothing waits on it.
+
+**Update 2026-10-14 22:14 EDT:** after a fix to the scorer (it missed answers saying "FilmCraft: no … yet") and splitting the
+guide's bullet lists into separate steps, a fresh run of the pick style passes **76 of 85 (89 %) with
+nothing invented**, above the 85 % floor on the automatic checks (a person still has to read whether the
+answers contain the right facts). So **no tune is needed for now**; (a) stays open only if that reading
+finds the answers thin. Speed is still the problem (about 24 s per answer on the CPU): GPU inference next.
+
+## Q36 (2026-10-15, U0.2 review item 5): VA-API drivers other than AMD Mesa / Intel iHD (FYI, choice made)
+
+FilmCraft uses one VA-API display from several threads; only Mesa (AMD) and Intel's iHD driver are known to lock per
+display. The old Intel i965 driver and nvidia-vaapi-driver were used the same way unchecked (possible crashes).
+Options: (a) refuse them, software decode instead (safe, slower on those machines); (b) add our own per-display lock
+around every libva call for them (more code, slower, needed for NVIDIA in Phase 8); (c) leave as is.
+**Choice for now: (a)**, with `FILMCRAFT_VAAPI_ANY_DRIVER=1` to use such a driver anyway (guide `hardware.md`). Neither
+of your machines is affected. Reverse: delete the check in `crates/platform/src/va.rs` `open_raw`; Phase 8 (NVIDIA) does (b).
+
+
+## Q37 (2026-10-15, H group acceptance): the AMD video decoder is stuck in slow mode until a reboot (needs you; choice made for now)
+
+During today's `cargo xtask ci` (06:40) the RX 6700 XT's video decoder (VCN) stopped signalling finished
+pictures: the kernel log has been printing `amdgpu …: Fence fallback timer expired on ring vcn_dec_0` about
+twice a second since then (12 000+ lines), and at 07:28 there was a VCN page fault (`[mmhub] page fault …
+Faulty UTCL2 client ID: VCN0`). Every hardware decode on the AMD card now waits for a ~0.5 s fallback timer,
+so video decoding on that card (FilmCraft, and also browsers / players) is very slow until the GPU is reset.
+It had never happened in the previous 3 days of logs. **Only a reboot (or a GPU reset, which needs sudo)
+clears it**, so this needs you.
+- What it broke: ci's VA-API tests timed out (4 failures, all in `filmcraft-platform`'s `vaapi` tests; 3983
+  other tests passed). The same tests on the Intel GPU are the check that the code is fine (result in the
+  progress log).
+- **Choice made for now:** H-group acceptance uses the Intel GPU (here and on the Dell) for the VA-API
+  re-checks; the AMD in-app 1080i check was done at 05:46, before the fault. GPU inference work for AI3
+  (wgpu compute, not the video decoder) is unaffected. Whether our hostile-stream test (`damaged_samples_…`,
+  which feeds the hardware damaged H.264) can trigger this driver fault is an open question: it is logged in
+  HANDOFF ▸ Open problems, and the hardware hostile-input tests may need to run only on Intel / the Dell
+  until it is understood.
+- **Please:** reboot when convenient, then tell a session (or nothing: the next run re-checks the kernel log
+  and re-runs the AMD VA-API tests).

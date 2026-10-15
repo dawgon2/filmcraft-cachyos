@@ -8,7 +8,7 @@ use filmcraft_render::Blend;
 use filmcraft_render::comp::{Pass, Program};
 use filmcraft_render::gpufx::FxOp;
 use filmcraft_render::image::Image;
-use filmcraft_render::plan::execute_cpu;
+use filmcraft_render::plan::{LayerFx, execute_cpu};
 
 const W: usize = 96;
 const H: usize = 54;
@@ -166,6 +166,14 @@ fn a_comp_too_wide_for_a_texture_falls_back_to_the_cpu() {
     assert!((px[mid] - 0.5).abs() < 0.02 && (px[mid + 3] - 0.5).abs() < 0.02, "{:?}", &px[mid..mid + 4]);
     let (p99, _) = compare(&mut c, program(1, vec![Pass::Image { dst: 0, image: picture() }], 0));
     assert!(p99 <= 4e-3);
+    // a picture of another size than the comp: the CPU keeps it as it is, so the CPU runs the comp
+    // (the GPU drew it transparent)
+    let mut small = Image::new(W / 2, H / 2);
+    small.px.iter_mut().for_each(|v| *v = 0.5);
+    let odd = program(1, vec![Pass::Image { dst: 0, image: Arc::new(small) }], 0);
+    assert!(c.run_comp(&odd, 0).is_none());
+    let (p99, mean) = compare(&mut c, odd);
+    assert!(p99 <= 4e-3 && mean <= 1e-3, "p99 {p99}, mean {mean}");
 }
 
 /// Two comp clips in one frame (comps A and B on V2 / V3): each keeps its own result.
@@ -194,5 +202,167 @@ fn two_comps_in_one_frame_keep_their_own_pictures() {
         for k in 0..4 {
             assert!((cpu.px[i + k] - gpu[i + k]).abs() < 2e-3, "x {x}: cpu {:?} gpu {:?}", &cpu.px[i..i + 4], &gpu[i..i + 4]);
         }
+    }
+}
+
+/// A busy second comp (more uploads than the upload cache keeps) must not push the first comp's
+/// result out of the cache before the frame draws it (it drew transparent).
+#[test]
+fn a_busy_later_comp_does_not_evict_an_earlier_result() {
+    let Some(mut c) = compositor() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let red = program(1, vec![Pass::Fill { dst: 0, color: [0.8, 0.0, 0.0, 1.0] }], 0);
+    // every fill uploads its own 1×1 colour: 40 new cache entries after the red comp's result
+    let busy: Vec<Pass> = (0..40).map(|i| Pass::Fill { dst: 0, color: [0.0, 0.0, 0.3 + i as f32 / 100.0, 1.0] }).collect();
+    let blue = program(1, busy, 0);
+    let plan = FramePlan::Layers {
+        width: W,
+        height: H,
+        layers: vec![
+            PlanLayer::comp(Arc::new(red), Affine::IDENTITY, 1.0, Blend::Normal),
+            PlanLayer::comp(Arc::new(blue), Affine::translate(W as f64 / 2.0, 0.0), 1.0, Blend::Normal),
+        ],
+        output: None,
+    };
+    let cpu = execute_cpu(&plan);
+    let (_, _, gpu) = c.render_export_prepared(&plan, None).expect("read-back");
+    for x in [4usize, W - 4] {
+        let i = (H / 2 * W + x) * 4;
+        for k in 0..4 {
+            assert!((cpu.px[i + k] - gpu[i + k]).abs() < 2e-3, "x {x}: cpu {:?} gpu {:?}", &cpu.px[i..i + 4], &gpu[i..i + 4]);
+        }
+    }
+}
+
+/// A comp with effects and a frame layer with effects of another size share one effect-pool frame:
+/// both sizes stay pooled (the comp's slot draws ended the pool frame and dropped the frame-size
+/// textures, the frame then dropped the comp-size ones, so playback reallocated them every frame).
+#[test]
+fn comp_and_frame_effects_keep_their_pooled_textures() {
+    let Some(mut c) = compositor() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    if c.fx.is_none() {
+        eprintln!("no effect stage; skipping");
+        return;
+    }
+    let blur = || vec![FxOp::Gaussian { rx: vec![2], ry: vec![2], repeat: false }];
+    let comp = Program {
+        size: (W / 2, H / 2),
+        textures: 1,
+        passes: vec![Pass::Fill { dst: 0, color: [0.2, 0.5, 0.1, 1.0] }, Pass::Fx { tex: 0, ops: blur() }],
+        out: 0,
+    };
+    let below = PlanLayer {
+        frame: Arc::new(VideoFrame::rgba_f32(W as u32, H as u32, picture().px.clone())),
+        matrix: Affine::IDENTITY,
+        opacity: 1.0,
+        blend: Blend::Normal,
+        fx: Some(LayerFx { size: (W as u32, H as u32), decimation: 1, ops: blur() }.into()),
+        comp: None,
+    };
+    let plan =
+        FramePlan::Layers { width: W, height: H, layers: vec![below, PlanLayer::comp(Arc::new(comp), Affine::IDENTITY, 1.0, Blend::Normal)], output: None };
+    let cpu = execute_cpu(&plan);
+    for round in 0..2 {
+        let (_, _, gpu) = c.render_export_prepared(&plan, None).expect("read-back");
+        let worst = cpu.px.iter().zip(&gpu).map(|(a, b)| (a - b).abs()).fold(0.0_f32, f32::max);
+        assert!(worst < 5e-3, "round {round}: worst difference {worst}");
+        let sizes = c.fx.as_ref().map_or(0, |f| f.pooled_sizes());
+        assert_eq!(sizes, 2, "round {round}: comp-size and frame-size effect textures both pooled");
+    }
+}
+
+/// The comp budget covers every slot set held: a second comp that would go above it runs on the
+/// CPU (each comp used to have the whole budget, so eight comps could hold eight budgets) and the
+/// picture is still right; sets a frame no longer uses and, after a comp-free stretch, all comp
+/// textures are let go.
+#[test]
+fn comps_share_one_budget_and_their_textures_are_let_go() {
+    let Some(mut c) = compositor() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let fill = |color: [f32; 4]| Arc::new(program(1, vec![Pass::Fill { dst: 0, color }], 0));
+    // one comp's two slots (its picture and the scratch, counted whether drawn or not) fit; with
+    // the first comp's drawn picture held, the second's don't (2.5 slots)
+    c.comp_vram_budget = 5 * (W * H) as u64 * 4;
+    let plan = FramePlan::Layers {
+        width: W,
+        height: H,
+        layers: vec![
+            PlanLayer::comp(fill([0.8, 0.0, 0.0, 1.0]), Affine::IDENTITY, 1.0, Blend::Normal),
+            PlanLayer::comp(fill([0.0, 0.0, 0.6, 1.0]), Affine::translate(W as f64 / 2.0, 0.0), 1.0, Blend::Normal),
+        ],
+        output: None,
+    };
+    let cpu = execute_cpu(&plan);
+    let (_, _, gpu) = c.render_export_prepared(&plan, None).expect("read-back");
+    let worst = cpu.px.iter().zip(&gpu).map(|(a, b)| (a - b).abs()).fold(0.0_f32, f32::max);
+    assert!(worst < 2e-3, "worst difference {worst}");
+    let held = |c: &GpuCompositor| c.comp_sets.iter().map(|s| s.iter().filter(|x| x.target.is_some()).count()).collect::<Vec<_>>();
+    assert_eq!(held(&c), vec![1, 0], "the second comp ran on the CPU");
+    // a frame with one comp keeps one set
+    c.comp_vram_budget = comp::COMP_VRAM_BUDGET;
+    let one = FramePlan::Layers {
+        width: W,
+        height: H,
+        layers: vec![PlanLayer::comp(fill([0.1, 0.6, 0.1, 1.0]), Affine::IDENTITY, 1.0, Blend::Normal)],
+        output: None,
+    };
+    c.render_export_prepared(&one, None).expect("read-back");
+    assert_eq!(c.comp_sets.len(), 1);
+    // comp-free frames: kept for a while, then let go
+    let plain = FramePlan::Layers { width: W, height: H, layers: Vec::new(), output: None };
+    for _ in 1..comp::COMP_IDLE_FRAMES {
+        c.render_export_prepared(&plain, None).expect("read-back");
+    }
+    assert_eq!(c.comp_sets.len(), 1, "kept until the idle stretch ends");
+    c.render_export_prepared(&plain, None).expect("read-back");
+    assert!(c.comp_sets.is_empty() && c.comp_slots.is_empty() && c.comp_output.is_none(), "comp textures let go");
+}
+
+/// A comp smaller than the frame draws into its own output / backdrop textures: the frame's keep
+/// their size (they were reallocated twice per frame when comp and frame sizes alternated) and the
+/// picture still matches the CPU.
+#[test]
+fn a_comp_of_another_size_leaves_the_frames_targets_alone() {
+    let Some(mut c) = compositor() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let (cw, ch) = (W / 2, H / 2);
+    let comp = Program { size: (cw, ch), textures: 1, passes: vec![Pass::Fill { dst: 0, color: [0.2, 0.5, 0.1, 1.0] }], out: 0 };
+    let pic = picture();
+    let below = PlanLayer {
+        frame: Arc::new(VideoFrame::rgba_f32(W as u32, H as u32, pic.px.clone())),
+        matrix: Affine::IDENTITY,
+        opacity: 1.0,
+        blend: Blend::Normal,
+        fx: None,
+        comp: None,
+    };
+    let plan = FramePlan::Layers {
+        width: W,
+        height: H,
+        // a blend-mode layer reads the destination: the frame's backdrop is used
+        layers: vec![below, PlanLayer::comp(Arc::new(comp), Affine::translate(8.0, 4.0), 0.8, Blend::Screen)],
+        output: None,
+    };
+    let cpu = execute_cpu(&plan);
+    for round in 0..3 {
+        let made = TARGETS_MADE.with(std::cell::Cell::get);
+        let (_, _, gpu) = c.render_export_prepared(&plan, None).expect("read-back");
+        if round > 0 {
+            assert_eq!(TARGETS_MADE.with(std::cell::Cell::get), made, "round {round} created render targets again");
+        }
+        let worst = cpu.px.iter().zip(&gpu).map(|(a, b)| (a - b).abs()).fold(0.0_f32, f32::max);
+        assert!(worst < 3e-3, "worst difference {worst}");
+        let size = |s: &Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>| s.as_ref().map(|t| t.2);
+        assert_eq!(size(&c.output), Some((W as u32, H as u32)), "the frame's output");
+        assert_eq!(size(&c.backdrop), Some((W as u32, H as u32)), "the frame's backdrop");
     }
 }

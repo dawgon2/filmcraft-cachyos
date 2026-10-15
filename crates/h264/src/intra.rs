@@ -293,16 +293,30 @@ pub fn pred16x16<S: Sample>(plane: &mut [S], stride: usize, x: usize, y: usize, 
 /// Chroma intra prediction for a 4:2:0 macroblock (8x8 block at chroma (x, y)), 8.3.4.
 /// Modes: 0 DC, 1 horizontal, 2 vertical, 3 plane.
 pub fn pred_chroma<S: Sample>(plane: &mut [S], stride: usize, x: usize, y: usize, mode: u8, a: Avail, max: i32) {
-    pred_chroma_n::<S, 8>(plane, stride, x, y, mode, a, max);
+    pred_chroma_n::<S, 8>(plane, stride, x, y, mode, a, [a.left; 2], max);
 }
 
 /// [`pred_chroma`] for a 4:2:2 macroblock's 8x16 chroma block (8.3.4, MbHeightC = 16).
 pub fn pred_chroma_422<S: Sample>(plane: &mut [S], stride: usize, x: usize, y: usize, mode: u8, a: Avail, max: i32) {
-    pred_chroma_n::<S, 16>(plane, stride, x, y, mode, a, max);
+    pred_chroma_n::<S, 16>(plane, stride, x, y, mode, a, [a.left; 2], max);
+}
+
+/// [`pred_chroma`] / [`pred_chroma_422`] (`c422`) whose left neighbours may be available for the
+/// upper and the lower half of the block separately (`left_halves`; MBAFF frames, where the
+/// halves can lie in different macroblocks): DC prediction then takes each 4x4 block's own
+/// left neighbours (8.3.4.1-3); `a.left` must say whether all of them are.
+#[allow(clippy::too_many_arguments)]
+pub fn pred_chroma_split<S: Sample>(plane: &mut [S], stride: usize, x: usize, y: usize, mode: u8, a: Avail, left_halves: [bool; 2], max: i32, c422: bool) {
+    if c422 {
+        pred_chroma_n::<S, 16>(plane, stride, x, y, mode, a, left_halves, max);
+    } else {
+        pred_chroma_n::<S, 8>(plane, stride, x, y, mode, a, left_halves, max);
+    }
 }
 
 /// Chroma intra prediction of an 8 x `H` block (`H` = MbHeightC: 8 for 4:2:0, 16 for 4:2:2).
-fn pred_chroma_n<S: Sample, const H: usize>(plane: &mut [S], stride: usize, x: usize, y: usize, mode: u8, a: Avail, max: i32) {
+#[allow(clippy::too_many_arguments)]
+fn pred_chroma_n<S: Sample, const H: usize>(plane: &mut [S], stride: usize, x: usize, y: usize, mode: u8, a: Avail, left_halves: [bool; 2], max: i32) {
     const W: usize = 8;
     // yCF (8.3.4.4): the plane's vertical extent beyond 8 lines, 4 for 4:2:2
     let ycf = (H as i32 - 8) / 2;
@@ -314,8 +328,8 @@ fn pred_chroma_n<S: Sample, const H: usize>(plane: &mut [S], stride: usize, x: u
             top[i] = plane[(y - 1) * stride + x + i].get();
         }
     }
-    if a.left {
-        for i in 0..H {
+    for i in 0..H {
+        if left_halves[i * 2 / H] {
             left[i] = plane[(y + i) * stride + x - 1].get();
         }
     }
@@ -323,6 +337,8 @@ fn pred_chroma_n<S: Sample, const H: usize>(plane: &mut [S], stride: usize, x: u
     match mode {
         0 => {
             for by in 0..H / 4 {
+                // this block row's left neighbours (all of them, but in MBAFF frames)
+                let a = Avail { left: left_halves[by * 8 / H], ..a };
                 for bx in 0..W / 4 {
                     let st: i32 = top[bx * 4..bx * 4 + 4].iter().sum();
                     let sl: i32 = left[by * 4..by * 4 + 4].iter().sum();

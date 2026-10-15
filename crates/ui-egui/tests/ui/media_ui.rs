@@ -517,8 +517,90 @@ fn locate_relinks_instead_of_importing() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// (fork H3.2) H.264 clips that no video engine decodes say so in the Project panel, in both
+/// workflows: High 4:2:2 gets the 4:2:2 badge (never "hardware failed"), High 10 an "H.264 10-bit:
+/// software decode" badge, 8-bit High neither.
+#[test]
+fn h264_software_decode_badges() {
+    use filmcraft_engine::settings::Workflow;
+    let root = tmp_dir("h264-badges");
+    for workflow in [Workflow::Premiere, Workflow::Resolve] {
+        let mut s = Session::default();
+        s.prefs.workflow = workflow;
+        s.background.pause();
+        let mut items = Vec::new();
+        for (name, codec, pixfmt) in
+            [("A422", "H.264 (High 4:2:2)", "YUV 4:2:2 10-bit"), ("A10", "H.264 (High 10)", "YUV 4:2:0 10-bit"), ("A8", "H.264 (High)", "YUV 4:2:0 8-bit")]
+        {
+            let file = root.join(format!("{name}-{workflow:?}.mov"));
+            make_movie(&file, DemoScene::OceanSunset, 320, 180, 12);
+            let r = s.execute("file.import", json!({"paths": [file.to_string_lossy()]})).unwrap();
+            let item = filmcraft_engine::project::ItemId(r["items"][0].as_u64().unwrap());
+            // the test movie is ProRes; make the clip look like H.264 footage
+            let mut p = (*s.project).clone();
+            let v = p.item_mut(item).unwrap().as_media_mut().unwrap().info.video.as_mut().unwrap();
+            v.codec = codec.into();
+            v.pixel_format = pixfmt.into();
+            s.project = Arc::new(p);
+            items.push(item);
+        }
+        let mut d = Driver::new(s);
+        d.frames(4);
+        let v = d.ok("ui.elements", json!({"prefix": "project.item."}));
+        let l: Vec<(String, String)> =
+            v.as_array().unwrap().iter().filter_map(|e| Some((e["id"].as_str()?.to_string(), e["label"].as_str().unwrap_or("").to_string()))).collect();
+        let badge = |item: filmcraft_engine::project::ItemId, suffix: &str| -> Vec<String> {
+            l.iter().filter(|(id, _)| id.starts_with(&format!("project.item.{}.", item.0)) && id.ends_with(suffix)).map(|(_, label)| label.clone()).collect()
+        };
+        let only = |labels: Vec<String>, want: &str| !labels.is_empty() && labels.iter().all(|x| x == want);
+        assert!(only(badge(items[0], ".c422"), "4:2:2: software decode, proxies recommended"), "{workflow:?}: {l:?}");
+        assert!(badge(items[0], ".sw10").is_empty(), "{workflow:?}: {l:?}");
+        assert!(only(badge(items[1], ".sw10"), "H.264 10-bit: software decode"), "{workflow:?}: {l:?}");
+        assert!(badge(items[1], ".c422").is_empty(), "{workflow:?}: {l:?}");
+        assert!(badge(items[2], ".c422").is_empty() && badge(items[2], ".sw10").is_empty(), "{workflow:?}: {l:?}");
+        d.snapshot(&format!("media-h264-software-badges-{workflow:?}"));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// (fork 6.2) A 4:2:2 H.265 clip shows the 4:2:2 badge and its automatic proxy's progress
 /// (queued, then ready), with automation labels saying what they mean.
+/// Fork H3.2b: Get Media File Properties says which decoder decodes a file: "chosen when the
+/// clip first plays" until it has decoded, then the decoder's name (VA-API or FilmCraft's own).
+#[test]
+fn media_properties_decoder_line() {
+    use egui_kittest::kittest::Queryable;
+    use filmcraft_engine::settings::Workflow;
+    let root = tmp_dir("decoder-line");
+    for workflow in [Workflow::Premiere, Workflow::Resolve] {
+        let mut s = Session::default();
+        s.prefs.workflow = workflow;
+        s.background.pause();
+        let file = root.join(format!("clip-{workflow:?}.mov"));
+        make_movie(&file, DemoScene::OceanSunset, 320, 180, 12);
+        let r = s.execute("file.import", json!({"paths": [file.to_string_lossy()]})).unwrap();
+        let item = r["items"][0].as_u64().unwrap();
+        let mut d = Driver::new(s);
+        d.exec("project.select", json!({"items": [item]}));
+        d.ok("ui.menu.invoke", json!({"id": "file.mediaProperties"}));
+        d.frames(3);
+        // (the Project panel's thumbnail may have decoded a frame already)
+        let session = &d.app().session;
+        let src = session.media.full_res_source(&session.project, filmcraft_engine::project::ItemId(item), &*session.services).unwrap();
+        let want = src.decoder_name().unwrap_or_else(|| "chosen when the clip first plays".into());
+        assert!(d.harness.query_by_label_contains(&format!("Decoder: {want}")).is_some(), "{workflow:?}: before playback: {want}");
+        d.click("properties.ok");
+        // the clip decodes (as playback would), then the dialog names the decoder
+        src.video_frame(filmcraft_media::FrameRequest::full(Tick::ZERO)).unwrap();
+        let name = src.decoder_name().unwrap();
+        d.ok("ui.menu.invoke", json!({"id": "file.mediaProperties"}));
+        d.frames(3);
+        assert!(d.harness.query_by_label_contains(&format!("Decoder: {name}")).is_some(), "{workflow:?}: {name}");
+        d.click("properties.ok");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn automatic_proxy_and_422_badges() {
     let root = tmp_dir("autoproxy-badges");

@@ -286,6 +286,12 @@ fn media_properties_settings_and_scratch_disks() {
     assert_eq!(v["video"]["codec"].as_str().map(|c| c.to_ascii_lowercase().contains("264") || c.contains("avc")), Some(true), "{v}");
     assert_eq!(v["audio"]["sampleRate"], 48000);
     assert_eq!(v["path"], path.to_string_lossy().as_ref());
+    // fork H3.2b: the Decoder line: unknown before the clip first decodes, then the decoder's name
+    assert!(v["decoder"].is_null(), "{v}");
+    let src = s.media.full_res_source(&s.project, items[0], &*s.services).unwrap();
+    src.video_frame(filmcraft_media::FrameRequest::full(Tick::ZERO)).unwrap();
+    let r = s.execute("file.mediaProperties", json!({})).unwrap();
+    assert_eq!(r[0]["decoder"].as_str().map(|d| d.contains("264")), Some(true), "{}", r[0]);
     let f = s.execute("file.mediaPropertiesFile", json!({"path": path.to_string_lossy()})).unwrap();
     assert_eq!(f["video"]["height"], 36);
     assert!(s.execute("file.mediaPropertiesFile", json!({"path": dir.join("missing.mp4").to_string_lossy()})).is_err());

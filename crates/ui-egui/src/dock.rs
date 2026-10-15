@@ -58,10 +58,13 @@ pub enum PanelKind {
     RenderSettings,
     /// Resolve workflow's Deliver page (fork RS3): the export queue as a panel (not in `ALL`).
     RenderQueue,
+    /// The assistant's chat (fork AI3, FORK-PLAN §1a.78): opened floating by the Assistant button
+    /// in the page bar / header, dockable like any panel.
+    Assistant,
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 34] = [
+    pub const ALL: [PanelKind; 35] = [
         PanelKind::Project,
         PanelKind::MediaBrowser,
         PanelKind::Libraries,
@@ -96,6 +99,7 @@ impl PanelKind {
         PanelKind::ColorClips,
         PanelKind::ColorCurves,
         PanelKind::Compositor,
+        PanelKind::Assistant,
     ];
     /// Panels only the Resolve workflow's pages use (fork RS3), kept out of [`PanelKind::ALL`].
     pub const RESOLVE_ONLY: [PanelKind; 2] = [PanelKind::RenderSettings, PanelKind::RenderQueue];
@@ -137,6 +141,7 @@ impl PanelKind {
             PanelKind::ColorClips => "Clips",
             PanelKind::RenderSettings => "Render Settings",
             PanelKind::RenderQueue => "Render Queue",
+            PanelKind::Assistant => "Assistant",
         }
     }
     pub fn id(self) -> String {

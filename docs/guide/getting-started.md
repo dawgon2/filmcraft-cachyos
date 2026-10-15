@@ -1,12 +1,46 @@
 # Getting started
 
-Status: **partial** (the Workflow section is written; the rest is to write).
+Status: **written** (install, workflow, X-M5 import, hardware path).
 
 ## Install
 
+> id: getting-started.install | does: gets FilmCraft running: a ready-made Linux build or a build from source, then the first launch | resolve: installer from Blackmagic's site | premiere: Creative Cloud app | when: "how do I install FilmCraft?" | see: projects.opening, getting-started.workflow
+
 **[Fork]**
 
-*To write.*
+There are two ways to get this fork. Both give the same program; the ready-made build is quicker,
+building from source gets you the newest work between releases.
+
+**A ready-made build (Linux, x86-64).** Every finished phase of the fork is published as a
+release with a `.tar.gz` file and notes saying what is new.
+
+1. Download the `filmcraft-fork-<phase>-linux-x86_64.tar.gz` file of the newest release.
+2. Unpack it into a folder of your own (no administrator rights needed).
+3. Start the FilmCraft program in that folder. Nothing is installed system-wide; to remove
+   FilmCraft, delete the folder.
+
+**From source.** FilmCraft is pure Rust, so the Rust toolchain is all you need.
+
+1. Install Rust with `rustup` (the stable toolchain).
+2. Get the source and, in its folder, run `cargo run --release -p filmcraft`. The first build
+   takes a while; later ones only rebuild what changed.
+3. Optional: Japanese text in the interface and in titles needs the fonts of the separate
+   craft-fonts repository. Clone it next to FilmCraft and build with `CRAFT_FONTS_DIR` set to its
+   folder. Without it everything else works the same.
+
+**What your computer needs.** A graphics card that supports Vulkan (most AMD, Intel and NVIDIA
+cards from the last ten years): playback, grading and effects run on it. For smooth playback of
+H.265 (HEVC) and H.264 camera files, the card's video engine is used through VA-API when it is
+there (AMD and Intel on Linux); otherwise FilmCraft decodes in software, which is slower, and
+proxies help ([proxies](proxies.md)).
+
+**The first launch.** In this fork FilmCraft opens on the **Project Manager**, where you pick or
+make a project ([projects](projects.md#opening-the-project-manager)). The workflow (Resolve
+or Premiere: page layout, names and keyboard) is chosen in the next section; you can change it at
+any time.
+
+Where this differs: Resolve and Premiere come with installers and accounts; FilmCraft has no
+installer, no sign-in and no licence key.
 
 ## Choose your workflow: Premiere or Resolve
 

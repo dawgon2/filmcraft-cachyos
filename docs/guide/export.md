@@ -183,7 +183,7 @@ feature.
 
 ## Bitrate or constant quality
 
-> id: export.bitrate-crf | does: aims an encoder at a file size (bitrate) or a quality (CRF) | ui: export.video.bitrateMode, export.video.crf | resolve: Quality: restrict to / automatic | premiere: Bitrate Encoding: CBR, VBR | when: a file must fit a size, or look a certain way | see: export.presets
+> id: export.bitrate-crf | does: aims an encoder at a file size (bitrate) or a quality (CRF) | ui: export.video.bitrateMode, export.video.crf | resolve: Quality: restrict to / automatic | premiere: Bitrate Encoding: CBR, VBR | when: a file must fit a size or stay under a limit (so many GB, an upload cap), or look a certain way | see: export.presets
 
 **[Standard] [FilmCraft]**
 

@@ -19,6 +19,7 @@ pub mod card_offload;
 pub mod clip_ops;
 pub mod coach;
 pub mod coach_ask;
+pub mod coach_assist;
 pub mod coach_hints;
 pub mod color;
 pub mod commands;
@@ -482,6 +483,8 @@ pub struct Session {
     /// Local AI explanations of grade nodes (`ai.*`, fork GRADE-PLAN G2.11): the answer cache,
     /// an injected backend (tests) and the running model download.
     pub ai: ai_explain::AiExplain,
+    /// The assistant's background answers (`coach.assist`, fork AI3).
+    pub assist: coach_assist::AssistJobs,
     /// The background media worker (fork 6.2 / 6.3: automatic proxies, render cache). Its thread
     /// starts with the first job; the frontend reports playing / scrubbing / exporting to it.
     pub background: background::BackgroundWorker,
@@ -592,6 +595,7 @@ impl Session {
             coach: Default::default(),
             coach_ids: None,
             ai: Default::default(),
+            assist: Default::default(),
             background: Default::default(),
             auto_proxies: Default::default(),
             media_stamps: Default::default(),
@@ -714,6 +718,9 @@ impl Session {
     /// Replace preferences (persisting them and updating the worker).
     pub fn set_prefs(&mut self, p: autosave::Preferences) -> std::io::Result<()> {
         let cache_changed = self.prefs.media_cache != p.media_cache;
+        // the process-wide decoder switches only when their settings change (re-applying them on
+        // every prefs.set let one session's unrelated change undo another's)
+        let decode_changed = self.prefs.playback.hardware_decoding != p.playback.hardware_decoding || self.prefs.memory != p.memory;
         let (old_ai, new_ai) = (&self.prefs.color.ai, &p.color.ai);
         // AI explanations switched off (or another model chosen), e.g. by the Settings dialog's
         // OK: free the model's memory as `ai.setEnabled` does (never waits)
@@ -725,7 +732,9 @@ impl Session {
         if !self.prefs.color.coach.hints && self.coach.hint.take().is_some() {
             self.coach.revision = self.coach.revision.wrapping_add(1);
         }
-        self.prefs.apply_hardware_decoding();
+        if decode_changed {
+            self.prefs.apply_hardware_decoding();
+        }
         if cache_changed {
             self.apply_media_cache();
         }

@@ -6,8 +6,13 @@
 //! [`Front`] parses each access unit, fills the VA-API picture / matrix / slice buffers and hands
 //! them to an [`Accel`] (the libva session on Linux, a recording stand-in in tests), then reads
 //! back the pictures the DPB outputs. What the hardware path does not take is an error, so the
-//! hybrid decoder replays the run in software: field / MBAFF coding, FMO, SP / SI and data
-//! partitioning, stream changes the surfaces were not made for.
+//! hybrid decoder replays the run in software: FMO, SP / SI and data partitioning, stream changes
+//! the surfaces were not made for.
+//!
+//! Interlaced coding (fork H1): MBAFF frames need nothing beyond the sequence flag (the driver
+//! derives MbaffFrameFlag). Field pictures (PAFF) use the DPB's field support: a second field
+//! decodes into its first field's surface, current and reference pictures carry VA's field
+//! flags and only their own fields' order counts, and field slices get field reference lists.
 //!
 //! Safe code; compiled on every target so its logic is tested everywhere.
 
@@ -15,7 +20,7 @@ use std::sync::Arc;
 
 use filmcraft_bitstream::{length_prefixed_nals, unescape_rbsp};
 use filmcraft_codecs::{CodecError, DecodedFrame, Result};
-use filmcraft_h264::dpb::{Dpb, DpbEntry, Output, OutputMeta, RefMark};
+use filmcraft_h264::dpb::{Dpb, DpbEntry, FieldPocs, Output, OutputMeta, Parity, RefMark};
 use filmcraft_h264::params::{Pps, Sps};
 use filmcraft_h264::slice::{NalHeader, Poc, PocState, SliceHeader, SliceType, is_new_picture, nal_type};
 
@@ -188,12 +193,10 @@ impl<A: Accel> Front<A> {
         })
         .map_err(decode_err)?;
         let Some((pps, sps)) = found else { return Err(decode_err("slice without a PPS")) };
-        sps.check_supported().map_err(decode_err)?;
+        // interlaced coding is taken (fork H1); the hardware-specific limits follow
+        sps.check_coding_tools().map_err(decode_err)?;
         if pps.num_slice_groups > 1 {
             return Err(unsupported("slice groups (FMO)"));
-        }
-        if sh.field_pic {
-            return Err(unsupported("field pictures"));
         }
         if matches!(sh.slice_type, SliceType::Sp | SliceType::Si) {
             return Err(unsupported("SP / SI slices"));
@@ -217,10 +220,15 @@ impl<A: Accel> Front<A> {
             return Err(unsupported("a picture whose slices use different PPSs"));
         }
         let surfaces = self.accel.surfaces();
-        let lists = self
-            .dpb
-            .build_ref_lists(&sh, pending.poc.frame(), sps.max_frame_num(), |e| (va_ref(e, surfaces), e.mark != RefMark::Unused))
-            .map_err(decode_err)?;
+        let lists = if sh.field_pic {
+            self.dpb.build_field_ref_lists(&sh, pending.poc.picture(&sh), sps.max_frame_num(), |e, p| {
+                let f = e.field(p);
+                (va_field_ref(e, p, surfaces), f.present && f.mark != RefMark::Unused)
+            })
+        } else {
+            self.dpb.build_ref_lists(&sh, pending.poc.frame(), sps.max_frame_num(), |e| (va_ref(e, surfaces), e.mark != RefMark::Unused))
+        }
+        .map_err(decode_err)?;
         if !sh.slice_type.is_intra() && (lists[0].is_empty() || (sh.slice_type.is_b() && lists[1].is_empty())) {
             return Err(decode_err("no reference pictures available for an inter slice"));
         }
@@ -257,10 +265,12 @@ impl<A: Accel> Front<A> {
         self.active_sps = Some(sps.clone());
         self.dpb.capacity = sps.max_dpb_frames();
         self.dpb.max_reorder = sps.max_num_reorder_frames().min(self.dpb.capacity);
-        if sh.idr {
+        // a second field joins its first field: no IDR marking or gap fill, the same surface
+        let second = self.dpb.is_second_field(sh);
+        if sh.idr && !second {
             self.dpb.idr(sh.no_output_of_prior_pics, &mut outs);
             self.prev_ref_frame_num = 0;
-        } else {
+        } else if !second {
             let max = sps.max_frame_num();
             if sh.frame_num != self.prev_ref_frame_num && sh.frame_num != (self.prev_ref_frame_num + 1) % max {
                 self.fill_frame_num_gap(sh, sps, pts)?;
@@ -268,8 +278,14 @@ impl<A: Accel> Front<A> {
         }
         self.read_out(outs, frames)?;
         let poc = self.poc_state.compute(sh, sps);
-        let free: Vec<usize> = (0..self.accel.surfaces().len()).filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).collect();
-        let target = self.accel.pick(&free).ok_or_else(|| decode_err("no free surface"))?;
+        let first_field = if second { self.dpb.entries.iter().find(|e| e.awaiting_second_field).map(|e| e.frame.index) } else { None };
+        let target = match first_field {
+            Some(index) => index,
+            None => {
+                let free: Vec<usize> = (0..self.accel.surfaces().len()).filter(|&i| !self.dpb.entries.iter().any(|e| e.frame.index == i)).collect();
+                self.accel.pick(&free).ok_or_else(|| decode_err("no free surface"))?
+            }
+        };
         self.pending = Some(Pending { target, sps: sps.clone(), pps: pps.clone(), first: sh.clone(), poc, pts, slices: Vec::new() });
         Ok(())
     }
@@ -343,7 +359,7 @@ impl<A: Accel> Front<A> {
     fn reference_frames(&self, list: &mut [VAPictureH264; 16], surfaces: &[ffi::VASurfaceID]) {
         let mut listed = Vec::with_capacity(16);
         let refs = self.dpb.entries.iter().filter(|e| {
-            e.mark != RefMark::Unused && e.frame.index != UNASSIGNED && !listed.contains(&e.frame.index) && {
+            e.is_reference() && e.frame.index != UNASSIGNED && !listed.contains(&e.frame.index) && {
                 listed.push(e.frame.index);
                 true
             }
@@ -361,16 +377,23 @@ impl<A: Accel> Front<A> {
         }
         let surfaces = self.accel.surfaces();
         let target_id = surfaces.get(p.target).copied().ok_or_else(|| decode_err("surface out of range"))?;
-        if self.dpb.entries.iter().filter(|e| e.mark != RefMark::Unused).count() > 16 {
+        if self.dpb.entries.iter().filter(|e| e.is_reference()).count() > 16 {
             return Err(decode_err("more than 16 reference frames"));
         }
+        let field = p.first.field_pic.then(|| Parity::of(&p.first));
         let mut pic = picture_params(&p.sps, &p.pps, &p.first);
+        // a field picture names only its own field and order count
+        let (flags, top, bottom) = match field {
+            None => (0, p.poc.top, p.poc.bottom),
+            Some(Parity::Top) => (ffi::VA_PICTURE_H264_TOP_FIELD, p.poc.top, 0),
+            Some(Parity::Bottom) => (ffi::VA_PICTURE_H264_BOTTOM_FIELD, 0, p.poc.bottom),
+        };
         pic.CurrPic = VAPictureH264 {
             picture_id: target_id,
             frame_idx: p.first.frame_num,
-            flags: 0,
-            TopFieldOrderCnt: p.poc.top,
-            BottomFieldOrderCnt: p.poc.bottom,
+            flags,
+            TopFieldOrderCnt: top,
+            BottomFieldOrderCnt: bottom,
             va_reserved: [0; ffi::VA_PADDING_LOW],
         };
         self.reference_frames(&mut pic.ReferenceFrames, surfaces);
@@ -383,26 +406,58 @@ impl<A: Accel> Front<A> {
             self.prev_ref_frame_num = if mmco5 { 0 } else { p.first.frame_num };
         }
         // MMCO 5: the picture's order counts become relative to itself (tempPicOrderCnt, 8.2.1)
-        let temp = if mmco5 { p.poc.frame() } else { 0 };
+        let temp = if mmco5 { p.poc.picture(&p.first) } else { 0 };
+        // a second field keeps its first field's order count in the surface
+        let first = if self.dpb.is_second_field(&p.first) { self.dpb.entries.iter().find(|e| e.awaiting_second_field).map(|e| e.frame) } else { None };
+        let (top, bottom) = match field {
+            None => (p.poc.top.wrapping_sub(temp), p.poc.bottom.wrapping_sub(temp)),
+            Some(Parity::Top) => (p.poc.top.wrapping_sub(temp), first.map_or(0, |f| f.bottom)),
+            Some(Parity::Bottom) => (first.map_or(0, |f| f.top), p.poc.bottom.wrapping_sub(temp)),
+        };
         self.seq += 1;
-        let surface = Surface { index: p.target, top: p.poc.top.wrapping_sub(temp), bottom: p.poc.bottom.wrapping_sub(temp), seq: self.seq };
-        let fpoc = if mmco5 { 0 } else { p.poc.frame() };
+        let surface = Surface { index: p.target, top, bottom, seq: self.seq };
         let meta = Arc::new(output_meta(&p.sps, p.pts, p.first.idr));
         let mut outs = Vec::new();
-        self.dpb.store_picture(&p.first, surface, fpoc, p.sps.max_frame_num(), p.sps.max_num_ref_frames as usize, meta, &mut outs);
+        // for a frame both counts give the frame's (the smaller; 0 after an MMCO 5)
+        self.dpb.store(&p.first, surface, FieldPocs { top, bottom }, p.sps.max_frame_num(), p.sps.max_num_ref_frames as usize, meta, &mut outs);
         self.read_out(outs, frames)
     }
 }
 
-/// A DPB entry as a VA-API reference picture.
+/// A DPB entry as a VA-API reference picture: a frame when both fields are references (or
+/// for frame entries, always), else the one field that is, with only that field's order count.
 fn va_ref(e: &DpbEntry<Surface>, surfaces: &[ffi::VASurfaceID]) -> VAPictureH264 {
-    let long = e.mark == RefMark::Long;
+    let marked = |f: &filmcraft_h264::dpb::FieldState| f.present && f.mark != RefMark::Unused;
+    let (top, bottom) = (marked(&e.top), marked(&e.bottom));
+    let long = e.mark == RefMark::Long || (e.mark == RefMark::Unused && (e.top.mark == RefMark::Long || e.bottom.mark == RefMark::Long));
+    let (parity, top_poc, bottom_poc) = match (top, bottom) {
+        (true, false) => (ffi::VA_PICTURE_H264_TOP_FIELD, e.frame.top, 0),
+        (false, true) => (ffi::VA_PICTURE_H264_BOTTOM_FIELD, 0, e.frame.bottom),
+        _ => (0, e.frame.top, e.frame.bottom),
+    };
     VAPictureH264 {
         picture_id: surfaces.get(e.frame.index).copied().unwrap_or(ffi::VA_INVALID_SURFACE),
         frame_idx: if long { e.long_term_frame_idx } else { e.frame_num },
-        flags: if long { ffi::VA_PICTURE_H264_LONG_TERM_REFERENCE } else { ffi::VA_PICTURE_H264_SHORT_TERM_REFERENCE },
-        TopFieldOrderCnt: e.frame.top,
-        BottomFieldOrderCnt: e.frame.bottom,
+        flags: parity | if long { ffi::VA_PICTURE_H264_LONG_TERM_REFERENCE } else { ffi::VA_PICTURE_H264_SHORT_TERM_REFERENCE },
+        TopFieldOrderCnt: top_poc,
+        BottomFieldOrderCnt: bottom_poc,
+        va_reserved: [0; ffi::VA_PADDING_LOW],
+    }
+}
+
+/// One field of a DPB entry as a VA-API reference picture (field slices' reference lists).
+fn va_field_ref(e: &DpbEntry<Surface>, p: Parity, surfaces: &[ffi::VASurfaceID]) -> VAPictureH264 {
+    let long = e.field(p).mark == RefMark::Long;
+    let (parity, top, bottom) = match p {
+        Parity::Top => (ffi::VA_PICTURE_H264_TOP_FIELD, e.frame.top, 0),
+        Parity::Bottom => (ffi::VA_PICTURE_H264_BOTTOM_FIELD, 0, e.frame.bottom),
+    };
+    VAPictureH264 {
+        picture_id: surfaces.get(e.frame.index).copied().unwrap_or(ffi::VA_INVALID_SURFACE),
+        frame_idx: if long { e.long_term_frame_idx } else { e.frame_num },
+        flags: parity | if long { ffi::VA_PICTURE_H264_LONG_TERM_REFERENCE } else { ffi::VA_PICTURE_H264_SHORT_TERM_REFERENCE },
+        TopFieldOrderCnt: top,
+        BottomFieldOrderCnt: bottom,
         va_reserved: [0; ffi::VA_PADDING_LOW],
     }
 }

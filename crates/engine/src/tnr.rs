@@ -8,6 +8,7 @@
 
 use filmcraft_project::grade::NodeParamKind;
 use filmcraft_project::{ClipId, Param, ParamValue, TNR_PARAMS, TemporalNr, tnr_param};
+use filmcraft_time::Tick;
 use serde_json::{Map, Value, json};
 
 use crate::commands::{CommandSpec, always, bad, bool_p, has_seq, str_p};
@@ -39,6 +40,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
         spec("tnr.set", "Set Temporal NR Parameter", r#"{"clip":id?,"param":"luma|chroma|frames|motion","value":num,"time":ticks?,"merge":bool|str?}"#, set),
         menu_spec("tnr.toggle", "Enable / Disable Temporal NR", r#"{"clip":id?,"on":bool?}"#, toggle),
         spec("tnr.toggleAnimation", "Toggle Temporal NR Parameter Animation", r#"{"clip":id?,"param":str,"time":ticks?}"#, toggle_animation),
+        spec("tnr.moveKeyframe", "Move Temporal NR Keyframe", r#"{"clip":id?,"param":str,"mediaTime":ticks,"to":ticks}"#, move_keyframe),
         menu_spec("tnr.reset", "Reset Temporal NR", r#"{"clip":id?,"param":str?}"#, reset),
         menu_spec("tnr.clear", "Remove Temporal NR", r#"{"clip":id?}"#, clear),
         menu_spec("tnr.copy", "Copy Temporal NR", r#"{"clip":id?}"#, copy),
@@ -194,6 +196,27 @@ fn toggle_animation(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(prm.is_animated())
     })?;
     Ok(json!({ "animated": animated }))
+}
+
+/// Moves the keyframe of `param` at media time `mediaTime` to `to` (a keyframe already at `to` is
+/// replaced, as `effects.moveKeyframe` does): the Effect Controls lane's drag.
+fn move_keyframe(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "tnr.moveKeyframe";
+    let (key, ..) = param_def(p, CMD)?;
+    let tick = |k: &str| p.get(k).and_then(Value::as_i64).map(Tick).ok_or_else(|| bad(CMD, format!("need `{k}` (ticks)")));
+    let (from, to) = (tick("mediaTime")?, tick("to")?);
+    let c = media_target(s, p, CMD)?;
+    edit_tnr(s, c, "Move Keyframe", None, |slot| {
+        let prm = slot.as_mut().and_then(|t| t.params.get_mut(key)).ok_or_else(|| bad(CMD, "the parameter is not animated"))?;
+        let i = prm.keyframes.iter().position(|k| k.time == from).ok_or_else(|| bad(CMD, "no keyframe at `mediaTime`"))?;
+        let mut k = prm.keyframes.remove(i);
+        k.time = to;
+        prm.keyframes.retain(|x| x.time != to);
+        let at = prm.keyframes.partition_point(|x| x.time < to);
+        prm.keyframes.insert(at, k);
+        Ok(())
+    })?;
+    Ok(Value::Null)
 }
 
 fn reset(s: &mut Session, p: &Value) -> Result<Value> {

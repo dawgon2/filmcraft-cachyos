@@ -70,7 +70,7 @@ the text) and paragraph text (the text wraps inside a box whose handles resize i
 
 ## Templates
 
-> id: graphics.templates | does: saves a graphic as a reusable template with chosen editable properties, and applies templates | cmd: graphics.template.list, graphics.template.apply, graphics.template.set, graphics.template.controls, graphics.template.export, graphics.template.install, graphics.template.remove | resolve: Fusion title templates, Effects Library titles | premiere: Motion Graphics templates (.mogrt) | when: the same lower third across a series; sharing a design | see: graphics.layers, packs.what
+> id: graphics.templates | does: saves a graphic as a reusable template with chosen editable properties, and applies templates | cmd: graphics.template.list, graphics.template.apply, graphics.template.set, graphics.template.controls, graphics.template.export, graphics.template.install, graphics.template.remove | resolve: Fusion title templates, Effects Library titles | premiere: Motion Graphics templates (.mogrt) | when: "the same lower third in every episode"; sharing a design | see: graphics.layers, packs.what
 
 **[FilmCraft]**
 

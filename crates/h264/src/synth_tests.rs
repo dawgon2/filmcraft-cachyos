@@ -563,3 +563,232 @@ fn poc_type1_reordering() {
         }
     }
 }
+
+/// An interlaced SPS (frame_mbs_only 0, no MBAFF; POC type 2): frames of 2 * MB_H MB rows, coded
+/// as fields of MB_W x MB_H macroblocks.
+fn field_sps() -> Vec<u8> {
+    let mut w = BitWriter::new();
+    w.write_bits(77, 8); // Main
+    w.write_bits(0, 8);
+    w.write_bits(30, 8);
+    w.write_ue(0); // sps id
+    w.write_ue(0); // log2_max_frame_num - 4
+    w.write_ue(2); // POC type 2
+    w.write_ue(4); // max_num_ref_frames
+    w.write_bit(false); // gaps
+    w.write_ue(MB_W as u32 - 1);
+    w.write_ue(MB_H as u32 - 1); // pic_height_in_map_units: field MB rows
+    w.write_bit(false); // frame_mbs_only
+    w.write_bit(false); // mb_adaptive_frame_field
+    w.write_bit(true); // direct_8x8_inference
+    w.write_bit(false); // cropping
+    w.write_bit(false); // vui
+    w.rbsp_trailing();
+    nal(3, 7, &w.finish())
+}
+
+/// A CAVLC I field picture made of I_PCM macroblocks (deblocking off).
+fn pcm_field_nal(idr: bool, frame_num: u32, ref_idc: u8, bottom: bool, mbs: &[Vec<u8>]) -> Vec<u8> {
+    let mut w = BitWriter::new();
+    w.write_ue(0); // first_mb
+    w.write_ue(7); // I (all slices)
+    w.write_ue(0); // pps id
+    w.write_bits(frame_num, 4);
+    w.write_bit(true); // field_pic_flag
+    w.write_bit(bottom);
+    if idr {
+        w.write_ue(0);
+    }
+    if ref_idc != 0 {
+        if idr {
+            w.write_bit(false);
+            w.write_bit(false);
+        } else {
+            w.write_bit(false); // sliding window
+        }
+    }
+    w.write_se(0); // slice_qp_delta
+    w.write_ue(1); // deblocking off
+    for s in mbs {
+        w.write_ue(25); // I_PCM
+        write_pcm(&mut w, s);
+    }
+    w.rbsp_trailing();
+    nal(ref_idc, if idr { 5 } else { 1 }, &w.finish())
+}
+
+/// The frame two fields interleave into (frame line y = field y & 1, line y >> 1).
+fn interleave(top: &Planes3, bottom: &Planes3) -> Planes3 {
+    let lines = |t: &[u8], b: &[u8], w: usize| -> Vec<u8> { t.chunks(w).zip(b.chunks(w)).flat_map(|(l0, l1)| l0.iter().chain(l1).copied()).collect() };
+    let (w, cw) = (MB_W * 16, MB_W * 8);
+    (lines(&top.0, &bottom.0, w), lines(&top.1, &bottom.1, cw), lines(&top.2, &bottom.2, cw))
+}
+
+/// PAFF in software (fork H2.5b): intra field pairs interleave into their frame, an unpaired
+/// field (followed by another frame, or ending the stream) comes out with its lines doubled
+/// instead of blocking or crashing, on one and several threads and both sample paths.
+#[test]
+fn intra_field_pictures_interleave_and_unpaired_fields_are_filled() {
+    let mut seed = 31u32;
+    let mut field = || -> Vec<Vec<u8>> { (0..NMB).map(|_| random_mb(&mut seed)).collect() };
+    let (f0t, f0b, f1t, f1b, f2t, f2b) = (field(), field(), field(), field(), field(), field());
+    let show = |mbs: &[Vec<u8>]| render(&mbs.iter().cloned().map(Some).collect::<Vec<_>>(), None);
+    let head = [field_sps(), pps(false, false)].concat();
+    // frame 0: IDR top field + reference bottom field; frame 1 (reference); frame 2 (non-reference)
+    let n0 = [pcm_field_nal(true, 0, 3, false, &f0t), pcm_field_nal(false, 0, 3, true, &f0b)];
+    let n1t = pcm_field_nal(false, 1, 2, false, &f1t);
+    let n1b = pcm_field_nal(false, 1, 2, true, &f1b);
+    let n2 = [pcm_field_nal(false, 2, 0, false, &f2t), pcm_field_nal(false, 2, 0, true, &f2b)];
+    let frame0 = interleave(&show(&f0t), &show(&f0b));
+    let frame1 = interleave(&show(&f1t), &show(&f1b));
+    let frame2 = interleave(&show(&f2t), &show(&f2b));
+    let paired = [head.clone(), n0.concat(), n1t.clone(), n1b, n2.concat()].concat();
+    cross_check_ffmpeg(&paired, &[frame0.clone(), frame1.clone(), frame2.clone()], "synth_fields");
+    // frame 1 without its bottom field
+    let unpaired = [head.clone(), n0.concat(), n1t, n2.concat()].concat();
+    let doubled1 = interleave(&show(&f1t), &show(&f1t));
+    // the stream ends on a first field
+    let truncated = [head, n0.concat(), n2[0].clone()].concat();
+    let doubled2 = interleave(&show(&f2t), &show(&f2t));
+    let cases = [
+        ("paired", &paired, vec![frame0.clone(), frame1, frame2.clone()]),
+        ("unpaired", &unpaired, vec![frame0.clone(), doubled1, frame2]),
+        ("truncated", &truncated, vec![frame0, doubled2]),
+    ];
+    // never crash or hang on damaged field streams: bit flips anywhere (parameter sets and
+    // field flags included) and truncation, the internal-error fallback included
+    for (name, stream, _) in &cases {
+        let mut seed = 7u32;
+        for round in 0..120 {
+            let mut damaged = stream.to_vec();
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let at = (seed >> 8) as usize % damaged.len();
+            damaged[at] ^= 1 << (seed & 7);
+            if round % 4 == 3 {
+                damaged.truncate(at);
+            }
+            for threads in [1, 2] {
+                let mut dec = Decoder::with_threads(threads);
+                let _ = dec.decode(&damaged, 0);
+                let _ = dec.flush();
+                let _ = dec.take_error();
+            }
+        }
+        let _ = name;
+    }
+    for (name, stream, expected) in &cases {
+        for threads in [1, 4] {
+            for wide in [false, true] {
+                let mut dec = Decoder::with_threads(threads);
+                dec.set_wide_samples(wide);
+                let mut out = dec.decode(stream, 0).unwrap();
+                out.extend(dec.flush());
+                assert!(dec.take_error().is_none(), "{name}");
+                assert_eq!(out.len(), expected.len(), "{name} threads={threads} wide={wide}");
+                for (i, (p, e)) in out.iter().zip(expected).enumerate() {
+                    assert_eq!((p.width as usize, p.height as usize), (MB_W * 16, MB_H * 32));
+                    assert!(p.y == e.0 && p.u == e.1 && p.v == e.2, "{name}: frame {i} differs (threads={threads}, wide={wide})");
+                }
+            }
+        }
+    }
+}
+
+/// An MBAFF SPS (frame_mbs_only 0, mb_adaptive_frame_field 1; POC type 2): frames of
+/// MB_W x 2 * MB_H macroblocks in MB_H pair rows.
+fn mbaff_sps() -> Vec<u8> {
+    let mut w = BitWriter::new();
+    w.write_bits(77, 8);
+    w.write_bits(0, 8);
+    w.write_bits(30, 8);
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_ue(2);
+    w.write_ue(1);
+    w.write_bit(false);
+    w.write_ue(MB_W as u32 - 1);
+    w.write_ue(MB_H as u32 - 1);
+    w.write_bit(false); // frame_mbs_only
+    w.write_bit(true); // mb_adaptive_frame_field
+    w.write_bit(true);
+    w.write_bit(false);
+    w.write_bit(false);
+    w.rbsp_trailing();
+    nal(3, 7, &w.finish())
+}
+
+/// MBAFF in software (fork H2.6a): a CAVLC IDR frame of I_PCM macroblock pairs, some coded as
+/// frame pairs and some as field pairs, places field macroblocks on alternate lines; damaged
+/// copies never crash.
+#[test]
+fn mbaff_pcm_pairs_are_placed_by_field_flag() {
+    let mut seed = 77u32;
+    let npairs = MB_W * MB_H;
+    let mbs: Vec<[Vec<u8>; 2]> = (0..npairs).map(|_| [random_mb(&mut seed), random_mb(&mut seed)]).collect();
+    let field = |p: usize| p % 3 == 1;
+    let mut w = BitWriter::new();
+    w.write_ue(0); // first_mb_in_slice (pairs)
+    w.write_ue(7); // I
+    w.write_ue(0);
+    w.write_bits(0, 4); // frame_num
+    w.write_bit(false); // field_pic_flag
+    w.write_ue(0); // idr_pic_id
+    w.write_bit(false); // no_output_of_prior_pics
+    w.write_bit(false); // long_term_reference
+    w.write_se(0);
+    w.write_ue(1); // deblocking off
+    for (p, pair) in mbs.iter().enumerate() {
+        for (b, s) in pair.iter().enumerate() {
+            if b == 0 {
+                w.write_bit(field(p)); // mb_field_decoding_flag
+            }
+            w.write_ue(25);
+            write_pcm(&mut w, s);
+        }
+    }
+    w.rbsp_trailing();
+    let stream = [mbaff_sps(), pps(false, false), nal(3, 5, &w.finish())].concat();
+    // expected frame
+    let (fw, fh) = (MB_W * 16, MB_H * 32);
+    let (mut y, mut u, mut v) = (vec![0u8; fw * fh], vec![0u8; fw * fh / 4], vec![0u8; fw * fh / 4]);
+    for (p, pair) in mbs.iter().enumerate() {
+        let (px, pr) = (p % MB_W, p / MB_W);
+        for (b, s) in pair.iter().enumerate() {
+            // line of row r of this macroblock inside its pair
+            let line = |r: usize, n: usize| if field(p) { 2 * r + b } else { b * n + r };
+            for r in 0..16 {
+                let at = (pr * 32 + line(r, 16)) * fw + px * 16;
+                y[at..at + 16].copy_from_slice(&s[r * 16..r * 16 + 16]);
+            }
+            for r in 0..8 {
+                let at = (pr * 16 + line(r, 8)) * (fw / 2) + px * 8;
+                u[at..at + 8].copy_from_slice(&s[256 + r * 8..256 + r * 8 + 8]);
+                v[at..at + 8].copy_from_slice(&s[320 + r * 8..320 + r * 8 + 8]);
+            }
+        }
+    }
+    for threads in [1, 4] {
+        let mut dec = Decoder::with_threads(threads);
+        let mut out = dec.decode(&stream, 0).unwrap();
+        out.extend(dec.flush());
+        assert!(dec.take_error().is_none());
+        assert_eq!(out.len(), 1);
+        let p = &out[0];
+        assert_eq!((p.width as usize, p.height as usize), (fw, fh));
+        assert!(p.y == y && p.u == u && p.v == v, "threads={threads}");
+    }
+    let mut seed = 3u32;
+    for round in 0..120 {
+        let mut damaged = stream.clone();
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        let at = (seed >> 8) as usize % damaged.len();
+        damaged[at] ^= 1 << (seed & 7);
+        if round % 4 == 3 {
+            damaged.truncate(at);
+        }
+        let mut dec = Decoder::with_threads(1 + round % 2);
+        let _ = dec.decode(&damaged, 0);
+        let _ = dec.flush();
+        let _ = dec.take_error();
+    }
+}

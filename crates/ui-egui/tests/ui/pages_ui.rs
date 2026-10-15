@@ -160,10 +160,23 @@ fn resolve_pages_open_their_layouts_with_toolbar_and_page_bar() {
         assert_eq!(got, w, "{page}: toolbar");
         d.shot(&format!("resolve-{page}"));
     }
-    // the coach's buttons on the Color page sit above the (taller) page bar, not over Home
+    // the coach's buttons sit in the page bar left of Home, clear of the pages (FORK-PLAN §1a.78)
     d.click("page.color");
-    let (ask, home) = (d.rect("coach.ask.open"), d.rect("pageBar.home"));
-    assert!(ask[1] + ask[3] <= home[1], "Ask the coach {ask:?} clears the page bar {home:?}");
+    let (lessons, ask, assistant, home) = (d.rect("coach.lessons.open"), d.rect("coach.ask.open"), d.rect("assistant.open"), d.rect("pageBar.home"));
+    let deliver = d.rect("page.deliver");
+    for (name, r) in [("Lessons", lessons), ("Ask the coach", ask), ("Assistant", assistant)] {
+        assert!(r[1] >= home[1] - 8.0 && r[1] + r[3] <= home[1] + home[3] + 8.0, "{name} {r:?} on the page bar's row {home:?}");
+        assert!(r[0] + r[2] <= home[0], "{name} {r:?} left of Home {home:?}");
+        assert!(r[0] >= deliver[0] + deliver[2], "{name} {r:?} clear of the pages {deliver:?}");
+    }
+    assert!(lessons[0] + lessons[2] <= ask[0] && ask[0] + ask[2] <= assistant[0], "Lessons, Ask the coach, Assistant in order");
+    // the Assistant opens floating over the page (the coach's box opens above the bar)
+    d.click("assistant.open");
+    d.shot("color-assistant-floating");
+    d.click("coach.ask.open");
+    d.shot("color-ask-open");
+    d.click("coach.ask.open");
+    d.click("assistant.open");
     // the Edit page's layout: the media pool on the left, source and timeline viewers side by
     // side, the timeline below them
     d.click("page.edit");
@@ -242,6 +255,21 @@ fn premiere_keeps_its_header_workspaces_and_export_mode() {
         assert!(d.has(id), "{id}");
     }
     assert!(d.ids("page.").is_empty() && d.ids("pageBar.").is_empty() && d.ids("pageToolbar.").is_empty(), "no Resolve chrome");
+    // the coach's buttons and the Assistant on the header's right, clear of the workspace name
+    let (assistant, name) = (d.rect("assistant.open"), d.rect("header.workspaceName"));
+    for id in ["coach.lessons.open", "coach.ask.open", "assistant.open"] {
+        let r = d.rect(id);
+        assert!(r[1] + r[3] <= 40.0, "{id} {r:?} in the header");
+        assert!(r[0] >= name[0] + name[2], "{id} {r:?} right of the workspace name {name:?}");
+    }
+    assert!(assistant[0] + assistant[2] <= d.rect("header.workspaces")[0], "left of the Workspaces button");
+    // the header's own icons stop left of the window buttons (they once slid under them when
+    // the full-screen preference and the window disagreed)
+    if let Some(chrome) = ["window.fullScreen", "window.minimize"].into_iter().find(|id| d.has(id)) {
+        let (fs, first) = (d.rect("header.fullscreen"), d.rect(chrome));
+        assert!(fs[0] + fs[2] <= first[0], "header icons {fs:?} clear of the window buttons {first:?}");
+    }
+    d.shot("premiere-header");
     assert_eq!(d.workspace(), "Editing");
     assert_eq!(d.harness.state().ui.dock, filmcraft_ui_egui::dock::workspace("Editing"), "Premiere's Editing layout");
     d.shot("premiere-editing");

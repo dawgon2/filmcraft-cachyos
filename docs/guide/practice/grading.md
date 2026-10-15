@@ -41,7 +41,7 @@ fits and what can go wrong.
 
 ## Set black and white points on the waveform
 
-> id: practice.grading.black-white-points | does: places the darkest and brightest parts of the picture with the waveform instead of by eye | resolve: Lift / Gain with the waveform | premiere: Lumetri Blacks / Whites with the waveform | when: setting contrast on any shot | see: color.finishing.scopes
+> id: practice.grading.black-white-points | does: places the darkest and brightest parts of the picture with the waveform instead of by eye | resolve: Lift / Gain with the waveform | premiere: Lumetri Blacks / Whites with the waveform | when: setting contrast on any shot; deciding how dark the blacks or how bright the whites should go | see: color.finishing.scopes
 
 **[Standard]**
 
@@ -190,7 +190,7 @@ fits and what can go wrong.
 
 ## Finish with grain
 
-> id: practice.grading.grain-finish | does: adds fine grain on the last node to hide banding and unify sources | resolve: Film Grain (last node or timeline) | premiere: Noise effect or a grain overlay | when: skies and gradients that band; mixed cameras | see: color.finishing.grain, color.recipes.grain
+> id: practice.grading.grain-finish | does: adds fine grain on the last node of the tree, after the look, to hide banding and unify sources | resolve: Film Grain (last node or timeline) | premiere: Noise effect or a grain overlay | when: skies and gradients that band; mixed cameras | see: color.finishing.grain, color.recipes.grain
 
 **[Standard]**
 

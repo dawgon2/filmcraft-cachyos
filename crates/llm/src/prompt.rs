@@ -192,6 +192,18 @@ pub fn chat_prompt(family: Family, system: &str, user: &str) -> String {
         Family::Qwen25 | Family::SmolLm2 => {
             format!("<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n", sanitize(system), sanitize(user))
         }
+        // SmolLM3's published template in `/no_think` mode without tools: a metadata header, the
+        // instructions, no `<|im_end|>` after the system block (as the template writes it), and
+        // an empty think block opening the answer. Its "Today Date" line is left out so the
+        // prompt is deterministic.
+        Family::SmolLm3 => {
+            let system = sanitize(system).replace("/no_think", "").replace("/think", "");
+            format!(
+                "<|im_start|>system\n## Metadata\n\nKnowledge Cutoff Date: June 2025\nReasoning Mode: /no_think\n\n## Custom Instructions\n\n{}\n\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n",
+                system.trim_end(),
+                sanitize(user)
+            )
+        }
     }
 }
 

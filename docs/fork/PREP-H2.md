@@ -151,6 +151,27 @@ planes); H2.5b decoder accepts field pictures with intra-only fields (conformanc
 direct / colocated across frame / field; H2.5e frame pictures referencing field pairs. Each with
 the conformance field streams as the oracle; fresh-context Opus review before merge (§4).
 
+**As built (2026-10-14, branch `dell-lane-h2-5`, H2.5a–e; corrections to the design above).**
+- Chroma offset sign: the design had it reversed. Table 8-10 as implemented and confirmed
+  bit-exact by the conformance streams: current *top* field, reference *bottom* field → −2;
+  current bottom, reference top → +2 (1/8 chroma units, 4:2:0 only).
+- Missing from the design, needed for any field with residuals: the **field scans** (4×4 and
+  8×8, Table 8-13) and, in CABAC, the field **significance / last** contexts (ctxIdxOffset 277 /
+  338, and 436 / 451 for 8×8 with the field column of Table 9-43); deblocking in field pictures
+  uses a vertical mv limit of 2 quarter field lines and bS 3 (not 4) on horizontal intra MB
+  edges (8.7.2.1).
+- num_ref_idx: a field slice without the override infers the PPS default unchanged (range
+  0–31); doubling applies only to MBAFF field macroblocks (H2.6).
+- Frame-coded pictures are stored with both field order counts (`Dpb::store` with
+  `FieldPocs`), so fields referencing a frame see the right bottom-field POC.
+- An unpaired field is completed by copying it into the missing parity when the next picture
+  starts or at flush (`Frame::fill_missing_field`); output never waits on it.
+- Gating: PAFF sequences (frame_mbs_only 0, mb_adaptive_frame_field 0) decode in software by
+  default; MBAFF-flagged sequences only with the hidden `Decoder::set_field_pictures` hook (the
+  conformance harness), their MBAFF frames refused per slice until H2.6.
+- Result: conformance 53 pass / 22 unsupported (all MBAFF) / 0 failed on the first 76 archives
+  (+10 PAFF streams over the H2.8a run); 8-bit progressive `perf_1080p` 1 thread −0.9 %
+  (96.4 vs 97.3 fps, alignment-pinned A/B builds, inside the ±1.5 % layout noise).
 ## 7. H2.6 design: MBAFF in software (written 2026-10-14 after H2.5)
 
 Status at writing: PAFF is built (§6 "As built", branch `dell-lane-h2-5`); MBAFF frames
@@ -219,3 +240,30 @@ never-crash rounds; fresh-context Opus review before merge):
 - **H2.6d** MBAFF deblocking.
 - **H2.6e** accept MBAFF sequences by default (drop the hook's role), perf A/B for progressive,
   never-crash rounds over damaged MBAFF streams, guide rows.
+
+**As built (2026-10-14, branch `dell-lane-h2-6`, H2.6a–e; corrections to the design above).**
+- MBAFF is a const generic of `SliceDecoder` (like 4:2:2), so progressive pictures carry no MBAFF
+  code: 8-bit `perf_1080p` 1 thread stays at the base's speed.
+- Neighbours: one `locate()` (6.4.12 / Table 6-4) behind every block-neighbour lookup. Two
+  recalled table details were wrong and the conformance streams decided: the top-left (D)
+  neighbour of a bottom frame MB beside a field pair is the left pair's *bottom* field MB, line 7
+  (the physically adjacent sample), and motion neighbours C / D must be located from the luma
+  line *above* the partition (y − 1 in samples, not 4 · (y − 1)), which picks the field across
+  frame / field pairs. Intra *samples* are read in place through per-MB views with a line step of
+  2 for field MBs; they coincide with Table 6-4 everywhere.
+- mb_field_decoding_flag of a skipped top MB is the bottom MB's (read ahead: CAVLC the next bit
+  after the skip run, CABAC the bottom's skip and field flags before the top's skip motion).
+- Field MBs: refIdx >> 1 picks the frame of the list, refIdx & 1 the same / other parity
+  (2 × num_ref_idx entries); explicit weights by refIdx >> 1; implicit weights and temporal direct
+  over field POCs (the picture's top / bottom POCs reach the job).
+- Direct: published rows carry per-MB field flags and field reference ids; the colocated MB
+  follows the colocated pair's own coding; a *field picture* over an MBAFF field pair takes the
+  pair's MB of the current field's parity (bottom_field_flag), not RefPicList1[0]'s.
+- Deblocking: pairs in decoding order, after the next pair row is reconstructed; mixed left edges
+  line by line (chroma bS from the chroma line's own left MB), the frame-under-field top edge
+  twice in field mode, bS 4 only on vertical or frame–frame MB edges, 1 on mixed edges.
+- Constrained intra: chroma DC takes per-half left availability (the halves can lie in
+  different MBs).
+- Result: conformance 210 pass / 7 unsupported (monochrome, FMO, SP/SI: outside H2) / 0 failed —
+  every PAFF and MBAFF stream of the ITU-T set bit-exact; interlaced sequences decode in software
+  by default (the test hook is gone).

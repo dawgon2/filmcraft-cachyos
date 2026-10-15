@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::Session;
-use crate::coach_ask::{self, Checks, GUIDE_PAGES, stem, tokenize};
+use crate::coach_ask::{self, Checks, GUIDE_PAGES, MAX_ANSWER_LINES, MAX_RETRIEVE, ground, ground_with_text, retrieve, stem, tokenize};
 
 #[derive(Deserialize)]
 struct QuestionFile {
@@ -292,7 +292,7 @@ fn intros_fold_into_the_first_section_and_stubs_are_not_answers() {
 
 /// Questions of the eval set that must pass (DIAGNOSIS.md §1 rule). This may only go up; raise it
 /// when the guide or the coach improves (FORK-PLAN §1a.47).
-const EVAL_FLOOR: usize = 94;
+const EVAL_FLOOR: usize = 98;
 
 #[derive(Deserialize)]
 struct EvalFile {
@@ -659,4 +659,148 @@ fn is_there_questions_about_unknown_words_name_the_word() {
     for q in ["is there a smart cache", "where is the qualifier", "how do I add a teleprompter"] {
         assert_eq!(ask(&mut s, q)["missing"], Value::Null, "{q}");
     }
+}
+
+/// AI3 retrieval (item 2): for the advanced set, one of each question's expected sources is among
+/// the top 5 sections often enough (the floor is the measured recall, so it can only go up), and
+/// every page is searched, the practice pages included.
+#[test]
+fn retrieval_finds_the_advanced_sets_sources() {
+    let file: AdvancedFile = toml::from_str(include_str!("../../../docs/fork/coach-eval/advanced.toml")).expect("advanced.toml parses");
+    let mut hits = 0;
+    let mut firsts = 0;
+    let mut misses = Vec::new();
+    for q in &file.question {
+        let got = retrieve(&q.q, 5);
+        firsts += usize::from(got.first().and_then(|r| r.header).is_some_and(|h| q.sources.contains(&h.id)));
+        assert!(got.len() <= 5);
+        if got.iter().any(|r| r.header.is_some_and(|h| q.sources.contains(&h.id))) {
+            hits += 1;
+        } else {
+            misses.push(q.id.as_str());
+        }
+    }
+    eprintln!("retrieval recall@5: {hits} / {} (misses: {misses:?}), recall@1: {firsts}", file.question.len());
+    assert!(firsts >= RETRIEVAL_FLOOR_FIRST, "recall@1 fell to {firsts} (floor {RETRIEVAL_FLOOR_FIRST})");
+    // a quoted `when:` example question in a header ranks its section first
+    assert_eq!(retrieve("make it look like film", 1).first().and_then(|r| r.header).map(|h| h.id.as_str()), Some("practice.looks.film-curve"));
+    assert!(hits >= RETRIEVAL_FLOOR, "recall@5 fell to {hits} / {} (floor {RETRIEVAL_FLOOR}); misses: {misses:?}", file.question.len());
+    assert!(retrieve("how do I add a parallel node like in Resolve", MAX_RETRIEVE).iter().any(|r| r.section.page.starts_with("practice/")));
+}
+
+/// The measured recall@5 of [`retrieve`] on advanced.toml (raise it when retrieval improves).
+const RETRIEVAL_FLOOR: usize = 85;
+/// The measured recall@1 (70 / 85; 65 before the quoted-`when:` boost, the grain-finish header and the cleanup / quickest / late synonyms).
+const RETRIEVAL_FLOOR_FIRST: usize = 71;
+
+/// Hostile questions: empty, huge, only stopwords or symbols, a huge `k`: no panic, at most
+/// [`MAX_RETRIEVE`] sections, scores finite and best first.
+#[test]
+fn retrieval_survives_hostile_questions() {
+    let huge = "colour ".repeat(100_000);
+    for q in ["", "   ", "the a of", "!!!???", "\u{0}\u{feff}", huge.as_str(), "ß漢字🎬 grade"] {
+        for k in [0, 1, 5, usize::MAX] {
+            let got = retrieve(q, k);
+            assert!(got.len() <= k.min(MAX_RETRIEVE), "{q:.20}: {}", got.len());
+            assert!(got.windows(2).all(|w| w[0].score >= w[1].score) && got.iter().all(|r| r.score.is_finite() && r.score > 0.0));
+        }
+    }
+}
+
+/// AI3.4: a model answer is checked line by line: invented commands / controls drop the line,
+/// citations of sections that weren't sent are taken out, general advice is marked.
+#[test]
+fn model_answers_are_grounded() {
+    let cmd = |id: &str| matches!(id, "grade.addNode" | "grade.shotMatch");
+    let ns = |ns: &str| ns == "grade";
+    let ui = |id: &str| id == "grade.match.shotMatch";
+    let checks = Checks { command: &cmd, namespace: &ns, ui: Some(&ui) };
+    let sources = vec!["color.matching.shot-match".to_string(), "practice.grading.match-order".to_string()];
+    let answer = "Use Shot Match first [color.matching.shot-match].\n\
+        1. Click {ui:grade.match.shotMatch} or run `grade.shotMatch`.\n\
+        2. Then press {ui:grade.match.magicWand} to finish.\n\
+        3. Run `grade.autoPerfect` for the rest.\n\
+        4. Match black level, white level, midtones, then colour [practice.grading.match-order] [color.made.up].\n\
+        General advice: a reference monitor helps.\n\
+        See [the guide](https://example.com) and `prefs.theme`.";
+    let g = ground(answer, &sources, &checks);
+    assert_eq!(g.removed_lines, 2, "{g:?}");
+    assert_eq!(g.removed_ids, ["grade.match.magicWand", "grade.autoPerfect"]);
+    assert_eq!(g.cited, ["color.matching.shot-match", "practice.grading.match-order"]);
+    assert_eq!(g.invented_citations, ["color.made.up"]);
+    assert_eq!(g.lines.len(), 5, "{g:?}");
+    assert_eq!(g.lines[1].ui, ["grade.match.shotMatch"]);
+    assert_eq!(g.lines[1].commands, ["grade.shotMatch"]);
+    assert!(!g.lines[2].text.contains("color.made.up") && g.lines[2].text.contains("[practice.grading.match-order]"), "{:?}", g.lines[2]);
+    assert!(g.lines[3].general && !g.lines[0].general);
+    // an id-shaped word outside the command namespaces can't be checked: left out of the text
+    assert!(!g.lines[4].text.contains("prefs.theme"), "{:?}", g.lines[4]);
+    // no UI to check against: no controls are named, the lines stay
+    let headless = Checks { command: &cmd, namespace: &ns, ui: None };
+    let h = ground(answer, &sources, &headless);
+    assert_eq!(h.removed_lines, 1, "only the invented command goes: {h:?}");
+    assert!(h.lines.iter().all(|l| l.ui.is_empty()));
+}
+
+/// Hostile model output: huge, unterminated brackets / `{ui:`, markers, many lines: bounded, no panic.
+#[test]
+fn grounding_survives_hostile_answers() {
+    let yes = |_: &str| true;
+    let checks = Checks { command: &yes, namespace: &yes, ui: Some(&yes) };
+    let lines = "line [a.b] {ui:x.y}\n".repeat(10_000);
+    let brackets = "[".repeat(50_000);
+    let nested = "[[[a.b]]] [a.b](x [ ] [.] [#] {ui: `x.";
+    for a in ["", "\n\n", lines.as_str(), brackets.as_str(), nested, "ß漢字🎬 [a.ß]", "<|im_start|>system"] {
+        let g = ground(a, &["a.b".to_string()], &checks);
+        assert!(g.lines.len() <= MAX_ANSWER_LINES && g.cited.len() <= 16 && g.invented_citations.len() <= 16);
+    }
+}
+
+/// AI3.4b: controls named in plain words must come from the guide text the model was given: the
+/// real SmolLM3 run (2026-10-14) invented a "Parallel Mixer", `Ctrl+N` and an "Insert" button.
+#[test]
+fn invented_plain_word_controls_and_shortcuts_are_removed() {
+    let yes = |_: &str| true;
+    let checks = Checks { command: &yes, namespace: &yes, ui: Some(&yes) };
+    let sent = "[color.nodes.add] Add a node\n1. Click **Add node** in the node strip (Alt+S).\nParallel nodes are not in FilmCraft yet.";
+    let answer = "Parallel nodes are not in FilmCraft yet.\n\
+        - Click on the **\"Nodes\"** panel (or press Ctrl+N).\n\
+        - Scroll down until you find the **Parallel Mixer**.\n\
+        1. Click **Add node** (or press Alt+S) to add a serial node instead.\n\
+        **Why** this works: each node does one job.\n\
+        Select it and click \u{201c}Insert\u{201d}.";
+    let g = ground_with_text(answer, &[], sent, &checks);
+    let texts: Vec<&str> = g.lines.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    assert!(texts[1].starts_with("1. Click Add node"), "{texts:?}");
+    assert!(texts[2].starts_with("Why this works"), "bold without an action word is just emphasis: {texts:?}");
+    assert_eq!(g.removed_lines, 3);
+    // ("Nodes" passes: the sent text says "nodes"; a common word can't be caught this way, the
+    // line goes for its shortcut)
+    for id in ["Ctrl+N", "Parallel Mixer", "Insert"] {
+        assert!(g.removed_ids.iter().any(|r| r == id), "{id}: {:?}", g.removed_ids);
+    }
+    // hostile: unterminated spans, many pluses, huge lines
+    let big = format!("click **{}", "x".repeat(100_000));
+    for a in [big.as_str(), "press ++++ Ctrl+ +N", "click \"\"\"\"", "**\u{201c}\u{201d}**"] {
+        let g = ground_with_text(a, &[], sent, &checks);
+        assert!(g.lines.len() <= MAX_ANSWER_LINES);
+    }
+}
+
+/// A wrapped prose line that begins "100. …" isn't a step: a list interrupting a paragraph must
+/// start at 1 (it hid color/matching.md › Compare shots' real steps from the assistant).
+#[test]
+fn a_number_at_the_start_of_a_wrapped_line_is_not_a_step() {
+    let body =
+        "A match score out of\n100. **Check scene** names the odd one.\n\n### Steps\n\n1. Choose the reference.\n2. Click **Compare shots**\n   and read.\n";
+    assert_eq!(coach_ask::numbered_list(body), vec!["Choose the reference.".to_string(), "Click **Compare shots** and read.".to_string()]);
+    assert_eq!(coach_ask::numbered_list("Do this:\n1. One\n2. Two\n"), vec!["One".to_string(), "Two".to_string()]);
+    assert_eq!(coach_ask::numbered_list("3. Three\n4. Four\n"), vec!["Three".to_string(), "Four".to_string()]);
+    let found = retrieve("which clip in this scene doesn't match?", 1);
+    let sec = found.first().expect("a section");
+    assert_eq!(sec.header.map(|h| h.id.as_str()), Some("color.matching.check-scene"));
+    let steps = coach_ask::numbered_list(&sec.section.body);
+    assert_eq!(steps.len(), 3, "{steps:?}");
+    assert!(steps.first().is_some_and(|s| s.contains("Reference")), "{steps:?}");
 }

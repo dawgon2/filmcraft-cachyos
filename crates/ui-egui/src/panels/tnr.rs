@@ -17,11 +17,14 @@ use super::grade::{FloatRow, RowEdit, float_row};
 
 /// The rows: parameter key, then the automation ids of its slider, reset button and keyframe
 /// toggle (literal ids, so the guide's `{ui:tnr.*}` names are plain source strings).
-const ROWS: [(&str, &str, &str, &str); 4] = [
-    ("luma", "tnr.luma", "tnr.luma.reset", "tnr.luma.anim"),
-    ("chroma", "tnr.chroma", "tnr.chroma.reset", "tnr.chroma.anim"),
-    ("frames", "tnr.frames", "tnr.frames.reset", "tnr.frames.anim"),
-    ("motion", "tnr.motion", "tnr.motion.reset", "tnr.motion.anim"),
+/// (param key, on-screen label, automation ids). The rows sit under a "Temporal NR" heading, so they
+/// use the short words instead of the params' "Temporal NR …" names (which overflowed the label
+/// column).
+const ROWS: [(&str, &str, &str, &str, &str); 4] = [
+    ("luma", "Luma", "tnr.luma", "tnr.luma.reset", "tnr.luma.anim"),
+    ("chroma", "Chroma", "tnr.chroma", "tnr.chroma.reset", "tnr.chroma.anim"),
+    ("frames", "Frames", "tnr.frames", "tnr.frames.reset", "tnr.frames.anim"),
+    ("motion", "Motion", "tnr.motion", "tnr.motion.reset", "tnr.motion.anim"),
 ];
 
 /// Whether clip `c` of the active sequence takes a temporal NR: on a video track, and footage by
@@ -60,11 +63,11 @@ pub(crate) fn tnr_rows(
     if r.changed() {
         cmds.push(("tnr.toggle", json!({"clip": clip.0, "on": on})));
     }
-    for (key, id, reset_id, anim_id) in ROWS {
+    for (key, label, id, reset_id, anim_id) in ROWS {
         let Some(def) = tnr_param(key) else { continue };
         let NodeParamKind::Float { min, max, .. } = def.kind else { continue };
         let row = FloatRow {
-            label: crate::i18n::t(def.label),
+            label: crate::i18n::t(label),
             value: tnr.float_at(key, mt),
             min,
             max,

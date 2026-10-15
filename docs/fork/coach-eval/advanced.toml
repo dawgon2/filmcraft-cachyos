@@ -187,7 +187,7 @@ must_not = []
 id = "adv-aces"
 kind = "gap"
 q = "can I use ACES?"
-sources = ["practice.delivery.working-space"]
+sources = ["practice.delivery.aces", "practice.delivery.working-space"]
 must = ["ACES isn't offered yet", "DaVinci Wide Gamut / Intermediate is the working space"]
 must_not = ["tells the user how to turn ACES on"]
 
@@ -211,7 +211,7 @@ must_not = []
 id = "adv-grain-where"
 kind = "node-role"
 q = "where should grain go in the node tree?"
-sources = ["practice.grading.grain-finish", "color.finishing.grain"]
+sources = ["practice.grading.grain-finish", "color.finishing.grain", "color.nodes.starter-tree"]
 must = ["last node"]
 must_not = []
 
@@ -283,7 +283,7 @@ must_not = []
 id = "adv-interview-match"
 kind = "pro-practice"
 q = "how do pros match a wide and close interview camera?"
-sources = ["practice.mixed-cameras.interview", "practice.mixed-cameras.hero"]
+sources = ["practice.mixed-cameras.interview", "practice.mixed-cameras.hero", "color.recipes.match"]
 must = ["match skin first", "grade one camera, match the other"]
 must_not = []
 
@@ -299,7 +299,7 @@ must_not = []
 id = "adv-check-scene"
 kind = "tool"
 q = "which clip in this scene doesn't match?"
-sources = ["color.matching.check-scene"]
+sources = ["color.matching.check-scene", "color.recipes.scene"]
 must = ["Check scene finds the odd one out"]
 must_not = []
 
@@ -518,3 +518,185 @@ q = "how do I keep a dark, moody night interior without losing faces?"
 sources = ["practice.looks.low-key"]
 must = ["Gamma and Lift down", "windows keep faces readable", "don't lift everything back up"]
 must_not = []
+
+# ---------- compositing (C1 Compositor; §1a.75 widens the set beyond grading) ----------
+
+[[question]]
+id = "adv-comp-key-over-bg"
+kind = "multi-step"
+q = "how do I put a green screen shot over a background plate with nodes?"
+sources = ["compositor.recipes", "compositor.basics", "compositor.make", "keying.ultra-key"]
+must = ["a Media In for the foreground and a Media In (or Solid) for the background", "a Key node on the foreground", "a Merge node: foreground over background", "the Merge goes to Media Out"]
+must_not = ["sends the user to the Fusion page's 3D tools", "invents a node FilmCraft doesn't have"]
+
+[[question]]
+id = "adv-comp-check-a-node"
+kind = "tool"
+q = "how can I see what my key looks like before it gets merged?"
+sources = ["compositor.view"]
+must = ["double-click the node or right-click ▸ View", "the Program monitor shows that node's output", "View doesn't change the finished comp"]
+must_not = ["confuses View with Set as Output"]
+
+[[question]]
+id = "adv-comp-layers-to-comp"
+kind = "approach"
+q = "I have a title and a logo stacked on three tracks, can I turn that into one composite clip?"
+sources = ["compositor.convert"]
+must = ["Convert to Comp Clip", "the comp looks the same as the stacked clips", "one clip on the timeline afterwards"]
+must_not = ["calls it Nest without saying it's a comp"]
+
+[[question]]
+id = "adv-comp-media-in-source"
+kind = "tweak"
+q = "how do I change which clip a Media In node reads, and make the comp longer?"
+sources = ["compositor.settings"]
+must = ["comp.setSource with item or track", "comp.setSize with duration", "no button for these yet: commands only"]
+must_not = ["invents a composition settings dialog"]
+
+[[question]]
+id = "adv-comp-slow"
+kind = "pro-practice"
+q = "my comp clip plays back slowly, what makes comps heavy?"
+sources = ["compositor.speed"]
+must = ["what the comp redraws every frame", "what makes it fall back to the processor"]
+must_not = ["promises real-time for every comp"]
+
+[[question]]
+id = "adv-comp-whats-this"
+kind = "tool"
+q = "someone sent me a project with a comp, how do I understand what each node is doing?"
+sources = ["compositor.explain", "compositor.basics"]
+must = ["comp.explain describes it node by node in flow order", "nodes that do nothing are listed as unused"]
+must_not = []
+
+# ---------- editing, trimming, audio, delivery (§1a.75: AI3 learns all of editing) ----------
+
+[[question]]
+id = "adv-edit-tighten-cut"
+kind = "tool"
+q = "the cut between two shots is a few frames late, how do I fix it without cutting again?"
+sources = ["editing.trimming", "trimming.edit-points"]
+must = ["a rolling edit moves the cut and keeps the sequence length", "ripple changes one side and shifts what follows", "slip and slide move a clip's content or position"]
+must_not = ["tells the user to razor and delete frames as the only way"]
+
+[[question]]
+id = "adv-edit-trim-to-playhead"
+kind = "tweak"
+q = "is there a fast way to chop off the start of a clip up to where the playhead is?"
+sources = ["trimming.to-playhead"]
+must = ["trim the previous / next edit to the playhead in one key", "with ripple the gap closes, without it a gap stays"]
+must_not = []
+
+[[question]]
+id = "adv-edit-j-cut"
+kind = "multi-step"
+q = "how do I make the audio of the next shot start before its picture (a J-cut)?"
+sources = ["timeline.in-out", "editing.trimming"]
+must = ["separate audio and video In / Out (split In / Out)", "or roll the audio edit alone"]
+must_not = ["invents a J-cut button"]
+
+[[question]]
+id = "adv-edit-three-point"
+kind = "approach"
+q = "I want exactly 4 seconds of this interview placed at the playhead, what's the cleanest way?"
+sources = ["editing.three-point", "trimming.source-monitor"]
+must = ["mark In / Out in the Source monitor", "the playhead (or a timeline In) is the third point", "Insert pushes later clips, Overwrite replaces"]
+must_not = []
+
+[[question]]
+id = "adv-edit-proxy-export"
+kind = "pro-practice"
+q = "if I edit with proxies, will my export look worse?"
+sources = ["proxies.mode", "proxies.what"]
+must = ["export reads the originals", "proxies are only for smooth playback while editing"]
+must_not = ["says export uses the proxies"]
+
+[[question]]
+id = "adv-audio-clip-or-track"
+kind = "approach"
+q = "should I turn one loud clip down with clip volume or with the track fader?"
+sources = ["mixing.clip-or-track"]
+must = ["a level for one clip belongs on the clip", "the track fader changes everything on that track"]
+must_not = []
+
+[[question]]
+id = "adv-audio-voice-fast"
+kind = "tool"
+q = "I have twenty interview clips with noisy voices, what's the quickest decent cleanup?"
+sources = ["audio.cleanup-voice", "audio.voice-isolation", "audio.manual-voice-cleanup"]
+must = ["Clean Up Voice measures each clip and sets the controls and loudness", "tune by ear afterwards"]
+must_not = ["promises studio quality from one click"]
+
+[[question]]
+id = "adv-export-size"
+kind = "tweak"
+q = "my export has to stay under 2 GB for upload, what setting controls that?"
+sources = ["export.bitrate-crf", "export.presets"]
+must = ["a bitrate aims at a file size", "CRF aims at a quality, so the size isn't fixed"]
+must_not = []
+
+# ---------- titles, text, media, projects, playback (§1a.75) ----------
+
+[[question]]
+id = "adv-gfx-lower-third-series"
+kind = "pro-practice"
+q = "I need the same lower third with a different name in every episode, how should I set that up?"
+sources = ["graphics.templates", "graphics.responsive"]
+must = ["save the graphic as a template with the name as an editable property", "pins keep the box fitting any name"]
+must_not = ["tells the user to rebuild the title each time"]
+
+[[question]]
+id = "adv-text-remove-ums"
+kind = "tool"
+q = "can FilmCraft cut the ums and long pauses out of my interview automatically?"
+sources = ["text.cleanup", "text.transcripts"]
+must = ["transcribe first", "removes long pauses and filler words in one step", "check the result"]
+must_not = []
+
+[[question]]
+id = "adv-text-captions-social"
+kind = "multi-step"
+q = "how do I add burned-in style captions for people watching on mute?"
+sources = ["text.captions", "graphics.source"]
+must = ["make a caption track from the transcript", "style the captions (or turn them into graphics)"]
+must_not = []
+
+[[question]]
+id = "adv-media-dual-system-sound"
+kind = "tool"
+q = "I recorded sound on a separate recorder, how do I line it up with the camera clips?"
+sources = ["media.clips", "practice.editing.sync-sound"]
+must = ["Synchronize lines the clips up by their audio, timecode, a marker or In / Out", "Merge Clips joins the picture and the separate sound into one clip"]
+must_not = []
+
+[[question]]
+id = "adv-media-files-moved"
+kind = "tweak"
+q = "I moved my footage to another drive and now the clips are red, what do I do?"
+sources = ["media.relink"]
+must = ["relink the offline clips to their new location"]
+must_not = ["tells the user to re-import and re-edit"]
+
+[[question]]
+id = "adv-media-send-to-colourist"
+kind = "pro-practice"
+q = "how do I send my edit to someone grading in Resolve?"
+sources = ["media.interchange", "projects.resolve", "practice.workflow.handoff"]
+must = ["export the timeline as OpenTimelineIO, FCPXML or EDL"]
+must_not = ["claims FilmCraft writes Resolve project files (.drp)"]
+
+[[question]]
+id = "adv-play-heavy-timeline"
+kind = "approach"
+q = "my graded 6.2K timeline stutters, how do I get smooth playback?"
+sources = ["render-cache.why", "proxies.what", "render-cache.bar", "practice.workflow.smooth-playback"]
+must = ["the render cache renders heavy parts ahead while idle", "proxies make heavy clips play smoothly", "export still reads the originals"]
+must_not = []
+
+[[question]]
+id = "adv-proj-move-computer"
+kind = "multi-step"
+q = "how do I move a project to my laptop?"
+sources = ["projects.export-import", "projects.where"]
+must = ["Export writes an archive: the project plus copies of all its media", "Import it on the other computer", "a project is a .fcproj file, not a database entry"]
+must_not = ["mentions a Resolve-style database"]

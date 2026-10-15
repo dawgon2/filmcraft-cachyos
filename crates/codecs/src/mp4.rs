@@ -457,11 +457,16 @@ impl VideoSamples for Mp4Video<'_> {
 }
 
 impl MediaSource for Mp4Source {
+    fn decoder_name(&self) -> Option<String> {
+        self.video.decoder_name()
+    }
     fn info(&self) -> &MediaInfo {
         &self.info
     }
     fn set_handoff_scale(&self, scale: f32) {
-        let s = if scale.is_finite() && scale > 0.0 && scale < 1.0 { scale } else { 1.0 };
+        // a clean aperture is cut in full-size coordinates (from a smaller picture it would cut
+        // the wrong part): such a source hands off unscaled
+        let s = if scale.is_finite() && scale > 0.0 && scale < 1.0 && !self.video.crops() { scale } else { 1.0 };
         self.handoff_scale.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
     }
 

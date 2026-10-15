@@ -573,6 +573,9 @@ impl MkvVideo<'_> {
 }
 
 impl MediaSource for MkvSource {
+    fn decoder_name(&self) -> Option<String> {
+        self.video.decoder_name()
+    }
     fn info(&self) -> &MediaInfo {
         &self.info
     }

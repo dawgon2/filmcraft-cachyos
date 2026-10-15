@@ -192,7 +192,11 @@ every word it writes against them before showing it.
 
 1. Open **Settings ▸ Color** (`app.settings.color`) and find **AI explanations**.
 2. Pick a model in **Model** {ui:settings.color.ai.model} (`ai.select`). Each entry shows its
-   size, licence and whether it is installed; all are small, openly licensed instruct models.
+   size, licence and whether it is installed; all are openly licensed instruct models. Most are
+   small (0.1–1.2 GB). **SmolLM3 3B (4-bit)** (about 2 GB) is listed for the coming assistant
+   ("Ask the coach" with a model, fork AI3); it can explain nodes too, but it is several times
+   slower than the small ones (about 6 tokens, roughly 4 words, a second on a 12-thread desktop CPU), so pick a small
+   one for explanations. [Fork]
 3. Click **Download** {ui:settings.color.ai.download} (`ai.download`). The model comes from its
    publisher, checked against its pinned SHA-256; the bar shows progress and **Cancel download**
    stops it. **Remove** {ui:settings.color.ai.remove} (`ai.remove`) deletes it again.

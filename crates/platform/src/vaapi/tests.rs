@@ -35,6 +35,9 @@ struct Recorder {
     grey_picks: usize,
     /// Pictures decoded with the range-extension buffers (4:2:2, fork U0.2.3).
     rext_pictures: usize,
+    /// Every H.264 picture: target surface, CurrPic, the frame list and the first slice's
+    /// RefPicList0 (active entries).
+    h264_log: Vec<(usize, VAPictureH264, Vec<VAPictureH264>, Vec<VAPictureH264>)>,
 }
 
 impl Recorder {
@@ -51,6 +54,7 @@ impl Recorder {
             grey_fills: 0,
             grey_picks: 0,
             rext_pictures: 0,
+            h264_log: Vec::new(),
         }
     }
 
@@ -163,7 +167,14 @@ impl Accel for Recorder {
         // (frame_num gap stand-ins share a decoded picture's surface, under their own frame_num)
         let keys: BTreeSet<_> = refs.iter().map(|r| (r.picture_id, r.frame_idx)).collect();
         assert_eq!(keys.len(), refs.len(), "each reference frame once");
-        assert!(!ref_ids.contains(&pic.CurrPic.picture_id), "the target is not a reference");
+        // the target is not a reference, except that a second field decodes into the surface
+        // holding its first field, listed as that (opposite) field alone
+        let fields = ffi::VA_PICTURE_H264_TOP_FIELD | ffi::VA_PICTURE_H264_BOTTOM_FIELD;
+        for r in refs.iter().filter(|r| r.picture_id == pic.CurrPic.picture_id) {
+            let cur = pic.CurrPic.flags & fields;
+            assert!(cur != 0 && cur != fields, "the target is not a reference");
+            assert_eq!(r.flags & fields, fields & !cur, "only the first field of the target is a reference");
+        }
         for r in &refs {
             let i = self.ids.iter().position(|&id| id == r.picture_id).expect("reference is a decoder surface");
             assert!(self.decoded[i], "reference surface {i} holds a picture");
@@ -186,6 +197,11 @@ impl Accel for Recorder {
                 assert!(list[..n].iter().all(|p| ref_ids.contains(&p.picture_id)), "list entries are reference frames");
             }
         }
+        let list0 = slices.first().map_or(Vec::new(), |(s, _)| {
+            let n = if s.slice_type == 2 { 0 } else { s.num_ref_idx_l0_active_minus1 as usize + 1 };
+            s.RefPicList0.iter().take(n).copied().collect()
+        });
+        self.h264_log.push((target, pic.CurrPic, refs.iter().map(|r| **r).collect(), list0));
         self.decoded[target] = true;
         self.pictures += 1;
         Ok(())
@@ -785,4 +801,220 @@ fn hevc_hostile_tile_layout_is_refused_through_decode() {
     let err = f.decode(&first(20, 1), 0).err().expect("refused");
     assert!(err.to_string().contains("tiles"), "{err}");
     assert_eq!(f.accel().pictures, 0, "nothing reached the hardware");
+}
+
+/// A synthetic PAFF (field picture) stream for the front end: Main profile, POC type 0, CAVLC,
+/// headers only (the recording accelerator decodes nothing, so slice data is filler). No free
+/// encoder writes PAFF (fork OWNER-QUESTIONS Q31); real streams are checked on hardware (H1.5).
+mod paff {
+    use super::*;
+    use filmcraft_bitstream::BitWriter;
+
+    /// Macroblocks per frame (4 × 4: two map-unit rows of field macroblock pairs).
+    pub const MBS: (u32, u32) = (4, 4);
+
+    fn nal(ref_idc: u8, ty: u8, w: BitWriter) -> Vec<u8> {
+        let mut out = vec![(ref_idc & 3) << 5 | ty];
+        out.extend(w.finish());
+        out
+    }
+
+    pub fn sps(mbaff: bool) -> Vec<u8> {
+        let mut w = BitWriter::new();
+        w.write_bits(77, 8);
+        w.write_bits(0, 8);
+        w.write_bits(30, 8);
+        w.write_ue(0); // sps_id
+        w.write_ue(0); // log2_max_frame_num_minus4
+        w.write_ue(0); // poc type 0
+        w.write_ue(2); // log2_max_poc_lsb_minus4
+        w.write_ue(2); // max_num_ref_frames
+        w.write_bit(false); // gaps
+        w.write_ue(MBS.0 - 1);
+        w.write_ue(MBS.1 / 2 - 1); // map units are field macroblock pair rows
+        w.write_bit(false); // frame_mbs_only
+        w.write_bit(mbaff);
+        w.write_bit(true); // direct_8x8
+        w.write_bit(false); // cropping
+        w.write_bit(false); // vui
+        w.rbsp_trailing();
+        nal(3, 7, w)
+    }
+
+    pub fn pps() -> Vec<u8> {
+        let mut w = BitWriter::new();
+        w.write_ue(0); // pps_id
+        w.write_ue(0); // sps_id
+        w.write_bit(false); // CAVLC
+        w.write_bit(false); // bottom_field_pic_order_in_frame_present
+        w.write_ue(0); // one slice group
+        w.write_ue(0); // num_ref_idx_l0_default_active_minus1
+        w.write_ue(0); // l1
+        w.write_bit(false); // weighted_pred
+        w.write_bits(0, 2); // weighted_bipred_idc
+        w.write_se(0); // pic_init_qp_minus26
+        w.write_se(0); // pic_init_qs_minus26
+        w.write_se(0); // chroma_qp_index_offset
+        w.write_bit(true); // deblocking_filter_control_present
+        w.write_bit(false); // constrained_intra_pred
+        w.write_bit(false); // redundant_pic_cnt_present
+        w.rbsp_trailing();
+        nal(3, 8, w)
+    }
+
+    /// One reference slice: `field` None = frame, Some(bottom); `refs` = active list-0 entries
+    /// (0 = an I slice).
+    pub fn slice(frame_num: u32, field: Option<bool>, lsb: u32, refs: u32, idr: bool) -> Vec<u8> {
+        let mut w = BitWriter::new();
+        w.write_ue(0); // first_mb_in_slice
+        w.write_ue(if refs == 0 { 7 } else { 5 }); // all I / all P
+        w.write_ue(0); // pps_id
+        w.write_bits(frame_num, 4);
+        w.write_bit(field.is_some());
+        if let Some(bottom) = field {
+            w.write_bit(bottom);
+        }
+        if idr {
+            w.write_ue(0); // idr_pic_id
+        }
+        w.write_bits(lsb, 6);
+        if refs > 0 {
+            w.write_bit(true); // num_ref_idx_active_override
+            w.write_ue(refs - 1);
+            w.write_bit(false); // no list modification
+        }
+        if idr {
+            w.write_bit(false); // no_output_of_prior_pics
+            w.write_bit(false); // long_term_reference
+        } else {
+            w.write_bit(false); // sliding window
+        }
+        w.write_se(0); // slice_qp_delta
+        w.write_ue(1); // deblocking off
+        for _ in 0..8 {
+            w.write_bits(0xA5, 8); // filler "slice data"
+        }
+        w.rbsp_trailing();
+        nal(2, if idr { 5 } else { 1 }, w)
+    }
+
+    /// A sample of 4-byte length-prefixed NAL units.
+    pub fn sample(nals: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for n in nals {
+            out.extend((n.len() as u32).to_be_bytes());
+            out.extend(n);
+        }
+        out
+    }
+
+    /// Frame 0: IDR top field + P bottom field; frame 1: P fields with 2 / 3 references; frame 2:
+    /// a P frame picture (PAFF streams mix both); frame 3: P fields again.
+    pub fn stream() -> Vec<(Vec<u8>, i64)> {
+        vec![
+            (sample(&[slice(0, Some(false), 0, 0, true), slice(0, Some(true), 1, 1, false)]), 0),
+            (sample(&[slice(1, Some(false), 4, 2, false), slice(1, Some(true), 5, 3, false)]), 1),
+            (sample(&[slice(2, None, 8, 1, false)]), 2),
+            (sample(&[slice(3, Some(false), 12, 2, false), slice(3, Some(true), 13, 2, false)]), 3),
+        ]
+    }
+
+    pub fn front(mbaff: bool) -> Front<Recorder> {
+        Front::new(Recorder::new(18), 4, MBS, &[sps(mbaff), pps()]).unwrap()
+    }
+}
+
+const TOP: u32 = ffi::VA_PICTURE_H264_TOP_FIELD;
+const BOTTOM: u32 = ffi::VA_PICTURE_H264_BOTTOM_FIELD;
+const SHORT: u32 = ffi::VA_PICTURE_H264_SHORT_TERM_REFERENCE;
+
+#[test]
+fn paff_fields_pair_into_one_surface_with_field_flags_and_lists() {
+    let mut f = paff::front(false);
+    // four frames out, each once, in order
+    assert_eq!(run_front(&mut f, &paff::stream()), vec![0, 1, 2, 3]);
+    let log = &f.accel().h264_log;
+    assert_eq!(log.len(), 7, "six fields and a frame decoded");
+    let surf = |k: usize| f.accel().ids[log[k].0];
+    // second fields decode into their first field's surface
+    assert_eq!(log[0].0, log[1].0);
+    assert_eq!(log[2].0, log[3].0);
+    assert_eq!(log[5].0, log[6].0);
+    assert_ne!(log[0].0, log[2].0);
+    // CurrPic: the field flag and only its own order count
+    let cur = |k: usize| (log[k].1.flags, log[k].1.TopFieldOrderCnt, log[k].1.BottomFieldOrderCnt);
+    assert_eq!(cur(0), (TOP, 0, 0));
+    assert_eq!(cur(1), (BOTTOM, 0, 1));
+    assert_eq!(cur(2), (TOP, 4, 0));
+    assert_eq!(cur(4), (0, 8, 8), "a frame picture");
+    let entries = |v: &[VAPictureH264]| v.iter().map(|p| (p.picture_id, p.flags, p.TopFieldOrderCnt, p.BottomFieldOrderCnt)).collect::<Vec<_>>();
+    // frame 0's bottom field refers to its own top field, the frame list names that field alone
+    assert_eq!(entries(&log[1].3), vec![(surf(0), TOP | SHORT, 0, 0)]);
+    assert_eq!(entries(&log[1].2), vec![(surf(0), TOP | SHORT, 0, 0)]);
+    // frame 1's top field: same parity first (8.2.4.2.5); a complete pair is a frame entry
+    assert_eq!(entries(&log[2].3), vec![(surf(0), TOP | SHORT, 0, 0), (surf(0), BOTTOM | SHORT, 0, 1)]);
+    assert_eq!(entries(&log[2].2), vec![(surf(0), SHORT, 0, 1)]);
+    // frame 1's bottom field: frame 0's bottom, then its own top field, then frame 0's top
+    assert_eq!(entries(&log[3].3), vec![(surf(0), BOTTOM | SHORT, 0, 1), (surf(2), TOP | SHORT, 4, 0), (surf(0), TOP | SHORT, 0, 0)]);
+    // the frame picture refers to frame 1 as a frame
+    assert_eq!(entries(&log[4].3), vec![(surf(2), SHORT, 4, 5)]);
+    // two reference frames (max_num_ref_frames 2): frame 2 slid frame 0 out
+    assert!(log[5].2.iter().all(|r| r.picture_id != surf(0)));
+    assert_eq!(entries(&log[5].3), vec![(surf(4), TOP | SHORT, 8, 0), (surf(4), BOTTOM | SHORT, 0, 8)]);
+}
+
+#[test]
+fn mbaff_frames_take_the_hardware_path() {
+    let mut f = paff::front(true);
+    let samples = vec![(paff::sample(&[paff::slice(0, None, 0, 0, true)]), 0), (paff::sample(&[paff::slice(1, None, 4, 1, false)]), 1)];
+    assert_eq!(run_front(&mut f, &samples), vec![0, 1]);
+    let log = &f.accel().h264_log;
+    assert_eq!(log.len(), 2);
+    assert_eq!(log[1].1.flags, 0);
+    assert_eq!(log[1].3.len(), 1);
+}
+
+/// Hostile field sequences (unpaired fields, repeated parities, frame_num jumps, frames and
+/// fields of one frame_num, damaged bytes) are decoded or refused, never a panic, and every
+/// buffer the hardware gets passes the recorder's checks.
+#[test]
+fn hostile_field_sequences_never_panic() {
+    use paff::{sample, slice};
+    let odd = vec![
+        (sample(&[slice(0, Some(true), 0, 0, true)]), 0),
+        (sample(&[slice(0, Some(true), 1, 1, false)]), 1),
+        (sample(&[slice(5, Some(false), 9, 2, false), slice(5, Some(false), 9, 2, false)]), 2),
+        (sample(&[slice(5, Some(true), 9, 3, false)]), 3),
+        (sample(&[slice(6, None, 12, 2, false), slice(6, Some(true), 13, 2, false)]), 4),
+        (sample(&[slice(7, Some(true), 15, 1, false)]), 5),
+    ];
+    let mut f = paff::front(false);
+    for (s, p) in &odd {
+        if f.decode(s, *p).is_err() {
+            f.reset();
+        }
+    }
+    let _ = f.flush();
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let stream = paff::stream();
+    for _ in 0..200 {
+        let mut f = paff::front(false);
+        for (smp, p) in &stream {
+            let mut m = smp.clone();
+            let at = next() as usize % m.len().max(1);
+            if let Some(b) = m.get_mut(at) {
+                *b ^= 1 << (next() % 8);
+            }
+            if f.decode(&m, *p).is_err() {
+                f.reset();
+            }
+        }
+        let _ = f.flush();
+    }
 }

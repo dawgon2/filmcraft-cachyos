@@ -140,6 +140,15 @@ size limit, how many are queued and how far the piece being rendered is.
 - Two projects with the same name can share one preview folder (for example on one scratch
   disk). Each project only ever deletes the files it made itself; files of the other project, or
   from before this version, are left alone (`cache.status` counts them as `otherFiles`).
+- [Fork] Files of no known project (made before the cache kept an index, or listed without a
+  project) are never deleted, so they can pile up. If you know they are yours (no other project
+  uses this preview folder), take them over:
+  1. Open **Settings ▸ Media Cache ▸ Render Cache**. The **Claim Files of No Known Project** button
+     (`settings.renderCache.claimFolder`, command `cache.claimFolder`) shows only while there are
+     such files (`cache.status` › `unknownFiles`).
+  2. Click it. The status line says how many files are now this project's.
+  3. Click **Delete Unused** to remove the ones no sequence uses.
+  Files another project made stay that project's.
 - Replacing a source file in place (exporting it again under the same name) counts as a
   different picture: its stretches are rendered again once the project changes or is reopened.
 - Unfinished files left by a crash (`….mov.part`) are deleted the next time the project opens.

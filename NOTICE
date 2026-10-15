@@ -19,3 +19,6 @@ Builds made with craft-fonts (CRAFT_FONTS_DIR; all official releases) also embed
 https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md (BIZ UDPGothic, Shippori Mincho,
 BIZ UDMincho) — OFL-1.1. Their licence texts ship with the packages as OFL-<family>.txt.
 Public-domain film and NASA frames and CC0 music shown in README screenshots (docs/images/) — public domain / CC0-1.0. See ATTRIBUTION.md.
+DeepFilterNet / libDF (https://github.com/Rikorose/DeepFilterNet), Copyright (c) Hendrik Schröter —
+MIT OR Apache-2.0. crates/voice (dsp.rs, net.rs, denoise.rs) ports its DeepFilterNet3 signal path
+and network to Rust; the model weights are downloaded at run time, never bundled.

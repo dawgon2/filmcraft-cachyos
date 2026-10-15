@@ -219,6 +219,49 @@ fn a_plain_comp_clip_is_one_comp_layer_in_the_plan() {
     assert!(planned.get(2, 2)[2] < 0.02, "{:?}", planned.get(2, 2));
 }
 
+/// C1 owed: a Media In of a media item reaches the program as a frame-plan layer (the GPU draws
+/// the decoded frame), not as a CPU image, and the picture is unchanged.
+#[test]
+fn an_item_source_compiles_to_a_plan_layer() {
+    let mut r = Rig::new();
+    let red = r.matte(RED);
+    let comp = over_blue(&mut r, MediaInSource::Item { item: red });
+    let seq = r.seq();
+    r.put(seq, 0, comp);
+    let t = Tick(1000);
+    let plan::FramePlan::Layers { layers, .. } = plan::plan_frame(&r.p, seq, t, RenderOptions::default(), &r.map) else { panic!("layers") };
+    let program = layers.iter().find_map(|l| l.comp.clone()).expect("a comp layer");
+    let kinds: Vec<&str> = program
+        .passes
+        .iter()
+        .map(|p| match p {
+            comp::Pass::Layers { .. } => "layers",
+            comp::Pass::Image { .. } => "image",
+            _ => "other",
+        })
+        .collect();
+    assert!(kinds.contains(&"layers") && !kinds.contains(&"image"), "{kinds:?}");
+    let [cpu, planned] = r.frames(seq);
+    for (x, y) in [(32, 18), (2, 2), (17, 10)] {
+        assert!(close(cpu.get(x, y), planned.get(x, y)), "({x}, {y}): {:?} vs {:?}", cpu.get(x, y), planned.get(x, y));
+    }
+}
+
+/// A media frame layer letterboxes into the canvas like `fit`, and an empty canvas gives none.
+#[test]
+fn a_media_frame_layer_fits_the_canvas() {
+    let mut r = Rig::new();
+    let red = r.matte(RED);
+    let frame = Arc::new(filmcraft_frame::VideoFrame::rgba_f32(64, 36, vec![1.0; 64 * 36 * 4]));
+    let pipe = filmcraft_color::ColorPipeline::default();
+    let l = plan::media_frame_layer(&r.p, red, Arc::clone(&frame), &pipe, 32, 32).expect("a plain layer");
+    let a = l.matrix.apply(filmcraft_geom::Vec2::new(0.0, 0.0));
+    let b = l.matrix.apply(filmcraft_geom::Vec2::new(64.0, 36.0));
+    let (x0, y0, x1, y1) = (a.x, a.y, b.x, b.y);
+    assert!((x0.abs() + (x1 - 32.0).abs()) < 1e-6 && (y0 - 7.0).abs() < 1e-6 && (y1 - 25.0).abs() < 1e-6, "{x0} {y0} {x1} {y1}");
+    assert!(plan::media_frame_layer(&r.p, red, Arc::clone(&frame), &pipe, 0, 32).is_none());
+}
+
 /// C1 step 7d: a Media In reading a track below reaches the program as frame-plan layers (the
 /// GPU draws the decoded frames), not as a CPU image, and the picture is unchanged.
 #[test]

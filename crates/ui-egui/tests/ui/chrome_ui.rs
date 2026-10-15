@@ -27,10 +27,13 @@ fn harness(show_header: bool, show_status_bar: bool) -> Harness<'static, Filmcra
 }
 
 /// Top and bottom edge of every registered element outside the header (the menu bar, `menu.*`,
-/// and the window buttons, `window.*`, are part of it).
+/// the window buttons, `window.*`, and the coach's buttons, fork §1a.78, are part of it).
 fn body_extent(h: &Harness<'static, FilmcraftApp>) -> (f32, f32) {
     let els = h.state().auto.query("");
-    let body: Vec<_> = els.iter().filter(|e| !e.id.starts_with("header.") && !e.id.starts_with("menu.") && !e.id.starts_with("window.")).collect();
+    let in_header = |id: &str| {
+        ["header.", "menu.", "window."].iter().any(|p| id.starts_with(p)) || ["coach.lessons.open", "coach.ask.open", "assistant.open"].contains(&id)
+    };
+    let body: Vec<_> = els.iter().filter(|e| !in_header(&e.id)).collect();
     assert!(!body.is_empty(), "no panel elements registered");
     let top = body.iter().map(|e| e.rect[1]).fold(f32::INFINITY, f32::min);
     let bottom = body.iter().map(|e| e.rect[1] + e.rect[3]).fold(f32::NEG_INFINITY, f32::max);

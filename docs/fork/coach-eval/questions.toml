@@ -1663,7 +1663,7 @@ origin = "agent"
 context = "Edit page, Resolve workflow"
 page = "compositor.md"
 heading = "Making a comp"
-alt = [{ page = "compositor.md", heading = "Comps, nodes and connections" }]
+alt = [{ page = "compositor.md", heading = "Comps, nodes and connections" }, { page = "pages.md", heading = "What a page is" }]
 status = "covered"
 needs_clip = false
 facts = ["Fusion in the page bar, between Edit and Color"]

@@ -175,7 +175,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         left_end = x;
     }
     // the window buttons sit in the menu row when it shows, else at the end of this one
-    let mut rx = bar.max.x - 8.0 - if app.in_window_menu() { 0.0 } else { crate::window_chrome::reserved_width(app) };
+    let mut rx = bar.max.x - 8.0 - if app.in_window_menu() { 0.0 } else { crate::window_chrome::reserved_width(app, ui.ctx()) };
     let mut right_start = rx;
     for (i, tg) in right.iter().rev().enumerate() {
         let w = button_width(&p, *tg);

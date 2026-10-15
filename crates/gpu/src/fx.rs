@@ -966,6 +966,12 @@ impl FxStage {
         self.pool.is_empty()
     }
 
+    /// Sizes of working textures held.
+    #[cfg(test)]
+    pub(crate) fn pooled_sizes(&self) -> usize {
+        self.pool.len()
+    }
+
     fn targets(&mut self, device: &wgpu::Device, size: (u32, u32), n: usize) -> Vec<Target> {
         let format = self.format;
         self.used.insert(size);

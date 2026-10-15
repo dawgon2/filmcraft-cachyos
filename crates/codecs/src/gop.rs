@@ -466,6 +466,21 @@ struct Shared {
     state: Mutex<State>,
     store: Mutex<Store>,
     pool: Arc<Pool>,
+    /// The name of the decoder that decoded last (fork H3.2b; a leaf lock, held only to copy
+    /// the name, so the Properties dialog never waits on a decode).
+    decoder_name: Mutex<Option<String>>,
+}
+
+impl Shared {
+    /// Remember the name of the decoder that just decoded (a hybrid decoder's name changes
+    /// when it falls back to software, so this runs after decoding, not only when it is made).
+    fn note_decoder(&self, d: Option<&dyn VideoDecoder>) {
+        let Some(d) = d else { return };
+        let mut g = self.decoder_name.lock().unwrap_or_else(PoisonError::into_inner);
+        if g.as_deref() != Some(d.name()) {
+            *g = Some(d.name().to_string());
+        }
+    }
 }
 
 impl Drop for Shared {
@@ -697,9 +712,17 @@ impl GopCache {
             }),
             store: Mutex::new(Store::new()),
             pool: pool.clone(),
+            decoder_name: Mutex::new(None),
         });
         pool.register(&shared);
         Self { shared, explicit_color, rotation: 0, crop: None, budget: 384 << 20 }
+    }
+
+    /// The name of the decoder that decoded this track's last frames ("VA-API H.264 (in
+    /// process)", "FilmCraft H.264", …), `None` before the first frame (fork H3.2b: the
+    /// Properties dialog's Decoder line). Never waits for a decode.
+    pub fn decoder_name(&self) -> Option<String> {
+        self.shared.decoder_name.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// Turn every decoded frame clockwise by `quarter_turns` × 90° (the container's display
@@ -711,6 +734,12 @@ impl GopCache {
 
     /// Cut every decoded frame to `region` (the container's clean aperture, in stored picture
     /// coordinates) before the rotation, as cropping and the display matrix compose.
+    /// Frames are cut to a region (`with_crop`): given in full-size coordinates, so a scaled
+    /// hand-off would cut the wrong part.
+    pub fn crops(&self) -> bool {
+        self.crop.is_some()
+    }
+
     pub fn with_crop(mut self, region: Option<Region>) -> Self {
         self.crop = region;
         self
@@ -1105,6 +1134,7 @@ impl GopCache {
             self.store_output(&mut st, out, (want_pts, draft), &mut kept);
             st.next = usize::MAX;
         }
+        self.shared.note_decoder(st.decoder.as_deref());
         // nearest decoded frame at or before the wanted pts (robust to decoder pts quirks)
         let mut store = self.shared.store.lock().unwrap_or_else(|e| e.into_inner());
         store.note_served(want_pts);
@@ -1217,7 +1247,12 @@ impl GopCache {
         drop(st);
         let mut dec = match spare {
             Some(d) => d,
-            None => s.make_decoder()?,
+            None => {
+                let d = s.make_decoder()?;
+                // (intra decoders are recorded when made: the spares' names are known already)
+                self.shared.note_decoder(Some(d.as_ref()));
+                d
+            }
         };
         let res = s.read(i).and_then(|data| {
             DECODED.fetch_add(1, Ordering::Relaxed);
@@ -1379,6 +1414,22 @@ mod tests {
             }
         }));
         assert_eq!(index_of(&c.frame(&s, 100_000).expect("frame 100 is served")), 100);
+    }
+
+    /// Fork H3.2b: the cache reports the decoder that decoded (the Properties dialog's Decoder
+    /// line), nothing before the first frame.
+    #[test]
+    fn decoder_name_is_known_after_the_first_frame() {
+        let s = samples(30, 10, 0, false);
+        let c = GopCache::new(None);
+        assert_eq!(c.decoder_name(), None);
+        assert_eq!(index_of(&c.frame(&s, 5_000).expect("frame")), 5);
+        assert_eq!(c.decoder_name().as_deref(), Some("test"));
+        // intra-only streams decode outside the lock, with the same record
+        let s = samples(30, 1, 0, true);
+        let c = GopCache::new(None);
+        assert_eq!(index_of(&c.frame(&s, 7_000).expect("frame")), 7);
+        assert_eq!(c.decoder_name().as_deref(), Some("test"));
     }
 
     fn index_of(f: &VideoFrame) -> usize {

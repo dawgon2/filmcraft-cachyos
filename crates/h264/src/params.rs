@@ -531,13 +531,11 @@ impl Sps {
         self.check_tools(8, false)
     }
 
-    /// What the software decoder handles (fork H2): progressive 4:2:0 or 4:2:2 at 8 to 10 bits
-    /// with the same luma and chroma bit depth, no lossless bypass. The hardware fronts keep
-    /// [`Sps::check_supported`] / [`Sps::check_coding_tools`] (8-bit).
+    /// What the software decoder handles (fork H2): 4:2:0 or 4:2:2 at 8 to 10 bits with the same
+    /// luma and chroma bit depth, progressive or interlaced (field pictures and MBAFF, H2.5 /
+    /// H2.6), no lossless bypass. The hardware fronts keep [`Sps::check_supported`] /
+    /// [`Sps::check_coding_tools`] (8-bit).
     pub fn check_software_supported(&self) -> Result<()> {
-        if !self.frame_mbs_only {
-            return unsupported("interlaced (field / MBAFF) coding");
-        }
         if self.bit_depth_luma != self.bit_depth_chroma {
             return unsupported(format!("bit depth luma {} chroma {} (different depths are not implemented)", self.bit_depth_luma, self.bit_depth_chroma));
         }
@@ -825,7 +823,10 @@ mod tests {
         sps.chroma_format_idc = 3;
         assert!(sps.check_software_supported().unwrap_err().to_string().contains("4:2:2"));
         sps.chroma_format_idc = 1;
+        // interlaced sequences decode in software: field pictures (fork H2.5) and MBAFF (H2.6)
         sps.frame_mbs_only = false;
-        assert!(sps.check_software_supported().unwrap_err().to_string().contains("interlaced"));
+        assert!(sps.check_software_supported().is_ok());
+        sps.mb_adaptive_frame_field = true;
+        assert!(sps.check_software_supported().is_ok());
     }
 }

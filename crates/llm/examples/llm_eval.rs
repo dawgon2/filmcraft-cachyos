@@ -54,6 +54,7 @@ fn parse_local(s: &str) -> Result<(String, std::path::PathBuf, Family), Box<dyn 
     let (path, fam) = rest.rsplit_once(':').ok_or("--local needs id=file.gguf:family")?;
     let family = match fam {
         "llama" | "smollm2" => Family::SmolLm2,
+        "smollm3" => Family::SmolLm3,
         "qwen2" | "qwen" => Family::Qwen25,
         other => return Err(format!("unknown family {other} (llama or qwen2)").into()),
     };

@@ -21,6 +21,9 @@ pub enum Family {
     Qwen25,
     /// SmolLM2 Instruct (GGUF architecture `llama`), ChatML template.
     SmolLm2,
+    /// SmolLM3 (GGUF architecture `smollm3`: Llama-style, no rotary embedding on every 4th layer),
+    /// its ChatML-style template with a reasoning-mode system header (used in `/no_think` mode).
+    SmolLm3,
 }
 
 impl Family {
@@ -29,6 +32,7 @@ impl Family {
         match self {
             Family::Qwen25 => "qwen2",
             Family::SmolLm2 => "llama",
+            Family::SmolLm3 => "smollm3",
         }
     }
 
@@ -39,7 +43,11 @@ impl Family {
 
     /// The tokenizer's end-of-text token (also a stop token).
     pub fn end_of_text(self) -> &'static str {
-        "<|endoftext|>"
+        match self {
+            Family::Qwen25 | Family::SmolLm2 => "<|endoftext|>",
+            // the Llama 3 vocabulary
+            Family::SmolLm3 => "<|end_of_text|>",
+        }
     }
 }
 
@@ -130,6 +138,14 @@ const SMOL_TOKENIZER: ModelFile = hf!(
     "tokenizer.json",
     "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c",
     2104556
+);
+
+const SMOL3_TOKENIZER: ModelFile = hf!(
+    "HuggingFaceTB/SmolLM3-3B",
+    "a07cc9a04f16550a088caea529712d1d335b0ac1",
+    "tokenizer.json",
+    "7b6a500b662a34eb3f0374db856ba4ad7de4c81040571d78dc0d357238930005",
+    17208819
 );
 
 static CATALOGUE: &[ModelInfo] = &[
@@ -266,6 +282,28 @@ static CATALOGUE: &[ModelInfo] = &[
         tokenizer: "tokenizer.json",
         files: &[local!("smol135-v1-q8_0.gguf", "4362af26f7523f39154127996520ecb8ccbff9d50c2683456ab8f30d56e6baf2", 143042208), SMOL_TOKENIZER],
     },
+    ModelInfo {
+        id: "smollm3-3b-q4km",
+        name: "SmolLM3 3B (4-bit)",
+        family: Family::SmolLm3,
+        description: "3 B parameters, 4-bit. For the assistant (Ask the coach, AI3): about 2 GB, several times slower than the small models.",
+        license: APACHE,
+        license_url: APACHE_URL,
+        author: "Hugging Face",
+        source: "https://huggingface.co/ggml-org/SmolLM3-3B-GGUF",
+        weights: "SmolLM3-Q4_K_M.gguf",
+        tokenizer: "tokenizer.json",
+        files: &[
+            hf!(
+                "ggml-org/SmolLM3-3B-GGUF",
+                "4965cb60b150737b68a0408c36aeefb65078f894",
+                "SmolLM3-Q4_K_M.gguf",
+                "8334b850b7bd46238c16b0c550df2138f0889bf433809008cc17a8b05761863e",
+                1915305312
+            ),
+            SMOL3_TOKENIZER,
+        ],
+    },
 ];
 
 /// The default model: **provisional until the 30-case evaluation** (GRADE-PLAN.md item 11).
@@ -350,7 +388,7 @@ mod tests {
 
     #[test]
     fn catalogue_is_pinned_checksummed_and_licensed() {
-        assert_eq!(catalogue().len(), 7);
+        assert_eq!(catalogue().len(), 8);
         assert!(!find(DEFAULT_MODEL).is_some_and(ModelInfo::is_local), "the default must be downloadable");
         assert!(find(DEFAULT_MODEL).is_some());
         let mut ids = std::collections::HashSet::new();
@@ -359,8 +397,8 @@ mod tests {
             assert_eq!(m.license, "Apache-2.0", "{}", m.id);
             assert!(m.license_url.starts_with("https://"));
             assert!(m.source.starts_with("https://huggingface.co/"));
-            // (the AI1.4 "fast" 135M tune is ~145 MB)
-            assert!(m.size() > 100_000_000 && m.size() < 1_300_000_000, "{}", m.id);
+            // (the AI1.4 "fast" 135M tune is ~145 MB; SmolLM3 3B ~1.93 GB)
+            assert!(m.size() > 100_000_000 && m.size() < 2_000_000_000, "{}", m.id);
             let w = m.file(m.weights).expect("weights listed");
             assert!(w.name.ends_with(".gguf"));
             let t = m.file(m.tokenizer).expect("tokenizer listed");
@@ -441,6 +479,7 @@ mod tests {
             let expect = match m.family {
                 Family::Qwen25 => QWEN_TOKENIZER.sha256,
                 Family::SmolLm2 => SMOL_TOKENIZER.sha256,
+                Family::SmolLm3 => SMOL3_TOKENIZER.sha256,
             };
             assert_eq!(t.sha256, expect);
         }

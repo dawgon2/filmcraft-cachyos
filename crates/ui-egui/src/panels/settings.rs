@@ -588,7 +588,7 @@ fn mb(bytes: u64) -> String {
 
 /// Settings ▸ Media Cache ▸ Render Cache (fork 6.3): what the render cache holds and is doing,
 /// with Pause / Resume and Delete Unused (commands `cache.pause`, `cache.resume`,
-/// `cache.clearUnused`).
+/// `cache.clearUnused`; Claim, `cache.claimFolder`, while files of no known project are there).
 fn render_cache_rows(app: &mut FilmcraftApp, ui: &mut Ui) {
     let t = app.tokens;
     // `cache.status` reads the whole index: at most twice a second (a button press refreshes it)
@@ -627,6 +627,14 @@ fn render_cache_rows(app: &mut FilmcraftApp, ui: &mut Ui) {
         if button(app, ui, "settings.renderCache.clearUnused", tl!("Delete Unused"), false) {
             match app.session.execute("cache.clearUnused", json!({})) {
                 Ok(v) => app.ui.status = tlf!("Deleted {n} render cache file(s)", n = v["deleted"].as_u64().unwrap_or(0)),
+                Err(e) => app.ui.status = e.to_string(),
+            }
+            ui.data_mut(|d| d.remove::<(f64, Value)>(key));
+        }
+        // files from before the index (or of no known project) are never deleted until claimed
+        if st["unknownFiles"].as_u64().unwrap_or(0) > 0 && button(app, ui, "settings.renderCache.claimFolder", tl!("Claim Files of No Known Project"), false) {
+            match app.session.execute("cache.claimFolder", json!({})) {
+                Ok(v) => app.ui.status = tlf!("Claimed {n} render cache file(s)", n = v["claimed"].as_u64().unwrap_or(0)),
                 Err(e) => app.ui.status = e.to_string(),
             }
             ui.data_mut(|d| d.remove::<(f64, Value)>(key));

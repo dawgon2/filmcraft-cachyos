@@ -42,6 +42,21 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 - **Why:** wheels and curves behave the same on every camera, and highlights survive grading.
 - **Pitfalls:** grading in the delivery space (Rec. 709) clips bright colours early.
 
+## ACES
+
+> id: practice.delivery.aces | does: says what to use instead of an ACES pipeline, which FilmCraft doesn't offer | resolve: ACEScct / ACEScc colour science in the project settings | premiere: no ACES working space | when: "can I use ACES?" | see: practice.delivery.working-space
+
+**[Standard]**
+
+- **FilmCraft:** no ACES yet: there is no ACES working space and no ACES input or output
+  transforms. Use DaVinci Wide Gamut / Intermediate per sequence (`sequence.colorSettings`)
+  instead: like ACEScct it is a wide-gamut, log-like space every camera is converted into.
+- **Why:** ACES (the Academy Color Encoding System, a published standard) gives every camera and
+  every facility the same working space; for one editor delivering Rec. 709 a wide working space
+  does the same job.
+- **Pitfalls:** an ACES LUT or look made for ACEScct expects ACEScct numbers; on a node in
+  DaVinci Intermediate it looks close but shifts colours.
+
 ## SDR from an HDR or wide grade: tone map, don't clip
 
 > id: practice.delivery.tone-map | does: folds highlights into SDR with a tone-mapping roll-off instead of clipping them | resolve: Timeline-to-Output tone mapping | premiere: auto tone mapping | when: delivering Rec. 709 from log or HDR | see: color.color-management.output

@@ -31,10 +31,17 @@ pub fn wants_own(title_bar: &str) -> bool {
     SUPPORTED && title_bar != "system"
 }
 
-/// Width the top rows leave free at their right end for the window buttons.
-pub fn reserved_width(app: &FilmcraftApp) -> f32 {
-    let full = app.shown_full_screen.unwrap_or_else(|| wanted_full_screen(app));
-    if app.window_controls { shown_buttons(app, full) as f32 * BUTTON_W } else { 0.0 }
+/// Width the top rows leave free at their right end for the window buttons: as many as [`show`]
+/// draws, so both read full screen from the window itself (the preference can say full screen
+/// while the window isn't yet, or the window manager refused it; header icons then slid under
+/// the window buttons).
+pub fn reserved_width(app: &FilmcraftApp, ctx: &egui::Context) -> f32 {
+    if app.window_controls { shown_buttons(app, window_full_screen(ctx)) as f32 * BUTTON_W } else { 0.0 }
+}
+
+/// Whether the window is full screen now, as the window reports it.
+fn window_full_screen(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))
 }
 
 /// How many of the buttons show (owner, 2026-10-13): all four in a normal window; only full
@@ -153,7 +160,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
         return;
     }
     let ctx = ui.ctx().clone();
-    let (maximized, fullscreen) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false)));
+    let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+    let fullscreen = window_full_screen(&ctx);
     let full = ui.max_rect();
     let t = app.tokens;
     let h = top_row_height(app);

@@ -32,7 +32,8 @@ fn parse_group(g: &str) -> Option<(ItemId, TrackId, Tick)> {
     let mut it = g.split('/');
     let seq = it.next()?.parse().ok()?;
     let track = it.next()?.parse().ok()?;
-    let at = it.next()?.parse().ok()?;
+    // free-form item metadata: a negative record point is damage, not a place on the timeline
+    let at: i64 = it.next()?.parse().ok().filter(|t| *t >= 0)?;
     it.next().is_none().then_some((ItemId(seq), TrackId(track), Tick(at)))
 }
 
@@ -162,4 +163,14 @@ pub fn commands() -> Vec<CommandSpec> {
         spec("audio.voiceover.takes", "Voice-over Takes", r#"{"clip":id?}"#, takes, false),
         spec("audio.voiceover.pickTake", "Use Take", r#"{"clip":id?,"item":id}"#, pick_take, true),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_damaged_record_point_is_refused() {
+        assert!(super::parse_group("1/2/-5").is_none());
+        assert!(super::parse_group("1/2/99999999999999999999").is_none());
+        assert_eq!(super::parse_group("1/2/7").map(|g| g.2.0), Some(7));
+    }
 }

@@ -117,6 +117,16 @@ pub struct GpuCompositor {
     comp_slots: Vec<comp::Slot>,
     /// One slot set per comp layer of a frame (the active one is swapped into `comp_slots`).
     comp_sets: Vec<Vec<comp::Slot>>,
+    /// A top-level [`render_plan`](Self::render_plan) has begun the effect pool's frame.
+    fx_frame_open: bool,
+    /// Bytes all comp slot sets may hold together ([`comp::COMP_VRAM_BUDGET`]; lower in tests).
+    comp_vram_budget: u64,
+    /// Top-level draws in a row without a comp ([`comp::COMP_IDLE_FRAMES`] frees the comp textures).
+    comp_idle: u32,
+    /// The output and backdrop textures comp slot draws use (swapped in like the slot's
+    /// accumulator), so the frame's own keep their size when comp and frame sizes differ.
+    comp_output: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
+    comp_backdrop: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
     /// Recent comp pictures and their frames (static nodes keep their texture across frames).
     comp_images: Vec<(Arc<filmcraft_render::image::Image>, Arc<VideoFrame>)>,
     pub gpu_transitions: u64,
@@ -406,6 +416,12 @@ fn prepare_layers(layers: &[PlanLayer]) -> PreparedPlan {
     PreparedPlan { layers: layers.iter().map(|l| if l.comp.is_some() { None } else { prepare_frame(&l.frame) }).collect(), ..Default::default() }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Render targets created on this thread (tests check that targets are reused).
+    static TARGETS_MADE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 impl GpuCompositor {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         Self::with_fx_format(device, queue, fx::fx_format_for(device.adapter_info().device_type))
@@ -571,6 +587,11 @@ impl GpuCompositor {
             transition_inputs: [None, None],
             comp_slots: Vec::new(),
             comp_sets: Vec::new(),
+            fx_frame_open: false,
+            comp_vram_budget: comp::COMP_VRAM_BUDGET,
+            comp_idle: 0,
+            comp_output: None,
+            comp_backdrop: None,
             comp_images: Vec::new(),
             gpu_transitions: 0,
             cpu_transitions: 0,
@@ -596,6 +617,8 @@ impl GpuCompositor {
         if let Some(s) = slot.as_ref().filter(|s| s.2 == (w, h)) {
             return s.1.clone();
         }
+        #[cfg(test)]
+        TARGETS_MADE.with(|n| n.set(n.get().saturating_add(1)));
         let t = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("filmcraft-target"),
             size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
@@ -1057,18 +1080,49 @@ impl GpuCompositor {
     /// accumulator's view). A [`FramePlan::Layers`] with an output transform ([`OutputStage`])
     /// runs it at its place (fork ADR 0003).
     fn render_plan(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, clear: bool, resolve: bool) -> (wgpu::TextureView, (u32, u32)) {
+        // one effect-pool frame per top-level draw: a comp's slot draws (nested `render_plan`s)
+        // share it, so neither the comp-size nor the frame-size pooled textures are dropped and
+        // made again every frame
+        let top = !self.fx_frame_open;
+        if top {
+            self.fx_frame_open = true;
+            if let Some(f) = self.fx.as_mut() {
+                f.begin_frame();
+            }
+        }
+        let out = self.render_plan_in_frame(plan, prep, clear, resolve);
+        if top {
+            // (a composite of steps may hold comps in its layers: counted as a comp frame)
+            let had_comps = match plan {
+                FramePlan::Layers { layers, .. } => layers.iter().any(|l| l.comp.is_some()),
+                FramePlan::Composite { .. } => true,
+                FramePlan::Image(_) => false,
+            };
+            self.comp_frame_done(had_comps);
+            self.fx_frame_open = false;
+            if let Some(f) = self.fx.as_mut() {
+                f.end_frame();
+            }
+        }
+        out
+    }
+
+    fn render_plan_in_frame(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, clear: bool, resolve: bool) -> (wgpu::TextureView, (u32, u32)) {
         // comp layers: their programs run first, on comp-sized slots (C1 step 7b); a comp that
         // can't run here stays a comp layer and is rendered on the CPU below
         let comps_run;
         let plan = match plan {
             FramePlan::Layers { width, height, layers, output } if layers.iter().any(|l| l.comp.is_some()) => {
                 let mut set = 0usize;
+                let mut ran_sets = Vec::new();
                 let layers = layers
                     .iter()
                     .map(|l| {
                         let ran = l.comp.as_ref().and_then(|p| {
                             set += 1;
-                            self.run_comp(p, set - 1)
+                            let frame = self.run_comp(p, set - 1)?;
+                            ran_sets.push((set - 1, usize::from(p.out)));
+                            Some(frame)
                         });
                         match ran {
                             Some(frame) => PlanLayer { frame, comp: None, ..l.clone() },
@@ -1076,6 +1130,14 @@ impl GpuCompositor {
                         }
                     })
                     .collect();
+                // a later comp's uploads may have pushed an earlier comp's result out of the
+                // upload cache (it would draw transparent): register every result again now
+                for (s, out) in ran_sets {
+                    self.refresh_comp_output(s, out);
+                }
+                // sets of comps this frame doesn't have any more are let go (no set is swapped
+                // out here: comps never run inside another comp's draw)
+                self.comp_sets.truncate(set);
                 comps_run = FramePlan::Layers { width: *width, height: *height, layers, output: output.clone() };
                 &comps_run
             }
@@ -1155,9 +1217,6 @@ impl GpuCompositor {
         let mut bind_groups = Vec::with_capacity(layers.len());
         // the effect stage of each layer with effects (recorded right before its draw)
         let mut jobs: Vec<Option<fx::FxJob>> = Vec::with_capacity(layers.len());
-        if let Some(f) = self.fx.as_mut() {
-            f.begin_frame();
-        }
         for (l, k) in layers.iter().zip(&keys) {
             // (every frame was just uploaded; a missing upload draws transparent texels)
             let src = self.src_info(&l.frame, *k).unwrap_or(SrcInfo {
@@ -1223,9 +1282,6 @@ impl GpuCompositor {
             };
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("layer"), layout, entries: &entries });
             bind_groups.push((bg, region));
-        }
-        if let Some(f) = self.fx.as_mut() {
-            f.end_frame();
         }
         let final_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("final"),

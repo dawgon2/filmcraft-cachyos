@@ -420,11 +420,15 @@ pub struct CoachPrefs {
     /// [`crate::coach_hints::MAX_SEEN`]); each shows once.
     #[serde(deserialize_with = "lenient_completed")]
     pub hints_seen: Vec<String>,
+    /// "Also ask the assistant" in the Ask the coach box (`coach.assist`, fork AI3.5). Off by
+    /// default: a CPU answer takes about a minute (provisional until GPU inference).
+    #[serde(deserialize_with = "lenient_off")]
+    pub assistant: bool,
 }
 
 impl Default for CoachPrefs {
     fn default() -> Self {
-        Self { hints: true, completed: Vec::new(), hints_seen: Vec::new() }
+        Self { hints: true, completed: Vec::new(), hints_seen: Vec::new(), assistant: false }
     }
 }
 
@@ -453,6 +457,11 @@ fn clean_ids(list: Vec<String>, max: usize) -> Vec<String> {
 /// would otherwise fail the whole preferences file.
 fn lenient_hints<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<bool, D::Error> {
     Ok(Value::deserialize(d)?.as_bool().unwrap_or(true))
+}
+
+/// A malformed `assistant` is off.
+fn lenient_off<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<bool, D::Error> {
+    Ok(Value::deserialize(d)?.as_bool().unwrap_or(false))
 }
 
 /// A malformed `completed` (or `hintsSeen`) keeps its string entries (or none) instead of failing the file.

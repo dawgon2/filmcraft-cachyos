@@ -72,7 +72,28 @@ control channel. Tag `audio-2`.
 ## Phase A3: mixer basics (later; ≈ 20–40 h)
 
 Track-level effects (#623), submix / buses with their own effects, clip-gain envelopes drawn on
-the timeline, track meters with peak hold. Tag `audio-3`.
+the timeline, track meters with peak hold. Tag `audio-3`. **Moved before S1 (owner, 2026-10-15,
+FORK-PLAN §1a.76).**
+
+**Intuitive first (owner: "make sure it's relatively intuitive"):**
+- A track's effects work like a clip's: drag an effect from the Effects panel onto a track header
+  or a mixer strip; the same Effect Controls UI edits it. No separate effect workflow to learn.
+- Meters are always visible (track headers and the mixer), with peak hold and a clear red at
+  clipping; the master meter shows LUFS for the target loudness.
+- Clip gain is a line on the clip you drag up / down (keyframes by click), like volume today.
+- Buses: "Send to…" on a track creates or picks a bus; a new sequence has none until asked, so
+  the simple case stays simple.
+- Plain names, sensible defaults, tooltips that say what a control does; Premiere and Resolve
+  workflows each lay it out the way that app's users expect.
+- Done means: a guide page with options and trade-offs (beginner vs pro), a coach lesson, and the
+  UI looked at on screen in both workflows.
+
+**Voice Isolation quality (owner, 2026-10-15; OWNER-QUESTIONS Q30):** an amount / attenuation
+limit (default lowered for mild noise, and clean speech left alone); re-measure on recordings of
+the owner's own voice in a quiet room if they're in `~/.local/share/filmcraft-fork/voice-test/`
+(LibriSpeech's "clean" files carry background noise that counts as damage); try a stronger openly
+licensed model only after the owner's yes to its download. Aim: the two missed bars (≥ 3 dB over
+DeNoise at 10 dB SNR, ≥ 20 dB on clean speech) without losing the noisy-speech gains.
 
 ## Not planned
 

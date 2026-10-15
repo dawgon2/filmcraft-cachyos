@@ -681,6 +681,42 @@ pub(crate) fn track_layers(
     }
 }
 
+/// A decoded frame of media `item` as one layer fitted into a `w`×`h` canvas (centred, as
+/// `comp::project::fit` places the CPU picture): a comp's Media In of a media item or subclip.
+/// Plain frames draw directly; log / HDR / wide-gamut Y'CbCr frames get the input transform as
+/// the layer's colour ops (as a timeline clip does, fork ADR 0003). None: an RGB frame that needs
+/// management (the CPU converts it).
+pub(crate) fn media_frame_layer(
+    project: &Project,
+    item: ItemId,
+    frame: Arc<VideoFrame>,
+    pipe: &filmcraft_color::ColorPipeline,
+    w: usize,
+    h: usize,
+) -> Option<PlanLayer> {
+    let (fw, fh) = (f64::from(frame.width.max(1)), f64::from(frame.height.max(1)));
+    let fit = |iw: f64, ih: f64| {
+        let s = (w as f64 / iw).min(h as f64 / ih);
+        (s.is_finite() && s > 0.0).then(|| Affine::translate((w as f64 - iw * s) / 2.0, (h as f64 - ih * s) / 2.0).then_apply(&Affine::scale(s, s)))
+    };
+    let cs = crate::colorman::source_space(project, item, &frame);
+    if !crate::colorman::needs_management(pipe, cs, &frame) {
+        let m = fit(fw, fh)?;
+        return Some(PlanLayer::new(frame, m, 1.0, Blend::Normal));
+    }
+    if !frame_is_yuv(&frame) {
+        return None;
+    }
+    let peak = crate::colorman::source_peak_nits(project, item).map(|p| f64::from(p.round() as u32));
+    let ops = filmcraft_color::transform::input_ops(cs, frame.color.range, pipe, peak);
+    // graded at the size drawn, as a timeline clip is (fork Phase 5.3)
+    let s = ((w as f64 / fw).min(h as f64 / fh)).min(1.0);
+    let (lw, lh) = if s.is_finite() && s > 0.0 && s < 0.95 { ((fw * s).round().max(1.0), (fh * s).round().max(1.0)) } else { (fw, fh) };
+    let m = fit(lw, lh)?;
+    let fx = LayerFx { size: (lw as u32, lh as u32), decimation: 1, ops: vec![FxOp::ColorChain(ops.into())] };
+    Some(PlanLayer { frame: signal_frame(&frame), matrix: m, opacity: 1.0, blend: Blend::Normal, fx: Some(Arc::new(fx)), comp: None })
+}
+
 fn near_identity(m: &Affine) -> bool {
     (m.a - 1.0).abs() < 1e-9 && (m.d - 1.0).abs() < 1e-9 && m.b.abs() < 1e-9 && m.c.abs() < 1e-9 && m.e.abs() < 1e-6 && m.f.abs() < 1e-6
 }

@@ -15,7 +15,8 @@ editor in the inspector and drawing masks on the viewer come later in C1.
 
 > id: compositor.basics | does: explains comps, the node kinds and how pictures flow through them | cmd: comp.new, comp.addNode, comp.connect, comp.params | resolve: Fusion page node graph | premiere: — (closest: nested sequence) | when: before building a first comp | see: compositor.make, compositor.recipes
 
-A comp has a size, a frame rate and a length, and a graph of **nodes**. Each node takes pictures
+What is a comp? A **comp** (short for composite) is a project item that holds a node graph; on the
+timeline you use it as a comp clip. A comp has a size, a frame rate and a length, and a graph of **nodes**. Each node takes pictures
 in on the left, does one job, and passes a picture out on the right. The comp shows what reaches
 its **Media Out** node; every new comp starts with one.
 
@@ -44,8 +45,8 @@ nested sequence whose layers you wire yourself.
 
 1. Open the panel: **Window ▸ Compositor** (`window.panel.Compositor`), or the **Compositing**
    workspace (**Window ▸ Workspaces ▸ Compositing**, `window.workspace.compositing`), which
-   puts it beside the Program monitor. In the Resolve workflow click **Fusion** {ui:page.fusion}
-   in the page bar (`page.fusion`), between Edit and Color.
+   puts it beside the Program monitor. In the Resolve workflow the **Fusion** page is in the page bar: click **Fusion** {ui:page.fusion}
+   (`page.fusion`), between Edit and Color.
 2. With no comp clip selected, the panel offers **New Comp Clip** {ui:comp.newClip}
    (`comp.newClip`, also **Clip ▸ Compositor ▸ New Comp Clip**). It makes a comp the size of
    the sequence and places it on V1 at the playhead.
@@ -56,6 +57,13 @@ nested sequence whose layers you wire yourself.
    Dragging onto an input that is already used replaces that connection.
 6. Select a node and press **Delete** to remove it (`comp.removeNode`); **Ctrl+B** (or **Bypass**
    in its right-click menu) shows the picture without it (`comp.bypass`).
+7. Disconnect: click an input dot that has a connection (`comp.disconnect`); the node's
+   input is empty again.
+8. Tidy the graph: drag a node by its body to move it (`comp.moveNode`). Where a node sits
+   doesn't change the picture.
+9. Pick the finished picture: right-click a node ▸ **Set as Output**
+   (`comp.setOutput`). The comp clip shows what that node outputs (the Media Out node).
+   This differs from **View**, which only changes what the Program monitor shows while you work.
 
 On the timeline a comp clip shows **Comp** and its number of nodes in its header.
 
@@ -77,11 +85,32 @@ Saturation, Temperature, Tint, grain), and a curve editor with Y / R / G / B but
 the curve to add a point, double-click a point to remove it; scroll the settings to reach it). Selecting several
 nodes hides the rows.
 
+## Comp size, Media In clips and node names (commands only for now) [Fork]
+
+> id: compositor.settings | does: changes a comp's size, frame rate and length, which clip a Media In node reads, and a node's name | cmd: comp.setSize, comp.setSource, comp.labelNode, comp.get | resolve: Fusion composition settings, MediaIn node source, renaming a node | premiere: — | when: a comp must be another size or length, a Media In node should read a different clip, or the graph needs clearer names | see: compositor.make, compositor.basics
+
+These have no button in the Compositor panel yet. Run them from the command palette, the
+control channel or the MCP tools; each is one undo step. `comp` can be left out to use the
+selected comp clip.
+
+1. See the comp first: `comp.get` lists its nodes, connections, output node, size, frame
+   rate and length, plus the order the nodes run in and, if the graph can't run, why.
+2. Size, frame rate, length: `comp.setSize` with any of `width`, `height`, `fps`, `duration`
+   (in ticks). A new comp starts at the sequence's size.
+3. Which clip a **Media In** node reads: `comp.setSource` with `node` and either `item` (a
+   project item) or `track` (the clip under the comp on that track), plus an optional
+   `offset` (ticks into the source).
+4. Name a node: `comp.labelNode` with `node` and `label` (long names are cut). The name shows
+   on the canvas; it doesn't change the picture.
+
+Unlike Resolve, there is no composition settings dialog and no rename field on the node yet.
+
 ## Looking at one node's output [Resolve-style]
 
 > id: compositor.view | does: shows one node's output in the Program monitor | cmd: comp.view | resolve: viewing a node on the Fusion page's viewer | premiere: none (Premiere has no node graph) | when: checking what a node does before it is merged | see: compositor.basics
 
-Like the Fusion page, you can look at any node's picture, not only the finished comp.
+Like the Fusion page, you can look at any node's picture, not only the finished comp: this is how you
+see what one node outputs.
 
 1. Put the playhead over the comp clip and open its comp in the Compositor.
 2. Double-click a node (or right-click it ▸ **View**, or pick it in the **Show** menu at the top
@@ -109,14 +138,14 @@ only describes what is in the graph, so it can't invent a node or a control.
 3. Read `lines` in order; each names one node and what it does, for example "puts Key 3
    (foreground) over Background (background)".
 4. Check `unused`: nodes that don't reach Media Out change nothing, which is the usual reason a
-   node "does nothing".
+   node "does nothing": a Blur (or any other) node that isn't connected to Media Out changes nothing.
 
 A graph that can't be evaluated (a loop) gets a summary that says so, and no lines. There is no
 button for it in the Compositor yet.
 
 ## A Mask node's masks [Fork]
 
-> id: compositor.masks | does: adds, inverts and deletes the shapes of a Mask node | cmd: comp.setMasks | resolve: Polygon / Ellipse / Rectangle mask nodes on the Fusion page | premiere: the mask buttons in Effect Controls | when: keeping only part of the picture in a comp | see: compositor.inspector
+> id: compositor.masks | does: adds, inverts, reshapes (points, Bézier handles, added / deleted points) and deletes the shapes of a Mask node | cmd: comp.setMasks | resolve: Polygon / Ellipse / Rectangle mask nodes on the Fusion page | premiere: the mask buttons in Effect Controls | when: keeping only part of the picture in a comp | see: compositor.inspector
 
 A Mask node keeps its input only inside its shapes (or outside, when a shape is inverted).
 Unlike Resolve's Fusion page, where each shape is its own node, one FilmCraft Mask node holds a
@@ -137,10 +166,21 @@ list of up to sixteen shapes, like the masks of a Premiere effect.
 Each click is one undo step (`comp.setMasks` with the whole list).
 
 To move or reshape a shape, keep the Mask node selected and work on the Program monitor
-(`comp.maskOverlay`): its shapes are drawn over the picture; drag a square handle to move one
-point, or drag inside a shape to move all of it. Each drag is one undo step. Unlike Effect
-Controls masks there are no Bézier handles or added points here yet; an agent can still send
-`comp.setMasks` a full mask list.
+(`comp.maskOverlay`): its shapes are drawn over the picture.
+
+1. Drag a square point to move it, or drag inside a shape to move all of it.
+2. A smooth point (an ellipse's four points) shows two round Bézier handles on short lines.
+   Drag one to bend the curve; the other handle turns with it so the curve stays smooth. Hold
+   **Alt** while dragging to move one handle alone (a sharp bend, a cusp).
+3. **Alt-click** a point to switch it between smooth and corner: a rectangle's corners get
+   handles this way, and a smooth point loses them.
+4. **Ctrl-click** (Cmd-click on macOS) on an edge to add a point there, or on a point to delete
+   it (a shape keeps at least 3 points). On a keyframed shape the point is added to every
+   keyframe, so the shape still animates smoothly.
+
+Each drag or click is one undo step. The keys are the same as for Effect Controls masks, in both
+workflows (not the Fusion page's own shortcuts). An agent can also send `comp.setMasks` a full
+mask list.
 
 ## Turning stacked clips into a comp
 
@@ -164,9 +204,11 @@ clips as they are).
 
 > id: compositor.recipes | does: two small comps that show the usual shapes: a keyed subject over a background, a title over footage | cmd: comp.addNode, comp.connect, comp.setParam | resolve: Fusion basic composite | premiere: — | when: learning the node flow, or as a template | see: compositor.basics
 
-**Keyed subject over a background** (comp A): Media In (your footage) → Key (Luma Key) → into
+**Keyed subject over a background** (comp A; also how you key a green screen over a background): Media In (your footage) → Key (Luma Key) → into
 the foreground of a Merge whose background is a Solid → Color → Media Out. The Color node grades
-the finished composite as one picture.
+the finished composite as one picture. For a green or blue screen, use **Ultra Key** in the Key node
+instead of Luma Key (a new Key node starts as Ultra Key; its settings are the Ultra Key effect's,
+see the keying page), and for a background plate replace the Solid with a second Media In of that clip.
 
 **Title over footage** (comp B): Text → Transform → into the foreground of a Merge whose
 background is a Media In of the footage → Media Out.

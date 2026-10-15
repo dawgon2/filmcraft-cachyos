@@ -585,6 +585,25 @@ impl CacheState {
         c.owner = Some(me.to_string());
     }
 
+    /// Files of no known project become `me`'s (and are no longer swept as an older version's):
+    /// how many, and their bytes.
+    pub(crate) fn claim_unknown(&self, me: &str) -> (usize, u64) {
+        let mut c = self.lock();
+        let (mut n, mut bytes) = (0usize, 0u64);
+        let mut names = Vec::new();
+        for (name, e) in c.index.iter_mut().filter(|(_, e)| e.project.is_none()) {
+            e.project = Some(me.to_string());
+            n += 1;
+            bytes = bytes.saturating_add(e.bytes);
+            names.push(name.clone());
+        }
+        for name in &names {
+            c.legacy.remove(name);
+        }
+        c.dirty |= n > 0;
+        (n, bytes)
+    }
+
     /// Tests: a size limit in bytes (None = the setting).
     #[cfg(test)]
     pub(crate) fn set_budget_override(&self, bytes: Option<u64>) {
@@ -1159,6 +1178,7 @@ pub fn status_json(s: &Session) -> Value {
     let bytes: u64 = index.values().map(|e| e.bytes).fold(0, u64::saturating_add);
     let me = owner_id(s);
     let other_files = index.values().filter(|e| e.project.as_deref() != Some(me.as_str())).count();
+    let unknown_files = index.values().filter(|e| e.project.is_none()).count();
     let worker = s.background.status();
     json!({
         "mode": mode_of(s).as_str(),
@@ -1168,6 +1188,7 @@ pub fn status_json(s: &Session) -> Value {
         "budgetBytes": budget,
         "limitReached": limit_reached,
         "otherFiles": other_files,
+        "unknownFiles": unknown_files,
         "queued": queued,
         "rendering": running.map(|r| json!({"hash": r.hash, "off": r.off, "frames": r.len, "percent": (r.fraction * 1000.0).round() / 10.0})),
         "rendered": rendered,
@@ -1204,6 +1225,20 @@ fn clear_unused(s: &mut Session) -> Value {
     json!({"deleted": n, "bytes": bytes})
 }
 
+/// Claim the folder: files of no known project (from before the index, or listed without a project)
+/// become the current project's, so Delete Unused and the size limit may delete them once no
+/// sequence uses them. Files another project made stay that project's.
+fn claim_folder(s: &mut Session) -> Result<Value> {
+    if s.previews.dir().is_none() {
+        return Err(EngineError::BadParams { cmd: "cache.claimFolder".into(), msg: "no render cache folder".into() });
+    }
+    let me = owner_id(s);
+    s.previews.cache.set_owner(&me);
+    let (claimed, bytes) = s.previews.cache.claim_unknown(&me);
+    s.previews.cache.save(true);
+    Ok(json!({"claimed": claimed, "bytes": bytes}))
+}
+
 pub(crate) fn commands() -> Vec<CommandSpec> {
     fn spec(id: &'static str, label: &'static str, params: &'static str, run: fn(&mut Session, &Value) -> Result<Value>, journal: bool) -> CommandSpec {
         CommandSpec { id, label, menu: &[], shortcut: None, params, enabled: always, run, journal }
@@ -1234,6 +1269,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             false,
         ),
         spec("cache.clearUnused", "Delete Unused Render Cache Files", "{}", |s, _| Ok(clear_unused(s)), true),
+        spec("cache.claimFolder", "Claim Render Cache Files of No Known Project", "{}", |s, _| claim_folder(s), true),
     ]
 }
 

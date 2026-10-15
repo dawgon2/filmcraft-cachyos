@@ -89,6 +89,18 @@ fn tnr_commands_edit_undo_and_refuse_hostile_params() {
     s.execute("edit.redo", json!({})).unwrap();
     assert!(tnr(&s, a).unwrap().params["motion"].is_animated());
 
+    // moveKeyframe: the lane's drag, one undo step; a missing keyframe / bad times refused
+    let from = tnr(&s, a).unwrap().params["motion"].keyframes[0].time;
+    let to = from + Tick::from_seconds_f64(1.0);
+    s.execute("tnr.moveKeyframe", json!({"param": "motion", "mediaTime": from.0, "to": to.0})).unwrap();
+    assert_eq!(tnr(&s, a).unwrap().params["motion"].keyframes[0].time, to);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(tnr(&s, a).unwrap().params["motion"].keyframes[0].time, from);
+    assert!(is_bad(s.execute("tnr.moveKeyframe", json!({"param": "motion", "mediaTime": to.0, "to": from.0}))), "no keyframe there");
+    assert!(is_bad(s.execute("tnr.moveKeyframe", json!({"param": "motion", "mediaTime": from.0}))), "no `to`");
+    assert!(is_bad(s.execute("tnr.moveKeyframe", json!({"param": "luma", "mediaTime": from.0, "to": "x"}))));
+    assert!(is_bad(s.execute("tnr.moveKeyframe", json!({"param": "frames", "mediaTime": from.0, "to": to.0}))), "not animated");
+
     // copy / paste
     s.execute("tnr.copy", json!({})).unwrap();
     let r = s.execute("tnr.paste", json!({"clips": [b.0]})).unwrap();

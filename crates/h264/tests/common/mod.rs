@@ -457,6 +457,45 @@ pub const FIXTURES: &[Fixture] = &[
         filter: NOISE,
         args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-qp", "1", "-x264-params", "bframes=2"],
     },
+    // fork H2.8b: interlaced (MBAFF) from a real encoder in the everyday matrix: CABAC with a
+    // B-pyramid and temporal direct, CAVLC bottom field first with weighted prediction, and the
+    // pro profiles interlaced (High 10, High 4:2:2 10-bit)
+    Fixture {
+        name: "mbaff_cabac_bpyramid",
+        source: "testsrc2",
+        width: 640,
+        height: 360,
+        frames: 24,
+        filter: NOISE,
+        args: &["-profile:v", "high", "-flags", "+ilme+ildct", "-x264-params", "interlaced=1:tff=1:keyint=12:bframes=3:b-pyramid=normal:ref=4:direct=temporal"],
+    },
+    Fixture {
+        name: "mbaff_cavlc_bff_weightp",
+        source: "mandelbrot",
+        width: 352,
+        height: 288,
+        frames: 20,
+        filter: "fade=in:0:20",
+        args: &["-profile:v", "main", "-flags", "+ilme+ildct", "-x264-params", "interlaced=1:bff=1:cabac=0:keyint=10:bframes=2:ref=3:weightp=2"],
+    },
+    Fixture {
+        name: "mbaff_high10",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 16,
+        filter: NOISE,
+        args: &["-profile:v", "high10", "-pix_fmt", "yuv420p10le", "-flags", "+ilme+ildct", "-x264-params", "interlaced=1:tff=1:bframes=2:ref=2"],
+    },
+    Fixture {
+        name: "mbaff_422_10",
+        source: "testsrc2",
+        width: 352,
+        height: 288,
+        frames: 16,
+        filter: NOISE,
+        args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-flags", "+ilme+ildct", "-x264-params", "interlaced=1:tff=1:bframes=2:ref=2:weightp=2"],
+    },
     // 4K 10-bit 4:2:2 benchmarks (fork H2.7; XAVC S / S-I-like rates; stream only, no reference)
     Fixture {
         name: "bench_4k_422_10",
@@ -475,6 +514,30 @@ pub const FIXTURES: &[Fixture] = &[
         frames: 30,
         filter: "noise=alls=3:allf=t",
         args: &["-profile:v", "high422", "-pix_fmt", "yuv422p10le", "-preset", "veryfast", "-crf", "12", "-x264-params", "keyint=1"],
+    },
+    // fork H2.6: 1080i (MBAFF, top field first, B-pyramid), the interlaced material of HD
+    // broadcast and camcorder files
+    Fixture {
+        name: "bench_1080i_mbaff",
+        source: "testsrc2",
+        width: 1920,
+        height: 1080,
+        frames: 50,
+        filter: "noise=alls=4:allf=t",
+        args: &[
+            "-profile:v",
+            "high",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-flags",
+            "+ilme+ildct",
+            "-x264-params",
+            "interlaced=1:tff=1:keyint=25:bframes=3:b-pyramid=normal",
+        ],
     },
 ];
 

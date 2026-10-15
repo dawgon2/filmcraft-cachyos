@@ -16,18 +16,21 @@
 //! when they are on screen. Ids: `coach.hint.card`, `coach.hint.dismiss`, `coach.hint.lesson`,
 //! `coach.hint.off`.
 //!
-//! The lesson list ([`lessons_list`]) opens from the Lessons button next to "Ask the coach" or
-//! Help ▸ Grading Lessons… (`coach.showLessons`). Ids: `coach.lessons.open`, `coach.lessons`,
+//! The Lessons, Ask the coach and Assistant buttons ([`bar_buttons`], FORK-PLAN §1a.78) sit in the
+//! Resolve page bar left of Home, and on the right of the Premiere workflow's header.
+//!
+//! The lesson list ([`lessons_list`]) opens from the Lessons button or Help ▸ Grading Lessons…
+//! (`coach.showLessons`). Ids: `coach.lessons.open`, `coach.lessons`,
 //! `coach.lessons.close`, `coach.lessons.item.{lesson id}` (its Start button).
 
-use egui::{Align2, CornerRadius, Frame, Id, LayerId, Margin, Order, RichText, Stroke, StrokeKind, vec2};
+use egui::{Align2, CornerRadius, Frame, Id, LayerId, Margin, Order, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2};
 use filmcraft_engine::coach::Expect;
 use serde_json::{Value, json};
 
 use crate::FilmcraftApp;
 
 /// The card's width in points.
-const WIDTH: f32 = 340.0;
+pub const WIDTH: f32 = 340.0;
 /// At most this many `element` steps finish in one frame (consecutive steps already on screen).
 const MAX_SEEN_PER_FRAME: usize = 8;
 
@@ -234,6 +237,71 @@ fn lesson_card(app: &mut FilmcraftApp, ctx: &egui::Context) -> (Option<egui::Rec
     (Some(area.response.rect), target_rect.is_some())
 }
 
+// ---------- the bar buttons ----------
+
+/// Lessons, Ask the coach and Assistant as pills ending at `right` (centred on `cy`), right to
+/// left; returns the left edge of the first. Each lights while what it opens is open. Automation
+/// ids: `coach.lessons.open`, `coach.ask.open`, `assistant.open`.
+pub fn bar_buttons(app: &mut FilmcraftApp, ui: &mut egui::Ui, right: f32, cy: f32) -> f32 {
+    let t = app.tokens;
+    let assistant_on = crate::panels::assistant::is_open(app);
+    let items = [
+        ("assistant.open", tl!("Assistant"), assistant_on, tl!("Chat with the assistant: a panel you can float anywhere or dock beside any panel.")),
+        ("coach.ask.open", tl!("Ask the coach"), app.ui.coach_ask.open, tl!("Ask the guide how to do something.")),
+        ("coach.lessons.open", tl!("Lessons"), app.ui.coach_ask.lessons, tl!("Step-by-step lessons.")),
+    ];
+    let mut x = right;
+    let mut clicked = None;
+    for (id, label, on, tip) in items {
+        let galley = ui.painter().layout_no_wrap(label.to_string(), crate::theme::Tokens::ui(11.5), t.text);
+        let w = galley.size().x + 22.0;
+        let r = Rect::from_min_size(pos2(x - w, cy - 11.0), vec2(w, 22.0));
+        let resp = ui.interact(r, Id::new(("coach-bar", id)), Sense::click()).on_hover_text(tip);
+        let fill = if on {
+            t.hover
+        } else if resp.hovered() {
+            t.hover.gamma_multiply(0.6)
+        } else {
+            t.panel_bg
+        };
+        ui.painter().rect(r, CornerRadius::same(11), fill, Stroke::new(1.0, if on { t.accent } else { t.control_border }), StrokeKind::Inside);
+        let ink = if on || resp.hovered() { t.text } else { t.text_dim };
+        ui.painter().galley(pos2(r.center().x - galley.size().x / 2.0, r.center().y - galley.size().y / 2.0), galley, ink);
+        app.auto.add_response(id, &resp, label);
+        if resp.clicked() {
+            clicked = Some(id);
+        }
+        x = r.min.x - 6.0;
+    }
+    match clicked {
+        Some("assistant.open") => crate::panels::assistant::toggle(app, ui.ctx()),
+        Some("coach.ask.open") => {
+            if app.ui.coach_ask.open {
+                close_ask(app);
+            } else {
+                app.ui.coach_ask.open = true;
+                app.ui.coach_ask.lessons = false;
+            }
+        }
+        Some(_) => {
+            app.ui.coach_ask.lessons = !app.ui.coach_ask.lessons;
+            if app.ui.coach_ask.lessons {
+                app.ui.coach_ask.open = false;
+            }
+        }
+        None => {}
+    }
+    x + 6.0
+}
+
+/// Close the Ask box: its spotlight, follow-up memory and running assistant answer go with it.
+fn close_ask(app: &mut FilmcraftApp) {
+    app.ui.coach_ask.open = false;
+    app.ui.coach_ask.spotlight = None;
+    app.ui.coach_ask.last_exchange = None;
+    stop_assist(app);
+}
+
 // ---------- Ask the coach ----------
 
 /// Ask the engine (`coach.ask`); the answer replaces the last one.
@@ -247,17 +315,181 @@ fn ask(app: &mut FilmcraftApp) {
         Ok(v) => app.ui.coach_ask.answer = Some(v),
         Err(e) => app.ui.status = e.to_string(),
     }
+    if app.session.prefs.color.coach.assistant {
+        start_assist(app, &q);
+    }
+}
+
+/// Ask the assistant model too (`coach.assist`, fork AI3.5); a question still being answered is
+/// stopped first (one answer at a time on this PC).
+fn start_assist(app: &mut FilmcraftApp, q: &str) {
+    stop_assist(app);
+    let mut p = json!({ "question": q, "page": app.ui.workspace });
+    // a follow-up: the last checked exchange goes with it
+    if let Some((pq, pa)) = &app.ui.coach_ask.last_exchange {
+        p["previousQuestion"] = json!(pq);
+        p["previousAnswer"] = json!(pa);
+    }
+    match app.session.execute("coach.assist", p) {
+        Ok(v) => {
+            app.ui.coach_ask.assist_id = v["id"].as_u64();
+            app.ui.coach_ask.assist_question = q.to_string();
+        }
+        Err(e) => app.ui.status = e.to_string(),
+    }
+}
+
+/// Stop the assistant's answer (`coach.assistForget`) and drop what it wrote.
+fn stop_assist(app: &mut FilmcraftApp) {
+    if let Some(id) = app.ui.coach_ask.assist_id.take() {
+        // an id that is already gone is fine: nothing is running for it
+        let _ = app.session.execute("coach.assistForget", json!({ "id": id }));
+    }
+    app.ui.coach_ask.assist = None;
+}
+
+/// Read the assistant's answer so far (`coach.assistResult`, no waiting); repaint while it writes.
+fn poll_assist(app: &mut FilmcraftApp, ctx: &egui::Context) {
+    let Some(id) = app.ui.coach_ask.assist_id else { return };
+    match app.session.execute("coach.assistResult", json!({ "id": id })) {
+        Ok(v) => {
+            match v["state"].as_str() {
+                Some("pending") => ctx.request_repaint_after(std::time::Duration::from_millis(250)),
+                // done, or forgotten elsewhere (control channel): stop polling
+                _ => app.ui.coach_ask.assist_id = None,
+            }
+            // a checked model answer is what the next question may follow up on
+            if v["state"] == "done" && v["source"] == "model" {
+                let lines: Vec<&str> = v["lines"].as_array().map(|l| l.iter().filter_map(|x| x["text"].as_str()).collect()).unwrap_or_default();
+                app.ui.coach_ask.last_exchange = Some((app.ui.coach_ask.assist_question.clone(), lines.join("\n")));
+            }
+            if v["state"] != "unknown" {
+                app.ui.coach_ask.assist = Some(v);
+            }
+        }
+        Err(e) => {
+            app.ui.coach_ask.assist_id = None;
+            app.ui.status = e.to_string();
+        }
+    }
+}
+
+/// The assistant's part of the box: its text while it writes (with Stop), then the checked lines,
+/// the sections it was given, and why the guide's answer is shown instead when it couldn't help.
+/// Automation ids: `coach.ask.assistant` (the checkbox), `coach.ask.assistStop`,
+/// `coach.ask.assistLine.{n}` (1-based).
+fn assistant_view(app: &mut FilmcraftApp, ui: &mut egui::Ui, action: &mut Option<AskAction>) {
+    let t = app.tokens;
+    let Some(a) = app.ui.coach_ask.assist.clone() else {
+        if app.ui.coach_ask.assist_id.is_some() {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tl!("The assistant is reading the guide…")).small().color(t.text_dim));
+            });
+        }
+        return;
+    };
+    ui.add_space(6.0);
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(tl!("Assistant")).strong().color(t.text));
+        if a["state"] != "pending" && app.ui.coach_ask.last_exchange.is_some() {
+            let r = ui.small_button(tl!("New topic")).on_hover_text(tl!("The next question won't follow up on this answer."));
+            app.auto.add_response("coach.ask.newTopic", &r, "New topic");
+            if r.clicked() {
+                *action = Some(AskAction::NewTopic);
+            }
+        }
+    });
+    if a["state"] == "pending" {
+        let partial = a["partial"].as_str().unwrap_or("");
+        if partial.trim().is_empty() {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tl!("The assistant is reading the guide…")).small().color(t.text_dim));
+            });
+        } else {
+            egui::ScrollArea::vertical().id_salt("coach-assist-partial").max_height(160.0).stick_to_bottom(true).auto_shrink([false, true]).show(ui, |ui| {
+                ui.label(RichText::new(partial).color(t.text_dim));
+            });
+            ui.label(RichText::new(tl!("Not checked against the guide yet.")).small().italics().color(t.text_faint));
+        }
+        let r = ui.small_button(tl!("Stop"));
+        app.auto.add_response("coach.ask.assistStop", &r, "Stop");
+        if r.clicked() {
+            *action = Some(AskAction::AssistStop);
+        }
+        return;
+    }
+    if a["source"] != "model" {
+        let why = match a["fallback"]["kind"].as_str() {
+            Some("notReady") => {
+                tl!("The assistant can't run here yet (its model isn't installed or this build has none), so the guide's answer above is all there is.")
+            }
+            Some("ungrounded") => tl!("The assistant's answer named things FilmCraft doesn't have, so it was left out; the guide's answer above is checked."),
+            Some("nothingFound") => tl!("The guide has nothing on this, so the assistant didn't guess."),
+            _ => tl!("The assistant couldn't answer this time; the guide's answer above still stands."),
+        };
+        ui.label(RichText::new(why).small().color(t.text_dim));
+        return;
+    }
+    if a["dontKnow"].as_bool() == Some(true) {
+        let r = ui.label(RichText::new(tl!("The assistant says the guide doesn't cover this; the guide's closest answer is above.")).small().color(t.text_dim));
+        app.auto.add_response("coach.ask.assistDontKnow", &r, "doesn't cover");
+    }
+    let lines = a["lines"].as_array().cloned().unwrap_or_default();
+    egui::ScrollArea::vertical().id_salt("coach-assist-lines").max_height(200.0).auto_shrink([false, true]).show(ui, |ui| {
+        for (i, l) in lines.iter().enumerate() {
+            let text = l["text"].as_str().unwrap_or("");
+            // "General advice:" lines aren't from the guide: dimmer
+            let color = if l["general"].as_bool() == Some(true) { t.text_dim } else { t.text };
+            let r = ui.add(egui::Label::new(RichText::new(text).color(color)).wrap());
+            app.auto.add_response(&format!("coach.ask.assistLine.{}", i + 1), &r, text);
+        }
+    });
+    let cited: Vec<&str> = a["cited"].as_array().map(|c| c.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let sources: Vec<&str> = a["sources"].as_array().map(|c| c.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let shown = if cited.is_empty() { &sources } else { &cited };
+    if !shown.is_empty() {
+        ui.label(RichText::new(tlf!("Sources: {list}", list = shown.join(", "))).small().color(t.text_faint));
+    }
+    // "Show me": the lesson for what the assistant said, unless the guide's answer above offers it
+    if let (Some(id), Some(title)) = (a["lesson"]["id"].as_str(), a["lesson"]["title"].as_str()) {
+        let above = app.ui.coach_ask.answer.as_ref().and_then(|g| g["lesson"]["id"].as_str().map(|x| x == id)).unwrap_or(false);
+        if !above {
+            let r = ui.link(tlf!("Show me: {title}", title = title));
+            app.auto.add_response("coach.ask.assistLesson", &r, title);
+            if r.clicked() {
+                *action = Some(AskAction::Lesson(id.to_string()));
+            }
+        }
+    }
+    let removed = a["removedLines"].as_u64().unwrap_or(0);
+    if removed > 0 {
+        ui.label(
+            RichText::new(tlf!("{n} lines left out: they named controls, commands or shortcuts the guide doesn't have.", n = removed))
+                .small()
+                .italics()
+                .color(t.text_faint),
+        );
+    }
 }
 
 /// What a click in the box asks for (done after drawing).
 enum AskAction {
-    Open,
     Close,
     Ask,
     Step(usize),
     Lesson(String),
     /// Open (true) or close the lesson list.
     Lessons(bool),
+    /// Stop the assistant's answer.
+    AssistStop,
+    /// Switch "Also ask the assistant" on or off (off also stops it).
+    Assistant(bool),
+    /// Forget the last exchange: the next question starts a new topic.
+    NewTopic,
 }
 
 /// The "Ask the coach" box, above the lesson card: a question box that answers from the fork's
@@ -266,10 +498,11 @@ enum AskAction {
 /// `coach.ask.input`, `coach.ask.go`, `coach.ask.step.{n}` (1-based; a click outlines the
 /// step's control) and `coach.ask.lesson` (starts the suggested lesson).
 fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
-    let lesson_up = app.session.coach.active.is_some() || app.session.coach.finished.is_some();
-    if !(app.ui.coach_ask.open || app.ui.coach_ask.lessons || lesson_up || app.ui.workspace == "Color Grading") {
+    // closed, the box is only its buttons in the page bar / header (`bar_buttons`)
+    if !(app.ui.coach_ask.open || app.ui.coach_ask.lessons) {
         return;
     }
+    poll_assist(app, ctx);
     let t = app.tokens;
     let screen = ctx.content_rect();
     let offset = vec2(-16.0, bottom_offset(app) - above);
@@ -278,27 +511,6 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
     let area = egui::Area::new(Id::new("coach-ask")).order(Order::Foreground).anchor(Align2::RIGHT_BOTTOM, offset).show(ctx, |ui| {
         if app.ui.coach_ask.lessons {
             action = lessons_list(app, ui, frame, above);
-            return;
-        }
-        if !app.ui.coach_ask.open {
-            let pill = |text: &str| {
-                egui::Button::new(RichText::new(text).small().color(t.text))
-                    .fill(t.panel_bg)
-                    .stroke(Stroke::new(1.0, t.control_border))
-                    .corner_radius(CornerRadius::same(10))
-            };
-            ui.horizontal(|ui| {
-                let r = ui.add(pill(tl!("Lessons")));
-                app.auto.add_response("coach.lessons.open", &r, "Lessons");
-                if r.clicked() {
-                    action = Some(AskAction::Lessons(true));
-                }
-                let r = ui.add(pill(tl!("Ask the coach")));
-                app.auto.add_response("coach.ask.open", &r, "Ask the coach");
-                if r.clicked() {
-                    action = Some(AskAction::Open);
-                }
-            });
             return;
         }
         frame.show(ui, |ui| {
@@ -328,6 +540,13 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
                     action = Some(AskAction::Ask);
                 }
             });
+            // the preference `color.coach.assistant` (also in Settings ▸ Color ▸ Grading Coach)
+            let mut on = app.session.prefs.color.coach.assistant;
+            let r = ui.checkbox(&mut on, RichText::new(tl!("Also ask the assistant (slow: runs on this computer)")).small());
+            app.auto.add_response("coach.ask.assistant", &r, "Also ask the assistant");
+            if r.changed() {
+                action = Some(AskAction::Assistant(on));
+            }
             let Some(answer) = app.ui.coach_ask.answer.clone() else { return };
             ui.add_space(6.0);
             let steps = answer["steps"].as_array().cloned().unwrap_or_default();
@@ -407,6 +626,7 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
                     .color(t.text_faint),
                 );
             }
+            assistant_view(app, ui, &mut action);
         });
     });
     if app.ui.coach_ask.lessons {
@@ -415,11 +635,18 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
         app.auto.add("coach.ask", area.response.rect, "Ask the coach");
     }
     match action {
-        Some(AskAction::Open) => app.ui.coach_ask.open = true,
         Some(AskAction::Lessons(open)) => app.ui.coach_ask.lessons = open,
-        Some(AskAction::Close) => {
-            app.ui.coach_ask.open = false;
-            app.ui.coach_ask.spotlight = None;
+        Some(AskAction::Close) => close_ask(app),
+        Some(AskAction::NewTopic) => app.ui.coach_ask.last_exchange = None,
+        Some(AskAction::AssistStop) => stop_assist(app),
+        Some(AskAction::Assistant(on)) => {
+            if let Err(e) = app.session.execute("prefs.set", json!({ "key": "color.coach.assistant", "value": on })) {
+                app.ui.status = e.to_string();
+            }
+            if !on {
+                app.ui.coach_ask.last_exchange = None;
+                stop_assist(app);
+            }
         }
         Some(AskAction::Ask) => ask(app),
         Some(AskAction::Step(i)) => {
@@ -501,6 +728,7 @@ fn lessons_list(app: &mut FilmcraftApp, ui: &mut egui::Ui, frame: Frame, above: 
 /// anchor: why, what, a link to its lesson, Got it and Turn hints off. Returns its rect.
 fn hint_card(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) -> Option<egui::Rect> {
     let hint = app.session.coach.hint.clone()?;
+    poll_assist(app, ctx);
     let t = app.tokens;
     let screen = ctx.content_rect();
     let offset = vec2(-16.0, bottom_offset(app) - above);

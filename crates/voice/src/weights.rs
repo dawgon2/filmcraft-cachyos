@@ -98,25 +98,41 @@ fn read_tensors(path: &Path) -> Result<Vec<(String, Tensor)>, ModelError> {
     let infos = candle_core::pickle::read_pth_tensor_info(path, false, None).map_err(err)?;
     let file = std::fs::File::open(path).map_err(err)?;
     let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(err)?;
-    let mut out = Vec::with_capacity(infos.len());
+    // Only the manifest's tensors are read, each name once, each storage file decompressed once
+    // and all of them together capped: a hostile file with thousands of entries over one
+    // deflate-bomb storage would otherwise keep a full copy per entry (A2 review, 2026-10-15).
+    let wanted: HashMap<String, usize> = manifest().into_iter().map(|(n, d)| (n, d.iter().product())).collect();
+    let mut storages: HashMap<String, Arc<Vec<f32>>> = HashMap::new();
+    let mut storage_bytes = 0u64;
+    let mut out: Vec<(String, Tensor)> = Vec::with_capacity(wanted.len());
     for info in infos {
-        if info.dtype != DType::F32 {
-            // `num_batches_tracked` (i64) isn't used.
+        // `num_batches_tracked` (i64) isn't used.
+        if info.dtype != DType::F32 || out.iter().any(|(n, _)| *n == info.name) {
             continue;
         }
-        let entry = zip.by_name(&info.path).map_err(|e| err(format!("`{}`: {e}", info.name)))?;
-        if entry.size() > MAX_FILE_BYTES {
-            return Err(err(format!("`{}`: storage too large", info.name)));
-        }
-        let mut bytes = Vec::new();
-        entry.take(MAX_FILE_BYTES).read_to_end(&mut bytes).map_err(err)?;
-        let storage: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+        let Some(&expected) = wanted.get(&info.name) else { continue };
+        let storage = match storages.get(&info.path) {
+            Some(s) => s.clone(),
+            None => {
+                let entry = zip.by_name(&info.path).map_err(|e| err(format!("`{}`: {e}", info.name)))?;
+                let left = MAX_FILE_BYTES.saturating_sub(storage_bytes);
+                if entry.size() > left {
+                    return Err(err(format!("`{}`: storage too large", info.name)));
+                }
+                let mut bytes = Vec::new();
+                entry.take(left).read_to_end(&mut bytes).map_err(err)?;
+                storage_bytes = storage_bytes.saturating_add(bytes.len() as u64);
+                let s: Arc<Vec<f32>> = Arc::new(bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect());
+                storages.insert(info.path.clone(), s.clone());
+                s
+            }
+        };
         let (dims, strides) = (info.layout.dims().to_vec(), info.layout.stride().to_vec());
         let count = dims
             .iter()
             .try_fold(1usize, |a, d| a.checked_mul(*d))
-            .filter(|c| *c <= storage.len())
-            .ok_or_else(|| err(format!("`{}`: shape {dims:?} exceeds its storage", info.name)))?;
+            .filter(|c| *c <= storage.len() && *c == expected)
+            .ok_or_else(|| err(format!("`{}`: shape {dims:?} doesn't fit DeepFilterNet3 or its storage", info.name)))?;
         // candle's pickle reader reports the storage offset in bytes (it skips that many bytes
         // itself); GRU weights are views into one shared storage, so it matters here.
         let start =
@@ -278,6 +294,65 @@ mod tests {
             std::fs::write(&p, bytes).unwrap();
             assert!(Weights::load(&p).is_err(), "{name}");
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A PyTorch zip checkpoint (pickle protocol 2) whose entries all view storage `0`.
+    fn torch_zip(path: &Path, entries: &[(String, usize)], storage_floats: usize) {
+        use std::io::Write;
+        let mut pk: Vec<u8> = b"\x80\x02}(".to_vec();
+        let uni = |pk: &mut Vec<u8>, t: &str| {
+            pk.push(b'X');
+            pk.extend((t.len() as u32).to_le_bytes());
+            pk.extend(t.as_bytes());
+        };
+        let int = |pk: &mut Vec<u8>, v: usize| {
+            pk.push(b'J');
+            pk.extend((v as i32).to_le_bytes());
+        };
+        for (name, len) in entries {
+            uni(&mut pk, name);
+            pk.extend(b"ctorch._utils\n_rebuild_tensor_v2\n((");
+            uni(&mut pk, "storage");
+            pk.extend(b"ctorch\nFloatStorage\n");
+            uni(&mut pk, "0");
+            uni(&mut pk, "cpu");
+            int(&mut pk, storage_floats);
+            pk.extend(b"tQ");
+            int(&mut pk, 0);
+            pk.push(b'(');
+            int(&mut pk, *len);
+            pk.extend(b"t(");
+            int(&mut pk, 1);
+            pk.extend(b"t\x89ccollections\nOrderedDict\n)RtR");
+        }
+        pk.extend(b"u.");
+        let mut z = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        z.start_file("archive/data.pkl", stored).unwrap();
+        z.write_all(&pk).unwrap();
+        let deflated = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        z.start_file("archive/data/0", deflated).unwrap();
+        z.write_all(&vec![0u8; storage_floats * 4]).unwrap();
+        z.finish().unwrap();
+    }
+
+    /// A2 review finding 1: thousands of entries over one small-on-disk 4 MB storage used to keep a
+    /// full gathered copy each (12 GB here: out of memory, an abort `catch_unwind` can't catch).
+    /// Unknown names are skipped now and each storage file is read once.
+    #[test]
+    fn many_entries_over_one_storage_are_not_copied_each() {
+        let dir = std::env::temp_dir().join(format!("fc-voice-bomb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("bomb.ckpt");
+        let floats = 1 << 20;
+        let mut entries: Vec<(String, usize)> = (0..3000).map(|i| (format!("junk.{i}"), floats)).collect();
+        // a known name with the wrong size proves the file got through the pickle reader
+        entries.push(("erb_fb".into(), floats));
+        torch_zip(&p, &entries, floats);
+        assert!(std::fs::metadata(&p).unwrap().len() < 1 << 20);
+        let e = Weights::load(&p).unwrap_err();
+        assert!(e.0.contains("erb_fb") && e.0.contains("doesn't fit"), "{e:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

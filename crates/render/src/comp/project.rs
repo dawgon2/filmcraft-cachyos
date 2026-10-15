@@ -4,7 +4,7 @@
 use filmcraft_geom::Affine;
 use filmcraft_media::FrameRequest;
 use filmcraft_project::comp::MediaInSource;
-use filmcraft_project::{ItemKind, Project, Sequence};
+use filmcraft_project::{ItemId, ItemKind, Project, Sequence};
 use filmcraft_time::Tick;
 
 use super::{CompCtx, CompSources};
@@ -35,12 +35,40 @@ impl ProjectSources<'_> {
     fn nested(&self) -> RenderOptions {
         RenderOptions { depth: self.opts.depth.saturating_add(1), captions: false, working_output: true, ..self.opts }
     }
+
+    /// A media item's or subclip's frame at `t`, decoded at the size it is drawn.
+    fn item_frame(&self, item: ItemId, t: Tick, w: usize, h: usize) -> Option<(std::sync::Arc<filmcraft_frame::VideoFrame>, f32, u32)> {
+        let pi = self.project.item(item)?;
+        let time = match &pi.kind {
+            ItemKind::Subclip { range, .. } => Tick(range.start.0.saturating_add(t.0)),
+            ItemKind::Media(_) => t,
+            _ => return None,
+        };
+        let (sw, sh) = self.project.source_size(item)?;
+        let want = (w as f32 / sw.max(1) as f32).min(h as f32 / sh.max(1) as f32).clamp(0.01, 1.0);
+        let src = self.sources.source(item)?;
+        let frame = src.video_frame(FrameRequest { time, scale: want }).ok()?;
+        Some((frame, want, sw))
+    }
+
+    /// A media item's or subclip's frame as one GPU layer (C1 owed: Item-source Media In drew a
+    /// CPU picture); None for other items and RGB frames that need colour management.
+    fn item_layer(&self, item: ItemId, t: Tick, w: usize, h: usize) -> Option<crate::plan::PlanLayer> {
+        let (frame, _, _) = self.item_frame(item, t, w, h)?;
+        crate::plan::media_frame_layer(self.project, item, frame, &self.seq.settings.color, w, h)
+    }
 }
 
 impl CompSources for ProjectSources<'_> {
     fn media_in_layers(&self, source: &MediaInSource, t: Tick, w: usize, h: usize) -> Option<Vec<crate::plan::PlanLayer>> {
-        let MediaInSource::Layer { track } = *source else { return None };
-        if self.opts.depth >= MAX_NEST_DEPTH || self.track.is_none_or(|own| (track as usize) >= own) {
+        if self.opts.depth >= MAX_NEST_DEPTH {
+            return None;
+        }
+        let track = match *source {
+            MediaInSource::Layer { track } => track,
+            MediaInSource::Item { item } => return self.item_layer(item, t, w, h).map(|l| vec![l]),
+        };
+        if self.track.is_none_or(|own| (track as usize) >= own) {
             return None;
         }
         // the sequence fitted into the comp canvas, as `fit` places the CPU picture
@@ -85,14 +113,7 @@ impl CompSources for ProjectSources<'_> {
                         super::render_cpu(c, ctx, &inner)
                     }
                     ItemKind::Media(_) | ItemKind::Subclip { .. } => {
-                        let time = match &pi.kind {
-                            ItemKind::Subclip { range, .. } => Tick(range.start.0.saturating_add(t.0)),
-                            _ => t,
-                        };
-                        let (sw, sh) = self.project.source_size(item)?;
-                        let want = (w as f32 / sw.max(1) as f32).min(h as f32 / sh.max(1) as f32).clamp(0.01, 1.0);
-                        let src = self.sources.source(item)?;
-                        let frame = src.video_frame(FrameRequest { time, scale: want }).ok()?;
+                        let (frame, want, sw) = self.item_frame(item, t, w, h)?;
                         let n = decimation(frame.width as f32, sw as f32 * want);
                         crate::colorman::decode(self.project, item, &frame, n, &self.seq.settings.color)
                     }

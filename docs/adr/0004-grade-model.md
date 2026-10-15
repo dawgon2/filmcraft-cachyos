@@ -40,6 +40,8 @@ GradeNode { id: u64, label: String, enabled: bool, params: BTreeMap<String, Para
   `max(id) + 1`). Commands address nodes by id. Parallel / layer nodes (GRADE-PLAN §6) later add
   an `inputs: Vec<u64>` list with `#[serde(default)]` (empty = the previous node), so the serial
   list becomes a DAG without a project-format break.
+  *(Update 2026-10-15: C2 uses ADR 0007's edge list instead of a per-node `inputs` list, so keys
+  can name ports; still serde-default, serial grades unchanged. See `docs/fork/DESIGN-C2.md`.)*
 - **Parameters are the existing keyframable `Param`** (GRADE-PLAN §2.6), keyed by name, so node
   parameters animate, interpolate and serialise exactly like effect parameters, and
   `grade.setParam` can mirror `effects.setParam`. A missing key means the identity default; the

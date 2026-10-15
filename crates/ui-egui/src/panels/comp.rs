@@ -594,9 +594,19 @@ pub fn mask_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, frame:
     let col = egui::Color32::from_rgb(0x5a, 0xb4, 0xff);
     let painter = ui.painter().with_clip_rect(pic.expand(16.0));
     let paths: Vec<filmcraft_project::MaskPath> = masks.iter().map(|m| m.path_at(ct)).collect();
-    for path in &paths {
+    // Bézier handles of smooth points (a linear mask's two points have none)
+    let curved = |k: usize| masks.get(k).is_some_and(|m| m.shape != filmcraft_project::MaskShape::Linear);
+    for (k, path) in paths.iter().enumerate() {
         let pts: Vec<Pos2> = path.flatten(0.5).into_iter().map(sp).collect();
         painter.add(egui::Shape::closed_line(pts, egui::Stroke::new(1.5, col)));
+        for v in path.vertices.iter().filter(|v| curved(k) && !v.is_corner()) {
+            for tan in [v.t_in, v.t_out] {
+                let h = sp(v.p + tan);
+                painter.line_segment([sp(v.p), h], egui::Stroke::new(1.0, col.gamma_multiply(0.8)));
+                painter.circle_filled(h, 3.5, egui::Color32::WHITE);
+                painter.circle_stroke(h, 3.5, egui::Stroke::new(1.0, col));
+            }
+        }
         for v in &path.vertices {
             painter.rect_filled(Rect::from_center_size(sp(v.p), vec2(6.0, 6.0)), 0.0, col);
         }
@@ -607,6 +617,92 @@ pub fn mask_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, frame:
     let gesture_id = egui::Id::new("comp-mask-gesture");
     // one undo step per pointer press
     let mut gesture: u64 = ui.data(|d| d.get_temp(gesture_id)).unwrap_or(0);
+    let alt = ui.input(|i| i.modifiers.alt);
+    // the nearest point (handle 0) or Bézier handle (1 in, 2 out) within 8 points of `pos`
+    let nearest = |pos: Pos2| {
+        paths
+            .iter()
+            .enumerate()
+            .flat_map(|(k, path)| {
+                path.vertices.iter().enumerate().flat_map(move |(i, v)| {
+                    let handles = if curved(k) && !v.is_corner() { vec![(1u8, v.p + v.t_in), (2, v.p + v.t_out)] } else { vec![] };
+                    std::iter::once((0u8, v.p)).chain(handles).map(move |(h, q)| (k, i, h, q))
+                })
+            })
+            .map(|(k, i, h, q)| (k, i, h, sp(q).distance(pos)))
+            .filter(|x| x.3 < 8.0)
+            // a point wins a tie with its own handle (a handle drawn on top of its point)
+            .min_by(|a, b| a.3.total_cmp(&b.3).then(a.2.cmp(&b.2)))
+            .map(|(k, i, h, _)| (k, i, h))
+    };
+    // (the overlay senses drags only, so clicks still reach the monitor; an Alt-click is read here)
+    let click = ui.input(|i| i.pointer.primary_clicked().then(|| i.pointer.interact_pos()).flatten());
+    if alt
+        && resp.hovered()
+        && let Some((k, i, 0)) = click.and_then(nearest)
+        && curved(k)
+    {
+        // Alt-click a point: smooth ⇄ corner (one undo step)
+        let mut list = masks.clone();
+        if let Some(m) = list.get_mut(k) {
+            let mut path = m.path_at(ct);
+            if path.toggle_smooth(i) {
+                m.path.set_at(ct, filmcraft_project::ParamValue::Path(path));
+                gesture = gesture.wrapping_add(1);
+                ui.data_mut(|d| d.insert_temp(gesture_id, gesture));
+                run(app, "comp.setMasks", json!({"comp": comp.0, "node": node_id, "masks": list, "gesture": gesture}));
+            }
+        }
+        return;
+    }
+    // Ctrl-click (Cmd on macOS) a point: delete it; on an edge: add a point there
+    if ui.input(|i| i.modifiers.command)
+        && resp.hovered()
+        && let Some(pos) = click
+    {
+        let edit = match nearest(pos) {
+            Some((k, i, 0)) => Some((k, Err(i))),
+            _ => paths
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| curved(*k))
+                .flat_map(|(k, path)| {
+                    let n = path.vertices.len();
+                    (0..n).filter_map(move |i| {
+                        let (a, b) = (*path.vertices.get(i)?, *path.vertices.get((i + 1) % n)?);
+                        let seg = filmcraft_project::MaskPath { vertices: vec![a, b], closed: false }.flatten(0.5);
+                        let d = seg
+                            .windows(2)
+                            .filter_map(|w| match w {
+                                [a, b] => Some(seg_dist(pos, sp(*a), sp(*b))),
+                                _ => None,
+                            })
+                            .fold(f32::INFINITY, f32::min);
+                        Some((k, i, d))
+                    })
+                })
+                .filter(|x| x.2 < 8.0)
+                .min_by(|a, b| a.2.total_cmp(&b.2))
+                .map(|(k, i, _)| (k, Ok(i))),
+        };
+        if let Some((k, what)) = edit {
+            let mut list = masks.clone();
+            let done = list.get_mut(k).map(|m| match what {
+                Ok(after) => m.add_vertex(after, to_comp.apply(Vec2::new(f64::from(pos.x), f64::from(pos.y))), ct),
+                Err(i) => m.remove_vertex(i, ct),
+            });
+            match done {
+                Some(Ok(())) => {
+                    gesture = gesture.wrapping_add(1);
+                    ui.data_mut(|d| d.insert_temp(gesture_id, gesture));
+                    run(app, "comp.setMasks", json!({"comp": comp.0, "node": node_id, "masks": list, "gesture": gesture}));
+                }
+                Some(Err(e)) => app.ui.status = e.to_string(),
+                None => {}
+            }
+        }
+        return;
+    }
     if resp.drag_started() {
         gesture = gesture.wrapping_add(1);
         ui.data_mut(|d| d.insert_temp(gesture_id, gesture));
@@ -614,22 +710,16 @@ pub fn mask_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, frame:
     if resp.drag_started()
         && let Some(pos) = resp.interact_pointer_pos()
     {
-        // the nearest vertex within 8 points, else the shape the pointer is in
-        let near = paths
-            .iter()
-            .enumerate()
-            .flat_map(|(k, path)| path.vertices.iter().enumerate().map(move |(i, v)| (k, Some(i), v.p)))
-            .map(|(k, i, v)| (k, i, sp(v).distance(pos)))
-            .filter(|x| x.2 < 8.0)
-            .min_by(|a, b| a.2.total_cmp(&b.2))
-            .map(|(k, i, _)| (k, i));
+        // the nearest point or handle within 8 points, else the shape the pointer is in
+        let near = nearest(pos).map(|(k, i, h)| (k, Some((i, h))));
         let q = to_comp.apply(Vec2::new(f64::from(pos.x), f64::from(pos.y)));
         let inside = || paths.iter().position(|path| contains(&path.flatten(0.5), q)).map(|k| (k, None));
         ui.data_mut(|d| d.insert_temp(grab_id, near.or_else(inside)));
     }
-    let grab: Option<(usize, Option<usize>)> = ui.data(|d| d.get_temp(grab_id)).flatten();
+    type Grab = Option<(usize, Option<(usize, u8)>)>;
+    let grab: Grab = ui.data(|d| d.get_temp(grab_id)).flatten();
     if resp.drag_stopped() {
-        ui.data_mut(|d| d.remove::<Option<(usize, Option<usize>)>>(grab_id));
+        ui.data_mut(|d| d.remove::<Grab>(grab_id));
     }
     let d = resp.drag_delta();
     let (Some((k, vertex)), true) = (grab, resp.dragged() && d != egui::Vec2::ZERO) else { return };
@@ -638,15 +728,30 @@ pub fn mask_overlay(app: &mut FilmcraftApp, ui: &mut egui::Ui, pic: Rect, frame:
     let Some(m) = list.get_mut(k) else { return };
     let mut path = m.path_at(ct);
     match vertex {
-        Some(i) => {
+        Some((i, h)) => {
             if let Some(v) = path.vertices.get_mut(i) {
-                v.p = v.p + delta;
+                match h {
+                    0 => v.p = v.p + delta,
+                    // a handle: its tangent follows the pointer; Alt moves it alone (a cusp)
+                    _ => {
+                        let tan = if h == 2 { v.t_out } else { v.t_in };
+                        v.set_tangent(h == 2, tan + delta, alt);
+                    }
+                }
             }
         }
         None => path.vertices.iter_mut().for_each(|v| v.p = v.p + delta),
     }
     m.path.set_at(ct, filmcraft_project::ParamValue::Path(path));
     run(app, "comp.setMasks", json!({"comp": comp.0, "node": node_id, "masks": list, "gesture": gesture}));
+}
+
+/// Distance from `p` to the segment `a`–`b`.
+fn seg_dist(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let l2 = ab.length_sq();
+    let t = if l2 > 0.0 { ((p - a).dot(ab) / l2).clamp(0.0, 1.0) } else { 0.0 };
+    (p - (a + ab * t)).length()
 }
 
 /// Whether `p` is inside the closed polygon `pts` (nonzero winding).

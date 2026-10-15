@@ -71,6 +71,10 @@ fixture_tests!(
     p422_10_weightp_fade,
     p422_direct_temporal_crop,
     p422_10_qp1,
+    mbaff_cabac_bpyramid,
+    mbaff_cavlc_bff_weightp,
+    mbaff_high10,
+    mbaff_422_10,
 );
 
 /// Draft mode (reduced-resolution playback) skips deblocking of non-reference pictures only:

@@ -66,6 +66,73 @@ fn effect(px: vec2<f32>) -> vec4<f32> {
 - Not allowed (the app owns them): your own bindings, entry points, storage or workgroup memory,
   and names starting with `fx_`. A file can be at most 256 KB.
 
+## Recipes: three effects to copy
+
+> id: shader-effects.recipes | does: three short example effects to copy and change: a soft vignette, a two-colour duotone and a pulse | cmd: effects.reloadUser | resolve: a small DCTL | premiere: — | when: you want a starting point for your own shader effect | see: shader-effects.write, shader-effects.trouble
+
+**[Fork]**
+
+Why start from a recipe: a working file is easier to change than an empty one, and each of these
+shows one idea (distance from the middle, a colour from brightness, change over time). To use one:
+
+1. Click **Open Effects Folder** at the bottom of **Video Effects ▸ User**.
+2. Make a new text file there, for example `Soft Vignette.wgsl`, and paste the recipe into it.
+3. Click **Reload** (command `effects.reloadUser`). The effect appears under **Video Effects ▸ User
+   ▸ My looks**; drag it onto a clip.
+4. Change a number or a line, save, and click **Reload** again to see the result.
+
+**Soft vignette**: darkens the edges. **Size** is where the darkening starts (0 is the middle,
+1 the corners), **Softness** how gradually it fades in.
+
+```wgsl
+// @effect "Soft Vignette"
+// @category "My looks"
+// @param amount: float = 0.6 [0.0, 1.0] "Amount"
+// @param radius: float = 0.5 [0.0, 1.0] "Size"
+// @param softness: float = 0.4 [0.01, 1.0] "Softness"
+fn effect(px: vec2<f32>) -> vec4<f32> {
+    let c = sample(px);
+    // 0 in the middle of the picture, 1 in its corners
+    let d = distance(px, size * 0.5) / (length(size) * 0.5);
+    let edge = smoothstep(P.radius, P.radius + P.softness, d);
+    return vec4(c.rgb * (1.0 - P.amount * edge), c.a);
+}
+```
+
+**Duotone**: replaces the colours with a blend of two, chosen by how bright each pixel is: dark
+parts take **Shadows**, bright parts **Highlights**.
+
+```wgsl
+// @effect "Duotone"
+// @category "My looks"
+// @param shadows: color = #1b2a6b "Shadows"
+// @param highlights: color = #ffd27a "Highlights"
+// @param strength: float = 1.0 [0.0, 1.0] "Amount"
+fn effect(px: vec2<f32>) -> vec4<f32> {
+    let c = sample(px);
+    // brightness with the usual Rec. 709 weights
+    let y = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+    let tone = mix(P.shadows, P.highlights, y);
+    return vec4(mix(c.rgb, tone, P.strength), c.a);
+}
+```
+
+**Pulse**: brightens and dims the picture in a steady beat. It uses `time`, so it moves on its own
+during playback without keyframes.
+
+```wgsl
+// @effect "Pulse"
+// @category "My looks"
+// @param speed: float = 1.0 [0.1, 10.0] "Pulses per second"
+// @param depth: float = 0.3 [0.0, 1.0] "Depth"
+fn effect(px: vec2<f32>) -> vec4<f32> {
+    let c = sample(px);
+    // 0 → 1 → 0 once per pulse
+    let wave = 0.5 - 0.5 * cos(time * P.speed * 6.2831853);
+    return vec4(c.rgb * (1.0 + P.depth * wave), c.a);
+}
+```
+
 ## When an effect doesn't work
 
 > id: shader-effects.trouble | does: explains broken files, slow effects turned off, quarantine and missing effects | cmd: effects.listUser, effects.reloadUser, effects.unquarantine | resolve: — | premiere: — | when: an effect shows a warning sign, is missing, or stopped working | see: shader-effects.write

@@ -56,6 +56,15 @@ impl MaskVertex {
     pub fn is_corner(&self) -> bool {
         is_zero(&self.t_in) && is_zero(&self.t_out)
     }
+    /// Set the in (`out` false) or out tangent to `tan`; unless `broken`, the other tangent
+    /// mirrors it (a smooth vertex stays smooth).
+    pub fn set_tangent(&mut self, out: bool, tan: Vec2, broken: bool) {
+        let (this, other) = if out { (&mut self.t_out, &mut self.t_in) } else { (&mut self.t_in, &mut self.t_out) };
+        *this = tan;
+        if !broken {
+            *other = tan * -1.0;
+        }
+    }
 }
 
 /// A closed cubic Bézier path (an open path is drawn but still filled as if closed).
@@ -82,6 +91,21 @@ impl MaskPath {
             MaskVertex::smooth(center + Vec2::new(-rx, 0.0), Vec2::new(0.0, -ry * k)),
         ];
         Self { vertices: v, closed: true }
+    }
+    /// Vertex `i` turned from a corner into a smooth vertex (tangent along its neighbours'
+    /// direction, a sixth of the way between them) or from smooth into a corner. False (path
+    /// unchanged) when there is no vertex `i`.
+    pub fn toggle_smooth(&mut self, i: usize) -> bool {
+        let n = self.vertices.len();
+        if i >= n {
+            return false;
+        }
+        let (Some(prev), Some(next)) = (self.vertices.get((i + n - 1) % n).map(|v| v.p), self.vertices.get((i + 1) % n).map(|v| v.p)) else {
+            return false;
+        };
+        let Some(v) = self.vertices.get_mut(i) else { return false };
+        *v = if v.is_corner() { MaskVertex::smooth(v.p, (next - prev) * (1.0 / 6.0)) } else { MaskVertex::corner(v.p) };
+        true
     }
     /// A polygon through `points` (corner vertices).
     pub fn polygon(points: &[Vec2]) -> Self {
@@ -489,6 +513,58 @@ impl Mask {
             _ => MaskPath::default(),
         }
     }
+    /// Add a corner vertex at `at` after vertex `after` of the path at `t` (clamped to the end).
+    /// An animated path gets the vertex in every keyframe (halfway along that keyframe's edge),
+    /// so the keyframes stay interpolable; the one at `t` is then placed at `at`. A linear mask
+    /// is refused: it has just its start and end points.
+    pub fn add_vertex(&mut self, after: usize, at: Vec2, t: filmcraft_time::Tick) -> Result<(), &'static str> {
+        if self.shape == MaskShape::Linear {
+            return Err("a linear mask has just its start and end points");
+        }
+        let n = self.path_at(t).vertices.len();
+        // clamp against the length before any insertion, so the index stays valid in the grown path
+        let i = after.saturating_add(1).min(n);
+        let keyed = self.path.keyframes.len() > 1;
+        if keyed {
+            if n == 0 {
+                return Err("the animated mask path has no vertices to insert after");
+            }
+            for k in &mut self.path.keyframes {
+                if let ParamValue::Path(path) = &mut k.value {
+                    let len = path.vertices.len();
+                    let at_i = i.min(len);
+                    let (Some(a), Some(b)) = (path.vertices.get(after.min(len.saturating_sub(1))), path.vertices.get(at_i % len.max(1))) else { continue };
+                    let mid = a.p.lerp(b.p, 0.5);
+                    path.vertices.insert(at_i, MaskVertex::corner(mid));
+                }
+            }
+        }
+        let mut path = self.path_at(t);
+        if keyed {
+            if let Some(v) = path.vertices.get_mut(i) {
+                *v = MaskVertex::corner(at);
+            }
+        } else {
+            path.vertices.insert(i.min(path.vertices.len()), MaskVertex::corner(at));
+        }
+        self.path.set_at(t, ParamValue::Path(path));
+        Ok(())
+    }
+    /// Remove vertex `vi` from the path and every keyframe; a mask keeps at least 3 vertices.
+    pub fn remove_vertex(&mut self, vi: usize, t: filmcraft_time::Tick) -> Result<(), &'static str> {
+        if self.path_at(t).len() <= 3 {
+            return Err("a mask keeps at least 3 vertices");
+        }
+        let values = std::iter::once(&mut self.path.value).chain(self.path.keyframes.iter_mut().map(|k| &mut k.value));
+        for v in values {
+            if let ParamValue::Path(path) = v
+                && vi < path.vertices.len()
+            {
+                path.vertices.remove(vi);
+            }
+        }
+        Ok(())
+    }
     pub fn is_animated(&self) -> bool {
         MASK_PARAMS.iter().any(|p| self.param(p).is_some_and(Param::is_animated))
     }
@@ -522,6 +598,21 @@ pub fn mask_param_defs() -> &'static [ParamDef] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tangents_mirror_unless_broken_and_vertices_toggle_smooth() {
+        let mut v = MaskVertex::smooth(Vec2::new(10.0, 10.0), Vec2::new(3.0, 0.0));
+        v.set_tangent(true, Vec2::new(0.0, 4.0), false);
+        assert_eq!((v.t_out, v.t_in), (Vec2::new(0.0, 4.0), Vec2::new(0.0, -4.0)));
+        v.set_tangent(false, Vec2::new(-1.0, 0.0), true);
+        assert_eq!((v.t_out, v.t_in), (Vec2::new(0.0, 4.0), Vec2::new(-1.0, 0.0)));
+        let mut r = MaskPath::rect(0.0, 0.0, 60.0, 30.0);
+        assert!(r.toggle_smooth(1));
+        assert_eq!(r.vertices[1].t_out, Vec2::new(10.0, 5.0));
+        assert_eq!(r.vertices[1].t_in, Vec2::new(-10.0, -5.0));
+        assert!(r.toggle_smooth(1) && r.vertices[1].is_corner());
+        assert!(!r.toggle_smooth(4) && !MaskPath::default().toggle_smooth(0));
+    }
+
     use super::*;
     use filmcraft_time::Tick;
 

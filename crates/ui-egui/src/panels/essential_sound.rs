@@ -88,8 +88,8 @@ fn takes_list(ui: &mut egui::Ui, cx: &mut Ctx, clip: u64) {
                 let f0 = (x as f32 - wave.min.x) / wave.width();
                 let f1 = (x as f32 + 1.0 - wave.min.x) / wave.width();
                 let s0 = (d * f0 as f64 / spp) as usize;
-                let s1 = ((d * f1 as f64 / spp) as usize).max(s0 + 1);
-                let (lo, hi) = peaks.iter().skip(s0).take(s1 - s0).fold((0f32, 0f32), |(l, h), (a, b)| (l.min(*a), h.max(*b)));
+                let s1 = ((d * f1 as f64 / spp) as usize).max(s0.saturating_add(1));
+                let (lo, hi) = peaks.iter().skip(s0).take(s1.saturating_sub(s0)).fold((0f32, 0f32), |(l, h), (a, b)| (l.min(*a), h.max(*b)));
                 if hi - lo > 0.002 {
                     mesh.add_colored_rect(
                         Rect::from_min_max(pos2(x as f32, mid - hi.min(1.0) * half), pos2(x as f32 + 1.0, mid - lo.max(-1.0) * half + 1.0)),

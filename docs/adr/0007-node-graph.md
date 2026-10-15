@@ -46,6 +46,8 @@ hostile input: project files can hold cycles, huge counts, dangling ports and ab
 5. **C2 adds node kinds, not machinery.** `Grade` gains per-node inputs (ADR 0004's plan);
    `GradeNode` implements `DagNode`, a serial grade is the chain *k − 1 → k*, and the scheduler and
    the generic canvas widget (`widgets/node_canvas.rs`, no project types) take any `DagNode` graph.
+   (Update 2026-10-15: C2 stores ADR 0007 `Edge`s on `Grade` rather than per-node inputs, plus a
+   node `kind`; plan in `docs/fork/DESIGN-C2.md`.)
 6. **Hostile files load, never crash.** `Comp` fields are `#[serde(default)]`; `Comp::sanitize`
    clamps sizes (≤ 16384 per side, ≤ 256 Mpx), truncates counts, zeroes non-finite positions and
    leaves a cycle in place for `validate` to report. A comp that fails validation renders

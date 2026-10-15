@@ -1,4 +1,4 @@
-//! Our own transformer forward pass for the catalogue's two families (AI-PLAN AI1.1d), on the
+//! Our own transformer forward pass for the catalogue's families (AI-PLAN AI1.1d), on the
 //! kernels in [`crate::quant`] / [`crate::kquant`] through [`Weight`].
 //!
 //! The model structure follows candle 0.9.2's `quantized_qwen2.rs` / `quantized_llama.rs`
@@ -37,6 +37,9 @@ pub struct Config {
     pub rope: Rope,
     /// Positions the rope table and KV cache allow.
     pub max_pos: usize,
+    /// Every `no_rope_step`-th layer (layers `step − 1`, `2·step − 1`, …) has no rotary embedding
+    /// (SmolLM3's NoPE layers, as llama.cpp's `n_no_rope_layer_step`); 0: every layer rotates.
+    pub no_rope_step: usize,
 }
 
 /// Caps that keep a hostile header from sizing huge tables (the catalogue's largest model, Qwen2.5
@@ -68,7 +71,7 @@ impl Config {
         }
         let rope = match arch {
             "qwen2" => Rope::Halves,
-            "llama" => {
+            "llama" | "smollm3" => {
                 if int("rope.dimension_count")? != head_dim {
                     return Err(err("rope.dimension_count differs from the head dimension"));
                 }
@@ -76,6 +79,9 @@ impl Config {
             }
             a => return Err(err(format!("unsupported architecture {a}"))),
         };
+        // SmolLM3 leaves out the rotary embedding on every 4th layer; its GGUFs carry no key for
+        // it (llama.cpp fixes the step at 4 for the architecture)
+        let no_rope_step = if arch == "smollm3" { 4 } else { 0 };
         let float = |k: &str| s.float(&format!("{arch}.{k}"));
         let eps = float("attention.layer_norm_rms_epsilon").ok_or_else(|| err("RMS epsilon missing"))? as f32;
         let rope_base = float("rope.freq_base").map_or(10_000.0, |v| v as f32);
@@ -86,7 +92,7 @@ impl Config {
             Some([e, v]) if usize::try_from(*e).ok() == Some(embd) => usize::try_from(*v).map_err(|_| err("vocabulary too large"))?,
             other => return Err(err(format!("token_embd.weight is {other:?}"))),
         };
-        Ok(Config { embd, n_head, n_kv_head, head_dim, n_layer, vocab, eps, rope_base, rope, max_pos: max_pos.clamp(1, MAX_POS) })
+        Ok(Config { embd, n_head, n_kv_head, head_dim, n_layer, vocab, eps, rope_base, rope, max_pos: max_pos.clamp(1, MAX_POS), no_rope_step })
     }
 }
 
@@ -101,6 +107,8 @@ struct Layer {
     gate: Weight,
     up: Weight,
     down: Weight,
+    /// Whether this layer applies the rotary embedding ([`Config::no_rope_step`]).
+    rope: bool,
     /// `pos × n_kv_head × head_dim`, appended per token.
     k_cache: Vec<f32>,
     v_cache: Vec<f32>,
@@ -181,6 +189,7 @@ impl Forward {
                 gate,
                 up,
                 down,
+                rope: cfg.no_rope_step == 0 || !(i + 1).is_multiple_of(cfg.no_rope_step),
                 k_cache: Vec::new(),
                 v_cache: Vec::new(),
             });
@@ -291,8 +300,10 @@ impl Forward {
                 let at = (pos + i).checked_mul(half).ok_or_else(|| err("position"))?;
                 let cos = self.cos.get(at..at + half).ok_or_else(|| err("position past the rope table"))?;
                 let sin = self.sin.get(at..at + half).ok_or_else(|| err("position past the rope table"))?;
-                for head in qi.chunks_exact_mut(c.head_dim).chain(ki.chunks_exact_mut(c.head_dim)) {
-                    rotate(head, cos, sin, c.rope);
+                if l.rope {
+                    for head in qi.chunks_exact_mut(c.head_dim).chain(ki.chunks_exact_mut(c.head_dim)) {
+                        rotate(head, cos, sin, c.rope);
+                    }
                 }
             }
             l.k_cache.extend_from_slice(&k);
@@ -541,6 +552,32 @@ mod tests {
                 assert_close(&got, &want[i], &format!("{arch} step {i}"));
             }
         }
+    }
+
+    /// SmolLM3 (AI3.3): Llama weights with no rotary embedding on every 4th layer. With fewer
+    /// layers than the step it is exactly Llama (which matches candle above); a NoPE layer changes
+    /// nothing at position 0 (the rotation is the identity there) and everything after it.
+    #[test]
+    fn smollm3_skips_the_rotary_embedding_on_its_nope_layers() {
+        let llama = tiny("llama");
+        let smol = tiny("smollm3");
+        let mut c = Cursor::new(&smol);
+        let s = crate::gguf::check(&mut c, smol.len() as u64).unwrap();
+        let cfg = Config::from_gguf(&s, "smollm3", 256).unwrap();
+        assert_eq!((cfg.rope, cfg.no_rope_step), (Rope::Interleaved, 4));
+        let toks = [5u32, 17, 3, 88];
+        let (mut a, mut b) = (ours(&llama, "llama"), ours(&smol, "smollm3"));
+        assert!(b.layers.iter().all(|l| l.rope), "2 layers < step 4: every layer rotates");
+        assert_eq!(a.forward(&toks, 0).unwrap(), b.forward(&toks, 0).unwrap());
+        // every 2nd layer without rope: layer 1 (the 2nd) skips it
+        let mut cfg2 = cfg.clone();
+        cfg2.no_rope_step = 2;
+        let mut c = Cursor::new(&smol);
+        let mut nope = Forward::load(&mut c, &s, cfg2).unwrap();
+        assert_eq!(nope.layers.iter().map(|l| l.rope).collect::<Vec<_>>(), [true, false]);
+        let mut plain = ours(&smol, "smollm3");
+        assert_eq!(nope.forward(&toks[..1], 0).unwrap(), plain.forward(&toks[..1], 0).unwrap(), "position 0: rope is the identity");
+        assert_ne!(nope.forward(&toks[1..], 1).unwrap(), plain.forward(&toks[1..], 1).unwrap(), "later positions differ");
     }
 
     #[test]

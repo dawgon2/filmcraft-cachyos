@@ -48,6 +48,9 @@ pub struct Badge {
     pub chroma_422: bool,
     /// ...because hardware 4:2:2 decoding failed earlier this session (fork 6.1b).
     pub chroma_422_failed: bool,
+    /// H.264 High 10 (4:2:0, more than 8 bits) without a proxy: no video engine has the profile,
+    /// FilmCraft's own decoder takes it: "H.264 10-bit: software decode" (fork H3.2).
+    pub h264_high_bit_depth: bool,
 }
 
 /// A clip's automatic proxy job, for its badge.
@@ -61,8 +64,16 @@ pub enum ProxyJobBadge {
 }
 
 pub fn media_badge(app: &FilmcraftApp, it: &filmcraft_project::ProjectItem) -> Badge {
-    let mut b =
-        Badge { offline: false, offline_text: "", proxy: false, proxy_on: false, proxy_job: ProxyJobBadge::None, chroma_422: false, chroma_422_failed: false };
+    let mut b = Badge {
+        offline: false,
+        offline_text: "",
+        proxy: false,
+        proxy_on: false,
+        proxy_job: ProxyJobBadge::None,
+        chroma_422: false,
+        chroma_422_failed: false,
+        h264_high_bit_depth: false,
+    };
     let target = match &it.kind {
         ItemKind::Subclip { parent, .. } => app.session.project.item(*parent),
         _ => Some(it),
@@ -86,7 +97,8 @@ pub fn media_badge(app: &FilmcraftApp, it: &filmcraft_project::ProjectItem) -> B
         Some(filmcraft_engine::proxy_jobs::ProxyState::Failed { error }) => ProxyJobBadge::Failed(error),
     };
     b.chroma_422 = !b.proxy && filmcraft_engine::proxy_jobs::software_422(&m.info);
-    b.chroma_422_failed = b.chroma_422 && filmcraft_engine::proxy_jobs::hardware_422_failed();
+    b.chroma_422_failed = b.chroma_422 && filmcraft_engine::proxy_jobs::hardware_422_failed(&m.info);
+    b.h264_high_bit_depth = !b.proxy && filmcraft_engine::proxy_jobs::software_h264_high_bit_depth(&m.info);
     b
 }
 
@@ -125,6 +137,9 @@ fn pills(b: &Badge, t: &Tokens) -> Vec<Pill> {
             tl!("4:2:2: software decode, proxies recommended")
         };
         out.push(Pill { id: "c422", text: "4:2:2".into(), fill: BADGE_422, label: label.to_string() });
+    }
+    if b.h264_high_bit_depth {
+        out.push(Pill { id: "sw10", text: "10".into(), fill: BADGE_422, label: tl!("H.264 10-bit: software decode").to_string() });
     }
     out
 }
