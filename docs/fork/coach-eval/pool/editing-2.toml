@@ -1,0 +1,532 @@
+# AI-POOL batch editing-2: trimming.md, edit-menu.md, file-menu.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-e2-select-nearest"
+kind = "tool"
+q = "how do I grab the edit point nearest the playhead without clicking?"
+sources = ["trimming.edit-points"]
+must = ["Select Nearest Edit Point (trim.selectNearest) on the targeted tracks"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-multi-edit"
+kind = "pro-practice"
+q = "can I trim the edits on several tracks at the same time?"
+sources = ["trimming.edit-points"]
+must = ["yes: several edit points can be selected to trim tracks together (trim.selectEditPoint)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-trim-end-gap"
+kind = "approach"
+q = "I want to cut the end of a clip to the playhead but the music on other tracks must not move"
+sources = ["trimming.to-playhead"]
+must = ["Trim Next Edit to Playhead (trim.next) leaves a gap instead of rippling", "ripple versions shift everything after the edit"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-extend-edit"
+kind = "tool"
+q = "move the cut to where the playhead is"
+sources = ["trimming.to-playhead"]
+must = ["Extend Selected Edit to Playhead (trim.extendToPlayhead)", "Extend Previous / Next Edit to Playhead without selecting first"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-play-around"
+kind = "tool"
+q = "how do I watch a few seconds either side of a cut to judge it?"
+sources = ["trimming.dynamic"]
+must = ["Play Around Edit (trim.playAround)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-cancel-dynamic"
+kind = "tweak"
+q = "I was trimming with L and went too far, can I throw that away?"
+sources = ["trimming.dynamic"]
+must = ["trim.cancelDynamic throws the dynamic trim away", "or undo"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-source-close"
+kind = "tool"
+q = "the Source monitor has a pile of clips loaded, how do I clear them?"
+sources = ["trimming.source-monitor"]
+must = ["close one (source.close) or all (source.closeAll)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-audio-follows"
+kind = "approach"
+q = "multicam interview with one good lav on camera A, the sound jumps every time I switch angle"
+sources = ["trimming.multicam"]
+must = ["turn off Audio Follows Video so one angle's sound plays throughout"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-multicam-pages"
+kind = "tool"
+q = "I have 12 camera angles, how do I see them all in the multicam view?"
+sources = ["trimming.multicam"]
+must = ["choose the grid (multicam.gridLayout) and step through pages (multicam.page, nextPage, prevPage)", "multicam.autoAdjustQuality lowers preview quality so many angles play smoothly"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-rename-angles"
+kind = "tool"
+q = "can I rename the multicam angles or turn one off?"
+sources = ["trimming.multicam"]
+must = ["Edit Cameras… (multicam.editCameras)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-history-size"
+kind = "pro-practice"
+q = "how many undos does Revolution keep?"
+sources = ["edit-menu.undo"]
+must = ["the last 200 steps", "cleared when you open or make another project"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-paste-insert"
+kind = "tool"
+q = "when I paste a clip it covers what's there, I want it to push things along"
+sources = ["edit-menu.clipboard"]
+must = ["Paste Insert (edit.pasteInsert)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-paste-attr-volume"
+kind = "multi-step"
+q = "give 30 clips the same volume and effects as this one"
+sources = ["edit-menu.clipboard"]
+must = ["copy the clip, select the others, Paste Attributes… and choose which (Volume, effects …)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-remove-attr"
+kind = "tool"
+q = "how do I strip all effects off a bunch of clips at once?"
+sources = ["edit-menu.clipboard"]
+must = ["Remove Attributes… (edit.removeAttributes) with the chosen attributes"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-select-matching"
+kind = "tool"
+q = "select every use of this clip in the timeline"
+sources = ["edit-menu.select"]
+must = ["Select All Matching (edit.selectAllMatching)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-labels"
+kind = "approach"
+q = "how can I colour-code interviews vs b-roll on the timeline?"
+sources = ["edit-menu.select"]
+must = ["Label (edit.label, e.g. edit.label.green) colours clips", "Select Label Group selects everything with that label"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-remove-unused"
+kind = "pro-practice"
+q = "before archiving, how do I get rid of clips I never used? Will it delete my files?"
+sources = ["edit-menu.cleanup"]
+must = ["Remove Unused takes unused items out of the project", "the files stay on disk"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-duplicates"
+kind = "tool"
+q = "I imported the same file three times, can I merge them?"
+sources = ["edit-menu.cleanup"]
+must = ["Consolidate Duplicates (edit.consolidateDuplicates)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-edit-original"
+kind = "tool"
+q = "open this image in my image editor from the project"
+sources = ["edit-menu.cleanup"]
+must = ["Edit Original (edit.editOriginal, Ctrl+E) opens it in the app your desktop uses"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-seq-settings"
+kind = "tool"
+q = "how do I change my timeline from 25 to 24 fps?"
+sources = ["edit-menu.sequence-settings"]
+must = ["Sequence Settings… (sequence.settings): frame size, frame rate, pixel aspect, audio sample rate"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-add-tracks"
+kind = "tool"
+q = "add five audio tracks in one go"
+sources = ["edit-menu.sequence-settings"]
+must = ["Add Tracks… (sequence.addTracks)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-snap"
+kind = "tweak"
+q = "clips keep jumping to the playhead when I drag them"
+sources = ["edit-menu.helpers"]
+must = ["that's Snap: turn it off (sequence.snap)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-linked"
+kind = "tweak"
+q = "clicking the video always selects its audio too, I only want the audio"
+sources = ["edit-menu.helpers"]
+must = ["turn off Linked Selection (sequence.linkedSelection)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-through-edits"
+kind = "pro-practice"
+q = "there are cuts in my clip where nothing changes on screen, can I remove them?"
+sources = ["edit-menu.helpers"]
+must = ["they are through edits: show them (sequence.showThroughEdits) and join them (sequence.joinThroughEdits)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-match-frame"
+kind = "tool"
+q = "find the original clip of this shot at the same frame"
+sources = ["edit-menu.helpers"]
+must = ["Match Frame (sequence.matchFrame) opens the source at the same frame in the Source monitor", "Reverse Match Frame goes the other way"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-simplify"
+kind = "tool"
+q = "how do I make a clean copy of my sequence without the disabled clips and empty tracks?"
+sources = ["edit-menu.helpers"]
+must = ["Simplify Sequence… (sequence.simplify)", "optionally close gaps, move clips down, remove effects or text"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-render-now"
+kind = "approach"
+q = "a heavy section stutters and the background cache hasn't got there yet"
+sources = ["edit-menu.rendering", "render-cache.why"]
+must = ["Render Selection or Render In to Out does it now", "the render cache otherwise works on its own"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-normalize-mix"
+kind = "tool"
+q = "set my whole mix to peak at -1 dB"
+sources = ["edit-menu.rendering"]
+must = ["Normalize Mix Track… (sequence.normalizeMixTrack), 0 dB by default"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-seq-from-clip"
+kind = "approach"
+q = "what's the quickest way to get sequence settings right for my camera footage?"
+sources = ["file-menu.projects"]
+must = ["Sequence From Clip (file.newSequenceFromClip) matches the clip's size and frame rate"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-template"
+kind = "multi-step"
+q = "I set up the same bins for every client job, can I reuse that?"
+sources = ["file-menu.projects"]
+must = ["Save as Template… keeps the bins, sequences and settings", "New Project from Template starts from it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-demo"
+kind = "tool"
+q = "is there a sample project to try things on?"
+sources = ["file-menu.projects"]
+must = ["Demo Project (file.openDemoProject)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-scratch"
+kind = "tool"
+q = "where do voice-over recordings and preview files get saved, can I change it?"
+sources = ["file-menu.project-settings"]
+must = ["File ▸ Project Settings ▸ Scratch Disks…"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-search-bin"
+kind = "tool"
+q = "I want a bin that automatically shows every clip labelled interview"
+sources = ["file-menu.bins"]
+must = ["a Search Bin (file.newSearchBin) with rules; it updates as the project changes"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-offline"
+kind = "approach"
+q = "the drone footage arrives next week, can I cut with a placeholder?"
+sources = ["file-menu.bins"]
+must = ["Offline File… with name, size, frame rate and timecode", "link the real file later"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-thumbnail"
+kind = "multi-step"
+q = "how do I make a YouTube thumbnail from a frame of my edit?"
+sources = ["file-menu.formats"]
+must = ["Export Frame (file.exportFrame) from the Program monitor: PNG, JPEG, TIFF or BMP"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-aaf"
+kind = "tool"
+q = "my sound mixer uses Pro Tools, what do I send them?"
+sources = ["file-menu.formats"]
+must = ["AAF or OMF (file.exportAaf, file.exportOmf)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-image-seq"
+kind = "tool"
+q = "import a folder of numbered PNGs as one clip"
+sources = ["file-menu.formats"]
+must = ["Import Image Sequence… (file.importImageSequence)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-autosaves"
+kind = "approach"
+q = "I messed up the project an hour ago, can I go back to an older version?"
+sources = ["file-menu.autosaves"]
+must = ["Browse Auto-Saves (file.listAutoSaves) and open a saved copy", "file.recoveryList lists recoverable sessions"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-fill-frame"
+kind = "tool"
+q = "my phone clip has black bars in the 16:9 timeline, how do I fill the frame?"
+sources = ["file-menu.clip-video"]
+must = ["Fill frame (clip.fillFrame) scales it to fill (edges cut off)", "Fit to frame shows all of it with bars"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-freeze"
+kind = "tool"
+q = "freeze frame in the middle of a clip"
+sources = ["file-menu.clip-video"]
+must = ["Insert Frame Hold Segment (clip.insertFrameHoldSegment), 2 s by default, at the playhead"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e2-interlaced"
+kind = "tool"
+q = "old interlaced DV footage shows combing, what do I do?"
+sources = ["file-menu.clip-video"]
+must = ["Field Options… (clip.fieldOptions): always deinterlace, or reverse field order"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-volume-keys"
+kind = "tool"
+q = "is there a key to bump a clip's volume up by a few dB?"
+sources = ["file-menu.clip-audio"]
+must = ["clip.nudgeVolumeUp1 / nudgeVolumeUp3 (1 or 3 dB)", "clip.volumeUp / volumeDown for steps"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e2-replace-clip"
+kind = "pro-practice"
+q = "replace a clip on the timeline with another take but keep its effects and position"
+sources = ["file-menu.clip-audio"]
+must = ["Replace With Clip ▸ From Source Monitor (clip.replaceFromSource)", "…MatchFrame lines the new media up on the matching frame"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e2-automate"
+kind = "approach"
+q = "fastest way to throw all my selects onto the timeline in order for a first assembly?"
+sources = ["file-menu.clip-audio"]
+must = ["Automate to Sequence… places the selected items one after another (optionally at markers, with transitions)"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-e2k-nearest"
+q = "select nearest edit point"
+kind = "how"
+origin = "agent"
+page = "trimming.md"
+heading = "Selecting edit points"
+status = "covered"
+facts = ["trim.selectNearest"]
+
+[[coach]]
+id = "pool-e2k-ripple-playhead"
+q = "ripple trim next edit to playhead"
+kind = "premiere-word"
+origin = "agent"
+page = "trimming.md"
+heading = "Trimming to the playhead"
+status = "covered"
+facts = ["trim.rippleNext"]
+
+[[coach]]
+id = "pool-e2k-play-around"
+q = "play around edit"
+kind = "how"
+origin = "agent"
+page = "trimming.md"
+heading = "Dynamic trimming and playing around the edit"
+status = "covered"
+facts = ["trim.playAround"]
+
+[[coach]]
+id = "pool-e2k-afv"
+q = "audio follows video"
+kind = "what-for"
+origin = "agent"
+page = "trimming.md"
+heading = "Multicam controls"
+status = "covered"
+facts = ["sound switches with the picture"]
+
+[[coach]]
+id = "pool-e2k-undo-history"
+q = "undo history"
+kind = "what-for"
+origin = "agent"
+page = "edit-menu.md"
+heading = "Undo and redo"
+status = "covered"
+facts = ["200 steps"]
+
+[[coach]]
+id = "pool-e2k-paste-insert"
+q = "paste insert"
+kind = "how"
+origin = "agent"
+page = "edit-menu.md"
+heading = "Cut, copy, paste and attributes"
+status = "covered"
+facts = ["pushes later clips along"]
+
+[[coach]]
+id = "pool-e2k-remove-unused"
+q = "remove unused clips"
+kind = "how"
+origin = "agent"
+page = "edit-menu.md"
+heading = "Cleaning up a project"
+status = "covered"
+facts = ["files stay on disk"]
+
+[[coach]]
+id = "pool-e2k-snap"
+q = "turn off snapping"
+kind = "how"
+origin = "agent"
+page = "edit-menu.md"
+heading = "Timeline helpers"
+status = "covered"
+facts = ["sequence.snap"]
+
+[[coach]]
+id = "pool-e2k-match-frame"
+q = "match frame"
+kind = "resolve-word"
+origin = "agent"
+page = "edit-menu.md"
+heading = "Timeline helpers"
+status = "covered"
+facts = ["opens the source at the same frame"]
+
+[[coach]]
+id = "pool-e2k-search-bin"
+q = "smart bins"
+kind = "resolve-word"
+origin = "agent"
+page = "file-menu.md"
+heading = "Search bins, bins from selection and offline files"
+status = "covered"
+facts = ["Search Bin"]
+
+[[coach]]
+id = "pool-e2k-export-frame"
+q = "export a still frame"
+kind = "how"
+origin = "agent"
+page = "file-menu.md"
+heading = "More import and export formats"
+status = "covered"
+facts = ["Export Frame"]
+
+[[coach]]
+id = "pool-e2k-freeze"
+q = "frame hold"
+kind = "premiere-word"
+origin = "agent"
+page = "file-menu.md"
+heading = "Clip menu: video options"
+status = "covered"
+facts = ["Insert Frame Hold Segment"]
+
+[[coach]]
+id = "pool-e2k-automate"
+q = "automate to sequence"
+kind = "premiere-word"
+origin = "agent"
+page = "file-menu.md"
+heading = "Clip menu: audio, timecode and metadata"
+status = "covered"
+facts = ["places the selected items one after another"]

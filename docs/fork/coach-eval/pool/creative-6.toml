@@ -1,0 +1,327 @@
+# AI-POOL batch creative-6 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families, using the stylised effects and practice notes the main runner added for
+# the creative set (effects.stylize, practice.editing.speed-ramp / stabilize). Ten new families: speed
+# ramp, steadying a handheld shot, dreamy glow, heat haze / underwater wobble, whip pan, motion trails,
+# stop-motion look, teal and orange, neon night city, matching two interview cameras. `must` = plan
+# sub-goals from the guide's own text. Families with a gap: speed-ramp-action (no smooth ramps:
+# stepped ramp), steady-handheld (2-D only: no rolling-shutter / parallax fix). Held-out only.
+
+# --- speed-ramp-action ---
+
+[[question]]
+id = "pool-cr6-ramp"
+kind = "creative"
+family = "speed-ramp-action"
+q = "speed up the run and then go slow motion right when he jumps"
+sources = ["practice.editing.speed-ramp", "media.clips"]
+must = ["cut at the start and end of the jump (sequence.addEdit); the middle piece slow with Speed / Duration (e.g. 30 %, Ripple on), the outer pieces faster", "Optical Flow (clip.setTimeInterpolation) for slow motion from normal-frame-rate footage", "no smooth speed ramps yet: Time Remapping keyframes don't change playback; the steps can be softened with a short dissolve"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-ramp-premiere"
+kind = "creative"
+family = "speed-ramp-action"
+q = "I'd use time remapping keyframes in premiere for a smooth ramp, do they work here"
+sources = ["practice.editing.speed-ramp", "media.clips"]
+must = ["Time Remapping keyframes are kept (copied, imported) but don't change playback or export yet", "use a stepped ramp: Add Edit and a different Speed / Duration per piece"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-cr6-ramp-sound"
+kind = "creative"
+family = "speed-ramp-action"
+q = "slow-mo moment in my skate edit but the audio goes weird during it"
+sources = ["practice.editing.speed-ramp", "essential-sound.types", "practice.audio.ambience-beds"]
+must = ["slowed pieces of sound sound wrong: put the music or a sound effect over the ramp instead", "high-frame-rate footage (50 / 60 / 120 fps) slows down cleanly; optical flow can warp fast moving wheels or arms"]
+must_not = []
+style = "sloppy"
+
+# --- steady-handheld ---
+
+[[question]]
+id = "pool-cr6-stab"
+kind = "creative"
+family = "steady-handheld"
+q = "my walking shot is really shaky, can I smooth it out"
+sources = ["practice.editing.stabilize", "effects.apply"]
+must = ["Warp Stabilizer (Video Effects ▸ Distort, effects.apply); it analyses the clip's camera motion first", "Result Smooth Motion keeps the walk but removes the shake (Smoothness); Framing Stabilize, Crop, Auto-scale hides the edges", "big auto-scale softens the picture; check Maximum Scale"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-stab-tripod"
+kind = "creative"
+family = "steady-handheld"
+q = "make a handheld shot look like it was on a tripod then add a hit shake at the bang"
+sources = ["practice.editing.stabilize", "practice.titles.shake", "effects.stylize"]
+must = ["Warp Stabilizer with Result No Motion holds the frame still (crops more)", "stabilise first, then add the shake on top: the Camera Shake effect with its amounts keyframed for the hit, or keyframed Transform Position / Rotation"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr6-stab-jelly"
+kind = "creative"
+family = "steady-handheld"
+q = "stabilised my phone clip but now it wobbles like jelly"
+sources = ["practice.editing.stabilize", "effects.apply"]
+must = ["Revolution's stabilizer is 2-D (position, scale, rotation): rolling-shutter jelly and strong parallax aren't corrected", "lower Smoothness if the frame floats"]
+must_not = []
+style = "sloppy"
+
+# --- dreamy-glow ---
+
+[[question]]
+id = "pool-cr6-glow"
+kind = "creative"
+family = "dreamy-glow"
+q = "soft dreamy glow on the highlights for a memory scene"
+sources = ["effects.stylize", "practice.node-trees.glow", "practice.looks.pastel"]
+must = ["Wonder Glow (Video Effects ▸ Lights & Glows): Threshold sets what blooms, Radius and Intensity how much", "a pastel base helps: Contrast down, blacks lifted, Saturation a little down, keep a clean white point"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-glow-halation"
+kind = "creative"
+family = "dreamy-glow"
+q = "film halation red halo around bright edges"
+sources = ["practice.node-trees.glow", "effects.stylize"]
+must = ["no halation effect yet: Wonder Glow with a red-orange Glow Color, a high Threshold and a small Radius", "or a duplicate above with a high-luma key, Gaussian Blur and a Screen blend"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr6-glow-lamps"
+kind = "creative"
+family = "dreamy-glow"
+q = "make the street lamps glow more in my night shot"
+sources = ["effects.stylize", "practice.mixed-cameras.night-street"]
+must = ["Wonder Glow with a high Threshold so only the lamps bloom", "keep city lights rich and skin natural; don't lift the noise"]
+must_not = []
+style = "sloppy"
+
+# --- heat-haze-wobble ---
+
+[[question]]
+id = "pool-cr6-haze"
+kind = "creative"
+family = "heat-haze-wobble"
+q = "heat haze shimmer over a desert road"
+sources = ["effects.stylize", "effects.opacity"]
+must = ["Turbulent Displace (Video Effects ▸ Distort) warps the picture with moving noise; keep the amount small", "to limit it to the road: a copy of the clip with the effect on a track above, masked to the road on Opacity (masks.add), feathered"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-underwater"
+kind = "creative"
+family = "heat-haze-wobble"
+q = "fake underwater look on a pool-side shot"
+sources = ["effects.stylize", "color.recipes.cool", "color.primaries.panel"]
+must = ["Turbulent Displace (Smoother mode) for the wobble", "grade it blue-green: Gain and Gamma towards cyan, less contrast, less saturation"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr6-dream-wobble"
+kind = "creative"
+family = "heat-haze-wobble"
+q = "dream sequence where the picture wobbles in and out"
+sources = ["effects.stylize", "effects.keyframes"]
+must = ["Turbulent Displace on the clips (or an Adjustment Layer)", "keyframe its amount up at the start of the dream and back to 0 after"]
+must_not = []
+style = "pro"
+
+# --- whip-pan-transition ---
+
+[[question]]
+id = "pool-cr6-whip"
+kind = "creative"
+family = "whip-pan-transition"
+q = "a whip pan transition between two places"
+sources = ["effects.stylize", "effects.transitions"]
+must = ["the Whip transition (Video Transitions ▸ Slide ▸ Whip) on the edit: a whip pan with blur; direction and blur in Effect Controls", "it needs handles on both clips; keep it short"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-whip-real"
+kind = "creative"
+family = "whip-pan-transition"
+q = "I shot real whip pans at the end and start of each shot, how do I join them seamlessly"
+sources = ["editing.cutting", "effects.transitions", "practice.editing.cut-on-action"]
+must = ["cut in the middle of the blurred whip on both shots so the motion hides the cut", "a very short dissolve (or the Whip transition) over the join if it still jumps"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr6-whip-travel"
+kind = "creative"
+family = "whip-pan-transition"
+q = "travel vlog transitions swoosh between cities with a sound"
+sources = ["effects.stylize", "effects.transitions", "essential-sound.types"]
+must = ["Whip, Push or Slide transitions on the edits", "a whoosh sound effect on an SFX track lined up with each transition"]
+must_not = []
+style = "sloppy"
+
+# --- motion-trails ---
+
+[[question]]
+id = "pool-cr6-trails"
+kind = "creative"
+family = "motion-trails"
+q = "dancer leaves ghost trails behind her when she moves"
+sources = ["effects.stylize", "effects.opacity"]
+must = ["Echo (Video Effects ▸ Obsolete ▸ Echo) mixes in earlier frames: Echo Time and number of echoes", "works best on a locked-off shot with a plain background"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-trails-music"
+kind = "creative"
+family = "motion-trails"
+q = "music video smear effect only on the chorus"
+sources = ["effects.stylize", "effects.keyframes", "timeline.markers"]
+must = ["Echo on the clips of the chorus, or keyframe its amount on at the chorus", "markers on the chorus start and end to place it"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr6-trails-blend"
+kind = "creative"
+family = "motion-trails"
+q = "light painting style trails from car headlights at night"
+sources = ["effects.stylize", "effects.opacity", "media.clips"]
+must = ["Echo with many echoes and a long Echo Time so the lights streak", "or stack copies offset by a few frames on tracks above with Screen / Lighten blend so only the lights add up"]
+must_not = []
+style = "pro"
+
+# --- stop-motion-look ---
+
+[[question]]
+id = "pool-cr6-stopmo"
+kind = "creative"
+family = "stop-motion-look"
+q = "make normal video look like choppy stop motion"
+sources = ["effects.stylize", "media.clips"]
+must = ["Posterize Time (Video Effects ▸ Time) with a low Frame Rate (e.g. 8–12)", "or by hand: cut every few frames and Frame Hold each piece (clip.frameHold)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-stopmo-photos"
+kind = "creative"
+family = "stop-motion-look"
+q = "real stop motion from 300 photos, each photo two frames"
+sources = ["media.import", "media.clips"]
+must = ["import the numbered stills as one image sequence", "Speed / Duration to 50 % (each photo shown for two frames) with frame sampling, not blending"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr6-stopmo-anime"
+kind = "creative"
+family = "stop-motion-look"
+q = "on twos animation feel for a fight scene"
+sources = ["effects.stylize", "media.clips"]
+must = ["Posterize Time at half the sequence frame rate (12 for 24 fps)", "frame sampling, not frame blending, keeps the steps crisp"]
+must_not = []
+style = "sloppy"
+
+# --- teal-orange-blockbuster ---
+
+[[question]]
+id = "pool-cr6-teal"
+kind = "creative"
+family = "teal-orange-blockbuster"
+q = "the teal and orange blockbuster look"
+sources = ["practice.grading.split-tone", "practice.grading.look-node", "practice.grading.qualify-skin"]
+must = ["on a late look node: Lift slightly towards blue-cyan, Gain slightly towards orange", "protect skin with a qualifier when the push is strong; overdone, skin goes radioactive", "balance shots first, then copy the look node to the others (grade.append)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-teal-lumetri"
+kind = "creative"
+family = "teal-orange-blockbuster"
+q = "teal orange with lumetri shadow and highlight tint"
+sources = ["color.lumetri.panel", "practice.grading.split-tone"]
+must = ["Lumetri Color Wheels: Shadows wheel towards teal, Highlights towards orange, gently", "watch faces; a qualifier (HSL Secondary) can hold skin"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-cr6-teal-scene"
+kind = "creative"
+family = "teal-orange-blockbuster"
+q = "same orange/teal grade on 80 shots but each needs its own balance"
+sources = ["practice.grading.look-node", "practice.node-trees.fixed-tree", "color.matching.copy-paste"]
+must = ["balance per shot on early nodes; the look on its own late node", "append the look node to every shot (grade.append); no shared nodes yet, so re-append after changing it"]
+must_not = []
+style = "pro"
+
+# --- neon-night-city ---
+
+[[question]]
+id = "pool-cr6-neon"
+kind = "creative"
+family = "neon-night-city"
+q = "cyberpunk neon look for my night city footage"
+sources = ["practice.looks.neon", "color.secondaries.qualifier", "effects.stylize"]
+must = ["deep blacks, shadows towards blue-cyan, lights pushed towards magenta and cyan with qualifiers", "optional Wonder Glow on the signs", "watch out-of-gamut colours on Rec. 709: saturate less, let roll-off work"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-neon-noise"
+kind = "creative"
+family = "neon-night-city"
+q = "neon grade on high-ISO night footage brings up ugly noise"
+sources = ["practice.looks.neon", "color.noise.steps", "practice.mixed-cameras.night-street"]
+must = ["spatial noise reduction on a node at the start of the chain, before the look", "keep blacks deep rather than lifting them"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr6-neon-clip"
+kind = "creative"
+family = "neon-night-city"
+q = "my neon signs clip to flat blobs of colour when I push saturation"
+sources = ["practice.looks.neon", "color.finishing.soft-clip", "practice.node-trees.gamut-compress"]
+must = ["saturate less and let highlight roll-off (soft clip) keep the signs' gradients", "pull out-of-gamut colours back in smoothly instead of clipping"]
+must_not = []
+style = "pro"
+
+# --- two-cam-interview-match ---
+
+[[question]]
+id = "pool-cr6-match"
+kind = "creative"
+family = "two-cam-interview-match"
+q = "my two interview cameras look different, the close up is warmer"
+sources = ["practice.mixed-cameras.interview", "color.recipes.match", "color.matching.compare"]
+must = ["match the close-up to the wide, skin first, not the background", "grab a still of the reference and compare with a wipe; Shot Match solves a node to match", "cut with multicam after both are graded"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr6-match-sony-fuji"
+kind = "creative"
+family = "two-cam-interview-match"
+q = "A cam Fuji F-Log2, B cam a Sony in S-Log3, one look for both"
+sources = ["practice.mixed-cameras.per-camera-input", "practice.mixed-cameras.hero", "color.color-management.input"]
+must = ["set each camera's own input colour space so both land in the working space", "grade the hero camera first and match the other to it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr6-match-multicam"
+kind = "creative"
+family = "two-cam-interview-match"
+q = "grade before or after making the multicam?"
+sources = ["practice.mixed-cameras.interview", "editing.multicam"]
+must = ["grade both cameras first and then cut with multicam, or grade the multicam angles' sources", "match the faces, not the backgrounds"]
+must_not = []
+style = "sloppy"

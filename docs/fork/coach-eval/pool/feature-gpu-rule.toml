@@ -1,0 +1,125 @@
+# FEATURE-POOL batch feature-gpu-rule (FEATURE-QUEUE row "XPS a: Settings ▸ Playback ▸ Graphics device
+# gains Power saving (integrated GPU) / Performance (discrete GPU); one rule picks the GPU for the window
+# and exports; Auto follows `__NV_PRIME_RENDER_OFFLOAD` too; VA-API decodes on Intel before NVIDIA by
+# maker, not node number").
+# Source: linux.md (linux.gpu), hardware.md (hardware.switches), export.md (export.hevc, its Two GPUs
+# paragraph). Held-out test questions, written from the guide's text (README.md beside this file).
+# The Intel-before-NVIDIA decode order is the XPS c row's (`feature-nvdec-order`); here only "by maker,
+# not node number" is asked. linux-1 already holds two linux.gpu questions (which GPU on a laptop, the
+# "not found" line): nothing here rewords them.
+# No creative family: picking a GPU is not a creative goal.
+# No recipe spot check: the Dell has one GPU (UHD 770), so the two kinds can't be told apart there and the
+# choice only takes effect at the next start of the window.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-gpu-kinds-vs-named"
+kind = "tool"
+q = "Graphics device lists Power saving, Performance and also my two GPUs by name. Which should I pick and why?"
+sources = ["linux.gpu"]
+must = ["Power saving (integrated GPU) / Performance (discrete GPU) name a kind of GPU, not one card", "the kind still means the same on another computer or after a driver upgrade reorders the GPUs"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-gpu-kind-missing"
+kind = "tool"
+q = "I set Performance (discrete GPU) and then copied my preferences to a desktop that only has the CPU's graphics. What happens?"
+sources = ["linux.gpu"]
+must = ["a computer without that kind uses the other one"]
+must_not = ["Revolution refuses to start"]
+style = "pro"
+
+[[question]]
+id = "feat-gpu-export-same"
+kind = "tool"
+q = "does the export render on the same gpu i picked for the window or on whatever"
+sources = ["linux.gpu"]
+must = ["exports render on the same GPU by the same rule", "a laptop never draws on one GPU and exports on the other by accident"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-gpu-export-split"
+kind = "task"
+q = "I picked the integrated GPU to save battery, but for one big export I want both chips working. Can I?"
+sources = ["linux.gpu", "export.hevc"]
+must = ["exports normally render on the chosen GPU", "the Export dialog's two-GPU option (Export engines) still splits an export across both"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-gpu-nv-prime"
+kind = "tool"
+q = "I start Revolution with __NV_PRIME_RENDER_OFFLOAD=1 from my launcher. Does Auto respect it?"
+sources = ["linux.gpu"]
+must = ["Auto follows __NV_PRIME_RENDER_OFFLOAD=1 (NVIDIA's version of DRI_PRIME)", "with it set, the GPU the driver puts first is used"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-gpu-render-node"
+kind = "tool"
+q = "On my laptop the Intel is renderD128 and the NVIDIA is renderD129, on my friend's it's the other way round. Does Revolution care which number?"
+sources = ["linux.gpu"]
+must = ["the render node numbers don't matter", "Revolution goes by the maker"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-gpu-restart"
+kind = "tool"
+q = "I switched Graphics device to Power saving and nothing changed. Did it not work?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["the GPU is chosen when the window opens: quit and start Revolution again"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-gpu-resolve-words"
+kind = "tool"
+q = "In Resolve I set the GPU processing mode and which GPUs to use in Memory and GPU preferences. What's the Revolution equivalent?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["Edit ▸ Preferences ▸ Playback: Graphics device", "Auto, Power saving (integrated GPU), Performance (discrete GPU) or one GPU"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-gpu-premiere-words"
+kind = "tool"
+q = "Premiere has a Renderer setting for Mercury Playback Engine GPU acceleration. Where do I tell Revolution to use the big GPU instead of the integrated one?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["Graphics device in Preferences ▸ Playback", "Performance (discrete GPU)", "takes effect at the next start"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "feat-gpu-battery-tradeoff"
+kind = "approach"
+q = "I cut on battery on the train and grade at my desk plugged in. How should I set the graphics device?"
+sources = ["linux.gpu"]
+must = ["the integrated GPU (Power saving): quieter, longer on battery, fine for cutting", "the discrete GPU (Performance): fastest playback with grades, more power and heat", "the choice applies at the next start"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-gpu-script-check"
+kind = "tool"
+q = "From a script, how do I see which GPU Revolution is actually drawing on right now versus what's stored?"
+sources = ["linux.gpu"]
+must = ["graphics.listDevices lists the GPUs, the stored choice and the one drawing now"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-gpu-c-power-saving"
+q = "what does power saving integrated gpu do"
+kind = "what-for"
+origin = "agent"
+page = "linux.md"
+heading = "Which GPU draws Revolution"
+status = "covered"
+facts = ["Power saving (integrated GPU)", "a kind of GPU rather than a named one"]

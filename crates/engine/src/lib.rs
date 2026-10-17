@@ -21,6 +21,8 @@ pub mod coach;
 pub mod coach_ask;
 pub mod coach_assist;
 pub mod coach_hints;
+pub mod coach_meaning;
+pub mod coach_share;
 pub mod color;
 pub mod commands;
 pub mod comp;
@@ -29,8 +31,12 @@ pub mod demo;
 pub mod dirs;
 pub mod essential_sound;
 pub mod export_tools;
+#[cfg(feature = "fork-inbox")] // FORK-ONLY (AI5 item 8)
+pub mod fork_inbox;
 #[cfg(feature = "fork-resolve-default")] // FORK-ONLY
 pub mod fork_resolve;
+#[cfg(feature = "fork-update")] // FORK-ONLY (UPD)
+pub mod fork_update;
 pub mod grade;
 pub mod grade_tools;
 pub mod graphic_templates;
@@ -45,10 +51,14 @@ pub mod media_watch;
 pub mod mixer;
 pub mod multicam;
 pub mod narration;
+pub mod net_cache;
+pub mod netfs;
+pub mod package;
 pub mod packs;
 pub mod panels;
 pub mod paste_media;
 pub mod perf;
+pub mod power;
 pub mod presets;
 pub mod previews;
 pub mod project_manager;
@@ -74,6 +84,8 @@ pub mod tnr;
 pub mod tracking;
 pub mod transcript;
 pub mod trim;
+pub mod update;
+pub mod update_install;
 pub mod user_effects;
 pub mod voice_cleanup;
 pub mod voice_isolation;
@@ -132,6 +144,11 @@ pub trait Services: Send + Sync {
     fn file_size(&self, path: &str) -> std::io::Result<u64> {
         self.read_file(path).map(|b| b.len() as u64)
     }
+    /// A file's size and modification time (nanoseconds since 1970), or `None` when it can't be
+    /// asked (missing, a share that doesn't answer, a host without files).
+    fn file_stamp(&self, _path: &str) -> Option<(u64, u128)> {
+        None
+    }
     /// Up to `len` bytes of a file starting at `offset` (fewer at the end of the file).
     fn read_range(&self, path: &str, offset: u64, len: usize) -> std::io::Result<Vec<u8>> {
         let b = self.read_file(path)?;
@@ -178,15 +195,41 @@ pub trait Services: Send + Sync {
 pub struct FsServices;
 impl Services for FsServices {
     fn read_file(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        // a file on a share that stopped answering times out instead of hanging (S1 item 3)
+        let p = path.to_string();
+        if let Some(r) = netfs::share_call(path, move || std::fs::read(p)) {
+            return r;
+        }
         std::fs::read(path)
     }
     fn write_file(&self, path: &str, data: &[u8]) -> std::io::Result<()> {
         // Atomic + durable: temp file in the same directory, fsync, rename, fsync the directory.
+        // On a share, with the network time limit: a server that stops answering mid-save (a
+        // frozen sshfs / NAS) hung the save, and the app with it (S1 real-share acceptance).
+        if netfs::classify(std::path::Path::new(path)).is_network() {
+            let (p, d) = (path.to_string(), data.to_vec());
+            if let Some(r) = netfs::share_call(path, move || filmcraft_format::atomic_write(std::path::Path::new(&p), &d)) {
+                return r;
+            }
+        }
         filmcraft_format::atomic_write(std::path::Path::new(path), data)
     }
     fn file_size(&self, path: &str) -> std::io::Result<u64> {
-        let m = std::fs::metadata(path)?;
+        let p = path.to_string();
+        let m = match netfs::share_call(path, move || std::fs::metadata(p)) {
+            Some(r) => r?,
+            None => std::fs::metadata(path)?,
+        };
         if m.is_file() { Ok(m.len()) } else { Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("{path} is not a file"))) }
+    }
+    fn file_stamp(&self, path: &str) -> Option<(u64, u128)> {
+        let p = path.to_string();
+        let meta = match netfs::share_call(path, move || std::fs::metadata(p)) {
+            Some(r) => r.ok()?,
+            None => std::fs::metadata(path).ok()?,
+        };
+        let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+        meta.is_file().then_some((meta.len(), mtime))
     }
     fn list_dir(&self, dir: &str) -> Option<std::io::Result<Vec<String>>> {
         let dir = if dir.is_empty() { "." } else { dir };
@@ -198,6 +241,12 @@ impl Services for FsServices {
     /// Media are read in place from the open file: a clip costs its index, not its size.
     #[cfg(any(unix, windows))]
     fn reader(&self, path: &str) -> Option<std::io::Result<filmcraft_media::SharedReader>> {
+        use filmcraft_media::deadline::{NETWORK_TIMEOUT, TimeoutReader};
+        let p = std::path::PathBuf::from(path);
+        // opened and read with a time limit on a share: a dropped share turns the clip offline (S1 item 3)
+        if let Some(opened) = netfs::share_call(path, move || filmcraft_media::reader::FileReader::open(&p)) {
+            return Some(opened.map(|r| std::sync::Arc::new(TimeoutReader::new(std::sync::Arc::new(r), NETWORK_TIMEOUT)) as filmcraft_media::SharedReader));
+        }
         Some(filmcraft_media::reader::FileReader::open(std::path::Path::new(path)).map(|r| std::sync::Arc::new(r) as filmcraft_media::SharedReader))
     }
     fn list_entries(&self, dir: &str) -> Option<std::io::Result<Vec<media_browser::DirEntry>>> {
@@ -476,6 +525,14 @@ pub struct Session {
     pub media_stamps: std::collections::HashMap<String, media_watch::Stamp>,
     /// The stamps being taken on a worker thread ([`Session::start_media_scan`]).
     pub media_scan: Option<media_watch::MediaScan>,
+    /// The local copy of a share clip being made ([`Session::start_net_copy`], STORAGE-PLAN S1 item 2).
+    pub net_copy: Option<net_cache::CopyJob>,
+    /// Share files whose copy failed this session (not tried again until FilmCraft restarts).
+    pub net_copy_failed: std::collections::BTreeSet<String>,
+    /// The copier found nothing to copy: it looks again after this.
+    pub net_copy_quiet_until: Option<web_time::Instant>,
+    /// The update check (fork UPD, `app.update.*`).
+    pub updater: update::Updater,
     /// The Grading Coach's guided lesson in progress (`coach.*`, fork GRADE-PLAN G2.12).
     pub coach: coach::Coach,
     /// The frontend's automation-id check for "Ask the coach" (`coach.ask`); None without a UI.
@@ -600,6 +657,10 @@ impl Session {
             auto_proxies: Default::default(),
             media_stamps: Default::default(),
             media_scan: None,
+            net_copy: None,
+            net_copy_failed: Default::default(),
+            net_copy_quiet_until: None,
+            updater: Default::default(),
             poster_requests: Vec::new(),
             trash_dir: None,
         }

@@ -1,0 +1,173 @@
+# AI-POOL batch practice-5: practice/audio.md. No note had a held-out question yet, so the main
+# question per note (worded away from the base pairs) plus pitfalls where the note has a sharp one.
+
+[[question]]
+id = "pool-r5-mix-order"
+kind = "approach"
+q = "starting the sound mix, do I set the music or the voices first?"
+sources = ["practice.audio.dialogue-first"]
+must = ["dialogue first: even out every dialogue clip, then bring music and effects up underneath", "type dialogue clips and Auto-Match them (essentialSound.autoMatch) or Clean Up Voice"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r5-music-level"
+kind = "multi-step"
+q = "how far down should the music sit under the narrator?"
+sources = ["practice.audio.music-under-dialogue"]
+must = ["roughly 15–20 dB under the voice while words play, up between sentences and at the end", "Ducking on the music clip (essentialSound.generateDucking) or ride the fader in Touch mode"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r5-pumping"
+kind = "pro-practice"
+q = "the auto ducking makes the music jump up in every little pause"
+sources = ["practice.audio.music-under-dialogue"]
+must = ["that's pumping: slow the fades or lower the sensitivity"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r5-rumble"
+kind = "tool"
+q = "low rumble from the air con under the interview"
+sources = ["practice.audio.high-pass"]
+must = ["a high-pass around 70–100 Hz: Reduce Rumble in Essential Sound (3–4 = 66–78 Hz) or a High Pass effect"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r5-thin-voice"
+kind = "pro-practice"
+q = "after the low cut his deep voice sounds thin"
+sources = ["practice.audio.high-pass"]
+must = ["the high-pass is set too high: 150 Hz and up thins deep voices; bring it down"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-r5-watery"
+kind = "tweak"
+q = "noise is gone but now the voice sounds watery and robotic"
+sources = ["practice.audio.noise-amount"]
+must = ["too much noise reduction: lower the amount until the artefacts go, stop at the first artefact"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r5-sibilance"
+kind = "tool"
+q = "harsh s sounds after I boosted presence"
+sources = ["practice.audio.de-ess"]
+must = ["DeEss in Essential Sound (3–6) or the DeEsser effect, after EQ and compression"]
+must_not = ["de-ess before the EQ"]
+style = "sloppy"
+
+[[question]]
+id = "pool-r5-comp-settings"
+kind = "pro-practice"
+q = "sensible compressor settings for a speaker who goes from whisper to shouting"
+sources = ["practice.audio.voice-compression"]
+must = ["around 2:1–4:1, a few dB of reduction on loud words, attack slow enough to keep consonants", "Dynamics in Essential Sound 4–6 for wild speakers, or Dynamics Processing"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r5-comp-noise"
+kind = "pro-practice"
+q = "compressing the voice brought up the room noise between words"
+sources = ["practice.audio.voice-compression"]
+must = ["heavy compression brings the room noise up between words: compress less"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-r5-master-limit"
+kind = "multi-step"
+q = "put a limiter on the whole mix before export"
+sources = ["practice.audio.master-limiter"]
+must = ["a Hard Limiter insert on the Mix strip (mixer.addInsert) at −1 dB", "set levels first; using the limiter to make things loud squashes them"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-r5-lufs-podcast"
+kind = "approach"
+q = "what loudness should a podcast be versus a YouTube upload?"
+sources = ["practice.audio.loudness-targets"]
+must = ["YouTube about −14 LUFS, podcasts about −16 LUFS (stereo), −1 dBTP peaks"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r5-louder"
+kind = "pro-practice"
+q = "should I master hotter than -14 so my video sounds louder than others?"
+sources = ["practice.audio.loudness-targets"]
+must = ["platforms turn loud mixes down, so louder than the target only costs dynamics"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r5-clicks"
+kind = "tool"
+q = "every audio cut makes a tiny click"
+sources = ["practice.audio.crossfades"]
+must = ["a short crossfade (a few frames) at every audio edit: sequence.applyAudioTransition or Apply Default Transitions to Selection"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r5-ambience-cuts"
+kind = "pro-practice"
+q = "the background sound changes at every shot change in my travel video"
+sources = ["practice.audio.ambience-beds"]
+must = ["let an ambience bed (its own track, typed Ambience) run across the cuts within a scene"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r5-one-side"
+kind = "tool"
+q = "the lav only plays in the left ear"
+sources = ["practice.audio.pan-dialogue"]
+must = ["a mono microphone recorded on one channel: fix it with Audio Channels (clip.audioChannels)", "keep dialogue centred"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r5-phone-check"
+kind = "approach"
+q = "my mix sounds great on headphones, anything else I should check before export?"
+sources = ["practice.audio.small-speakers"]
+must = ["listen on a phone or laptop speaker too: they lose bass and mask quiet voices", "headphones make reverb and stereo seem too wide"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r5-pops"
+kind = "multi-step"
+q = "a couple of p pops and one mic bump in the voiceover"
+sources = ["practice.audio.plosives"]
+must = ["Reduce Rumble or a High Pass removes most pops", "for a single bump a quick Volume keyframe dip, or cut it out under room tone"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r5-wind"
+kind = "multi-step"
+q = "outdoor interview full of wind, what's the best chain?"
+sources = ["practice.audio.wind"]
+must = ["Reduce Rumble at 4 plus Voice Isolation at 10", "gusts that distort the microphone can't be repaired"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r5-headroom"
+kind = "approach"
+q = "how hot should my tracks peak while I'm still mixing?"
+sources = ["practice.audio.headroom"]
+must = ["peaks around −6 dBFS while mixing, the limiter and loudness at the end", "lower track faders rather than limiting; a red Mix meter means the export clips"]
+must_not = []
+style = "beginner"

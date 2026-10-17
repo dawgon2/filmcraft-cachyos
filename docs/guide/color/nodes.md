@@ -4,18 +4,19 @@
 
 ## Why
 
-> id: color.nodes.why | does: why a grade is split into nodes, one job per node | resolve: serial nodes | premiere: — (one Lumetri effect, or several stacked) | when: a grade gets hard to follow | see: color.nodes.panel
+> id: color.nodes.why | does: why a grade is split into nodes, one job per node | resolve: serial nodes | premiere: — (one Lumetri effect, or several stacked) | when: a grade gets hard to follow; is the grade on the clip or the whole sequence | see: color.nodes.panel
 
 **[Resolve-style]**
 
-One big correction is hard to reason about. Splitting a grade into nodes, **one job per node**
+One big correction, all on one node, is hard to reason about. Splitting a grade into several
+nodes, **one job per node**
 (balance, exposure, contrast, a look), lets you switch any step off, see what each did, and copy
 only the steps you want to other clips. Today the chain is **serial**: node 1 feeds node 2 feeds
 node 3. The grade belongs to the clip, not to the sequence.
 
 ## The Nodes panel
 
-> id: color.nodes.panel | does: the Nodes panel: the clip's chain of nodes, the selected node, on / off | ui: grade.addNode, grade.toggleNode, grade.bypass | cmd: grade.selectNode, grade.toggleNode, grade.bypass | resolve: Node editor | premiere: — | when: finding and switching nodes | see: color.nodes.three-node
+> id: color.nodes.panel | does: the Nodes panel: the clip's chain of nodes, the selected node, on / off | ui: grade.addNode, grade.toggleNode, grade.bypass | cmd: grade.selectNode, grade.toggleNode, grade.bypass | resolve: Node editor | premiere: — | when: finding and switching nodes; the maximum number of nodes per clip | see: color.nodes.three-node
 
 **[Resolve-style]** **[Fork]**
 
@@ -28,7 +29,7 @@ dot (output). The selected node is outlined; the Primaries panel edits it.
 | **+ Serial** | {ui:grade.addNode} | `grade.addNode` | new node after the selected one |
 | **+ Before** | {ui:grade.insertNode} | `grade.insertNode` | new node before the selected one |
 | **Delete** | {ui:grade.removeNode} | `grade.removeNode` | removes the selected node |
-| **Disable / Enable** | {ui:grade.toggleNode} | `grade.toggleNode` | switches it off without losing settings (the box is struck through) |
+| **Disable / Enable** | {ui:grade.toggleNode} | `grade.toggleNode` | switches that one node off (turns it off) without losing settings (the box is struck through) |
 | **Reset** | {ui:grade.resetNode} | `grade.resetNode` | puts all of its controls back to neutral |
 | **Bypass** | {ui:grade.bypass} | `grade.bypass` | whole grade off; press again to restore |
 
@@ -104,8 +105,8 @@ a colourist would choose them.
 A short serial tree that works for most F-Log2 shots (one job per node, so you can switch one
 off to see what it did):
 
-1. **Balance** (first): Temperature / Tint and Offset, so whites are white and greys are grey.
-   It goes first because every later node then works on a neutral picture: a brightness change
+1. **Balance** (first, right after the automatic input transform): Temperature / Tint and
+   Offset, so whites are white and greys are grey. It goes first because every later node then works on a neutral picture: a brightness change
    on a colour cast pushes the cast further.
 2. **Exposure**: Gain (brights) and Gamma (mids), until face and sky sit where you want.
 3. **Contrast**: Contrast and Pivot, or a gentle S in the Curves tab.
@@ -114,7 +115,9 @@ off to see what it did):
 5. **Secondaries** (optional): a qualifier or window node for skin, sky or one object
    ([secondaries.md](secondaries.md)). It comes after the primaries so it selects colours that
    already look right; selecting from the flat log picture is harder.
-6. **Look** (last or near last): anything creative, plus film grain on the very last node.
+6. **Look** (last or near last): anything creative, plus film grain on the very last node. This
+   is one common order, not the only right one: the next sections give others and their
+   trade-offs.
 
 The input conversion before node 1 and the Rec. 709 conversion after the last node are
 automatic ([color-management.md](color-management.md)). The app does not build this tree for
@@ -167,7 +170,7 @@ balance node per shot), then share the look node across all of them.
 
 > id: color.nodes.undo | does: every node command is one undo step | cmd: grade.resetNode | resolve: undo, reset node | when: a node change went wrong | see: color.nodes.delete
 
-**[FilmCraft]**
+**[Revolution]**
 
 Every node command is one undo step. Delete a node, undo, and it comes back with its settings.
 

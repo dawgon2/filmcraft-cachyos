@@ -222,6 +222,16 @@ fn project_settings_dialog() {
     assert!(filmcraft_ui_egui::panels::menu_dialogs::software_renderer(d.app()));
 }
 
+/// STORAGE-PLAN S1 item 1: Project Settings ▸ General says where the project file lives.
+#[test]
+fn project_settings_shows_storage() {
+    let mut d = Driver::new();
+    d.app().session.path = Some("/tmp/fc-storage-test.fcproj".into());
+    d.menu("file.projectSettings.general");
+    let has = d.has("projectSettings.storage.project");
+    assert_eq!(has, cfg!(target_os = "linux"), "storage line shown where the mount table can be read");
+}
+
 #[test]
 fn clip_and_sequence_dialogs() {
     let mut d = Driver::new();

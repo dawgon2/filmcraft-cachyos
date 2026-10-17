@@ -612,10 +612,10 @@ origin = "agent"
 context = "Project panel, X-M5 clip"
 page = "glossary.md"
 heading = "Log"
-alt = [{ page = "color/color-management.md", heading = "Why" }, { page = "color/color-management.md", heading = "Tell FilmCraft what the clip is (input)" }]
+alt = [{ page = "color/color-management.md", heading = "Why" }, { page = "color/color-management.md", heading = "Tell Revolution what the clip is (input)" }]
 status = "covered"
 needs_clip = false
-facts = ["the X-M5's log curve", "looks grey and flat on purpose", "FilmCraft converts it once it knows the curve"]
+facts = ["the X-M5's log curve", "looks grey and flat on purpose", "Revolution converts it once it knows the curve"]
 note = "'F-Log2' tokenises to 'log2' (the hyphen splits; 'f' is one char and dropped); the glossary entry says 'F-Log2' once in bold."
 
 [[question]]
@@ -710,6 +710,31 @@ alt = [{ page = "color/primaries.md", heading = "The panel" }]
 status = "covered"
 needs_clip = false
 facts = ["Gain puck towards orange, Gamma less", "Lift slightly to blue if shadows go muddy", "or Temperature, quicker but blunter"]
+
+[[question]]
+id = "how-light-blue-natural"
+q = "how do I make the light in this image blue while still keeping a natural look"
+kind = "how"
+origin = "owner-verbatim"
+context = "Color page (the keyword coach once answered with the warm recipe: towards orange)"
+page = "color/recipes.md"
+heading = "2b. Cool a shot down, or make the light bluer"
+alt = [{ page = "practice/grading.md", heading = "Day for night" }]
+status = "covered"
+needs_clip = false
+facts = ["Gain puck towards blue, Gamma less", "Lift near neutral so shadows stay real", "check skin", "or Temperature, quicker but blunter"]
+
+[[question]]
+id = "how-cooler"
+q = "make it look cooler"
+kind = "how"
+origin = "agent"
+context = "Color page"
+page = "color/recipes.md"
+heading = "2b. Cool a shot down, or make the light bluer"
+status = "covered"
+needs_clip = false
+facts = ["Gain puck towards blue, Gamma less", "Lift near neutral", "or Temperature"]
 
 [[question]]
 id = "how-gradient-sky"
@@ -925,7 +950,7 @@ kind = "why"
 origin = "agent"
 context = "Edit page, Program monitor"
 page = "color/color-management.md"
-heading = "Tell FilmCraft what the clip is (input)"
+heading = "Tell Revolution what the clip is (input)"
 alt = [{ page = "glossary.md", heading = "Log" }, { page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }]
 status = "covered"
 needs_clip = false

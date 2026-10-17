@@ -1,14 +1,14 @@
 # The File and Clip menus
 
-**[FilmCraft]** · projects and sequences, project templates and settings, search bins and
+**[Revolution]** · projects and sequences, project templates and settings, search bins and
 offline files, more export formats and frames, auto-saves; and the Clip menu's video, audio and
 metadata options; modelled on Premiere Pro's menus; written for AI-PLAN AI3-PREP (feature pages)
 
 ## Projects, sequences and templates
 
-> id: file-menu.projects | does: makes, opens, closes and saves projects and sequences, and makes projects from templates | cmd: file.newProject, file.open, file.close, file.closeProject, file.closeAllProjects, file.closeAllOtherProjects, file.saveAll, file.newSequence, file.newSequenceFromClip, file.saveAsTemplate, file.newProjectFromTemplate, file.openDemoProject | resolve: Project Manager, New Timeline | premiere: File ▸ New / Open / Close, Sequence From Clip, project templates | when: starting work; a project layout you use for every job | see: projects.what, media.saving
+> id: file-menu.projects | does: makes, opens, closes and saves projects and sequences, and makes projects from templates | cmd: file.newProject, file.open, file.close, file.closeProject, file.closeAllProjects, file.closeAllOtherProjects, file.saveAll, file.newSequence, file.newSequenceFromClip, file.saveAsTemplate, file.newProjectFromTemplate, file.openDemoProject | resolve: Project Manager, New Timeline | premiere: File ▸ New / Open / Close, Sequence From Clip, project templates | when: starting work; reusing the same bins for every client job | see: projects.what, media.saving
 
-**[FilmCraft]**
+**[Revolution]**
 
 - **New ▸ Sequence…** (`file.newSequence`) makes an empty sequence; **Sequence From Clip**
   (`file.newSequenceFromClip`) makes one that matches the selected clip's size and frame rate:
@@ -23,7 +23,7 @@ metadata options; modelled on Premiere Pro's menus; written for AI-PLAN AI3-PREP
 
 > id: file-menu.project-settings | does: the project's general settings and where captures, previews and auto-saves are written | cmd: file.projectSettings.general, file.projectSettings.scratchDisks | resolve: Project Settings ▸ Master Settings, Working Folders | premiere: Project Settings ▸ General, Scratch Disks | when: a fast drive for previews; recordings saved with the project | see: render-cache.files
 
-**[FilmCraft]**
+**[Revolution]**
 
 File ▸ Project Settings ▸ **General…** (`file.projectSettings.general`) and **Scratch Disks…**
 (`file.projectSettings.scratchDisks`): where captured audio and video (voice-over recordings,
@@ -33,7 +33,7 @@ narrations), preview files and auto-saves go.
 
 > id: file-menu.bins | does: bins that fill themselves from a search, bins from the selection, and placeholder offline files | cmd: file.newSearchBin, project.editSearchBin, project.deleteSearchBin, file.newBinFromSelection, file.newOfflineFile | resolve: Smart Bins | premiere: Search Bin, Bin From Selection, Offline File | when: "every clip with this name / label / metadata", a placeholder for media that hasn't arrived | see: media.bins
 
-**[FilmCraft]**
+**[Revolution]**
 
 - A **Search Bin** (`file.newSearchBin`) shows every item matching its rules (a column, a
   condition and text; several rows, all or any), and updates as the project changes; edit or
@@ -46,7 +46,7 @@ narrations), preview files and auto-saves go.
 
 > id: file-menu.formats | does: imports image sequences and from the Media Browser; exports frames, AAF / OMF / ALE / FCP 7 XML and part of a project | cmd: file.importImageSequence, file.importFromMediaBrowser, file.exportFrame, file.exportAaf, file.exportOmf, file.exportAle, file.exportFcp7Xml, file.exportInterchange, file.exportSelectionProject | resolve: Export Timeline, Export Frame as Still | premiere: Export Frame, Export AAF / OMF / XML, Selection as Premiere Project | when: a still for a thumbnail; handing a sound mix to Pro Tools; moving part of a project | see: media.interchange
 
-**[FilmCraft]**
+**[Revolution]**
 
 - **Export Frame** (`file.exportFrame`): the Program (or Source) monitor's frame as PNG, JPEG,
   TIFF or BMP, 8- or 16-bit, optionally imported back into the project: the usual way to make a
@@ -54,15 +54,15 @@ narrations), preview files and auto-saves go.
 - **AAF** / **OMF** (`file.exportAaf`, `file.exportOmf`): the edit for a sound mix in a
   dedicated audio app; **Avid Log Exchange** (`file.exportAle`) and **Final Cut Pro XML**
   (`file.exportFcp7Xml`) for other editors; `file.exportInterchange` picks the format by name.
-- **Selection as FilmCraft Project…** (`file.exportSelectionProject`) writes the selected items as
+- **Selection as Revolution Project…** (`file.exportSelectionProject`) writes the selected items as
   a new project file.
 - **Import Image Sequence…** (`file.importImageSequence`) brings numbered stills in as one clip.
 
 ## Auto-saves and recovery files
 
-> id: file-menu.autosaves | does: shows the auto-save status, browses auto-saved copies and lists recoverable sessions | cmd: file.autoSaveStatus, file.listAutoSaves, file.recoveryList | resolve: Project Backups | premiere: Auto-Save folder | when: going back to an older state of the project | see: media.saving
+> id: file-menu.autosaves | does: shows the auto-save status, browses auto-saved copies and lists recoverable sessions | cmd: file.autoSaveStatus, file.listAutoSaves, file.recoveryList | resolve: Project Backups | premiere: Auto-Save folder | when: going back to an older version of the project after a mistake | see: media.saving
 
-**[FilmCraft]**
+**[Revolution]**
 
 `file.autoSaveStatus` tells when the last auto-save ran; **Browse Auto-Saves**
 (`file.listAutoSaves`) lists the saved copies to open one; `file.recoveryList` lists sessions
@@ -72,7 +72,7 @@ whose unsaved changes can still be recovered.
 
 > id: file-menu.clip-video | does: fit or fill the frame, frame hold options and segments, field options, poster frames | cmd: clip.fitToFrame, clip.fillFrame, clip.frameHoldOptions, clip.insertFrameHoldSegment, clip.fieldOptions, clip.setPosterFrame, clip.clearPosterFrame | resolve: Retime / Freeze Frame, Clip Attributes, Scaling | premiere: Clip ▸ Video Options (Set to Frame Size, Frame Hold, Field Options) | when: clips of another size; a freeze in the middle of a clip; interlaced footage | see: media.clips
 
-**[FilmCraft]**
+**[Revolution]**
 
 - **Fit to frame** / **Fill frame** (`clip.fitToFrame`, `clip.fillFrame`): scale a clip so all of
   it shows (black bars where the shape differs) or so it fills the frame (the edges cut off).
@@ -88,7 +88,7 @@ whose unsaved changes can still be recovered.
 
 > id: file-menu.clip-audio | does: clip volume keys, timecode, metadata, replacing from the Source monitor, automating to a sequence | cmd: clip.volumeUp, clip.nudgeVolumeUp1, clip.audioPeak, clip.modifyTimecode, clip.updateMetadata, clip.replaceFromSource, clip.automateToSequence | resolve: clip gain keys, Clip Attributes | premiere: Clip ▸ Audio Options, Modify ▸ Timecode, Automate to Sequence | when: quick level changes; a rough assembly from selects | see: media.audio-channels
 
-**[FilmCraft]**
+**[Revolution]**
 
 - Clip volume keys: up or down a step (`clip.volumeUp`, `clip.volumeDown`, `…Many` for bigger
   steps) or by 1 or 3 dB (`clip.nudgeVolumeUp1`, `clip.nudgeVolumeUp3` and the Down pair);

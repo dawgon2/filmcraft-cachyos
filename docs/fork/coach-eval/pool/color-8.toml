@@ -1,0 +1,333 @@
+# AI-POOL batch color-8: color/coach.md (lessons, hints, Ask the coach, the Assistant).
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c8-learn"
+kind = "approach"
+q = "I'm completely new to colour grading, is there anything in the app that teaches me?"
+sources = ["color.coach.why", "color.coach.start"]
+must = ["Grading Coach lessons walk through one task step by step on your own clip", "Lessons button (or Help ▸ Grading Lessons…)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-lessons-where"
+kind = "tool"
+q = "where's the lessons button in the Premiere layout?"
+sources = ["color.coach.start"]
+must = ["on the right of the header at the top, next to Ask the coach and Assistant", "or Help ▸ Grading Lessons…"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-c8-step-stuck"
+kind = "tweak"
+q = "the lesson isn't moving to the next step"
+sources = ["color.coach.card", "color.coach.start"]
+must = ["most steps finish only when you actually do them; Next appears only on reading steps", "Skip moves on without doing it", "a step that needs a particular clip waits for you to click it"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c8-undo-lesson"
+kind = "tweak"
+q = "I pressed ctrl+z during a lesson and now it's confused"
+sources = ["color.coach.card"]
+must = ["undo doesn't take a lesson back a step", "press Back and do the step again"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-outline-missing"
+kind = "tweak"
+q = "the coach says the highlighted control isn't on screen yet"
+sources = ["color.coach.outline"]
+must = ["the step needs another tab or workspace first: follow the step text to reveal it", "the outline is hidden while a window such as Settings is in front"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-progress"
+kind = "tool"
+q = "will it remember which lessons I already did?"
+sources = ["color.coach.progress"]
+must = ["finished lessons are remembered between sessions (a tick in the list)", "a lesson can be repeated any time (Again)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-which-lesson-skin"
+kind = "tool"
+q = "is there a lesson for fixing skin tones?"
+sources = ["color.coach.lessons"]
+must = ["Fix skin with a qualifier (fix-skin)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-comp-lesson"
+kind = "tool"
+q = "are there lessons for the compositor too or only grading?"
+sources = ["color.coach.lessons"]
+must = ["A moving title in a comp (first-comp)", "Key a clip over a new background in a comp (key-comp)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-hints-reset"
+kind = "tool"
+q = "I dismissed all the hints and now I want them back"
+sources = ["color.coach.hints"]
+must = ["Settings ▸ Color ▸ Grading Coach ▸ Show Grading Coach hints turns them back on", "coach.resetHints forgets the hints already shown"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-hint-strong-look"
+kind = "pro-practice"
+q = "why did I get a hint about a qualifier after a strong look?"
+sources = ["color.coach.hints"]
+must = ["it shows the first time you switch on a qualifier in a node after a node with a strong look (a LUT, heavy contrast or saturation, a bent curve, a big colour shift)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-hints-language"
+kind = "gap"
+q = "can I get the lessons in Spanish?"
+sources = ["color.coach.hints"]
+must = ["the hint and lesson texts are English only for now", "the buttons and labels follow the interface language"]
+must_not = ["claims the lessons are translated"]
+style = "gap"
+
+[[question]]
+id = "pool-c8-ask-how"
+kind = "tool"
+q = "how does Ask the coach find its answer, is it AI?"
+sources = ["color.coach.ask"]
+must = ["it looks the question up in this guide only, by its words (a search index with beginner words)", "answers with the steps of the best section; every control and command is checked", "the model-written answer is the separate assistant"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-ask-not-cover"
+kind = "pro-practice"
+q = "why does the coach say the guide doesn't cover this yet?"
+sources = ["color.coach.ask"]
+must = ["most of your words aren't in the guide", "it doesn't invent anything; try other words or the closest lesson"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-ask-removed-step"
+kind = "pro-practice"
+q = "the coach answer says a step was left out, why?"
+sources = ["color.coach.ask"]
+must = ["a step naming a control or command this app doesn't have is left out", "a control only in a window not opened yet this session counts as unknown until you open it once"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-ask-script"
+kind = "tool"
+q = "what does coach.ask return for an agent?"
+sources = ["color.coach.ask"]
+must = ["steps (text, ui, command), sources, lesson, confidence, coverage, covered", "removed counts and fallback", "without the app window uiChecked is false"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-write-lesson"
+kind = "multi-step"
+q = "I want to contribute a new lesson, where do I start?"
+sources = ["color.coach.write-lesson"]
+must = ["a TOML file in assets/lessons/, added to BUNDLED_FILES in coach.rs", "steps with text, why, target and expect (command, element or manual)", "only real command and automation ids; own words"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-write-hint"
+kind = "tool"
+q = "where do hints live if I want to add one?"
+sources = ["color.coach.write-hint"]
+must = ["assets/coach/hints.toml, one [[hint]] each", "id, title, why, text, optional lesson, and when (triggers)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-assistant-on"
+kind = "multi-step"
+q = "how do I turn on the AI answers in the Ask box?"
+sources = ["color.coach.assistant"]
+must = ["tick Also ask the assistant (runs on this computer)", "the guide's answer shows first, the assistant's below it, then checked"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-assistant-privacy"
+kind = "pro-practice"
+q = "does the assistant send my questions to a server?"
+sources = ["color.coach.assistant"]
+must = ["no: a small model on your computer; nothing leaves it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-assistant-invent"
+kind = "pro-practice"
+q = "can the assistant make up a menu that doesn't exist?"
+sources = ["color.coach.assistant"]
+must = ["by default it picks the guide's own steps and shows them word for word", "lines naming controls or commands the sections don't have are left out"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-assistant-followup"
+kind = "tool"
+q = "how do I ask a follow-up and how do I start fresh?"
+sources = ["color.coach.assistant", "color.coach.assistant-panel"]
+must = ["the assistant gets your last question and its answer", "New topic in the Ask box (New chat in the panel) starts over"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-assistant-dontknow"
+kind = "pro-practice"
+q = "why did the assistant say the guide has nothing on this and not answer?"
+sources = ["color.coach.assistant"]
+must = ["when no guide section matches at all, the assistant isn't asked: I don't know beats a guess"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-panel-dock"
+kind = "tool"
+q = "can I dock the assistant chat next to my curves?"
+sources = ["color.coach.assistant-panel"]
+must = ["drag the panel by its Assistant tab: middle of a panel makes a tab, an edge splits", "saving the workspace keeps it there"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-panel-context"
+kind = "pro-practice"
+q = "does the assistant know what's on my screen when I ask about my shot?"
+sources = ["color.coach.assistant-panel"]
+must = ["it gets the selected clips, the current node's measured effect and a measured fact sheet of the frame", "it doesn't look at the picture itself yet: numbers turned into words", "select the clip and node first"]
+must_not = ["claims it sees the image"]
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c8-panel-saved"
+kind = "tweak"
+q = "is my assistant chat saved with the project?"
+sources = ["color.coach.assistant-panel"]
+must = ["no: the chat isn't saved with the project"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c8-gpu-memory"
+kind = "pro-practice"
+q = "how much VRAM does the assistant model use?"
+sources = ["color.coach.assistant-where"]
+must = ["about 2.4 GB of the graphics card's memory while loaded", "loaded when you ask; shares the card with playback and rendering"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c8-igpu"
+kind = "pro-practice"
+q = "my laptop only has intel built-in graphics, will the assistant use it?"
+sources = ["color.coach.assistant-where"]
+must = ["no: with only built-in graphics it runs on the processor (usually faster than built-in graphics for this)", "20–40 seconds per answer"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c8k-lessons"
+q = "grading lessons"
+kind = "where"
+origin = "agent"
+page = "color/coach.md"
+heading = "Start a lesson"
+alt = [{ page = "color/coach.md", heading = "The lessons" }, { page = "color/coach.md", heading = "Why" }]
+status = "covered"
+facts = ["Lessons button", "Help ▸ Grading Lessons…"]
+
+[[coach]]
+id = "pool-c8k-skip"
+q = "skip a lesson step"
+kind = "how"
+origin = "agent"
+page = "color/coach.md"
+heading = "The card"
+status = "covered"
+facts = ["Skip"]
+
+[[coach]]
+id = "pool-c8k-hints-on"
+q = "turn coach hints back on"
+kind = "how"
+origin = "agent"
+page = "color/coach.md"
+heading = "Context hints"
+status = "covered"
+facts = ["Settings ▸ Color ▸ Grading Coach"]
+
+[[coach]]
+id = "pool-c8k-ask"
+q = "ask the coach a question"
+kind = "how"
+origin = "agent"
+page = "color/coach.md"
+heading = "Ask the coach"
+status = "covered"
+facts = ["Ask the coach button", "type, Enter"]
+
+[[coach]]
+id = "pool-c8k-assistant"
+q = "also ask the assistant"
+kind = "what-for"
+origin = "agent"
+page = "color/coach.md"
+heading = "Also ask the assistant"
+alt = [{ page = "color/coach.md", heading = "The Assistant panel" }]
+status = "covered"
+facts = ["a small model on this computer"]
+
+[[coach]]
+id = "pool-c8k-panel"
+q = "where can i chat with the ai"
+kind = "how"
+origin = "agent"
+page = "color/coach.md"
+heading = "The Assistant panel"
+status = "covered"
+facts = ["Assistant button", "New chat"]
+
+[[coach]]
+id = "pool-c8k-gpu"
+q = "assistant slow on cpu"
+kind = "why"
+origin = "agent"
+page = "color/coach.md"
+heading = "Where the Assistant runs: graphics card or processor"
+alt = [{ page = "color/coach.md", heading = "Also ask the assistant" }]
+status = "covered"
+facts = ["20–40 seconds on the processor"]
+
+[[coach]]
+id = "pool-c8k-lesson-file"
+q = "write a lesson file"
+kind = "how"
+origin = "agent"
+page = "color/coach.md"
+heading = "Write a lesson"
+status = "covered"
+facts = ["assets/lessons/", "BUNDLED_FILES"]

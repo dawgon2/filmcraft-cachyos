@@ -1,0 +1,326 @@
+# AI-POOL batch creative-22 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: a product turntable, a ripple dream transition, a hologram, 360° video
+# (partial), a fake one-take, one actor playing two people, brand colours kept consistent, a screen
+# in shot that flickers or glows, grounding a composited object with a shadow, a flickering sign.
+# `must` = plan sub-goals from the guide's own text. Family with a partial gap: three-sixty-video
+# (immersive effects exist; no guide steps for 360 reframing to a flat cut). Held-out only.
+
+# --- product-turntable ---
+
+[[question]]
+id = "pool-cr22-turntable"
+kind = "creative"
+family = "product-turntable"
+q = "product spinning on a turntable, make it loop smoothly for my shop page"
+sources = ["effects.transitions", "practice.looks.commercial", "export.presets"]
+must = ["cut exactly one full turn so the end matches the start (or dissolve the end into the start)", "clean commercial grade: precise balance, white point near the top without clipping", "a short silent export at the shop's size"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-turntable-bg"
+kind = "creative"
+family = "product-turntable"
+q = "turntable shot, the grey backdrop should be pure white"
+sources = ["practice.looks.commercial", "color.secondaries.qualifier", "color.finishing.scopes"]
+must = ["lift the backdrop to white with a qualifier on its own node (or a soft window), keeping the product's edges", "check on the waveform that the background just reaches white without the product clipping"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-turntable-speed"
+kind = "creative"
+family = "product-turntable"
+q = "slow down the turntable spin and keep it smooth"
+sources = ["media.clips", "practice.editing.speed-ramp"]
+must = ["Speed / Duration slower with Optical Flow (or shoot at a high frame rate)", "optical flow can warp the product's edges; check the loop point again after"]
+must_not = []
+style = "pro"
+
+# --- ripple-dream-transition ---
+
+[[question]]
+id = "pool-cr22-ripple"
+kind = "creative"
+family = "ripple-dream-transition"
+q = "wavy ripple transition into a dream like in old TV shows"
+sources = ["effect-reference.video-stylize", "effects.keyframes", "effects.transitions"]
+must = ["Wave Warp (Video Effects ▸ Distort) on both sides of the cut, its height keyframed up into the edit and down after", "a Cross Dissolve between the two shots during the wobble"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-ripple-adj"
+kind = "creative"
+family = "ripple-dream-transition"
+q = "ripple effect across the cut on one layer instead of each clip"
+sources = ["media.generated", "effect-reference.video-stylize", "effects.keyframes"]
+must = ["an Adjustment Layer over the edit with Wave Warp (or Turbulent Displace) keyframed", "the dissolve on the clips below"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr22-ripple-sound"
+kind = "creative"
+family = "ripple-dream-transition"
+q = "dream sequence entry with harp sound and wobble"
+sources = ["effects.stylize", "essential-sound.types", "effects.transitions"]
+must = ["Turbulent Displace (or Wave Warp) keyframed across a dissolve", "a harp gliss on an SFX track timed to the wobble"]
+must_not = []
+style = "sloppy"
+
+# --- hologram-look ---
+
+[[question]]
+id = "pool-cr22-holo"
+kind = "creative"
+family = "hologram-look"
+q = "make a person look like a blue sci-fi hologram"
+sources = ["keying.ultra-key", "effects.opacity", "shader-effects.use"]
+must = ["key the person (green screen) or mask them, tint them blue (Saturation down, Gain towards cyan)", "lower Opacity and a Screen blend so the background shows through; Glitch / scanlines (VHS shader) and Wonder Glow for the projector look", "a little flicker with keyframed Opacity"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-holo-table"
+kind = "creative"
+family = "hologram-look"
+q = "hologram projected above a table, standing on the surface"
+sources = ["effects.opacity", "effects.shape-move", "effects.lens-light"]
+must = ["the hologram layer scaled and placed on the table (3D Rotate for perspective if needed)", "Screen blend, glow and Volumetric Rays from the table for the projection beam"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr22-holo-glitch"
+kind = "creative"
+family = "hologram-look"
+q = "hologram flickers and glitches when it turns on"
+sources = ["shader-effects.use", "effects.keyframes", "effect-reference.video-image"]
+must = ["Glitch shader or RGB Split keyframed strong for the first frames, Opacity flickering up", "then steady"]
+must_not = []
+style = "sloppy"
+
+# --- three-sixty-video (partial) ---
+
+[[question]]
+id = "pool-cr22-360"
+kind = "creative"
+family = "three-sixty-video"
+q = "I shot 360 video, can I edit and export it as 360"
+sources = ["effect-reference.video-vr", "edit-menu.sequence-settings"]
+must = ["immersive effects exist (VR Rotate Sphere to re-aim the view, VR Blur, VR Sharpen, VR Glow…)", "the guide has no step-by-step for 360 sequences or reframing 360 into a flat cut; check the sequence's frame size matches the 360 footage"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-360-horizon"
+kind = "creative"
+family = "three-sixty-video"
+q = "my 360 footage horizon is tilted"
+sources = ["effect-reference.video-vr", "effects.keyframes"]
+must = ["VR Rotate Sphere's tilt / pan / roll re-levels the sphere", "keyframe it if the tilt drifts"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-360-flat"
+kind = "creative"
+family = "three-sixty-video"
+q = "turn 360 footage into a normal 16:9 video looking where the action is"
+sources = ["effect-reference.video-vr", "effects.keyframes"]
+must = ["no documented 360-to-flat reframing workflow yet", "VR Projection / VR Rotate Sphere keyframed may re-aim the view; or reframe it in the camera maker's app and import the flat file"]
+must_not = []
+style = "pro"
+
+# --- fake-one-take ---
+
+[[question]]
+id = "pool-cr22-oner"
+kind = "creative"
+family = "fake-one-take"
+q = "make several shots look like one continuous take like in 1917"
+sources = ["practice.editing.cut-on-action", "effects.opacity", "effects.keyframes"]
+must = ["hide each cut where the frame goes dark or something fills it (a wall, a person passing, a whip)", "a mask on the outgoing shot whose edge follows the passing object (keyframed or tracked), or a cut on the darkest frame", "match motion, speed and colour on both sides"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-oner-whip"
+kind = "creative"
+family = "fake-one-take"
+q = "hide cuts in whip pans for a fake oner"
+sources = ["effects.stylize", "practice.editing.cut-on-action"]
+must = ["cut in the middle of the blurred whip on both shots", "the Whip transition over the join if it still jumps"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-oner-grade"
+kind = "creative"
+family = "fake-one-take"
+q = "the colour jumps at my hidden cuts"
+sources = ["color.matching.shot-match", "color.matching.compare"]
+must = ["match the two sides with a still and a wipe, or Shot Match, right at the join", "a short dissolve can blend small remaining differences"]
+must_not = []
+style = "pro"
+
+# --- actor-plays-two ---
+
+[[question]]
+id = "pool-cr22-twins-ots"
+kind = "creative"
+family = "actor-plays-two"
+q = "I play both characters in a conversation scene, how do I edit it"
+sources = ["practice.editing.j-l-cuts", "practice.editing.cut-on-action", "practice.editing.clean-plate"]
+must = ["shot / reverse shot: film each character's side separately (a double's shoulder for over-the-shoulder), cut between them like a normal conversation, J / L cuts for flow", "for both in one frame: a locked-off split with a mask (clone technique)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-twins-audio"
+kind = "creative"
+family = "actor-plays-two"
+q = "two characters same actor, voices sound identical"
+sources = ["effect-reference.audio", "essential-sound.controls"]
+must = ["record each with a different delivery; in post a slight Pitch Shifter or EQ difference can separate them", "keep it subtle"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-twins-handoff"
+kind = "creative"
+family = "actor-plays-two"
+q = "one character hands the other a cup in the same shot"
+sources = ["practice.editing.clean-plate", "effects.opacity", "tracking.what"]
+must = ["two locked-off takes with the handoff timed; a split mask between them, its edge animated around the arms during the handoff", "a hard trick: rehearse the timing and use a stand-in"]
+must_not = []
+style = "pro"
+
+# --- brand-colour-consistency ---
+
+[[question]]
+id = "pool-cr22-brand"
+kind = "creative"
+family = "brand-colour-consistency"
+q = "keep our brand colours the same in every video, titles and grade"
+sources = ["graphics.templates", "practice.titles.colour", "packs.make"]
+must = ["titles and lower thirds as templates with the brand colours fixed (graphics.template.export)", "title colours checked after the grade and on Rec. 709", "share them (with presets and LUTs) as a look pack across projects"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-brand-product"
+kind = "creative"
+family = "brand-colour-consistency"
+q = "our logo colour on the product looks different in every shot"
+sources = ["color.secondaries.qualifier", "color.matching.check-scene"]
+must = ["a qualifier on the logo colour on its own node, adjusted to the reference", "check the scene for shots that still differ"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-brand-lut"
+kind = "creative"
+family = "brand-colour-consistency"
+q = "one house look for all our videos from different editors"
+sources = ["packs.make", "practice.looks.creative-lut", "practice.youtube.template"]
+must = ["the house look as a LUT or preset in a look pack everyone imports", "a template project with the bins, titles and look already set up"]
+must_not = []
+style = "pro"
+
+# --- screen-in-shot-fix ---
+
+[[question]]
+id = "pool-cr22-screen"
+kind = "creative"
+family = "screen-in-shot-fix"
+q = "the laptop screen in my interview glows too blue"
+sources = ["practice.mixed-cameras.screens", "color.secondaries.qualifier"]
+must = ["a qualifier on the screen's blue on its own node, saturation and brightness down", "or replace the screen content with Corner Pin's Track Surface"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-screen-flicker"
+kind = "creative"
+family = "screen-in-shot-fix"
+q = "TV in the background flickers with rolling bars on camera"
+sources = ["practice.mixed-cameras.screens", "tracking.screen"]
+must = ["screens flicker at some shutter speeds: reshoot, or replace the TV picture with Corner Pin + Track Surface", "no deflicker effect to fix it in place"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-screen-black"
+kind = "creative"
+family = "screen-in-shot-fix"
+q = "phone screen was off when we filmed, put the app UI on it"
+sources = ["tracking.screen", "effects.opacity"]
+must = ["the UI recording on V2 with Corner Pin set to the screen's corners and Track Surface", "a little Screen / grade match and reflections kept with a blend mode"]
+must_not = []
+style = "pro"
+
+# --- ground-the-composite ---
+
+[[question]]
+id = "pool-cr22-shadow"
+kind = "creative"
+family = "ground-the-composite"
+q = "the keyed person looks like they're floating, no shadow on the floor"
+sources = ["effects.shape-move", "keying.ultra-key", "effects.opacity"]
+must = ["add a shadow: a Drop Shadow on the keyed layer, or a darkened, blurred copy of the matte squashed onto the floor at low Opacity with Multiply", "match light direction and softness to the background"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-shadow-grade"
+kind = "creative"
+family = "ground-the-composite"
+q = "composite doesn't sit in the scene, colours don't match"
+sources = ["keying.cleanup", "color.matching.compare", "compositor.recipes"]
+must = ["Ultra Key's Color Correction on the foreground, spill suppression on the edges", "grade the finished composite as one picture (a Color node after the Merge in a comp), match black levels and grain"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-shadow-wrap"
+kind = "creative"
+family = "ground-the-composite"
+q = "light wrap so the background light spills onto the subject's edges"
+sources = ["compositor.basics", "keying.cleanup", "effects.opacity"]
+must = ["the keyers' documented controls have no light wrap: a blurred copy of the background, masked to the subject's edge (choke the matte for an edge band), on Screen at low opacity", "Soften on the key edge helps too"]
+must_not = []
+style = "pro"
+
+# --- flickering-sign ---
+
+[[question]]
+id = "pool-cr22-sign"
+kind = "creative"
+family = "flickering-sign"
+q = "make a neon sign flicker on and off like it's broken"
+sources = ["color.secondaries.windows", "effects.keyframes", "color.lumetri.panel"]
+must = ["isolate the sign (a window, and qualifier) on its own node and keyframe it dark / bright irregularly", "or a copy with the sign masked and its Opacity keyframed in a flicker; a buzz sound helps"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr22-sign-room"
+kind = "creative"
+family = "flickering-sign"
+q = "flickering light bulb lighting the whole room in a horror scene"
+sources = ["color.lumetri.panel", "effects.keyframes", "media.generated"]
+must = ["Lumetri Exposure keyframed in an irregular flicker on an Adjustment Layer over the shots", "keep the flicker gentle and short; flashing can trouble some viewers"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr22-sign-strobe"
+kind = "creative"
+family = "flickering-sign"
+q = "quick automatic flicker without keyframing every frame"
+sources = ["effect-reference.video-stylize", "shader-effects.recipes"]
+must = ["Strobe Light (Video Effects ▸ Stylize) flickers by itself (strobe duration and period)", "or the Pulse shader recipe for a regular pulse"]
+must_not = []
+style = "pro"

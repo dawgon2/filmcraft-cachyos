@@ -21,6 +21,11 @@ impl Model {
         crate::models::verify(dir, info)
     }
 
+    /// Never on a GPU: this build runs no model.
+    pub fn gpu_adapter(&self) -> Option<&str> {
+        None
+    }
+
     pub fn info(&self) -> &ModelInfo {
         match self._never {}
     }

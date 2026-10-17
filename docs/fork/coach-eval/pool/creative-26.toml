@@ -1,0 +1,304 @@
+# AI-POOL batch creative-26 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: a product comparison, a rack focus, a real-estate twilight shot, an
+# ink-splatter transition, an underwater scene, a comic-book look, a title that blurs in, a radio
+# DJ voice, a tracked spotlight on one player. `must` = plan sub-goals from the guide's own text
+# (effect and control names from the effect sections). No admitted-gap family in this batch.
+# Held-out only.
+
+# --- product-comparison ---
+
+[[question]]
+id = "pool-cr26-compare"
+kind = "creative"
+family = "product-comparison"
+q = "compare two phones side by side with their names under each one"
+sources = ["practice.editing.split-screen", "graphics.text", "effects.shape-move"]
+must = ["one clip on V1 and the other on V2; Crop on the V2 clip (Left about 50 %) and Motion ▸ Position to put each picture in its half", "a text layer per product (graphics.newText) on a track above, placed under each half"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-compare-pip"
+kind = "creative"
+family = "product-comparison"
+q = "show the old model small in the corner while the new one plays full screen"
+sources = ["practice.editing.split-screen", "effects.shape-move"]
+must = ["picture-in-picture: the V2 clip at Motion ▸ Scale about 25–35 % and Position in a corner", "Rounded Crop's Border Width / Color or a Drop Shadow so the small window stands out"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr26-compare-wipe"
+kind = "creative"
+family = "product-comparison"
+q = "split screen comparison but the line between them diagonal and soft"
+sources = ["practice.editing.split-screen", "effects.opacity"]
+must = ["a pen mask on the V2 clip's Opacity along the diagonal (masks.add) instead of Crop", "Mask Feather raised for a soft seam, kept out of the products"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr26-compare-three"
+kind = "creative"
+family = "product-comparison"
+q = "three products in three panels for a review video, keep the layout reusable"
+sources = ["practice.editing.split-screen", "compositor.basics"]
+must = ["a comp in the Compositor: a Media In per clip, Transform each into its panel, Merge them", "match colour and brightness of the panels"]
+must_not = []
+style = "pro"
+
+# --- rack-focus ---
+
+[[question]]
+id = "pool-cr26-rack"
+kind = "creative"
+family = "rack-focus"
+q = "focus shifts from the person in front to the one behind, but my shot is all sharp"
+sources = ["effects.lens-light", "effects.keyframes"]
+must = ["Focus Blur (Blur & Sharpen): Focus Point on the front person, Focus Size and Feather around them", "keyframe Focus Point (stopwatch) so it moves to the back person, with Ease In / Ease Out"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-rack-layers"
+kind = "creative"
+family = "rack-focus"
+q = "fake a rack focus between two layers: product sharp first, then the background"
+sources = ["effects.opacity", "effects.keyframes", "effects.apply"]
+must = ["a copy of the clip above with Gaussian Blur (Blurriness), masked on Opacity to the product", "keyframe Blurriness on the two layers in opposite directions so sharpness hands over"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr26-rack-pull"
+kind = "creative"
+family = "rack-focus"
+q = "how to do a focus pull in post like in resolve"
+sources = ["effects.lens-light", "effects.keyframes"]
+must = ["Focus Blur with its Focus Point / Focus Size animated by keyframes", "Bokeh Blur on the background for soft discs from its lights"]
+must_not = []
+style = "resolve-words"
+
+# --- real-estate-twilight ---
+
+[[question]]
+id = "pool-cr26-twilight"
+kind = "creative"
+family = "real-estate-twilight"
+q = "make my daytime house exterior look like a twilight shot with the windows glowing"
+sources = ["practice.grading.day-for-night", "color.secondaries.windows", "practice.grading.sky"]
+must = ["the house darker and cooler (Gamma / Gain down, cooler balance), lights kept bright", "windows warmer and brighter on their own node: a window shape or a qualifier with warm Gain", "the sky deepened with a qualifier limited by a gradient window"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-twilight-sky"
+kind = "creative"
+family = "real-estate-twilight"
+q = "swap the white sky for a sunset sky behind the house"
+sources = ["keying.luma-color", "keying.check", "effects.opacity"]
+must = ["the sunset sky on V1, the house clip on V2 with Luma Key (or Color Key) removing the bright sky", "check the matte (keying.check) for holes in the roof line"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr26-twilight-glow"
+kind = "creative"
+family = "real-estate-twilight"
+q = "soft glow around the lit windows for a listing video"
+sources = ["effects.stylize", "color.secondaries.qualifier"]
+must = ["Wonder Glow with Threshold set so only the bright windows bloom, a warm Glow Color", "or a qualifier on the window lights with warm Gain on its node"]
+must_not = []
+style = "pro"
+
+# --- ink-splatter-transition ---
+
+[[question]]
+id = "pool-cr26-ink"
+kind = "creative"
+family = "ink-splatter-transition"
+q = "transition where black ink spreads across the screen and reveals the next shot"
+sources = ["effects.shape-move", "practice.titles.overlays"]
+must = ["an ink-spread clip (black on white, or white on black) on a track above the next shot", "Track Matte Key on the next shot: Matte = the ink track, Composite Using luma (Reverse if needed)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-ink-matte"
+kind = "creative"
+family = "ink-splatter-transition"
+q = "track matte ink reveal: alpha or luma?"
+sources = ["effects.shape-move", "practice.titles.overlays"]
+must = ["Composite Using luma for an ink clip shot on white or black, alpha for one with transparency", "Reverse when the reveal is the wrong way round"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-cr26-ink-paint"
+kind = "creative"
+family = "ink-splatter-transition"
+q = "paint splash wipe between two clips for an art channel intro"
+sources = ["effects.shape-move", "effects.opacity"]
+must = ["a splash clip as the matte for the incoming shot with Track Matte Key", "or the splash clip itself above with a blend mode (Multiply for dark ink on white) as a texture over the cut"]
+must_not = []
+style = "pro"
+
+# --- underwater-scene ---
+
+[[question]]
+id = "pool-cr26-underwater"
+kind = "creative"
+family = "underwater-scene"
+q = "make a pool shot look like it's deep underwater, wobbly and blue-green"
+sources = ["effects.stylize", "color.recipes.cool", "practice.grading.split-tone"]
+must = ["Turbulent Displace (Smoother mode) for a slow wobble", "a cool blue-green grade with contrast down and less red"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-underwater-sound"
+kind = "creative"
+family = "underwater-scene"
+q = "sound should go muffled when the camera dips under water"
+sources = ["essential-sound.controls", "mixing.automation", "effects.keyframes"]
+must = ["an EQ cutting the highs strongly (Parametric Equalizer) on the audio from the dip on", "the change keyframed or cut at the dip so it starts with the picture"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr26-underwater-rays"
+kind = "creative"
+family = "underwater-scene"
+q = "light rays coming down through the water from the surface"
+sources = ["effects.lens-light", "effects.stylize"]
+must = ["Volumetric Rays with its Source Point above the frame, a pale blue Ray Color", "Turbulent Displace on top for the moving water feel"]
+must_not = []
+style = "pro"
+
+# --- comic-book-look ---
+
+[[question]]
+id = "pool-cr26-comic"
+kind = "creative"
+family = "comic-book-look"
+q = "make my video look like a comic book"
+sources = ["effects.painterly", "effects.opacity"]
+must = ["Posterize with a few levels for flat colour bands", "Find Edges on a copy of the clip above with the Multiply blend mode for ink lines"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-comic-panel"
+kind = "creative"
+family = "comic-book-look"
+q = "comic style freeze with a speech bubble saying POW"
+sources = ["effects.painterly", "graphics.layers", "media.clips"]
+must = ["a freeze frame of the moment with Posterize + Find Edges on it", "a graphic: a shape layer as the bubble and a bold text layer"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr26-comic-cartoon"
+kind = "creative"
+family = "comic-book-look"
+q = "cartoon look with flat colours but less harsh outlines"
+sources = ["effects.painterly", "effects.apply"]
+must = ["Posterize Level low for flat colour", "Find Edges' Blend With Original raised (or the copy's Opacity lowered) so the lines are lighter"]
+must_not = []
+style = "pro"
+
+# --- title-blur-in ---
+
+[[question]]
+id = "pool-cr26-blurtitle"
+kind = "creative"
+family = "title-blur-in"
+q = "title that starts blurry and comes into focus"
+sources = ["effects.keyframes", "graphics.text", "practice.titles.easing"]
+must = ["Gaussian Blur on the title clip with Blurriness keyframed from high to 0", "Opacity keyframed up at the same time, eased keyframes"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-blurtitle-out"
+kind = "creative"
+family = "title-blur-in"
+q = "blur in, hold, blur out for every chapter title, same each time"
+sources = ["effects.keyframes", "effects.presets", "practice.titles.in-out"]
+must = ["blur and opacity keyframes for the entrance and a matching exit", "saved as a preset (presets.save) with Anchor to In Point / Out Point so it fits any length"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr26-blurtitle-dir"
+kind = "creative"
+family = "title-blur-in"
+q = "text slides in with a sideways motion blur streak"
+sources = ["effects.keyframes", "effects.apply", "practice.titles.easing"]
+must = ["Position keyframes for the slide with Ease Out", "Directional Blur (or Gaussian Blur with Blur Dimensions Horizontal) keyframed down to 0 as it lands"]
+must_not = []
+style = "sloppy"
+
+# --- radio-dj-voice ---
+
+[[question]]
+id = "pool-cr26-radio"
+kind = "creative"
+family = "radio-dj-voice"
+q = "make my voice sound like a radio DJ"
+sources = ["essential-sound.presets", "essential-sound.controls"]
+must = ["type the clip Dialogue and apply the Radio Announcer preset (essentialSound.applyPreset)", "adjust Dynamics and the EQ (Radio Voice) amount to taste"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-radio-old"
+kind = "creative"
+family = "radio-dj-voice"
+q = "old AM radio broadcast sound, thin and boxy"
+sources = ["essential-sound.controls", "essential-sound.presets"]
+must = ["the EQ preset Telephone or Radio Voice at a high amount for a narrow band", "Reduce Rumble up so the lows go; a little noise underneath sells it"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr26-radio-podcast"
+kind = "creative"
+family = "radio-dj-voice"
+q = "big, close, compressed broadcast voice for a podcast intro"
+sources = ["practice.audio.voice-compression", "essential-sound.controls", "essential-sound.presets"]
+must = ["a compressor on the voice (Dynamics), moderate ratio", "EQ Warm Voice or Presence Lift; Radio Announcer as a starting preset"]
+must_not = []
+style = "pro"
+
+# --- player-spotlight ---
+
+[[question]]
+id = "pool-cr26-spot"
+kind = "creative"
+family = "player-spotlight"
+q = "highlight one player in a match clip with a spotlight that follows him"
+sources = ["color.secondaries.windows", "color.secondaries.tracking", "practice.grading.vignette"]
+must = ["a circular window on the player, inverted, Gain down so everything else darkens", "the window tracked (masks.track) so it follows him; soft edge"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr26-spot-ring"
+kind = "creative"
+family = "player-spotlight"
+q = "circle on the ground under a player that moves with them, like on TV"
+sources = ["tracking.follow", "graphics.layers"]
+must = ["an ellipse shape graphic on the track above", "tracking.attach so it follows the player"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr26-spot-freeze"
+kind = "creative"
+family = "player-spotlight"
+q = "freeze, darken everything except the player, add his name, then play on"
+sources = ["media.clips", "color.secondaries.windows", "graphics.text"]
+must = ["a freeze frame at the moment", "an inverted soft window on the player with Gain down on the freeze", "a name text layer with an entrance and exit"]
+must_not = []
+style = "pro"

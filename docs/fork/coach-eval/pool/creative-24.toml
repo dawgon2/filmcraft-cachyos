@@ -1,0 +1,326 @@
+# AI-POOL batch creative-24 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: a frame border, text-message bubbles, mixing from one song into
+# another, silence between lines, a spin transition, a card flip, a title reflection, blue snow, a
+# camcorder REC overlay, a pixel-art look. `must` = plan sub-goals from the guide's own text (effect
+# and control names from the effect sections and the effect reference). No admitted-gap family in
+# this batch. Held-out only.
+
+# --- frame-border ---
+
+[[question]]
+id = "pool-cr24-border"
+kind = "creative"
+family = "frame-border"
+q = "white border around my video like an Instagram post"
+sources = ["effects.shape-move", "media.generated", "effects.apply"]
+must = ["a white Color Matte on V1, the clip above scaled down (Motion Scale) so the matte shows around it", "or Rounded Crop's Border Width and Border Color, with Roundness 0 for square corners"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-border-film"
+kind = "creative"
+family = "frame-border"
+q = "film-frame border with sprocket holes over my clip"
+sources = ["effects.opacity", "media.import"]
+must = ["a film-frame overlay image (PNG with a transparent centre) on the top track", "or one on black / white with a blend mode (Multiply for a black frame on white, Screen for white)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr24-border-rounded"
+kind = "creative"
+family = "frame-border"
+q = "rounded corners and a thin coloured outline around the video for a modern look"
+sources = ["effects.shape-move", "effects.apply"]
+must = ["Rounded Crop (Roundness, Feather, Border Width, Border Color)", "Drop Shadow behind for depth"]
+must_not = []
+style = "pro"
+
+# --- text-message-bubbles ---
+
+[[question]]
+id = "pool-cr24-texts"
+kind = "creative"
+family = "text-message-bubbles"
+q = "show a text message conversation appearing on screen bubble by bubble"
+sources = ["graphics.layers", "graphics.responsive", "effects.keyframes"]
+must = ["each bubble a graphic: a rounded shape pinned to a text layer (graphics.pin) so it fits the message", "bubbles start one after another on the timeline, popping in with Scale / Opacity keyframes; earlier ones slide up with Position keyframes", "a message sound on each"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-texts-template"
+kind = "creative"
+family = "text-message-bubbles"
+q = "reusable sent and received message bubbles with editable text"
+sources = ["graphics.templates", "graphics.responsive"]
+must = ["two templates (left grey received, right coloured sent), the text editable, the bubble pinned to it", "protected in-time keeps the pop animation when the clip is trimmed"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr24-texts-phone"
+kind = "creative"
+family = "text-message-bubbles"
+q = "the messages should appear on the actor's phone screen in the shot"
+sources = ["tracking.screen", "graphics.layers"]
+must = ["build the message screen as a graphic (or a nested sequence), then Corner Pin it onto the phone with Track Surface", "or show the bubbles floating next to the phone, attached to a track"]
+must_not = []
+style = "sloppy"
+
+# --- music-transition-mix ---
+
+[[question]]
+id = "pool-cr24-mix"
+kind = "creative"
+family = "music-transition-mix"
+q = "smoothly go from one song into another like a DJ"
+sources = ["practice.audio.crossfades", "practice.editing.music-beat", "effects.transitions"]
+must = ["overlap the songs on two tracks and crossfade over a few bars (Constant Power for a steady level), or Volume keyframes on each", "line the beats up (markers on both) so the overlap doesn't clash"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-mix-key"
+kind = "creative"
+family = "music-transition-mix"
+q = "songs clash when they overlap, different tempos"
+sources = ["practice.editing.music-beat", "essential-sound.remix", "effects.transitions"]
+must = ["keep the overlap short, or cross at a break / ending; a sound effect or a hit can bridge them", "Remix can end the first song on its real ending so the second starts clean"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr24-mix-filter"
+kind = "creative"
+family = "music-transition-mix"
+q = "filter sweep out of one track into the next"
+sources = ["effect-reference.audio", "effects.keyframes"]
+must = ["an EQ on the outgoing song with its high cut keyframed down over the transition", "the next song fading or cutting in on the downbeat"]
+must_not = []
+style = "sloppy"
+
+# --- silence-between-lines ---
+
+[[question]]
+id = "pool-cr24-gate"
+kind = "creative"
+family = "silence-between-lines"
+q = "remove the background hiss only in the gaps between sentences"
+sources = ["effect-reference.audio", "audio.manual-voice-cleanup", "practice.audio.noise-amount"]
+must = ["the Dynamics effect's Auto Gate (Threshold, Attack, Release, Hold) closes between phrases; set the threshold just above the hiss", "a gate can chop word ends: slow the release; light noise reduction under the voice is often more natural"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-gate-podcast"
+kind = "creative"
+family = "silence-between-lines"
+q = "two-mic podcast, the other mic picks up my voice when I talk"
+sources = ["media.audio-channels", "effect-reference.audio"]
+must = ["each mic on its own clip (Breakout to Mono), the Auto Gate on each so it opens only for its own speaker", "or cut / lower the bleed by hand in the gaps"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr24-gate-dead"
+kind = "creative"
+family = "silence-between-lines"
+q = "after gating, the pauses sound unnaturally dead"
+sources = ["practice.editing.room-tone", "practice.audio.ambience-beds"]
+must = ["lay room tone under the dialogue so the gaps aren't digital silence", "or gate less (a lower threshold, a slower release)"]
+must_not = []
+style = "sloppy"
+
+# --- spin-transition ---
+
+[[question]]
+id = "pool-cr24-spin"
+kind = "creative"
+family = "spin-transition"
+q = "spinning transition between clips for my travel vlog"
+sources = ["effect-reference.transitions", "effects.transitions"]
+must = ["a 3D Spin (Transformers) or Cube Spin transition on the edit", "or a fast Rotation keyframe across the cut with motion blur (Transform's shutter angle)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-spin-hand"
+kind = "creative"
+family = "spin-transition"
+q = "I rotated the camera at the end of one shot and start of the next, join them"
+sources = ["practice.editing.cut-on-action", "effects.stylize"]
+must = ["cut in the middle of the blurred rotation on both shots, same direction", "a short dissolve or a Whip transition if it still jumps"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr24-spin-blur"
+kind = "creative"
+family = "spin-transition"
+q = "spin transition looks too clean, needs blur"
+sources = ["practice.titles.shake", "effects.keyframes"]
+must = ["animate the spin with the Transform effect and turn on Use Effect Shutter Angle (about 180) for motion blur"]
+must_not = []
+style = "sloppy"
+
+# --- card-flip ---
+
+[[question]]
+id = "pool-cr24-flip"
+kind = "creative"
+family = "card-flip"
+q = "photo flips over like a card to show the next photo on its back"
+sources = ["effects.shape-move", "effect-reference.transitions", "effects.keyframes"]
+must = ["the Flip Over transition between the two photos", "or 3D Rotate's Y Rotation keyframed 0 → 90° on the first and −90 → 0° on the second, with Hide Back Face"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-flip-quiz"
+kind = "creative"
+family = "card-flip"
+q = "quiz video: question card flips to reveal the answer"
+sources = ["effects.shape-move", "graphics.templates"]
+must = ["question and answer as graphics; 3D Rotate flip (Y Rotation keyed, Hide Back Face) at the reveal", "a template for the card so each question is quick"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr24-flip-perspective"
+kind = "creative"
+family = "card-flip"
+q = "flip looks flat, no depth"
+sources = ["effects.shape-move", "effects.keyframes"]
+must = ["raise 3D Rotate's Perspective so the near edge grows during the flip", "a Drop Shadow that moves with it adds depth"]
+must_not = []
+style = "pro"
+
+# --- title-reflection ---
+
+[[question]]
+id = "pool-cr24-reflect"
+kind = "creative"
+family = "title-reflection"
+q = "title with a shiny reflection underneath like on a glossy floor"
+sources = ["effects.shape-move", "effects.opacity", "graphics.text"]
+must = ["a copy of the title below it with Vertical Flip, lower Opacity", "a Linear mask (or gradient) on the copy so the reflection fades out downwards"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-reflect-water"
+kind = "creative"
+family = "title-reflection"
+q = "logo reflected in water with ripples"
+sources = ["effects.shape-move", "effect-reference.video-stylize", "effects.opacity"]
+must = ["a flipped, faded copy of the logo below it", "Wave Warp or Turbulent Displace on the copy for ripples"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr24-reflect-mirror"
+kind = "creative"
+family = "title-reflection"
+q = "mirror the whole shot top to bottom for a lake reflection look"
+sources = ["effects.lens-light", "effects.apply"]
+must = ["the Mirror effect with its Reflection Angle set to reflect across a horizontal line (Reflection Center on the horizon)", "a little darker and bluer on the reflected half sells water"]
+must_not = []
+style = "pro"
+
+# --- blue-snow-fix ---
+
+[[question]]
+id = "pool-cr24-snow"
+kind = "creative"
+family = "blue-snow-fix"
+q = "snow in my footage looks blue and grey instead of white"
+sources = ["color.primaries.white-balance", "color.finishing.scopes", "practice.grading.black-white-points"]
+must = ["white balance on the snow (pick it, it should be neutral)", "raise exposure so snow sits near the top of the waveform without clipping the detail"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-snow-skin"
+kind = "creative"
+family = "blue-snow-fix"
+q = "fixed the blue snow but now faces are too warm"
+sources = ["practice.grading.qualify-skin", "color.primaries.white-balance"]
+must = ["balance between: keep the snow slightly cool, or a skin qualifier node to pull faces back", "check skin on the vectorscope"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr24-snow-glare"
+kind = "creative"
+family = "blue-snow-fix"
+q = "bright snow scene clipping on my log footage"
+sources = ["color.finishing.soft-clip", "practice.mixed-cameras.overexposed"]
+must = ["highlight soft clip / a curve shoulder rolls the snow off smoothly", "clipped areas can't be recovered; keep them white"]
+must_not = []
+style = "pro"
+
+# --- rec-viewfinder-overlay ---
+
+[[question]]
+id = "pool-cr24-rec"
+kind = "creative"
+family = "rec-viewfinder-overlay"
+q = "camcorder viewfinder overlay with a blinking red REC dot and a battery icon"
+sources = ["graphics.layers", "effects.keyframes", "effect-reference.video-transform"]
+must = ["a graphic with a red circle and 'REC' text, its Opacity keyframed on / off every half second (Hold keyframes)", "corner brackets and a battery as shape layers; Metadata & Timecode Burn-in for running timecode"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-rec-blink"
+kind = "creative"
+family = "rec-viewfinder-overlay"
+q = "make the REC dot blink for the whole 2 minutes without hundreds of keyframes"
+sources = ["effects.presets", "effects.keyframes"]
+must = ["keyframe one blink cycle on a short clip, save as a preset or copy the clip end to end", "or the Strobe Light effect on the dot's layer"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr24-rec-look"
+kind = "creative"
+family = "rec-viewfinder-overlay"
+q = "home video look plus the viewfinder overlay"
+sources = ["practice.looks.vhs", "graphics.layers"]
+must = ["the VHS shader effect (soft, colour bleed) on the footage", "the viewfinder graphic on a track above so it stays crisp"]
+must_not = []
+style = "sloppy"
+
+# --- pixel-art-look ---
+
+[[question]]
+id = "pool-cr24-pixel"
+kind = "creative"
+family = "pixel-art-look"
+q = "make my video look like an 8-bit video game"
+sources = ["tracking.follow", "effects.painterly", "effects.apply"]
+must = ["Mosaic on the whole clip for big pixels (Horizontal / Vertical Blocks), Posterize for few colours", "Posterize Time at a low frame rate for choppy game motion; chiptune music"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr24-pixel-title"
+kind = "creative"
+family = "pixel-art-look"
+q = "pixel font title that types in like a retro game"
+sources = ["graphics.text", "effects.opacity", "effects.keyframes"]
+must = ["a pixel-style font (licensed) in a text graphic", "reveal letters with a mask edge keyframed in steps (Hold keyframes) and a blip sound per step"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr24-pixel-sharp"
+kind = "creative"
+family = "pixel-art-look"
+q = "pixelated look gets blurry when exported"
+sources = ["export.bitrate-crf", "export.presets"]
+must = ["big flat pixels need a higher bitrate or a quality (CRF) target so edges stay crisp", "export at the sequence's size so the blocks aren't rescaled"]
+must_not = []
+style = "pro"

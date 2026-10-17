@@ -1,6 +1,6 @@
 # Timeline: targeting, keys and markers
 
-**[FilmCraft]** · track targeting and source patching, selecting and moving clips from the
+**[Revolution]** · track targeting and source patching, selecting and moving clips from the
 keyboard, moving around the timeline, In / Out and split edits, and markers; modelled on
 Premiere Pro's timeline; written for AI-PLAN AI3-PREP (feature pages)
 
@@ -8,7 +8,7 @@ Premiere Pro's timeline; written for AI-PLAN AI3-PREP (feature pages)
 
 > id: timeline.targeting | does: chooses which tracks edits and keys act on, and where source clips land | cmd: timeline.setTargeting, timeline.toggleAllVideoTargets, timeline.toggleAllAudioTargets, timeline.toggleAllSourceVideo, timeline.toggleAllSourceAudio | resolve: track destination controls | premiere: track targeting and source patching | when: Insert / Overwrite land on the wrong track | see: editing.three-point
 
-**[FilmCraft]**
+**[Revolution]**
 
 Each track header has two switches on the left:
 
@@ -26,7 +26,7 @@ track up or down. `timeline.toggleMuteTargetedAudio`, `toggleSoloTargetedAudio` 
 
 > id: timeline.keys | does: selects clips at or next to the playhead and nudges, slips or slides them a frame at a time | cmd: timeline.selectClipAtPlayhead, timeline.selectNextClip, timeline.selectPrevClip, timeline.selectGap, timeline.nudgeLeft, timeline.nudgeRight, timeline.nudgeUp, timeline.nudgeDown, timeline.slipLeft, timeline.slipRight, timeline.slideLeft, timeline.slideRight | resolve: keyboard trimming and nudging | premiere: Nudge, Slip and Slide Clip Selection | when: frame-exact moves without the mouse | see: editing.trimming
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Select: **Select Clip at Playhead** (`timeline.selectClipAtPlayhead`), then the next or
    previous clip (`timeline.selectNextClip` / `selectPrevClip`). `timeline.selectGap` selects an
@@ -46,7 +46,7 @@ Each press is one undo step. For the same moves with the mouse, see the trimming
 
 > id: timeline.navigate | does: steps the playhead by frames and jumps to edit points, clip starts and ends | cmd: playhead.step, playhead.stepForward, playhead.stepBack, playhead.stepForward5, playhead.stepBack5, playhead.nextEdit, playhead.prevEdit, playhead.nextEditAnyTrack, playhead.prevEditAnyTrack, playhead.selectedClipStart, playhead.selectedClipEnd, playhead.start, playhead.end, playhead.set | resolve: playhead navigation keys | premiere: Go to Next / Previous Edit Point, step keys | when: finding a cut or a frame precisely | see: editing.jkl
 
-**[FilmCraft]**
+**[Revolution]**
 
 - One frame forward or back (`playhead.stepForward` / `stepBack`), five at a time
   (`…5`), or any number (`playhead.step`).
@@ -58,12 +58,12 @@ For playing and shuttling, J, K and L are in [editing.md](editing.md).
 
 ## In and Out points, and split edits
 
-> id: timeline.in-out | does: marks In / Out, marks a clip or the selection, and sets separate audio and video In / Out for J- and L-cuts | cmd: markers.markIn, markers.markOut, markers.markClip, markers.markSelection, markers.clearIn, markers.clearOut, markers.clearInOut, markers.goToIn, markers.goToOut, markers.markSplitAudioIn, markers.markSplitAudioOut, markers.markSplitVideoIn, markers.markSplitVideoOut | resolve: In / Out, split edits | premiere: Mark In / Out, Mark Split | when: three-point edits, rendering or exporting a range, J- and L-cuts | see: editing.three-point
+> id: timeline.in-out | does: marks In / Out, marks a clip or the selection, and sets separate audio and video In / Out for J- and L-cuts | cmd: markers.markIn, markers.markOut, markers.markClip, markers.markSelection, markers.clearIn, markers.clearOut, markers.clearInOut, markers.goToIn, markers.goToOut, markers.markSplitAudioIn, markers.markSplitAudioOut, markers.markSplitVideoIn, markers.markSplitVideoOut | resolve: In / Out, split edits | premiere: Mark In / Out, Mark Split | when: three-point edits, rendering or exporting only part of the timeline, J- and L-cuts | see: editing.three-point
 
-**[FilmCraft]**
+**[Revolution]**
 
 **Mark In** / **Mark Out** (`markers.markIn` / `markOut`) set the range that Lift, Extract,
-export and render work on; **Mark Clip** (`markers.markClip`) marks the clip under the playhead
+export and render work on (to export only part of a sequence, mark In and Out around it); **Mark Clip** (`markers.markClip`) marks the clip under the playhead
 on the targeted tracks, **Mark Selection** (`markers.markSelection`) the selected clips. Clear
 them with `markers.clearIn`, `clearOut` or `clearInOut`; jump to them with `markers.goToIn` /
 `goToOut`.
@@ -81,7 +81,7 @@ Source monitor, set separate In / Out points for audio and video (`markers.markS
 
 > id: timeline.markers | does: adds, edits, finds and clears markers on the sequence or a clip | cmd: markers.add, markers.edit, markers.goNext, markers.goPrev, markers.clearCurrent, markers.clearAll, markers.filterColors, markers.showAllMarkerColors, markers.rippleSequenceMarkers | resolve: markers | premiere: markers | when: notes for later, beats to cut on, chapters, review comments | see: timeline.in-out
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Press **M** (`markers.add`) to drop a marker at the playhead on the sequence. In the Source
    monitor, M marks the source clip instead, so the marker travels with every use of that media.

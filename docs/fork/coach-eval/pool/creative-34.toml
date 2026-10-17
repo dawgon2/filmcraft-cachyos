@@ -1,0 +1,229 @@
+# AI-POOL batch creative-34 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: a thumbnail from a frame, audio drifting out of sync, a voice on one
+# side only, judder from mixed frame rates, sudden silence for impact, fog and mist, a distorted
+# loud clip. `must` = plan sub-goals from the guide's own text. Partial-gap family:
+# distorted-loud-clip (clipped audio can't be restored). Held-out only.
+
+# --- thumbnail-frame-export ---
+
+[[question]]
+id = "pool-cr34-thumb"
+kind = "creative"
+family = "thumbnail-frame-export"
+q = "make a youtube thumbnail from the best frame of my video"
+sources = ["practice.delivery.thumbnail", "graphics.text", "file-menu.formats"]
+must = ["park on the frame (paused, so the original shows, not a proxy) and Export Frame (file.exportFrame) as PNG", "big, few words of text on it (a text layer before exporting, or in an image editor)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr34-thumb-sharp"
+kind = "creative"
+family = "thumbnail-frame-export"
+q = "exported frame for the thumbnail looks soft and low res"
+sources = ["practice.delivery.thumbnail", "proxies.what"]
+must = ["proxies were showing: pause first so the original is shown (Auto mode), then export", "16-bit PNG if it will be edited further; the 6.2K original gives a large still"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr34-thumb-face"
+kind = "creative"
+family = "thumbnail-frame-export"
+q = "thumbnail with my face brighter and more saturated than in the video"
+sources = ["practice.delivery.thumbnail", "color.recipes.face", "practice.grading.saturation-order"]
+must = ["on a copy of the sequence (or a node switched off afterwards) lift the face with a soft window and raise saturation", "export the frame from that version"]
+must_not = []
+style = "pro"
+
+# --- drifting-av-sync ---
+
+[[question]]
+id = "pool-cr34-drift"
+kind = "creative"
+family = "drifting-av-sync"
+q = "recorder audio lines up at the start but drifts out of sync by the end"
+sources = ["practice.editing.sync-sound", "editing.cutting", "media.clips"]
+must = ["sync the start by waveform (clip.synchronize, by audio)", "split the recorder audio at pauses (sequence.addEdit) and line each piece up again, or nudge its speed a hair with Speed / Duration (clip.speedDuration)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr34-drift-noclap"
+kind = "creative"
+family = "drifting-av-sync"
+q = "no clap and the camera sound is very noisy, sync won't find it"
+sources = ["practice.editing.sync-sound", "timeline.markers"]
+must = ["sync by a marker or In / Out on a shared sound or visible event instead (Synchronize offers marker and In / Out)", "check by ear on hard consonants"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr34-drift-merge"
+kind = "creative"
+family = "drifting-av-sync"
+q = "sync 40 takes from an external recorder before editing"
+sources = ["practice.editing.sync-sound", "media.clips"]
+must = ["Merge Clips (clip.mergeClips with the audio method) for one item per take", "clap at the start of every take next time"]
+must_not = []
+style = "pro"
+
+# --- one-sided-audio-fix ---
+
+[[question]]
+id = "pool-cr34-oneside"
+kind = "creative"
+family = "one-sided-audio-fix"
+q = "my voice only comes out of the left speaker"
+sources = ["media.audio-channels", "practice.audio.pan-dialogue"]
+must = ["a mono mic recorded on one channel: Modify ▸ Audio Channels (clip.audioChannels) to use that channel as mono", "voices centred"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr34-oneside-two"
+kind = "creative"
+family = "one-sided-audio-fix"
+q = "two lav mics recorded on left and right, want to level them separately"
+sources = ["media.audio-channels", "essential-sound.loudness"]
+must = ["Breakout to Mono (clip.breakoutToMono): a mono clip per channel", "level each (Auto-Match or clip gain), both centred"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr34-oneside-many"
+kind = "creative"
+family = "one-sided-audio-fix"
+q = "all 30 interview clips have the mic on channel 1 only"
+sources = ["media.audio-channels", "practice.audio.pan-dialogue"]
+must = ["select all the clips and set Audio Channels once (clip.audioChannels) so channel 1 plays as mono", "check one clip on headphones afterwards"]
+must_not = []
+style = "sloppy"
+
+# --- mixed-frame-rate-judder ---
+
+[[question]]
+id = "pool-cr34-judder"
+kind = "creative"
+family = "mixed-frame-rate-judder"
+q = "my 30fps phone clips stutter in my 25fps timeline"
+sources = ["media.clips", "edit-menu.sequence-settings"]
+must = ["choose the clip's time interpolation (clip.setTimeInterpolation): Frame Blending or Optical Flow smooths the conversion, Frame Sampling repeats frames", "decide the sequence frame rate (sequence.settings) from the main camera"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr34-judder-slow"
+kind = "creative"
+family = "mixed-frame-rate-judder"
+q = "50p clip in a 25p timeline: use it as slow motion instead of judder"
+sources = ["media.clips", "practice.editing.speed-ramp"]
+must = ["Speed / Duration 50 % (clip.speedDuration) so every recorded frame plays: smooth half-speed slow motion"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr34-judder-optical"
+kind = "creative"
+family = "mixed-frame-rate-judder"
+q = "optical flow makes weird warping on hands"
+sources = ["media.clips", "practice.editing.speed-ramp"]
+must = ["optical flow makes new frames and can warp fast or crossing motion", "Frame Blending (soft) or Frame Sampling (steppy) on that clip instead"]
+must_not = []
+style = "sloppy"
+
+# --- sudden-silence-impact ---
+
+[[question]]
+id = "pool-cr34-silence"
+kind = "creative"
+family = "sudden-silence-impact"
+q = "all sound should cut out at the moment of the crash, then come back slowly"
+sources = ["mixing.automation", "effects.transitions", "editing.cutting"]
+must = ["cut every audio track at the crash frame (sequence.addEditAllTracks) and remove the sound after it for a beat", "bring it back with a slow fade (Exponential Fade from silence, or Volume / fader keyframes)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr34-silence-ring"
+kind = "creative"
+family = "sudden-silence-impact"
+q = "silence after the explosion with a high ringing tone like in war movies"
+sources = ["essential-sound.types", "media.generated", "mixing.automation"]
+must = ["the scene's sound cut or ducked hard after the blast", "a high tone (a tone clip, e.g. from Bars and Tone, or a recorded ring) typed SFX fading in and out, the world sound returning muffled first"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr34-silence-music"
+kind = "creative"
+family = "sudden-silence-impact"
+q = "music stops dead on the punchline"
+sources = ["editing.cutting", "practice.editing.music-beat"]
+must = ["cut the music clip on the punchline frame (sequence.addEdit) and delete the rest of that phrase", "time the cut to a beat so the stop feels intended"]
+must_not = []
+style = "sloppy"
+
+# --- fog-mist-atmosphere ---
+
+[[question]]
+id = "pool-cr34-fog"
+kind = "creative"
+family = "fog-mist-atmosphere"
+q = "add fog rolling through my forest shot"
+sources = ["practice.titles.overlays", "effects.opacity"]
+must = ["fog / smoke footage shot on black on the track above with Blend Mode Screen", "Opacity lowered, masked if it must stay behind something"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr34-fog-depth"
+kind = "creative"
+family = "fog-mist-atmosphere"
+q = "misty morning look where the background fades into haze"
+sources = ["color.secondaries.windows", "practice.looks.faded-blacks"]
+must = ["a gradient (linear) window over the background on its own node: blacks lifted and contrast down there", "a cool, low-contrast tint in the haze"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr34-fog-moving"
+kind = "creative"
+family = "fog-mist-atmosphere"
+q = "fog overlay looks pasted on and doesn't move with the camera"
+sources = ["tracking.follow", "practice.titles.overlays"]
+must = ["attach the overlay to the shot's motion (tracking.attach / Attach to Track)", "match its brightness to the scene's light"]
+must_not = []
+style = "sloppy"
+
+# --- distorted-loud-clip (partial gap) ---
+
+[[question]]
+id = "pool-cr34-clipped"
+kind = "creative"
+family = "distorted-loud-clip"
+q = "my audio is distorted because it was recorded way too loud, can I fix it"
+sources = ["practice.audio.headroom", "practice.audio.wind", "media.audio-channels"]
+must = ["distortion recorded into the file can't be repaired (no declipper)", "lower the gain (clip.audioGain) so it doesn't get worse; cover or replace the worst parts", "next time keep peaks well below 0 dBFS"]
+must_not = ["a declip effect in Revolution"]
+style = "beginner"
+
+[[question]]
+id = "pool-cr34-clipped-mix"
+kind = "creative"
+family = "distorted-loud-clip"
+q = "my export crackles at the loud parts but the clips sound fine"
+sources = ["practice.audio.master-limiter", "practice.audio.headroom"]
+must = ["the mix is going over 0 dBFS: keep channel and mix peaks below it", "a limiter on the Mix holds the peaks under the delivery ceiling"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr34-clipped-second"
+kind = "creative"
+family = "distorted-loud-clip"
+q = "distorted lav, but the camera mic recorded the same speech cleaner"
+sources = ["practice.editing.sync-sound", "media.audio-channels", "audio.cleanup-voice"]
+must = ["sync the camera audio (clip.synchronize) and use it for the distorted stretches", "Clean Up Voice on the camera sound so it matches better"]
+must_not = []
+style = "pro"

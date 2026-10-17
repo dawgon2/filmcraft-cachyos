@@ -610,3 +610,344 @@ fn a_planted_top_level_trash_folder_is_refused() {
     std::fs::write(e.dir.join(".Trash-file"), b"x").unwrap();
     assert!(projects::checked_trash_dir(&e.dir.join(".Trash-file"), uid).is_err());
 }
+
+/// STORAGE-PLAN S1 item 5: a package holds the project, its media and a manifest that checks
+/// out; a damaged file is found; an existing package folder is never overwritten.
+#[test]
+fn a_package_holds_the_project_its_media_and_a_manifest_that_verifies() {
+    use crate::media_test_util::{make_movie, session_with};
+    use crate::package::{MANIFEST_FILE, Manifest, Role, verify};
+    let dir = tmp_dir("s1-package");
+    let movie = dir.join("Shoot").join("clip.mov");
+    std::fs::create_dir_all(movie.parent().unwrap()).unwrap();
+    make_movie(&movie, filmcraft_media::DemoScene::Forest, 64, 36, 6);
+    let (mut s, _, _) = session_with(&[&movie]);
+    let proj = dir.join("Edit.fcproj");
+    s.execute("file.saveAs", json!({"path": proj.to_string_lossy()})).unwrap();
+    let dest = dir.join("Out");
+    // the size estimate first: nothing is written
+    let est = s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": dest.to_string_lossy(), "dryRun": true})).unwrap();
+    assert!(est["estimateBytes"].as_u64().is_some_and(|b| b >= std::fs::metadata(&movie).unwrap().len()), "{est}");
+    assert!(!dest.join("Edit package").exists());
+    let r = s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": dest.to_string_lossy(), "wait": true})).unwrap();
+    let pkg = dest.join("Edit package");
+    assert_eq!(r["package"], json!(pkg.to_string_lossy()), "{r}");
+    let m = Manifest::parse(&std::fs::read(pkg.join(MANIFEST_FILE)).unwrap()).unwrap();
+    assert_eq!(m.project, "Edit.fcproj");
+    assert!(m.entries.iter().any(|e| e.role == Role::Media && e.path.ends_with("clip.mov")), "{m:?}");
+    assert!(m.left_out.iter().any(|l| l.what == "render cache"));
+    assert!(!String::from_utf8_lossy(&m.to_json()).contains(&*dir.to_string_lossy()), "no sender paths in the manifest");
+    let rep = verify(&pkg, &m, &|| false).unwrap();
+    assert!(rep.is_complete() && rep.extra.is_empty(), "{rep:?}");
+    // a damaged copy is found
+    let clip = pkg.join(&m.entries.iter().find(|e| e.role == Role::Media).unwrap().path);
+    let mut bytes = std::fs::read(&clip).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    std::fs::write(&clip, bytes).unwrap();
+    assert_eq!(verify(&pkg, &m, &|| false).unwrap().damaged.len(), 1);
+    // never over an existing package
+    assert!(s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": dest.to_string_lossy()})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A package whose copy fails leaves nothing behind.
+#[test]
+fn a_failed_package_is_removed() {
+    use crate::media_test_util::{make_movie, session_with};
+    let dir = tmp_dir("s1-package-fail");
+    let movie = dir.join("clip.mov");
+    make_movie(&movie, filmcraft_media::DemoScene::Forest, 64, 36, 3);
+    let (mut s, _, _) = session_with(&[&movie]);
+    let proj = dir.join("Gone.fcproj");
+    s.execute("file.saveAs", json!({"path": proj.to_string_lossy()})).unwrap();
+    std::fs::remove_file(&movie).unwrap();
+    let dest = dir.join("Out");
+    let _ = s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": dest.to_string_lossy(), "wait": true}));
+    assert!(!dest.join("Gone package").exists(), "partial package removed");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// STORAGE-PLAN S1 item 5c: a package comes in checked and relinked to its copies (the
+/// originals can be gone); a damaged package is refused and leaves nothing behind.
+#[test]
+fn an_imported_package_is_checked_and_relinked_by_itself() {
+    use crate::media_test_util::{make_movie, session_with};
+    let dir = tmp_dir("s1-import-package");
+    let movie = dir.join("Shoot").join("clip.mov");
+    std::fs::create_dir_all(movie.parent().unwrap()).unwrap();
+    make_movie(&movie, filmcraft_media::DemoScene::Dunes, 64, 36, 4);
+    let (mut s, _, _) = session_with(&[&movie]);
+    let root = dir.join("Projects");
+    s.prefs.general.projects_folder = Some(root.clone());
+    std::fs::create_dir_all(&root).unwrap();
+    let proj = dir.join("Trip.fcproj");
+    s.execute("file.saveAs", json!({"path": proj.to_string_lossy()})).unwrap();
+    let out = dir.join("Out");
+    s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": out.to_string_lossy(), "wait": true})).unwrap();
+    let pkg = out.join("Trip package");
+    // the sender's files are gone: only the package is left
+    std::fs::remove_dir_all(dir.join("Shoot")).unwrap();
+    let r = s.execute("projects.importPackage", json!({"path": pkg.to_string_lossy(), "wait": true})).unwrap();
+    assert_eq!(r["package"], true, "{r}");
+    let to = PathBuf::from(r["path"].as_str().unwrap());
+    let mut t = Session::default();
+    t.execute("file.open", json!({"path": to.join("Trip.fcproj").to_string_lossy()})).unwrap();
+    let paths: Vec<String> = t
+        .project
+        .items
+        .values()
+        .filter_map(|i| match &i.as_media()?.media {
+            filmcraft_project::MediaRef::File { path } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(!paths.is_empty());
+    assert!(paths.iter().all(|p| p.starts_with(&*to.to_string_lossy()) && Path::new(p).is_file()), "{paths:?}");
+    assert!(t.offline.missing.is_empty(), "nothing to relink");
+    // a damaged package: refused, nothing left behind
+    let clip = std::fs::read_dir(&pkg).unwrap().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "mov")).unwrap();
+    std::fs::write(&clip, b"not the clip").unwrap();
+    let before: Vec<_> = std::fs::read_dir(&root).unwrap().flatten().map(|e| e.path()).collect();
+    let _ = s.execute("projects.importPackage", json!({"path": pkg.to_string_lossy(), "wait": true}));
+    let job = s.jobs.last().unwrap();
+    let err = job.progress.error.lock().unwrap().clone().unwrap_or_default();
+    assert!(err.contains("incomplete"), "{err}");
+    let after: Vec<_> = std::fs::read_dir(&root).unwrap().flatten().map(|e| e.path()).collect();
+    assert_eq!(before.len(), after.len(), "nothing left behind");
+    // a plain folder is not a package
+    std::fs::remove_file(pkg.join("manifest.json")).unwrap();
+    assert!(s.execute("projects.importPackage", json!({"path": pkg.to_string_lossy()})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// S1 item 5d: a package carries the gallery stills' pictures (PNGs outside the project file),
+/// and its project takes the receiver's scratch disks, so the stills sit inside the package and
+/// are found after import even when the sender kept them on a scratch disk.
+#[test]
+fn a_package_carries_the_gallery_stills() {
+    use crate::media_test_util::{make_movie, session_with};
+    let dir = tmp_dir("s1-package-stills");
+    let movie = dir.join("Shoot").join("clip.mov");
+    std::fs::create_dir_all(movie.parent().unwrap()).unwrap();
+    make_movie(&movie, filmcraft_media::DemoScene::Forest, 64, 36, 4);
+    let (mut s, _, _) = session_with(&[&movie]);
+    let root = dir.join("Projects");
+    s.prefs.general.projects_folder = Some(root.clone());
+    std::fs::create_dir_all(&root).unwrap();
+    let proj = dir.join("Look.fcproj");
+    {
+        let p = std::sync::Arc::make_mut(&mut s.project);
+        p.settings.scratch.video_previews = Some(dir.join("Scratch").to_string_lossy().into_owned());
+        p.stills.push(filmcraft_project::Still {
+            id: 1,
+            label: "warm".into(),
+            clip: None,
+            clip_name: String::new(),
+            sequence: None,
+            time: filmcraft_time::Tick::ZERO,
+            grade: None,
+            width: 2,
+            height: 2,
+            nonce: 1,
+        });
+    }
+    s.execute("file.saveAs", json!({"path": proj.to_string_lossy()})).unwrap();
+    let stills = crate::project_tools::stills_dir_for(&s.project, &proj.to_string_lossy());
+    assert!(stills.starts_with(dir.join("Scratch")));
+    std::fs::create_dir_all(&stills).unwrap();
+    std::fs::write(stills.join("still-1.png"), b"png bytes").unwrap();
+    let out = dir.join("Out");
+    let est = s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": out.to_string_lossy(), "dryRun": true})).unwrap();
+    s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": out.to_string_lossy(), "wait": true})).unwrap();
+    let pkg = out.join("Look package");
+    let m = crate::package::Manifest::parse(&std::fs::read(pkg.join(crate::package::MANIFEST_FILE)).unwrap()).unwrap();
+    assert!(m.entries.iter().any(|e| e.path.ends_with("still-1.png")), "{m:?}");
+    assert!(est["estimateBytes"].as_u64().is_some(), "{est}");
+    std::fs::remove_dir_all(dir.join("Scratch")).unwrap();
+    std::fs::remove_dir_all(dir.join("Shoot")).unwrap();
+    let r = s.execute("projects.importPackage", json!({"path": pkg.to_string_lossy(), "wait": true})).unwrap();
+    let to = PathBuf::from(r["path"].as_str().unwrap()).join("Look.fcproj");
+    let mut t = Session::default();
+    t.execute("file.open", json!({"path": to.to_string_lossy()})).unwrap();
+    assert_eq!(t.project.settings.scratch.video_previews, None, "the sender's scratch disks don't travel");
+    assert_eq!(t.project.stills.len(), 1);
+    let got = crate::project_tools::stills_dir_for(&t.project, &to.to_string_lossy()).join("still-1.png");
+    assert_eq!(std::fs::read(&got).unwrap(), b"png bytes", "{}", got.display());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// S1 item 5d: a package carries the user shader effects its project uses (and only those), and
+/// importing it installs them into this computer's Effects folder without overwriting one there.
+#[test]
+fn a_package_carries_the_user_effects_it_uses() {
+    use crate::media_test_util::{make_movie, session_with};
+    const GLOW: &str = "// @effect \"Pack Glow\"\n// @param amount: float = 0.5 [0.0, 1.0] \"Amount\"\nfn effect(px: vec2<f32>) -> vec4<f32> {\n    let c = sample(px);\n    return vec4(mix(c.rgb, vec3(1.0), P.amount * 0.2), c.a);\n}\n";
+    let dir = tmp_dir("s1-package-effects");
+    let movie = dir.join("Shoot").join("clip.mov");
+    std::fs::create_dir_all(movie.parent().unwrap()).unwrap();
+    make_movie(&movie, filmcraft_media::DemoScene::Forest, 64, 36, 4);
+    let (mut s, _, _) = session_with(&[&movie]);
+    let sender = dir.join("sender-data");
+    std::fs::create_dir_all(sender.join("Effects")).unwrap();
+    std::fs::write(sender.join("Effects").join("pack-glow.wgsl"), GLOW).unwrap();
+    std::fs::write(sender.join("Effects").join("unused.wgsl"), GLOW.replace("Pack Glow", "Unused")).unwrap();
+    s.prefs_path = Some(sender.join("preferences.json"));
+    crate::user_effects::reload(&mut s);
+    let root = dir.join("Projects");
+    s.prefs.general.projects_folder = Some(root.clone());
+    std::fs::create_dir_all(&root).unwrap();
+    let clip = s.active_sequence().unwrap().video_tracks[0].items[0].id;
+    s.execute("effects.apply", json!({"clips": [clip.0], "effect": "user.pack-glow"})).unwrap();
+    let proj = dir.join("Fx.fcproj");
+    s.execute("file.saveAs", json!({"path": proj.to_string_lossy()})).unwrap();
+    let out = dir.join("Out");
+    s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": out.to_string_lossy(), "wait": true})).unwrap();
+    let pkg = out.join("Fx package");
+    let m = crate::package::Manifest::parse(&std::fs::read(pkg.join(crate::package::MANIFEST_FILE)).unwrap()).unwrap();
+    let shaders: Vec<&str> = m.entries.iter().filter(|e| e.role == crate::package::Role::Shader).map(|e| e.path.as_str()).collect();
+    assert_eq!(shaders, ["Effects/pack-glow.wgsl"], "only the effect the project uses");
+    // the receiver: no such effect yet, and an unrelated one of its own that stays as it is
+    let receiver = dir.join("receiver-data");
+    std::fs::create_dir_all(receiver.join("Effects")).unwrap();
+    s.prefs_path = Some(receiver.join("preferences.json"));
+    let r = s.execute("projects.importPackage", json!({"path": pkg.to_string_lossy(), "wait": true})).unwrap();
+    assert_eq!(r["package"], true, "{r}");
+    assert_eq!(std::fs::read_to_string(receiver.join("Effects").join("pack-glow.wgsl")).unwrap(), GLOW);
+    // a second import never overwrites the receiver's own (changed) file
+    std::fs::write(receiver.join("Effects").join("pack-glow.wgsl"), "// mine").unwrap();
+    s.execute("projects.importPackage", json!({"path": pkg.to_string_lossy(), "wait": true})).unwrap();
+    assert_eq!(std::fs::read_to_string(receiver.join("Effects").join("pack-glow.wgsl")).unwrap(), "// mine");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// STORAGE-PLAN S1 item 5: a package whose project was saved by a newer FilmCraft still imports
+/// (checked and complete) instead of failing; opening it then says to update FilmCraft.
+#[test]
+fn a_package_from_a_newer_filmcraft_imports_and_opening_says_update() {
+    use crate::media_test_util::{make_movie, session_with};
+    use crate::package::{MANIFEST_FILE, Manifest, Role, sha256_file};
+    let dir = tmp_dir("s1-package-newer");
+    let movie = dir.join("Shoot").join("clip.mov");
+    std::fs::create_dir_all(movie.parent().unwrap()).unwrap();
+    make_movie(&movie, filmcraft_media::DemoScene::Dunes, 64, 36, 4);
+    let (mut s, _, _) = session_with(&[&movie]);
+    let root = dir.join("Projects");
+    s.prefs.general.projects_folder = Some(root.clone());
+    std::fs::create_dir_all(&root).unwrap();
+    let proj = dir.join("Future.fcproj");
+    s.execute("file.saveAs", json!({"path": proj.to_string_lossy()})).unwrap();
+    let out = dir.join("Out");
+    s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": out.to_string_lossy(), "wait": true})).unwrap();
+    let pkg = out.join("Future package");
+    // as if a newer FilmCraft had saved it: a higher schema, and a manifest that matches it
+    let fc = pkg.join("Future.fcproj");
+    let text = std::fs::read_to_string(&fc).unwrap();
+    let key = format!("\"schema_version\":{}", filmcraft_format::SCHEMA_VERSION);
+    assert!(text.contains(&key), "{}", &text[..120.min(text.len())]);
+    std::fs::write(&fc, text.replacen(&key, "\"schema_version\":9999", 1)).unwrap();
+    let mut m = Manifest::parse(&std::fs::read(pkg.join(MANIFEST_FILE)).unwrap()).unwrap();
+    let (sha, size) = sha256_file(&fc).unwrap();
+    for e in m.entries.iter_mut().filter(|e| e.role == Role::Project) {
+        (e.sha256, e.size) = (sha.clone(), size);
+    }
+    std::fs::write(pkg.join(MANIFEST_FILE), m.to_json()).unwrap();
+    let r = s.execute("projects.importPackage", json!({"path": pkg.to_string_lossy(), "wait": true})).unwrap();
+    let job = s.jobs.last().unwrap();
+    assert_eq!(*job.progress.error.lock().unwrap(), None, "imported, not failed");
+    let to = PathBuf::from(r["path"].as_str().unwrap()).join("Future.fcproj");
+    assert!(to.is_file());
+    let err = Session::default().execute("file.open", json!({"path": to.to_string_lossy()})).unwrap_err().to_string();
+    assert!(err.contains("newer version of Revolution"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Relinking an unpacked package only takes paths inside the sender's package folder: a clip
+/// elsewhere on the sender's disk that merely has the same file name is left alone.
+#[test]
+fn package_relink_ignores_paths_that_only_end_like_an_entry() {
+    use crate::media_test_util::{make_movie, session_with};
+    use crate::package::{Entry, Manifest, Role};
+    let dir = tmp_dir("s1-relink-tail");
+    let (pkg, elsewhere, new) = (dir.join("sender/pkg"), dir.join("elsewhere"), dir.join("new"));
+    for d in [&pkg, &elsewhere, &new] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    for f in [pkg.join("a.mov"), pkg.join("b.mov"), elsewhere.join("a.mov")] {
+        make_movie(&f, filmcraft_media::DemoScene::Plasma, 32, 18, 2);
+    }
+    let (mut s, _, _) = session_with(&[&pkg.join("a.mov"), &pkg.join("b.mov"), &elsewhere.join("a.mov")]);
+    s.execute("file.saveAs", json!({"path": new.join("T.fcproj").to_string_lossy()})).unwrap();
+    let mut m = Manifest::new("T.fcproj");
+    for (path, role) in [("T.fcproj", Role::Project), ("a.mov", Role::Media), ("b.mov", Role::Media)] {
+        m.entries.push(Entry { path: path.into(), size: 1, sha256: "0".repeat(64), role });
+    }
+    assert_eq!(projects::relink_package(&new, &m).unwrap(), 2);
+    let mut t = Session::default();
+    t.execute("file.open", json!({"path": new.join("T.fcproj").to_string_lossy()})).unwrap();
+    let mut paths: Vec<String> = t
+        .project
+        .items
+        .values()
+        .filter_map(|i| match &i.as_media()?.media {
+            filmcraft_project::MediaRef::File { path } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    paths.sort();
+    let mut want = vec![
+        elsewhere.join("a.mov").to_string_lossy().into_owned(),
+        new.join("a.mov").to_string_lossy().into_owned(),
+        new.join("b.mov").to_string_lossy().into_owned(),
+    ];
+    want.sort();
+    assert_eq!(paths, want);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A one-file `.fcpackage`: written, the folder it came from removed, and imported back with
+/// every clip relinked to the unpacked copies.
+#[test]
+fn a_one_file_package_round_trips() {
+    use crate::media_test_util::{make_movie, session_with};
+    let dir = tmp_dir("s1-fcpackage");
+    let movie = dir.join("Shoot").join("clip.mov");
+    std::fs::create_dir_all(movie.parent().unwrap()).unwrap();
+    make_movie(&movie, filmcraft_media::DemoScene::OceanSunset, 64, 36, 4);
+    let (mut s, _, _) = session_with(&[&movie]);
+    let root = dir.join("Projects");
+    s.prefs.general.projects_folder = Some(root.clone());
+    std::fs::create_dir_all(&root).unwrap();
+    let proj = dir.join("Reel.fcproj");
+    s.execute("file.saveAs", json!({"path": proj.to_string_lossy()})).unwrap();
+    let out = dir.join("Out");
+    let r =
+        s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": out.to_string_lossy(), "format": "file", "wait": true})).unwrap();
+    let file = out.join("Reel.fcpackage");
+    assert_eq!(r["package"], json!(file.to_string_lossy()), "{r}");
+    assert!(file.is_file() && !out.join("Reel package").exists(), "one file, no folder left");
+    assert!(
+        s.execute("projects.package", json!({"path": proj.to_string_lossy(), "destination": out.to_string_lossy(), "format": "file"})).is_err(),
+        "never over an existing package"
+    );
+    std::fs::remove_dir_all(dir.join("Shoot")).unwrap();
+    let r = s.execute("projects.importPackage", json!({"path": file.to_string_lossy(), "wait": true})).unwrap();
+    let to = PathBuf::from(r["path"].as_str().unwrap());
+    assert!(s.jobs.last().unwrap().progress.error.lock().unwrap().is_none());
+    let mut t = Session::default();
+    t.execute("file.open", json!({"path": to.join("Reel.fcproj").to_string_lossy()})).unwrap();
+    let ok = t.project.items.values().filter_map(|i| i.as_media()).all(|m| match &m.media {
+        filmcraft_project::MediaRef::File { path } => path.starts_with(&*to.to_string_lossy()) && Path::new(path).is_file(),
+        _ => true,
+    });
+    assert!(ok);
+    // a damaged package file: refused, nothing left
+    let mut bytes = std::fs::read(&file).unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0xff;
+    std::fs::write(&file, bytes).unwrap();
+    let before = std::fs::read_dir(&root).unwrap().count();
+    let _ = s.execute("projects.importPackage", json!({"path": file.to_string_lossy(), "wait": true}));
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), before, "nothing left behind");
+    let _ = std::fs::remove_dir_all(&dir);
+}

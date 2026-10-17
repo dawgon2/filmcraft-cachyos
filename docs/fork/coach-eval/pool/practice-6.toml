@@ -1,0 +1,140 @@
+# AI-POOL batch practice-6: practice/delivery.md. The original set asks the main question of
+# expose-log, viewing-lut, working-space, aces, tone-map, ten-bit and display-gamma: those get
+# pitfalls; the other notes get their main question.
+
+[[question]]
+id = "pool-r6-log-clipped"
+kind = "pro-practice"
+q = "I exposed my F-Log2 two stops over and now the sky is gone"
+sources = ["practice.delivery.expose-log"]
+must = ["clipped highlights can't be brought back: bright is fine, clipped isn't", "watch zebras / the histogram on set; about +1 stop is common for F-Log2"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r6-rec709-grade"
+kind = "pro-practice"
+q = "why do bright colours clip so fast when I set the sequence to grade straight in Rec 709?"
+sources = ["practice.delivery.working-space"]
+must = ["grading in the delivery space (Rec. 709) clips bright colours early", "grade in DaVinci Wide Gamut / Intermediate (sequence.colorSettings) and convert at the end"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r6-aces-lut"
+kind = "gap"
+q = "I've got a look LUT built for ACEScct, can I drop it on a node?"
+sources = ["practice.delivery.aces"]
+must = ["no ACES working space or transforms in Revolution yet", "a LUT made for ACEScct expects ACEScct numbers; in DaVinci Intermediate it looks close but shifts colours"]
+must_not = ["Revolution has an ACES working space"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-r6-flat-whites"
+kind = "tweak"
+q = "whites look dull and flat after tone mapping plus my highlight curve"
+sources = ["practice.delivery.tone-map"]
+must = ["tone mapping plus a strong highlight curve flattens whites twice: ease off the curve"]
+must_not = []
+style = "follow-up"
+needs_clip = true
+
+[[question]]
+id = "pool-r6-10bit-old-tv"
+kind = "pro-practice"
+q = "client's old TV won't play my 10-bit HEVC file"
+sources = ["practice.delivery.ten-bit"]
+must = ["some old players can't play 10-bit: keep an 8-bit H.264 copy for them"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r6-yt-4k"
+kind = "approach"
+q = "my channel audience is mostly 1080p, is there any point exporting 4K?"
+sources = ["practice.delivery.youtube-res"]
+must = ["yes: YouTube gives higher resolutions a better codec and more bits, so 1080p viewers see a cleaner picture", "a 4K H.265 preset with constant quality (CRF) or a high bitrate"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r6-vertical"
+kind = "multi-step"
+q = "make a 9:16 short from my open gate X-M5 edit"
+sources = ["practice.delivery.vertical"]
+must = ["duplicate the sequence (edit.duplicate), set it to 1080 × 1920 or 2160 × 3840 (sequence.settings)", "reposition each clip with Motion ▸ Position; the 6240 × 4160 frame leaves room"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r6-auto-reframe"
+kind = "gap"
+q = "is there an auto reframe like Premiere's for vertical versions?"
+sources = ["practice.delivery.vertical"]
+must = ["automatic reframing isn't offered (not yet)", "tracking can make a crop follow a subject"]
+must_not = ["Revolution has Auto Reframe"]
+style = "premiere-words"
+
+[[question]]
+id = "pool-r6-vertical-titles"
+kind = "pro-practice"
+q = "lower thirds are cut off in the vertical version"
+sources = ["practice.delivery.vertical"]
+must = ["titles and lower thirds placed for 16:9 fall outside the vertical frame: reposition them per version"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-r6-master"
+kind = "approach"
+q = "what should I export to keep long-term, besides the YouTube file?"
+sources = ["practice.delivery.master"]
+must = ["a high-quality master (H.265 4:2:2 10-bit or ProRes) plus the web versions in the export queue", "don't make deliveries by re-compressing a web file"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r6-broadcast"
+kind = "tool"
+q = "a broadcaster wants legal levels, what do I switch on?"
+sources = ["practice.delivery.levels"]
+must = ["the export's video limiter for broadcast specs; web deliveries don't need it", "don't limit twice (limiter plus a curve): it dulls whites"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r6-thumbnail"
+kind = "tool"
+q = "grab a still from the timeline for my youtube thumbnail"
+sources = ["practice.delivery.thumbnail"]
+must = ["park on the frame and Export Frame (file.exportFrame) as PNG, 16-bit if it will be edited further", "pause first so the original, not the proxy, is exported"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r6-captions"
+kind = "approach"
+q = "burn the subtitles in or upload them separately?"
+sources = ["practice.delivery.captions"]
+must = ["deliver SRT or WebVTT with Export ▸ Captions… (captions.export)", "burn in only for autoplaying social clips; burned-in captions can't be translated or turned off"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r6-check-file"
+kind = "approach"
+q = "the timeline plays fine, do I really need to watch the export too?"
+sources = ["practice.delivery.check-export"]
+must = ["compression, levels, captions and audio sync can all change on export", "watch the whole file, not only the first minute; import it back or use a normal player and check loudness"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r6-archive"
+kind = "multi-step"
+q = "project's done, how do I archive it so I can reopen it in five years?"
+sources = ["practice.delivery.archive"]
+must = ["export the project (projects.export), keep the card copies with their checksum lists and the master in one folder", "not only the proxies: keep the original camera files"]
+must_not = []
+style = "beginner"

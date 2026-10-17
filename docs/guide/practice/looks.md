@@ -1,7 +1,7 @@
 # Practice notes: looks
 
 **[Standard]** · common creative looks and how they are usually built, one per note, with the
-Resolve / Premiere approach and the FilmCraft nodes. Written in our own words from common practice
+Resolve / Premiere approach and the Revolution nodes. Written in our own words from common practice
 (AI-PLAN AI3 item 0a, 0c). Build every look on a balanced shot, on its own node
 ([grading.md](grading.md) ▸ look node), and mix it to taste.
 
@@ -13,7 +13,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 - **Resolve:** weight the channels (more red lightens skin and darkens blue sky) before taking
   saturation to zero.
-- **FilmCraft:** on the look node, shift colours with the wheels or a qualifier first (blue darker,
+- **Revolution:** on the look node, shift colours with the wheels or a qualifier first (blue darker,
   skin lighter), then Saturation to 0 on a later node.
 - **Pitfalls:** plain desaturation makes red and green the same grey; skies go flat.
 
@@ -23,7 +23,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** black and white as above, then Contrast up with the pivot on the subject and a
+- **Revolution:** black and white as above, then Contrast up with the pivot on the subject and a
   little grain.
 - **Pitfalls:** crushed blacks lose hair and clothing detail.
 
@@ -34,7 +34,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 **[Standard]**
 
 - **Resolve:** a layer mixer blending the shot with a black-and-white, high-contrast version.
-- **FilmCraft:** no layer mixer yet; on the look node: Saturation about 40–60 %, Contrast up,
+- **Revolution:** no layer mixer yet; on the look node: Saturation about 40–60 %, Contrast up,
   slight highlight shoulder; or a desaturated duplicate on V2 with the **Overlay** blend mode.
 - **Pitfalls:** skin goes grey; protect it a little with a skin qualifier.
 
@@ -44,7 +44,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** raise the bottom point of the master curve (`grade.curve.master`), maybe tint the
+- **Revolution:** raise the bottom point of the master curve (`grade.curve.master`), maybe tint the
   lifted blacks slightly warm or green with the Lift wheel; grain on top.
 - **Pitfalls:** banding in dark areas on 8-bit delivery; deliver 10-bit or add grain.
 
@@ -54,7 +54,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** Gain wheel towards orange, Temperature a little warmer, a soft highlight shoulder;
+- **Revolution:** Gain wheel towards orange, Temperature a little warmer, a soft highlight shoulder;
   keep shadows neutral or slightly cool for depth.
 - **Pitfalls:** orange skin; check the skin line on the vectorscope.
 
@@ -64,7 +64,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** Temperature cool, Lift towards teal-green, Saturation 70–80 %, a skin qualifier to
+- **Revolution:** Temperature cool, Lift towards teal-green, Saturation 70–80 %, a skin qualifier to
   keep faces from turning blue.
 - **Pitfalls:** dead, blue skin; viewers read it as illness.
 
@@ -74,7 +74,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** precise balance on the first node, white point near the top, a gentle contrast
+- **Revolution:** precise balance on the first node, white point near the top, a gentle contrast
   curve, Saturation slightly up.
 - **Pitfalls:** clipped whites on product edges; check the waveform.
 
@@ -84,7 +84,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** Contrast down, blacks lifted, Saturation a little down, Gain slightly warm or pink.
+- **Revolution:** Contrast down, blacks lifted, Saturation a little down, Gain slightly warm or pink.
 - **Pitfalls:** flat and muddy rather than soft: keep a clean white point.
 
 ## Neon night (cyberpunk)
@@ -93,7 +93,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** shadows towards blue-cyan, lights pushed towards magenta and cyan with qualifiers,
+- **Revolution:** shadows towards blue-cyan, lights pushed towards magenta and cyan with qualifiers,
   deep blacks; watch out-of-gamut colours on Rec. 709.
 - **Pitfalls:** clipped, flat neon: saturate less and let roll-off do its job.
 
@@ -103,9 +103,9 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** the balance and contrast nodes only, consistent across interviews; skin on the
+- **Revolution:** the balance and contrast nodes only, consistent across interviews; skin on the
   line; no look node, or a very light one.
-- **Pitfalls:** every interview balanced differently; match them ([grading.md](grading.md)).
+- **Pitfalls:** the biggest trap with many interviews: every interview balanced differently; match them ([grading.md](grading.md)).
 
 ## Film-like contrast without a LUT
 
@@ -113,7 +113,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** master curve with gentle toe and shoulder, Lift slightly cool, Gain slightly warm,
+- **Revolution:** master curve with gentle toe and shoulder, Lift slightly cool, Gain slightly warm,
   Saturation a touch lower, grain on the last node; a film-emulation LUT on a node if you have one
   you're licensed to use.
 - **Pitfalls:** the S-curve alone isn't film: the roll-off and texture matter as much.
@@ -124,7 +124,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** a LUT on a late node (`grade.setLut`) with its mix (`grade.param.lut.mix`) around
+- **Revolution:** a LUT on a late node (`grade.setLut`) with its mix (`grade.param.lut.mix`) around
   50–80 %; balance before it, not after. Import folders of LUTs with `lut.importFolder`.
 - **Pitfalls:** a LUT made for one camera's log on another camera; LUTs on unbalanced shots.
 
@@ -134,7 +134,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** a linear window on the sky (Gain down, a little blue), its inverse on the ground
+- **Revolution:** a linear window on the sky (Gain down, a little blue), its inverse on the ground
   (a touch warmer).
 - **Pitfalls:** the gradient crossing a mountain or building edge; soften and angle it.
 
@@ -144,7 +144,7 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** Gamma and Lift down on the contrast node, ellipse windows keep faces and lamps
+- **Revolution:** Gamma and Lift down on the contrast node, ellipse windows keep faces and lamps
   readable, slight cool shadows.
 - **Pitfalls:** lifting the whole picture back up to "see everything" kills the mood; noise in
   crushed shadows of log footage.
@@ -155,7 +155,54 @@ Resolve / Premiere approach and the FilmCraft nodes. Written in our own words fr
 
 **[Standard]**
 
-- **FilmCraft:** import the reference image into the project, put it on a timeline, grab it as a
+- **Revolution:** import the reference image into the project, put it on a timeline, grab it as a
   still (`stills.grab`) and wipe against your shot; match levels first, then colour, then
   contrast shape.
 - **Pitfalls:** chasing a look the footage can't support (different light, lens or exposure).
+
+## Double exposure (two shots in one)
+
+> id: practice.looks.double-exposure | does: lays one shot through another, like two pictures on one piece of film: a face filled with a landscape | resolve: second clip on V2 with Composite Mode Screen or Lighten, a window, Fusion for more | premiere: second clip on V2, Opacity Blend Mode Screen / Lighten, an Opacity mask | when: memories, dreams, music videos, title sequences | see: effects.opacity, practice.editing.clean-plate
+
+**[Standard]**
+
+- **Revolution:** put the base shot (usually a face or silhouette against a bright sky) on V1 and
+  the texture shot (trees, city lights, clouds) on V2. On the V2 clip's **Opacity** set
+  **Blend Mode** to **Screen** (or **Lighten**) and **Opacity** around 50–80 %
+  (`effects.setParam`, effect `opacity`); [effects.md](../effects.md) ▸ Opacity has the table of
+  modes. To keep the texture inside the figure, draw a mask on Opacity, feather it, and track it
+  if the person moves (`masks.add`, `masks.track`).
+- **Options:** **Screen** keeps the bright parts of both (the classic film look, needs a dark
+  texture); **Multiply** keeps the dark parts (a silhouette filled with texture, needs a bright
+  background); a comp in the Compositor when you want more than two layers or to see the mix as
+  a node graph ([compositor.md](../compositor.md)).
+- **Pitfalls:** grade both shots first (contrast decides what shows through); a busy texture
+  hides the face, so pick one with large calm areas; Screen can never darken, so a bright texture
+  washes everything out.
+
+## VHS, camcorder or security-camera look
+
+> id: practice.looks.vhs | does: makes clean footage look like an old tape, a home camcorder or a CCTV camera: soft, noisy, washed out, with a timestamp | resolve: Fusion / OFX effects (e.g. analog damage), blur, grain, text | premiere: VHS presets, Noise, Gaussian Blur, text layer | when: flashbacks, found footage, a fake security recording, retro music videos | see: shader-effects.use, color.finishing.grain, graphics.text
+
+**[Standard]**
+
+- **VHS / camcorder:** apply the bundled **VHS** shader effect (Effects ▸ Video Effects ▸ User ▸
+  Stylize, `effects.apply`; wobble, colour bleed, lifted blacks, grain and scanlines, GPU only,
+  [shader-effects.md](../shader-effects.md)). For more: lower saturation a little, lift the
+  blacks with the master curve, warm or magenta-tint the highlights.
+- **Security camera:** on the look node: Saturation 0–20 % (or a slight green tint with the Gain
+  wheel), Contrast up, strong grain (`grade.param.grain.*`); then a text layer for the camera
+  name and a date / time in a corner (a graphic clip, [graphics.md](../graphics.md)). A high,
+  wide framing sells it more than any effect: punch in or reframe with Motion **Scale** /
+  **Position** so it looks like a fixed corner camera.
+- **Stutter:** **Posterize Time** (Effects ▸ Video Effects ▸ Time; **Frame Rate**, e.g. 8) makes
+  the picture jump like a cheap camera's low frame rate. Between shots, the **VHS Damage** or
+  **Glitch** transition (Video Transitions ▸ Grunge & Distort) gives a tape-tracking hit at the cut.
+- **Running clock:** **Metadata & Timecode Burn-in** (Effects ▸ Video Effects ▸ Video; **Source**
+  Sequence or Media Timecode, **Alignment** Top Left / Top Right …, **Size**, **Text Color**) puts a
+  ticking timecode in a corner, which reads like a camera clock. Add the camera name with a text
+  layer next to it.
+- **Revolution:** no date / time-of-day clock yet (the burn-in shows hours:minutes:seconds:frames);
+  a date needs a text layer, and a wall-clock time keyframed text changes.
+- **Pitfalls:** too much at once looks like a plugin demo; real tape is mostly soft and dull,
+  not glitchy; keep the audio matching (thin, a little hiss).

@@ -1,28 +1,30 @@
 //! Community and project links (Help menu, About dialog, header Discord button, Home screen).
 //!
-//! FilmCraft is part of the ArtCraft family: the community lives on the ArtCraft Discord, every
-//! app has a page on the ArtCraft website and a public GitHub repository.
+//! Revolution (fork, FORK-PLAN §1a.103) is based on FilmCraft by the ArtCraft team. A modified
+//! build must not carry the ArtCraft marks or present itself as an ArtCraft product
+//! (docs/brand/LICENSE-brand.txt), so the links go to Revolution's own repository, plus a
+//! plain-text credit link to the original project. The command ids stay the same as upstream's.
 
-/// The app's short name, used in the website and repository URLs.
-pub const APP: &str = "filmcraft";
+/// The app's short name, used in the repository URLs.
+pub const APP: &str = "revolution";
 
-/// The ArtCraft community Discord.
-pub const DISCORD: &str = "https://discord.gg/artcraft";
-/// The ArtCraft website.
-pub const WEBSITE: &str = "https://getartcraft.com";
-/// FilmCraft's page on the ArtCraft website.
-pub const APP_PAGE: &str = "https://getartcraft.com/apps/filmcraft";
-/// FilmCraft's source repository.
-pub const GITHUB: &str = "https://github.com/storytold/filmcraft";
-/// New issue on FilmCraft's repository.
-pub const ISSUES: &str = "https://github.com/storytold/filmcraft/issues";
+/// Revolution's releases (the newest build to download).
+pub const DISCORD: &str = "https://github.com/dawgon2/revolution/releases";
+/// The original project Revolution is based on.
+pub const WEBSITE: &str = "https://github.com/storytold/filmcraft";
+/// Revolution's page.
+pub const APP_PAGE: &str = "https://github.com/dawgon2/revolution";
+/// Revolution's source code.
+pub const GITHUB: &str = "https://github.com/dawgon2/revolution/tree/fork";
+/// New issue on Revolution's repository.
+pub const ISSUES: &str = "https://github.com/dawgon2/revolution/issues";
 
 /// (command id, label, url) for every link, in menu order.
 pub const ALL: [(&str, &str, &str); 5] = [
-    ("help.discord", "Join the ArtCraft Discord…", DISCORD),
-    ("help.website", "ArtCraft Website", WEBSITE),
-    ("help.appPage", "FilmCraft on getartcraft.com", APP_PAGE),
-    ("help.github", "FilmCraft on GitHub", GITHUB),
+    ("help.discord", "Revolution Releases…", DISCORD),
+    ("help.website", "Based on FilmCraft (Original Project)", WEBSITE),
+    ("help.appPage", "Revolution on GitHub", APP_PAGE),
+    ("help.github", "Source Code on GitHub", GITHUB),
     ("help.reportIssue", "Report an Issue…", ISSUES),
 ];
 
@@ -50,9 +52,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn urls_follow_the_artcraft_scheme() {
-        assert_eq!(APP_PAGE, format!("{WEBSITE}/apps/{APP}"));
-        assert_eq!(GITHUB, format!("https://github.com/storytold/{APP}"));
+    fn urls_point_at_revolutions_repository() {
+        assert_eq!(APP_PAGE, format!("https://github.com/dawgon2/{APP}"));
+        assert!([DISCORD, GITHUB, ISSUES].iter().all(|u| u.starts_with(APP_PAGE)));
+        assert!(ALL.iter().all(|(_, label, u)| !label.contains("ArtCraft") && !u.contains("artcraft")), "no ArtCraft marks (docs/brand)");
         assert!(ALL.iter().all(|(id, _, u)| id.starts_with("help.") && u.starts_with("https://")));
         assert_eq!(url_for("help.discord"), Some(DISCORD));
         assert_eq!(url_for("help.nope"), None);

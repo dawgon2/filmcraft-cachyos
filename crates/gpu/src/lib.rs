@@ -38,6 +38,7 @@ use filmcraft_frame::{PixelData, VideoFrame};
 use filmcraft_render::Blend;
 use filmcraft_render::plan::{FramePlan, PlanLayer, PlanStep};
 
+pub mod adapter_pick;
 pub mod colorops;
 mod comp;
 pub mod export_renderer;
@@ -1589,16 +1590,21 @@ impl GpuCompositor {
     }
 
     /// [`headless_device`](Self::headless_device) on the GPU with PCI ids `pci` (vendor,
-    /// device; fork 6E.3: one export compositor per GPU); `None`: the high-performance adapter.
+    /// device; fork 6E.3: one export compositor per GPU); `None`: the GPU Settings ▸ Playback ▸
+    /// Graphics device picks ([`adapter_pick`]), else the high-performance adapter.
     /// No adapter with those ids: `None`. (Two identical cards: the first one.)
     #[cfg(not(target_arch = "wasm32"))]
     pub fn headless_device_on(pci: Option<(u32, u32)>) -> Option<(wgpu::Device, wgpu::Queue)> {
         let instance = wgpu::Instance::default();
         let adapter = match pci {
-            None => {
-                let opts = wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() };
-                pollster::block_on(instance.request_adapter(&opts)).ok()?
-            }
+            // Settings ▸ Playback ▸ Graphics device (fork XPS a), else the high-performance one
+            None => match adapter_pick::choose(&instance, wgpu::Backends::all()) {
+                Some(a) => a,
+                None => {
+                    let opts = wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() };
+                    pollster::block_on(instance.request_adapter(&opts)).ok()?
+                }
+            },
             Some((vendor, device)) => pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all())).into_iter().find(|a| {
                 let i = a.get_info();
                 i.vendor == vendor && i.device == device

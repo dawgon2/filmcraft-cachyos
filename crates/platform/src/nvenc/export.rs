@@ -205,7 +205,15 @@ fn config(format: Format, w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -
         level: if hevc { None } else { s.h264_level },
         sar: s.pixel_aspect,
         bframes: true,
+        preset: nv_preset(s.hw_encode_speed),
     })
+}
+
+/// The NVENC preset for Export ▸ Hardware encoder speed (fork 6E.2 / XPS b): the driver default
+/// is P5 (FilmCraft's choice before), Speed P1, Balanced P4, Quality P7, by the same seven-step
+/// scale as VA-API's quality levels (1 = best there, so level `l` is preset `8 − l`).
+fn nv_preset(speed: filmcraft_export::HwEncodeSpeed) -> u8 {
+    speed.level(7).and_then(|l| u8::try_from(8u32.saturating_sub(l)).ok()).filter(|p| (1..=7).contains(p)).unwrap_or(5)
 }
 
 /// The Export encoder factory (see the module documentation).
@@ -261,6 +269,20 @@ fn factory_with(
     }
 }
 
+/// Fork XPS b: NVENC H.265 for the Linux HEVC export ([`crate::hevc_export`], which decides when
+/// it is tried): 8-bit 4:2:0 BT.709 SDR only for now (Main 10 / HDR on Linux is owed to the
+/// laptop runs). `Err`: why not (the caller tries its next encoder).
+#[cfg(target_os = "linux")]
+pub fn linux_hevc_encoder(w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> std::result::Result<Box<dyn VideoEncoder>, String> {
+    if s.signal.is_hdr() || s.hevc_bit_depth == 10 || s.hevc_chroma_422 {
+        return Err("NVENC on Linux encodes 8-bit 4:2:0 SDR H.265 here".into());
+    }
+    let cfg = config(Format::Hevc, w, h, rate, s)?;
+    let enc = open(&cfg, &nvenc_signal(&s.signal))?;
+    filmcraft_export::note_hw_encode_session();
+    Ok(Box::new(new_encoder(enc, w, h, rate, s.signal)))
+}
+
 /// The H.265 side of [`factory`]: FilmCraft's only HEVC encoder on Windows, so the Hardware encoding toggle
 /// does not apply and a request NVENC cannot take is an error, not a fall-through.
 fn hevc_factory(w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> Option<Result<Box<dyn VideoEncoder>>> {
@@ -289,6 +311,19 @@ fn hevc_factory(w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> Option<R
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hardware_encoder_speed_picks_the_nvenc_preset() {
+        use filmcraft_export::HwEncodeSpeed as S;
+        assert_eq!(nv_preset(S::Default), 5);
+        assert_eq!(nv_preset(S::Speed), 1);
+        assert_eq!(nv_preset(S::Balanced), 4);
+        assert_eq!(nv_preset(S::Quality), 7);
+        let cfg =
+            |speed| config(Format::Hevc, 1920, 1080, FrameRate::FPS_24, &ExportSettings { hw_encode_speed: speed, ..Default::default() }).map(|c| c.preset);
+        assert_eq!(cfg(S::Speed), Ok(1));
+        assert_eq!(cfg(S::Default), Ok(5));
+    }
+
     use super::*;
 
     #[test]

@@ -1,0 +1,310 @@
+# AI-POOL batch color-6: color/noise.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c6-why-noisy"
+kind = "approach"
+q = "why did my shadows get all grainy after I brightened them?"
+sources = ["color.noise.why"]
+must = ["log footage is noisy in the shadows and lifting them makes the noise more visible", "reduce noise before the correction that lifts the shadows"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c6-fast-motion"
+kind = "approach"
+q = "handheld running shot, lots of motion, which NR do I use?"
+sources = ["color.noise.why", "color.noise.steps"]
+must = ["temporal is better for static or slow shots", "spatial is the fallback where things move fast"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-c6-spatial-start"
+kind = "tweak"
+q = "what values should I start the spatial noise sliders at?"
+sources = ["color.noise.steps"]
+must = ["NR luma for grainy brightness noise, NR chroma for coloured blotches, start around 0.3", "compare with the node switched off"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c6-radius"
+kind = "tool"
+q = "what does NR radius change?"
+sources = ["color.noise.steps"]
+must = ["how far each pixel looks for similar neighbours (0.25 … 3.5 source pixels)", "larger is smoother and slower"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c6-nr-background"
+kind = "multi-step"
+q = "only the dark background is noisy, I don't want to soften the face"
+sources = ["color.noise.steps", "color.noise.limits"]
+must = ["add a window to the NR node: the noise reduction stays inside it", "a qualifier on the node does not limit spatial NR"]
+must_not = ["tells the user to limit it with a qualifier"]
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c6-tnr-where"
+kind = "tool"
+q = "where are the temporal NR controls?"
+sources = ["color.noise.temporal"]
+must = ["Effect Controls (Inspector in the Resolve workflow): the Temporal NR section", "or the Color page Noise tab: the Temporal NR (clip) block"]
+must_not = ["says it is on a grade node"]
+style = "beginner"
+
+[[question]]
+id = "pool-c6-tnr-frames"
+kind = "tweak"
+q = "Frames 1 or 2 for temporal NR?"
+sources = ["color.noise.temporal", "color.noise.limits"]
+must = ["1 averages three frames, 2 five frames (cleaner and slower)", "use 1 unless 2 is visibly cleaner"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-ghost"
+kind = "tweak"
+q = "moving edges leave a faint ghost after temporal noise reduction"
+sources = ["color.noise.temporal"]
+must = ["lower Motion (default 0.5)"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c6-tnr-copy"
+kind = "multi-step"
+q = "I've dialled in temporal NR on one interview clip, how do I put the same on the other 12?"
+sources = ["color.noise.temporal"]
+must = ["Clip ▸ Temporal NR ▸ Copy Temporal NR, select the others, Paste Temporal NR", "Paste Attributes also copies it", "copying a grade doesn't carry it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c6-tnr-grade-change"
+kind = "pro-practice"
+q = "if I change my grade, does the temporal NR have to re-render?"
+sources = ["color.noise.temporal"]
+must = ["no: temporal NR cleans the clip right after the input transform, before every node and effect", "changing the grade never changes what it does"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-combine"
+kind = "pro-practice"
+q = "can I stack spatial NR on top of temporal NR?"
+sources = ["color.noise.temporal"]
+must = ["they combine: temporal first, then each node's spatial NR", "with temporal on keep spatial low (0.1–0.2) or off"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-tnr-keyframe"
+kind = "tool"
+q = "can temporal NR strength be keyframed?"
+sources = ["color.noise.temporal"]
+must = ["yes: each control can be keyframed", "keyframes show as diamonds in Effect Controls; drag to move (tnr.moveKeyframe)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-old-project"
+kind = "pro-practice"
+q = "I opened an older project and got a message that temporal NR moved to clips"
+sources = ["color.noise.temporal"]
+must = ["until schema v17 it lived on the first grade node", "projects saved then move it to the clip when they open; the message says how many"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-cut-neighbours"
+kind = "pro-practice"
+q = "does temporal NR borrow frames from the next shot across a cut?"
+sources = ["color.noise.how"]
+must = ["never across a cut: the neighbours are the clip's own frames", "it follows speed, reverse and holds (a hold has nothing to average)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-how-temporal"
+kind = "pro-practice"
+q = "how does the temporal filter avoid smearing moving things?"
+sources = ["color.noise.how"]
+must = ["optical flow estimates motion, neighbours are warped onto the frame", "a neighbour counts less the more it differs and where forward and backward motion disagree"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-preview-res"
+kind = "tweak"
+q = "the paused frame with NR looks slightly different from my export"
+sources = ["color.noise.limits"]
+must = ["it matches exactly only at playback resolution Full", "at 1/2 or 1/4 the cleaning is close but not identical"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c6-retime"
+kind = "pro-practice"
+q = "temporal NR on a slowed-down clip with optical flow, will it work?"
+sources = ["color.noise.limits"]
+must = ["frames made between source frames (Frame Blending, Optical Flow) get no temporal NR", "Frame Sampling (the default) is not affected"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c6-nested"
+kind = "tweak"
+q = "temporal NR on my nested sequence does nothing"
+sources = ["color.noise.limits"]
+must = ["it works on media clips and subclips; on nested sequences, graphics and adjustment layers it does nothing"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c6-bypass-tnr"
+kind = "tweak"
+q = "Bypass doesn't turn off the temporal noise reduction"
+sources = ["color.noise.limits"]
+must = ["right: it isn't part of the grade; use its Enabled switch"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c6-export-slow"
+kind = "approach"
+q = "my 6.2K export got much slower after I turned on noise reduction"
+sources = ["color.noise.limits"]
+must = ["temporal NR is slow: expect an export several times slower at 6.2K", "use 1 frame each side unless 2 is visibly cleaner"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c6-chroma-edges"
+kind = "tweak"
+q = "after spatial NR the edges of coloured things look soft"
+sources = ["color.noise.limits"]
+must = ["at full strength faint colour edges soften", "keep NR chroma moderate"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c6-resolve-modes"
+kind = "gap"
+q = "where's faster / better mode and per-channel mode for spatial NR?"
+sources = ["color.noise.resolve"]
+must = ["one filter with two strengths and a radius: no modes yet"]
+must_not = ["invents an NR mode switch"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c6-tnr-window"
+kind = "gap"
+q = "in Resolve I limit temporal NR with a window on its node, how here?"
+sources = ["color.noise.resolve", "color.noise.limits"]
+must = ["here temporal NR is a clip setting before the grade, so a window or qualifier can't limit it"]
+must_not = ["tells the user to add a window to limit temporal NR"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c6-tnr-script"
+kind = "tool"
+q = "how do I set temporal NR luma from the control channel?"
+sources = ["color.noise.resolve"]
+must = ["tnr.set with param and value, e.g. luma 0.5", "grade.setParam refuses tnr.* keys"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c6k-nr-luma"
+q = "nr luma vs nr chroma"
+kind = "what-for"
+origin = "agent"
+page = "color/noise.md"
+heading = "Steps"
+status = "covered"
+facts = ["luma: grainy brightness", "chroma: coloured blotches"]
+
+[[coach]]
+id = "pool-c6k-radius"
+q = "nr radius"
+kind = "what-for"
+origin = "agent"
+page = "color/noise.md"
+heading = "Steps"
+status = "covered"
+facts = ["larger is smoother and slower"]
+
+[[coach]]
+id = "pool-c6k-copy-tnr"
+q = "copy temporal nr to other clips"
+kind = "how"
+origin = "agent"
+page = "color/noise.md"
+heading = "Temporal noise reduction"
+status = "covered"
+facts = ["Copy Temporal NR", "Paste Temporal NR"]
+
+[[coach]]
+id = "pool-c6k-ghost"
+q = "temporal nr ghosting"
+kind = "why"
+origin = "agent"
+page = "color/noise.md"
+heading = "Temporal noise reduction"
+alt = [{ page = "color/noise.md", heading = "How it works" }]
+status = "covered"
+facts = ["lower Motion"]
+
+[[coach]]
+id = "pool-c6k-optical-flow"
+q = "optical flow motion estimation noise"
+kind = "what-for"
+origin = "agent"
+page = "color/noise.md"
+heading = "How it works"
+status = "covered"
+facts = ["Lucas–Kanade optical flow"]
+
+[[coach]]
+id = "pool-c6k-slow-export"
+q = "why is export slow with temporal nr"
+kind = "why"
+origin = "agent"
+page = "color/noise.md"
+heading = "Limits"
+status = "covered"
+facts = ["several times slower at 6.2K"]
+
+[[coach]]
+id = "pool-c6k-motion-effects"
+q = "motion effects palette"
+kind = "resolve-word"
+origin = "agent"
+page = "color/noise.md"
+heading = "If you know Resolve"
+alt = [{ page = "color/noise.md", heading = "Temporal noise reduction" }]
+status = "covered"
+facts = ["a clip setting here"]
+
+[[coach]]
+id = "pool-c6k-denoise-typo"
+q = "how do i denoize grainy shadows"
+kind = "typo"
+origin = "agent"
+page = "color/noise.md"
+heading = "Steps"
+alt = [{ page = "color/noise.md", heading = "Why" }]
+status = "covered"
+facts = ["NR luma"]

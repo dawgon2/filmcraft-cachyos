@@ -1,0 +1,326 @@
+# AI-POOL batch creative-5 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families, weighted to motion / titles, compositing, transitions and social
+# formats. Ten new families: animated lower third, scrolling credits, channel logo bug, text behind
+# the subject, cold open, a YouTube upload package, a fade-out ending, split screen, light-leak
+# transition, glitch transition. `must` = plan sub-goals from the guide's own text. Families with a
+# partial gap: text-behind-subject (no automatic subject cut-out; tracked mask by hand). Held-out only.
+
+# --- animated-lower-third ---
+
+[[question]]
+id = "pool-cr5-l3-slide"
+kind = "creative"
+family = "animated-lower-third"
+q = "a lower third with my name that slides in and out smoothly"
+sources = ["practice.titles.lower-third", "practice.titles.easing", "practice.titles.in-out"]
+must = ["a graphic with a text layer and a box shape pinned to it (graphics.pin) so the box fits the name, inside the safe margins", "keyframe Position in and out with eased keyframes, a matching entrance and exit"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-l3-reuse"
+kind = "creative"
+family = "animated-lower-third"
+q = "twelve interviewees, I want the same animated name tag for all of them but only type the names"
+sources = ["graphics.templates", "practice.titles.templates", "graphics.responsive"]
+must = ["build it once, Export As Motion Graphics Template (graphics.template.export) with only the text editable", "apply per person (graphics.template.apply) and change the name in Essential Graphics ▸ Edit", "protected time keeps the in / out animation when the clip is trimmed"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr5-l3-long"
+kind = "creative"
+family = "animated-lower-third"
+q = "name bar where the box grows with long names, premiere responsive design style"
+sources = ["graphics.responsive", "practice.titles.lower-third"]
+must = ["pin the box shape's edges to the text layer (graphics.pin): it grows and shrinks with the name", "test with the longest name so it doesn't run off screen"]
+must_not = []
+style = "premiere-words"
+
+# --- scrolling-credits ---
+
+[[question]]
+id = "pool-cr5-credits"
+kind = "creative"
+family = "scrolling-credits"
+q = "end credits rolling up the screen like a movie"
+sources = ["practice.titles.credits", "graphics.responsive", "graphics.text"]
+must = ["a paragraph text layer with Roll (graphics.setRoll), starting and ending off screen", "the clip's length sets the speed: longer clip, slower roll; keep it readable"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-credits-shimmer"
+kind = "creative"
+family = "scrolling-credits"
+q = "credits scroll flickers and shimmers on thin fonts"
+sources = ["practice.titles.credits", "practice.titles.type-system"]
+must = ["thin type shimmers while scrolling: use a heavier weight or larger size", "slow the roll down (lengthen the clip)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr5-credits-over"
+kind = "creative"
+family = "scrolling-credits"
+q = "credits rolling over the last shot which slowly fades to black"
+sources = ["practice.titles.credits", "effects.opacity", "effects.transitions"]
+must = ["the roll on a track above the last shot", "fade the shot under it: keyframe its Opacity to 0, or a Dip to Black / transition at its end"]
+must_not = []
+style = "pro"
+
+# --- channel-logo-bug ---
+
+[[question]]
+id = "pool-cr5-bug"
+kind = "creative"
+family = "channel-logo-bug"
+q = "put my small channel logo in the corner of every video, see-through"
+sources = ["practice.titles.logo-bug", "effects.opacity", "practice.titles.safe-margins"]
+must = ["the logo as a graphic on the top track, inside the safe margins", "Upgrade to Source Graphic (graphics.upgradeToSourceGraphic) so every use updates together", "lower its Opacity for a see-through bug"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-bug-change"
+kind = "creative"
+family = "channel-logo-bug"
+q = "rebranded, need the logo changed in all 40 places in the edit"
+sources = ["practice.titles.logo-bug", "graphics.source"]
+must = ["if it is a source graphic, editing one updates every clip of that item", "otherwise upgrade it to a source graphic first (or replace each clip from the bin)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr5-bug-series"
+kind = "creative"
+family = "channel-logo-bug"
+q = "same bug and end card across a whole series of projects"
+sources = ["practice.titles.logo-bug", "graphics.templates", "practice.youtube.template"]
+must = ["save the bug / end card as a template (.fcgt) to reuse across projects, or share it in a look pack", "start each episode from a template project with the graphics already set up"]
+must_not = []
+style = "pro"
+
+# --- text-behind-subject (partial gap) ---
+
+[[question]]
+id = "pool-cr5-behind"
+kind = "creative"
+family = "text-behind-subject"
+q = "big title text that goes behind me, like I'm standing in front of the words"
+sources = ["graphics.text", "effects.opacity", "tracking.what"]
+must = ["shot on V1, the title on V2, a copy of the shot on V3 with a mask on Opacity around you (masks.add), feathered", "track or keyframe the mask if you move (masks.track)", "there's no automatic subject cut-out: the mask is drawn by hand"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-behind-comp"
+kind = "creative"
+family = "text-behind-subject"
+q = "text behind the mountain ridge in a drone shot, as a comp"
+sources = ["compositor.basics", "compositor.masks", "graphics.text"]
+must = ["Media In (the shot) as background, a Text node merged over it, then the shot again through a Mask node on the ridge merged on top", "a moving drone needs the mask animated or tracked to follow the ridge"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr5-behind-sky"
+kind = "creative"
+family = "text-behind-subject"
+q = "words behind the building, sky is clear blue so maybe key it"
+sources = ["keying.luma-color", "graphics.text", "effects.opacity"]
+must = ["title on V2, the shot again on V3 with Color Key on the blue sky so the sky turns see-through and the title shows only there", "check the matte; clouds or blue windows can leak"]
+must_not = []
+style = "sloppy"
+
+# --- cold-open-intro ---
+
+[[question]]
+id = "pool-cr5-cold-open"
+kind = "creative"
+family = "cold-open-intro"
+q = "start my video with the best moment and then show the title"
+sources = ["practice.youtube.cold-open", "practice.youtube.hook", "graphics.templates"]
+must = ["the result or best moment first, then a short title from a template (graphics.template.apply)", "keep the intro short: the promise of the video, not a long intro"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-cold-open-sound"
+kind = "creative"
+family = "cold-open-intro"
+q = "cold open that hits the title card on a music sting"
+sources = ["practice.youtube.cold-open", "practice.editing.music-beat", "timeline.markers"]
+must = ["place a marker on the sting (markers.add) and snap the title card's start to it (sequence.snap)", "the cold open runs before the title"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr5-cold-open-teaser"
+kind = "creative"
+family = "cold-open-intro"
+q = "teaser at the start made of quick clips from later in the video"
+sources = ["practice.youtube.hook", "editing.three-point", "practice.editing.music-beat"]
+must = ["pick short moments with In / Out and place them at the start (three-point edits)", "cut them to the music's beats or phrases"]
+must_not = []
+style = "sloppy"
+
+# --- youtube-upload-package ---
+
+[[question]]
+id = "pool-cr5-pack"
+kind = "creative"
+family = "youtube-upload-package"
+q = "finished my video, I need the upload file, a vertical short, chapters and a thumbnail"
+sources = ["practice.youtube.batch-export", "practice.youtube.chapters", "practice.delivery.thumbnail", "practice.delivery.vertical"]
+must = ["queue the upload, the vertical version and a master (export.queue.add, export.queue.start)", "chapters: markers at each chapter start, Export Markers as CSV (markers.exportCsv), first at 0:00", "thumbnail: Export Frame (file.exportFrame) as PNG while paused (not on a proxy)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-pack-loud"
+kind = "creative"
+family = "youtube-upload-package"
+q = "before uploading, what should I check so it sounds and looks right on youtube"
+sources = ["practice.youtube.loudness", "practice.youtube.review", "practice.delivery.check-export"]
+must = ["loudness about −14 LUFS with peaks under −1 dBTP", "watch the exported file start to end as a viewer, also on a phone"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr5-pack-4k"
+kind = "creative"
+family = "youtube-upload-package"
+q = "1080p channel, should I still upload 4K and at what quality"
+sources = ["practice.delivery.youtube-res", "export.bitrate-crf", "practice.delivery.ten-bit"]
+must = ["upload 4K (or above) even for a 1080p audience, at a generous bitrate", "10-bit H.265 (Main 10) avoids banding in skies"]
+must_not = []
+style = "pro"
+
+# --- fade-out-ending ---
+
+[[question]]
+id = "pool-cr5-ending"
+kind = "creative"
+family = "fade-out-ending"
+q = "end my film with the picture fading to black and the music fading out together"
+sources = ["effects.transitions", "practice.audio.crossfades", "effects.keyframes"]
+must = ["a Dip to Black (or Opacity keyed to 0) at the end of the last clip", "the music: an audio fade (Exponential Fade suits fades to silence) or Volume keyframes, over the same length"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-ending-white"
+kind = "creative"
+family = "fade-out-ending"
+q = "fade to white at the end instead of black, dreamy"
+sources = ["effects.transitions", "media.generated"]
+must = ["a Dip to White transition at the end, or a white Color Matte after the last clip with a Cross Dissolve into it"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr5-ending-default"
+kind = "creative"
+family = "fade-out-ending"
+q = "all my scene changes should be soft fades, how do I put them on everything at once"
+sources = ["effects.transitions", "practice.audio.crossfades"]
+must = ["set the default transition (effects.setDefaultTransition) and Apply Default Transitions to Selection (sequence.applyDefaultTransitionsToSelection)", "transitions need handles; with too little media they get shorter"]
+must_not = []
+style = "pro"
+
+# --- split-screen ---
+
+[[question]]
+id = "pool-cr5-split"
+kind = "creative"
+family = "split-screen"
+q = "two clips side by side, split screen, both people talking on the phone"
+sources = ["effects.opacity", "effects.apply", "compositor.basics"]
+must = ["each clip on its own track, moved with Motion Position (and Scale if needed) to its half", "a rectangle mask on the top clip's Opacity crops it to its half; or a comp with Transform nodes and a Merge"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-split-four"
+kind = "creative"
+family = "split-screen"
+q = "four-way grid of clips, like a video call"
+sources = ["compositor.basics", "compositor.make", "effects.apply"]
+must = ["a comp: four Media In nodes, each through a Transform scaled to 50 % and moved to a corner, merged together", "or four tracks with Motion Scale 50 % and Position per clip"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr5-split-line"
+kind = "creative"
+family = "split-screen"
+q = "split screen with a soft diagonal edge instead of a hard line"
+sources = ["effects.opacity", "compositor.masks"]
+must = ["draw the mask with the pen as a diagonal shape on the top clip's Opacity", "Mask Feather softens the edge"]
+must_not = []
+style = "pro"
+
+# --- light-leak-transition ---
+
+[[question]]
+id = "pool-cr5-leak"
+kind = "creative"
+family = "light-leak-transition"
+q = "light leak flash between two clips like a film burn"
+sources = ["effects.stylize", "shader-effects.use", "media.generated", "effects.keyframes"]
+must = ["simplest: the Light Leak transition (Video Transitions ▸ Lights & Blurs) on the edit", "or by hand: the Light Leaks effect or the bundled Light Leak shader effect (Video Effects ▸ User ▸ Stylize) on an Adjustment Layer over the cut, or on the clips either side", "keyframe its controls (or the layer's Opacity) up into the cut and down after; shader effects run only on the GPU"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-leak-overlay"
+kind = "creative"
+family = "light-leak-transition"
+q = "I have a light leak overlay clip on black, how do I lay it over the cut"
+sources = ["effects.opacity", "effects.transitions"]
+must = ["put it on a track above the cut and set its Opacity Blend Mode to Screen (or Linear Dodge (Add)): black disappears, only the light stays", "fade it in and out with Opacity keyframes"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr5-leak-wedding"
+kind = "creative"
+family = "light-leak-transition"
+q = "warm dreamy transitions for a wedding video"
+sources = ["shader-effects.use", "effects.transitions", "effects.opacity"]
+must = ["dissolves between shots (Cross Dissolve), with the Light Leak shader effect or a leak overlay clip on Screen over some of them", "don't use it on every cut"]
+must_not = []
+style = "sloppy"
+
+# --- glitch-transition ---
+
+[[question]]
+id = "pool-cr5-glitch"
+kind = "creative"
+family = "glitch-transition"
+q = "glitchy digital transition between scenes"
+sources = ["effects.stylize", "shader-effects.use", "media.generated", "effects.keyframes"]
+must = ["simplest: the Glitch or VHS Damage transition (Video Transitions ▸ Grunge & Distort) on the edit", "or by hand: the bundled Glitch shader effect (bands jump sideways, red / blue split) on an Adjustment Layer a few frames long over the cut", "keyframe its controls so it peaks at the cut; GPU only"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr5-glitch-custom"
+kind = "creative"
+family = "glitch-transition"
+q = "write my own glitch effect with a strength I can animate"
+sources = ["shader-effects.write", "shader-effects.recipes", "effects.keyframes"]
+must = ["a .wgsl file in the Effects folder with an @param becomes a control; Reload (effects.reloadUser)", "its controls keyframe like any effect; start from a recipe"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr5-glitch-rgb"
+kind = "creative"
+family = "glitch-transition"
+q = "rgb split chromatic thing on the beat drops"
+sources = ["shader-effects.use", "practice.editing.music-beat", "effects.keyframes"]
+must = ["Chromatic Aberration or Glitch shader effect, keyframed up on each drop", "markers on the beats (M while playing) to place the keyframes"]
+must_not = []
+style = "sloppy"

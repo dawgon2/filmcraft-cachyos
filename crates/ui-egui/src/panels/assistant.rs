@@ -12,7 +12,8 @@
 //!
 //! Automation ids: `assistant.input`, `assistant.send`, `assistant.stop`, `assistant.new`,
 //! `assistant.turn.{n}` (1-based; the question), `assistant.line.{n}.{m}` (answer `n`, line `m`),
-//! `assistant.lesson.{n}` (Show me).
+//! `assistant.lesson.{n}` (Show me), `assistant.rate.{n}.*` (rating and sharing,
+//! [`super::share_example`]).
 
 use egui::{CornerRadius, Frame, Margin, Rect, RichText, vec2};
 use serde_json::{Value, json};
@@ -84,7 +85,7 @@ fn send(app: &mut FilmcraftApp) {
         return;
     }
     forget_running(app);
-    let mut p = json!({ "question": q, "page": app.ui.workspace });
+    let mut p = json!({ "question": q, "page": app.ui.workspace, "context": "auto" });
     if let Some((pq, pa)) = last_exchange(&app.ui.assistant.turns) {
         p["previousQuestion"] = json!(pq);
         p["previousAnswer"] = json!(pa);
@@ -127,6 +128,9 @@ fn poll(app: &mut FilmcraftApp, ctx: &egui::Context) {
             if v["state"] != "unknown"
                 && let Some(t) = chat.turns.last_mut()
             {
+                // the id goes with the answer: rating and sharing name it (AI5)
+                let mut v = v;
+                v["id"] = json!(id);
                 t.result = Some(v);
             }
         }
@@ -146,6 +150,8 @@ enum Click {
     New,
     Spotlight(String),
     Lesson(String),
+    /// Settings ▸ Color, where the model is downloaded (`assistant.setup.<n>`).
+    Setup,
 }
 
 pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
@@ -166,13 +172,13 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         if r.clicked() {
             click = Some(Click::New);
         }
-        let note = tl!("Answers come from FilmCraft's guide and run on this computer.");
+        let note = tl!("Answers come from Revolution's guide and run on this computer.");
         ui.add(egui::Label::new(RichText::new(note).small().color(t.text_faint)).truncate()).on_hover_text(note);
     });
     egui::ScrollArea::vertical().id_salt("assistant-chat").max_height(chat_h - 22.0).stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
         if app.ui.assistant.turns.is_empty() {
             ui.add_space(8.0);
-            ui.label(RichText::new(tl!("Ask how to do something in FilmCraft: grading, editing, audio, compositing, export…")).color(t.text_dim));
+            ui.label(RichText::new(tl!("Ask how to do something in Revolution: grading, editing, audio, compositing, export…")).color(t.text_dim));
             ui.label(RichText::new(tl!("e.g. how do I make the sky bluer without changing skin?")).small().italics().color(t.text_faint));
         }
         let turns = app.ui.assistant.turns.clone();
@@ -250,6 +256,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             app.ui.coach_ask.spotlight = (!same).then_some(id);
             app.ui.coach_ask.clicks = app.ui.coach_ask.clicks.wrapping_add(1);
         }
+        Some(Click::Setup) => {
+            if let Err(e) = super::settings::open(app, "color") {
+                app.ui.status = e;
+            }
+        }
         Some(Click::Lesson(id)) => {
             app.ui.coach_ask.spotlight = None;
             if let Err(e) = app.session.execute("coach.start", json!({ "lesson": id })) {
@@ -295,15 +306,24 @@ fn answer(app: &mut FilmcraftApp, ui: &mut egui::Ui, n: usize, result: Option<&V
         }
         _ => {}
     }
+    super::coach::seen_lines(app, ui, a, &format!("assistant.seen.{n}"));
     if a["source"] != "model" {
         let why = match a["fallback"]["kind"].as_str() {
             Some("notReady") => tl!("The assistant can't run here yet (its model isn't installed or this build has none). The guide's answer:"),
-            Some("ungrounded") => tl!("The assistant's answer named things FilmCraft doesn't have, so it was left out. The guide's answer:"),
+            Some("ungrounded") => tl!("The assistant's answer named things Revolution doesn't have, so it was left out. The guide's answer:"),
             Some("nothingFound") => tl!("The guide has nothing on this, so the assistant didn't guess."),
             _ => tl!("The assistant couldn't answer this time. The guide's answer:"),
         };
         ui.label(RichText::new(why).small().color(t.text_dim));
+        if a["fallback"]["kind"] == "notReady" {
+            let r = ui.link(tl!("Set up the assistant's model (Settings ▸ Color)"));
+            app.auto.add_response(&format!("assistant.setup.{n}"), &r, "Set up the assistant's model");
+            if r.clicked() {
+                *click = Some(Click::Setup);
+            }
+        }
         guide_steps(app, ui, n, &a["coach"], click);
+        rate(app, ui, n, a);
         return;
     }
     if a["dontKnow"].as_bool() == Some(true) {
@@ -348,6 +368,17 @@ fn answer(app: &mut FilmcraftApp, ui: &mut egui::Ui, n: usize, result: Option<&V
                 .color(t.text_faint),
         );
     }
+    rate(app, ui, n, a);
+}
+
+/// 👍 / 👎 and Help improve the Assistant… under a finished answer (fork AI5).
+fn rate(app: &mut FilmcraftApp, ui: &mut egui::Ui, n: usize, a: &Value) {
+    if let Some(id) = a["id"].as_u64() {
+        let (up, down) = (format!("assistant.rate.{n}.up"), format!("assistant.rate.{n}.down"));
+        let (correction, share) = (format!("assistant.rate.{n}.correction"), format!("assistant.rate.{n}.share"));
+        let ids = super::share_example::RowIds { up: &up, down: &down, correction: &correction, share: &share };
+        super::share_example::rate_row(app, ui, id, &ids);
+    }
 }
 
 /// The keyword coach's checked steps (`coach.ask`'s answer shape), clickable like the Ask box's.
@@ -368,10 +399,12 @@ fn guide_steps(app: &mut FilmcraftApp, ui: &mut egui::Ui, n: usize, coach: &Valu
             *click = Some(Click::Spotlight(id));
         }
     }
-    if steps.is_empty()
-        && let Some(summary) = coach["summary"].as_str().filter(|s| !s.is_empty())
-    {
-        ui.label(RichText::new(summary).small().color(t.text_dim));
+    if steps.is_empty() {
+        // never an empty "The guide's answer:": its summary, else say there is none
+        let none = tl!("The guide doesn't cover this yet.");
+        let text = coach["summary"].as_str().filter(|s| !s.is_empty()).unwrap_or(none);
+        let r = ui.label(RichText::new(text).small().color(t.text_dim));
+        app.auto.add_response(&format!("assistant.noSteps.{n}"), &r, text);
     }
     lesson_link(app, ui, n, &coach["lesson"], click);
 }

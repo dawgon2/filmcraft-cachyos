@@ -2063,6 +2063,7 @@ dependencies = [
 name = "filmcraft-engine"
 version = "0.6.0"
 dependencies = [
+ "aho-corasick",
  "crc32fast",
  "filmcraft-audio-dsp",
  "filmcraft-captions",
@@ -2074,6 +2075,7 @@ dependencies = [
  "filmcraft-frame",
  "filmcraft-geom",
  "filmcraft-interchange",
+ "filmcraft-isobmff",
  "filmcraft-llm",
  "filmcraft-media",
  "filmcraft-mxf",
@@ -2087,6 +2089,7 @@ dependencies = [
  "filmcraft-tts",
  "filmcraft-usershader",
  "filmcraft-voice",
+ "flate2",
  "image",
  "log",
  "serde",
@@ -2095,6 +2098,7 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 1.1.6+spec-1.1.0",
  "web-time",
+ "wgpu",
  "zip",
 ]
 
@@ -2264,6 +2268,7 @@ version = "0.6.0"
 dependencies = [
  "bytemuck",
  "candle-core",
+ "candle-nn",
  "candle-transformers",
  "filmcraft-speech",
  "half",

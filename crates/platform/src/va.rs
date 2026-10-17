@@ -326,7 +326,7 @@ impl Display {
         // (vaTerminate) while `OPENING` is still held by `open`
         if !driver_is_thread_safe(&d.vendor) && std::env::var("FILMCRAFT_VAAPI_ANY_DRIVER").ok().as_deref() != Some("1") {
             log::warn!(
-                "VA-API: {node} ({}) is not a driver FilmCraft has checked for thread safety; using software decoding \
+                "VA-API: {node} ({}) is not a driver Revolution has checked for thread safety; using software decoding \
                  (FILMCRAFT_VAAPI_ANY_DRIVER=1 uses it anyway)",
                 d.vendor
             );
@@ -1343,14 +1343,21 @@ pub(crate) fn render_nodes() -> Vec<String> {
         })
         .unwrap_or_default();
     nodes.sort();
-    let rank = |n: &String| match vendor(n) {
-        Some(VENDOR_AMD) => 0,
-        Some(VENDOR_NVIDIA) => 1,
-        Some(VENDOR_INTEL) => 3,
-        _ => 2,
-    };
-    nodes.sort_by_key(rank);
+    nodes.sort_by_key(|n| node_rank(vendor(n)));
     nodes
+}
+
+/// The order render nodes are tried in, by vendor (never by node number, which differs between
+/// boots and laptops): AMD (Mesa radeonsi), Intel (iHD), other, NVIDIA last (its VA-API driver is
+/// a wrapper around NVDEC, refused unless `FILMCRAFT_VAAPI_ANY_DRIVER=1`; on a hybrid laptop such
+/// as the XPS 16 the Intel iGPU decodes, fork XPS a / c).
+fn node_rank(vendor: Option<u32>) -> u8 {
+    match vendor {
+        Some(VENDOR_AMD) => 0,
+        Some(VENDOR_INTEL) => 1,
+        Some(VENDOR_NVIDIA) => 3,
+        _ => 2,
+    }
 }
 
 fn rect_fits((x, y, w, h): (u32, u32, u32, u32), size: (u32, u32)) -> bool {
@@ -1851,6 +1858,23 @@ impl Surface {
 
 #[cfg(test)]
 mod tests {
+    /// Fork XPS a: the node order is by vendor, so the XPS 16 (Intel iGPU renderD128, RTX 4050
+    /// renderD129, or the other way round after a reboot) tries Intel first, and this desktop
+    /// (AMD renderD129, Intel renderD128) tries AMD first.
+    #[test]
+    fn render_nodes_are_ranked_by_vendor_not_node_number() {
+        let order = |mut v: Vec<(&'static str, Option<u32>)>| {
+            v.sort_by_key(|(n, _)| *n);
+            v.sort_by_key(|(_, vendor)| super::node_rank(*vendor));
+            v.into_iter().map(|(n, _)| n).collect::<Vec<_>>()
+        };
+        let (amd, intel, nvidia) = (Some(super::VENDOR_AMD), Some(super::VENDOR_INTEL), Some(super::VENDOR_NVIDIA));
+        assert_eq!(order(vec![("renderD128", nvidia), ("renderD129", intel)]), ["renderD129", "renderD128"]);
+        assert_eq!(order(vec![("renderD128", intel), ("renderD129", nvidia)]), ["renderD128", "renderD129"]);
+        assert_eq!(order(vec![("renderD128", intel), ("renderD129", amd)]), ["renderD129", "renderD128"]);
+        assert_eq!(order(vec![("renderD130", None), ("renderD128", nvidia), ("renderD129", intel)]), ["renderD129", "renderD130", "renderD128"]);
+    }
+
     #[test]
     fn only_drivers_checked_for_thread_safety_are_shared() {
         use super::driver_is_thread_safe as ok;

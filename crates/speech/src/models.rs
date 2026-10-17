@@ -277,6 +277,76 @@ pub fn download_files(dir: &Path, files: &[ModelFile], progress: DownloadProgres
     Ok(())
 }
 
+/// One HTTPS GET of a small document (the update check's release list): at most `max_bytes` of
+/// body (a longer reply fails instead of being cut), `accept` as the Accept header, 30 s to
+/// connect and 60 s overall. Same TLS stack as [`download_files`].
+#[cfg(feature = "download")]
+pub fn https_get(url: &str, accept: &str, max_bytes: u64) -> Result<Vec<u8>, crate::SpeechError> {
+    use std::io::Read;
+    let err = |e: String| crate::SpeechError::Download(format!("{url}: {e}"));
+    let resp = agent()
+        .get(url)
+        .header("Accept", accept)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(60)))
+        .build()
+        .call()
+        .map_err(|e| err(e.to_string()))?;
+    let mut body = resp.into_body();
+    let mut out = Vec::new();
+    body.as_reader().take(max_bytes.saturating_add(1)).read_to_end(&mut out).map_err(|e| err(e.to_string()))?;
+    if out.len() as u64 > max_bytes {
+        return Err(err(format!("the reply is larger than {max_bytes} bytes")));
+    }
+    Ok(out)
+}
+
+/// Streams `url` into the new file `dest` (at most `max_bytes`; a longer body fails), calling
+/// `progress(bytes so far)` (false cancels). Returns the byte count. On failure the file is
+/// removed. Same TLS stack as [`download_files`].
+#[cfg(feature = "download")]
+pub fn https_download_to(url: &str, dest: &Path, max_bytes: u64, progress: &mut dyn FnMut(u64) -> bool) -> Result<u64, crate::SpeechError> {
+    use crate::SpeechError;
+    use std::io::{Read, Write};
+    let r = (|| {
+        // a stalled server can't hold the download forever: 60 s for the reply, 30 min in all
+        let resp = agent()
+            .get(url)
+            .config()
+            .timeout_recv_response(Some(std::time::Duration::from_secs(60)))
+            .timeout_global(Some(std::time::Duration::from_secs(30 * 60)))
+            .build()
+            .call()
+            .map_err(|e| SpeechError::Download(format!("{url}: {e}")))?;
+        let mut body = resp.into_body();
+        let mut reader = body.as_reader();
+        let mut out = std::io::BufWriter::new(std::fs::OpenOptions::new().write(true).create_new(true).open(dest)?);
+        let mut buf = vec![0u8; 1 << 20];
+        let mut got = 0u64;
+        loop {
+            let n = reader.read(&mut buf).map_err(|e| SpeechError::Download(format!("{url}: {e}")))?;
+            if n == 0 {
+                break;
+            }
+            got = got.saturating_add(n as u64);
+            if got > max_bytes {
+                return Err(SpeechError::Download(format!("{url}: larger than {max_bytes} bytes")));
+            }
+            out.write_all(buf.get(..n).unwrap_or(&[]))?;
+            if !progress(got) {
+                return Err(SpeechError::Cancelled);
+            }
+        }
+        out.flush()?;
+        out.get_ref().sync_all()?;
+        Ok(got)
+    })();
+    if r.is_err() {
+        let _ = std::fs::remove_file(dest);
+    }
+    r
+}
+
 #[cfg(feature = "download")]
 fn agent() -> ureq::Agent {
     let provider = std::sync::Arc::new(rustls_rustcrypto::provider());

@@ -1,0 +1,218 @@
+# Projects and media on a network share
+
+**[Fork] [Revolution]** · keeping projects and clips on a home server (a NAS, another PC) that is
+mounted as a folder: how Revolution tells you a file is on a share, and what it does to keep your
+work safe there. This page grows with STORAGE-PLAN Phase S1; sections not written yet are marked.
+
+## Why it matters where a file lives
+
+> id: network-storage.why | does: explains why Revolution shows whether a project or clip is on a network share | resolve: shared storage / network media | premiere: projects on a NAS | when: project or media on SMB, NFS, sshfs or a Plasma network folder | see: network-storage.check
+
+**[Fork]**
+
+A share mounted by Plasma (Dolphin's Network places), by `/etc/fstab` or by autofs looks like an
+ordinary folder, but it isn't one: reading from it is slower than a local disk, it can stop
+answering when the server sleeps or the Wi-Fi drops, and saving over it isn't always as safe as on
+a local disk. So Revolution first finds out **where** a file lives; later steps (a local copy of
+clips, timeouts so the app never hangs, extra-safe saves) use that to take care only of the files
+that need it.
+
+Revolution recognises SMB / CIFS, NFS, sshfs, rclone, GNOME / Plasma network folders (`kio-fuse`,
+`gvfs`) and a few others. It looks only at the system's mount table, never at the file itself, so
+the answer comes at once even while the server is down.
+
+## Check where your project and clips are
+
+> id: network-storage.check | does: shows whether the project file and clips are on a network share | resolve: — | premiere: — | when: you want to know whether a project depends on a server | see: network-storage.why
+
+**[Fork]** · neither Resolve nor Premiere shows this; it is Revolution's own.
+
+1. Open **File ▸ Project Settings ▸ General** (`file.projectSettings.general`).
+2. The first line says **Project file: on a local disk** or **Project file: on a network share
+   (cifs, //nas/media)**, with the share's type and server (`projectSettings.storage.project`).
+   An unsaved project shows no line.
+3. If any clips are on shares, the next line says how many: **Clips on network shares: 3 of 12**
+   (`projectSettings.storage.clips`).
+4. In the **Project** panel (Media Pool in the Resolve workflow), a clip on a share has a grey
+   **NET** badge next to its other badges, in list and icon view; hover it to see the share, e.g.
+   **On a network share: //nas/media (cifs)** (`project.item.<id>….net`). Revolution re-reads the
+   mount table every few seconds, so a share you mount or unmount shows up shortly after.
+
+For scripts and agents: `media.storage` (optionally `{"item": <id>}`) answers for the project file
+and every file clip: `{"project": {"kind": "network", "fsType": "cifs", "source": "//nas/media"},
+"items": [{"item", "path", "storage"}], "networkItems": n}`; `kind` is `local`, `network` or
+`unknown` (`unknown` on systems other than Linux for now).
+
+## Local copies of clips on a share
+
+> id: network-storage.copies | does: keeps copies of a project's network clips on this computer so they play smoothly and survive a dropped share | resolve: — (Resolve relies on proxies or optimized media) | premiere: — (Premiere relies on proxies) | when: editing big camera files that live on a NAS | see: network-storage.drops
+
+**[Fork]**
+
+Playing 6.2K camera files over Wi-Fi from a NAS stutters, and when the share drops the clips
+go with it. **Settings ▸ Media Cache ▸ Network Copies ▸ Local copies of clips on network shares**
+(`mediaCache.networkCopies`, **Automatic** by default) keeps a full copy of each such clip in the
+media cache folder (`Network Copies`), and once a copy is complete Revolution reads the copy
+instead of the share. The copy is byte-for-byte the same file, so the picture, the grade and
+exports are exactly as from the original.
+
+- A copy belongs to one version of the file: if the file on the server changes (re-rendered,
+  replaced), the old copy is no longer used and a new one is made.
+- If the share isn't answering, Revolution uses the last complete copy it has, so you can keep
+  editing while the NAS is asleep. A file that has been deleted or moved on a share that *is*
+  answering goes offline as usual: an old copy never hides that.
+- **Local copies size limit** (`mediaCache.networkCopiesGb`, 100 GB): above it the copies used
+  least recently are deleted, the open project's last. Revolution only ever deletes copies it
+  made; the Media Cache management policy leaves this folder alone.
+- Set it to **Off** to never read or make copies.
+
+Different from Resolve and Premiere: both expect you to make proxies or optimized media for
+slow storage; Revolution's copies are the original files, so nothing is re-encoded. Proxies still
+work as before and are the better choice when the disk is small.
+
+Copies are made in the background, one file at a time, only while you aren't playing (pressing
+play pauses the copy; it carries on from where it stopped a few seconds after you stop). A file
+that changes on the server while it is being copied isn't kept; it is copied again later. When a copy is complete a
+message says **Local copy of A001.mov ready: it now plays from this computer**. A copy that
+fails (the share dropped, the disk is full) says so and isn't tried again until Revolution
+restarts; its half-made file is removed.
+
+In the **Project** panel a clip whose copy is complete shows **NET ✓** instead of **NET**; hover it
+for **…; plays from its local copy**.
+
+Still being built: not copying when the disk holding the media cache is nearly full (for now the
+size limit and a clean stop when the disk fills up protect it).
+
+## Saving a project that lives on a share
+
+> id: network-storage.saving | does: explains how Revolution keeps saves safe when the project file is on a network share | resolve: — | premiere: — | when: saving a project stored on a NAS or another PC | see: network-storage.check
+
+**[Fork]** · Resolve keeps projects in its own database, so it has no direct equivalent; Premiere
+saves a project on a share like any other file.
+
+Every save in Revolution writes to a temporary file next to the project, flushes it to disk and
+then swaps it in, so a crash mid-save never leaves half a file. Over SMB that swap isn't always
+as safe as on a local disk, so when the project file is on a network share Revolution does more:
+
+1. **A copy on this computer first.** Before writing to the share, File ▸ Save (`file.save`),
+   Save As and Save a Copy write the same project to
+   `<data folder>/network-backups/<name>-<number>.fcproj` (the number tells apart projects with
+   the same name in different places). Only the latest save is kept there.
+2. **Read back.** After the save, Revolution reads the file on the share back and compares it with
+   what it saved.
+3. **If something goes wrong** (the share stops answering, the disk is full, the file reads back
+   different), the save reports an error that ends with **This save is kept on this computer:**
+   and the path of the local copy. Open that file with File ▸ Open to carry on; save it back to
+   the share once the share works again.
+4. **Auto-saves stay local.** For a project on a share, auto-save versions go to the data
+   folder's `Auto-Save` folder on this computer instead of an `Auto-Save` folder next to the
+   project, unless you chose a folder in **Project Settings ▸ Scratch Disks ▸ Project Auto Save**.
+
+The save's result (for scripts) includes `localCopy`: the path of the local copy, or `null` for a
+project on a local disk.
+
+## When the server stops answering
+
+> id: network-storage.drops | does: explains what happens to clips when a network share stops answering | resolve: media offline | premiere: media offline | when: the NAS sleeps, the Wi-Fi drops or the server reboots during an edit | see: network-storage.check
+
+**[Fork]**
+
+A share that disappears can make a plain file read wait for minutes. Revolution gives every read,
+open and size check on a network share **8 seconds**; if the share hasn't answered by then, the
+clip is treated as **offline** (the same red offline mark and "Media Offline" picture as a
+missing file) instead of the app freezing. Once one file on a share has timed out, Revolution
+treats that whole share as down for **30 seconds**, so its other clips go offline at once
+instead of each waiting 8 seconds (opening a project with many clips on a sleeping NAS stays
+quick). Files on local disks are read exactly as before.
+
+What differs from Resolve and Premiere: both also show offline media when a share vanishes, but
+may stall while the operating system waits for the server; Revolution's time limit is its own.
+
+When the share answers again, the clips come back **online by themselves**: Revolution looks at
+the project's files every few seconds and whenever its window comes back to the front
+(**Settings ▸ Media ▸ Automatically refresh growing files**, on by default; the same look that
+reloads re-rendered files). A message says **3 clip(s) went offline** or **3 clip(s) are back
+online**; nothing needs relinking and there is no undo step. With that setting off, use **Link
+Media** or reopen the project instead.
+
+Still being built: moving the last few file checks the interface does itself (audio waveforms,
+the Link Media preview) to background threads.
+
+## Send a whole project as a package
+
+> id: network-storage.package | does: makes one folder with a project, all its media and a checklist the receiver can verify | resolve: Export Project Archive (.dra) | premiere: Project Manager ▸ Collect Files and Copy | when: handing a project to another editor or computer, or moving it to a server | see: network-storage.saving
+
+**[Fork]** · Resolve's project archive and Premiere's Project Manager do a similar copy; Revolution
+adds a manifest with a checksum for every file, so the person receiving it can tell whether
+anything went missing or got damaged on the way.
+
+1. On the **Project Manager** home screen, select the project and click **Package** in the bottom
+   bar (`projects.package`), or right-click its tile and choose **Package…**
+   (`projects.menu.package`). Pick the folder to put it in: a USB disk, a network share,
+   anything. (Scripts and agents: `projects.package` with `path` and `destination`.)
+2. Revolution makes **`<destination>/<project name> package/`** holding the project file, every
+   media file it uses, and (with `"proxies": true`) their proxies. It runs in the background with
+   progress in the status bar and can be stopped. Imported LUTs and title fonts are stored inside
+   the project file, and voice-over takes are ordinary clips, so they travel too. The Color
+   page's saved comparison frames go into a folder next to the project. The packaged project uses the receiver's own scratch disks, not yours (your folders
+   would mean nothing on their computer), so those frames are found there after import; one whose
+   picture file has gone missing is left out. Custom shader effects (your `.wgsl` files in the
+   Effects folder) that the project uses go into **`Effects/`**; the ones it doesn't use stay home.
+3. When everything is copied it reads each file once more and writes **`manifest.json`**: every
+   file's path inside the package, size and SHA-256 checksum, and a list of what was left out on
+   purpose (the render cache, which is rebuilt; downloaded AI models; proxies unless chosen).
+   The manifest holds only paths inside the package, nothing about your own disk.
+4. If anything fails (the disk fills up, a clip has gone missing, you press Stop), the half-made
+   package folder is removed and the job says why. An existing package folder is never
+   overwritten.
+
+**Receiving a package.** On the home screen click **Import Package** (`projects.importPackage`)
+and choose either the **`.fcpackage`** file or, for a package folder, the **`manifest.json`**
+inside it; it goes into the folder of the projects list you are looking at. (Scripts: `projects.importPackage` with `path` and,
+optionally, `folder`; `projects.import` of a folder with a Revolution `manifest.json` does the
+same.)
+
+1. Revolution first checks every file against the manifest: is it there, the right size, the same
+   checksum. This reads the whole package once, in the background.
+2. If anything is missing or damaged, the import stops and says which files (for example
+   **the package is incomplete (damaged: clip.mov)**), and nothing is copied. Ask the sender for a
+   new copy of those files.
+3. Otherwise the package is copied into your projects folder and every clip is pointed at its
+   copy there, so the project opens with nothing offline and no **Link Media** step. Custom shader
+   effects from its `Effects/` folder are added to your own Effects folder; one you already have
+   under the same file name is never replaced (yours is kept).
+4. A package made by a newer Revolution is imported, but opening it asks you to update (a newer
+   package format is refused).
+
+**One file instead of a folder.** `projects.package` with `"format": "file"` writes a single
+**`<project name>.fcpackage`** (a zip with every file stored as it is, so camera media isn't
+recompressed and nothing is re-encoded); the folder it is made from is removed afterwards.
+`projects.importPackage` takes the `.fcpackage` file as well as a package folder: it unpacks only
+the files the manifest lists, at safe places inside the new project folder, then checks and
+relinks them as above. Home screen: **Package as One File…** in a tile's menu
+(`projects.menu.package-file`).
+
+To know how big a package will be before making it, scripts can run `projects.package` with
+`"dryRun": true`: nothing is written and `estimateBytes` says how much would be copied. The home
+screen shows that size in the status line while it packages.
+
+
+## Smaller packages: only the used parts
+
+> id: network-storage.package-trim | does: shortens MP4 and MOV media in a package to the parts its sequences use, without re-encoding | resolve: Media Management ▸ Trim | premiere: Project Manager ▸ Consolidate and Transcode | when: a package would be too big to send | see: network-storage.package
+
+**[Fork]** · Like Resolve's Media Management trim and Premiere's Consolidate, but Revolution only
+ever copies the camera's own compressed data here (Premiere's Consolidate and Transcode makes new
+files), so quality is identical.
+
+1. Scripts and agents: run `projects.package` with `"trim": true` and, if you like, `"handles"`
+   (extra frames kept on each side, 30 by default).
+2. MP4 and MOV media are shortened to the parts the sequences use, starting at the keyframe
+   before each part (so a part can begin up to a GOP earlier than asked). Nothing is re-encoded.
+3. Other files, and MP4 / MOV files with a layout this can't keep exactly (fragmented files,
+   several codecs in one track, complex edit lists), are copied whole.
+4. Proxies of shortened media are left out (they no longer line up); make new ones after import.
+
+The home screen doesn't offer this yet.
+
+**Still to write (S1):** the rest of project packages: written as each S1 step lands.

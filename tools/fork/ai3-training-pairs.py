@@ -79,6 +79,24 @@ for path in sorted(glob.glob(root + '/**/*.md', recursive=True)):
             pairs.append({'q': f"What does {s['heading']} do, and how do I use it?", 'a': answer, 'sources': [sid], 'kind': 'feature'})
             if h.get('when'):
                 pairs.append({'q': f"What should I use for {h['when'].split(';')[0].strip().rstrip('.')}?", 'a': answer, 'sources': [sid], 'kind': 'feature'})
+# Held out (AI-POOL): drop a pair whose question is a test question or a near-copy of one, by the
+# same rule as crates/engine/tests/ai_pool.rs (content words, Jaccard >= 0.7).
+import tomllib, os
+STOP = set('a an and are can d do does how i if in is it my of on or s should that the this to what when where which why with'.split())
+def words(q):
+    w = re.findall(r'[a-z0-9]+', q.lower())
+    return set(x for x in w if x not in STOP) or set(w)
+ev = os.path.join(os.path.dirname(out), '')
+tests = []
+for tf in [ev + 'advanced.toml', ev + 'questions.toml'] + sorted(glob.glob(ev + 'pool/*.toml')):
+    d = tomllib.load(open(tf, 'rb'))
+    tests += [words(q['q']) for k in ('question', 'coach') for q in d.get(k, [])]
+def near(q):
+    w = words(q)
+    return any(len(w & t) / max(1, len(w | t)) >= 0.7 for t in tests)
+dropped = [p['q'] for p in pairs if near(p['q'])]
+pairs = [p for p in pairs if not near(p['q'])]
+if dropped: print('held out (near a test question):', dropped)
 with open(out, 'w') as f:
     for p in pairs: f.write(json.dumps(p, ensure_ascii=False) + '\n')
 import collections

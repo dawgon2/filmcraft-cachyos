@@ -4,7 +4,7 @@
 # German video-editing vocabulary. No proprietary localisation resource, string table or product UI
 # was consulted or copied; add entries the same way. Like the German catalogs of the other Craft
 # apps, text addresses the user informally ("du") and commands use the infinitive ("Projekt
-# öffnen…"). Product, format and feature names (FilmCraft, ArtCraft, Lumetri, Essential Graphics,
+# öffnen…"). Product, format and feature names (Revolution, ArtCraft, Lumetri, Essential Graphics,
 # EDL, AAF…) keep their spelling. This catalog covers every menu, including the native macOS
 # Settings menu; anything else is shown in English.
 #
@@ -14,7 +14,7 @@
 # menu) = Voreinstellungen. "Timeline" is not translated.
 
 	AAF…	AAF…
-	About FilmCraft	Über FilmCraft
+	About Revolution	Über Revolution
 	Add Audio Submix Track	Audio-Submix-Spur hinzufügen
 	Add Caption at Playhead	Untertitel an Abspielposition hinzufügen
 	Add Chapter Marker…	Kapitelmarker hinzufügen…
@@ -40,7 +40,7 @@
 	Apply Default Transitions to Selection	Standardübergänge auf Auswahl anwenden
 	Apply Video Transition	Videoübergang anwenden
 	Arrange	Anordnen
-	ArtCraft Website	ArtCraft-Website
+	Based on FilmCraft (Original Project)	Basiert auf FilmCraft (Originalprojekt)
 	Assembly	Montage
 	Attach Proxies…	Proxys anhängen…
 	Audio	Audio
@@ -144,9 +144,9 @@
 	File	Datei
 	File…	Datei…
 	Fill frame	Bild füllen
-	FilmCraft Help…	FilmCraft-Hilfe…
-	FilmCraft on GitHub	FilmCraft auf GitHub
-	FilmCraft on getartcraft.com	FilmCraft auf getartcraft.com
+	Revolution Help…	Revolution-Hilfe…
+	Revolution on GitHub	Revolution auf GitHub
+	Source Code on GitHub	Quellcode auf GitHub
 	Final Cut Pro XML…	Final Cut Pro XML…
 	Find Next	Weitersuchen
 	Find…	Suchen…
@@ -193,7 +193,7 @@
 	Install Motion Graphics Template…	Motion-Graphics-Vorlage installieren…
 	Interpret Footage…	Material interpretieren…
 	Iris	Iris
-	Join the ArtCraft Discord…	Dem ArtCraft-Discord beitreten…
+	Revolution Releases…	Revolution-Releases…
 	Keyboard Shortcuts…	Tastenkürzel…
 	Label	Farbmarkierung
 	Labels…	Farbmarkierungen…
@@ -324,7 +324,7 @@
 	Select Previous Graphic	Vorherige Grafik auswählen
 	Select Previous Layer	Vorherige Ebene auswählen
 	Selection Follows Playhead	Auswahl folgt Abspielposition
-	Selection as FilmCraft Project…	Auswahl als FilmCraft-Projekt…
+	Selection as Revolution Project…	Auswahl als Revolution-Projekt…
 	Selection…	Auswahl…
 	Send Backward	Schrittweise nach hinten
 	Send to Back	In den Hintergrund

@@ -1,0 +1,441 @@
+# AI-POOL batch effects-1: effects.md, shader-effects.md, text.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+# effects.md isn't in the keyword coach's index (NOT_INDEXED, coach_ask.rs), so it has no
+# [[coach]] questions; retrieval and the assistant read it.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-f1-effect-order"
+kind = "tool"
+q = "does the order of effects on a clip matter, and how do I change it?"
+sources = ["effects.apply"]
+must = ["effects run top to bottom", "drag one up or down in Effect Controls (effects.move)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-effect-off"
+kind = "tweak"
+q = "turn off a blur temporarily without deleting it"
+sources = ["effects.apply"]
+must = ["the switch next to the effect's name bypasses it (effects.toggleEnabled)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-f1-text-effect"
+kind = "gap"
+q = "where's the text effect to drag onto a clip?"
+sources = ["effects.apply", "graphics.layers"]
+must = ["text and shape layers aren't effects: make them with Graphics ▸ New Layer"]
+must_not = ["invents a text effect"]
+style = "premiere-words"
+
+[[question]]
+id = "pool-f1-ease"
+kind = "pro-practice"
+q = "my zoom keyframes feel robotic, how do I make them smoother?"
+sources = ["effects.keyframes"]
+must = ["right-click the keyframes: Ease In / Ease Out or Bezier (speeds up and slows down)", "Linear feels mechanical"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-hold"
+kind = "tool"
+q = "I want a value to jump instantly at a keyframe, not animate"
+sources = ["effects.keyframes"]
+must = ["Hold interpolation"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-remove-keys"
+kind = "tweak"
+q = "how do I get rid of all keyframes on a parameter at once?"
+sources = ["effects.keyframes"]
+must = ["click the stopwatch again: removes all and keeps the value at the playhead"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-transition-all"
+kind = "tool"
+q = "put a crossfade on every cut of the selected clips"
+sources = ["effects.transitions"]
+must = ["Apply Default Transitions to Selection (sequence.applyDefaultTransitionsToSelection)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-f1-transition-short"
+kind = "tweak"
+q = "my dissolve came out shorter than I set it"
+sources = ["effects.transitions"]
+must = ["a transition needs media beyond the edit (handles) on both clips; with too little it gets shorter"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-crossfade-type"
+kind = "pro-practice"
+q = "which audio crossfade, constant power or constant gain?"
+sources = ["effects.transitions"]
+must = ["Constant Power keeps loudness steady and is the usual choice", "Constant Gain is linear and can dip in the middle", "Exponential Fade suits fades to and from silence"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-default-length"
+kind = "tool"
+q = "change the default length of transitions"
+sources = ["effects.transitions"]
+must = ["the preferences timeline.videoTransitionDuration / audioTransitionDuration", "effects.setDefaultTransition picks which transition is the default"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-f1-preset-intro"
+kind = "pro-practice"
+q = "I saved a zoom-in intro as a preset but on longer clips the animation gets stretched"
+sources = ["effects.presets"]
+must = ["save it with keyframes Anchor to In Point so they keep their distance from the clip's start", "Scale stretches them over the clip"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-preset-4k-hd"
+kind = "pro-practice"
+q = "if I made a preset on a 4K clip, does it land right on an HD clip?"
+sources = ["effects.presets"]
+must = ["yes: positions and mask shapes are scaled to the clip's frame size"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-share-presets"
+kind = "approach"
+q = "how do I give my effect presets to a friend?"
+sources = ["effects.presets", "packs.what"]
+must = ["export / import presets (presets.export, presets.import)", "or share them with LUTs and graphics templates in a look pack"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-vhs"
+kind = "tool"
+q = "is there a VHS or glitch effect?"
+sources = ["shader-effects.use"]
+must = ["yes: VHS and Glitch (also Chromatic Aberration, Light Leak) under Video Effects ▸ User ▸ Stylize"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-shader-cpu"
+kind = "tweak"
+q = "the light leak effect does nothing on my laptop without a graphics card"
+sources = ["shader-effects.use"]
+must = ["shader effects run only on the GPU", "where a frame renders on the CPU they leave the picture unchanged"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-write-shader"
+kind = "multi-step"
+q = "I know a bit of shader code, can I write my own effect?"
+sources = ["shader-effects.write"]
+must = ["a .wgsl file in the Effects folder (Open Effects Folder under Video Effects ▸ User)", "comment lines describe the effect and its @param controls; fn effect returns one pixel's colour", "Reload (effects.reloadUser)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-shader-params"
+kind = "tool"
+q = "what kinds of controls can a WGSL effect have?"
+sources = ["shader-effects.write"]
+must = ["float (default and range), bool, color (#rrggbb), point (auto or x, y)", "at most 16, read as P.<name>"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-shader-time"
+kind = "pro-practice"
+q = "how do I animate a shader effect without keyframes?"
+sources = ["shader-effects.write", "shader-effects.recipes"]
+must = ["use time (seconds since the clip started) in the code, like the Pulse recipe"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-duotone"
+kind = "approach"
+q = "I want a two-colour duotone look"
+sources = ["shader-effects.recipes"]
+must = ["the Duotone recipe: paste it into a .wgsl file in the Effects folder, Reload", "dark parts take Shadows, bright parts Highlights"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-dctl"
+kind = "gap"
+q = "can I load my DCTL files from Resolve as shader effects?"
+sources = ["shader-effects.use", "shader-effects.trouble"]
+must = ["no: DCTL is a different language; files don't carry over and can't be converted automatically"]
+must_not = ["claims DCTL works"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-f1-shader-warning"
+kind = "tweak"
+q = "my effect shows a warning sign in the User folder"
+sources = ["shader-effects.trouble"]
+must = ["the file has a mistake: hover for the message with the line", "fix it and Reload; effects.listUser gives every file's outcome"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-shader-off"
+kind = "pro-practice"
+q = "why did my custom effect switch itself off during playback?"
+sources = ["shader-effects.trouble"]
+must = ["an effect needing more than 50 ms per 1080p picture three times in a row is turned off until restart"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-quarantine"
+kind = "tool"
+q = "the GPU hung on my shader and now it's marked broken, how do I retry it?"
+sources = ["shader-effects.trouble"]
+must = ["change the file (a new version), or run effects.unquarantine (id for one, none for all)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-transcribe"
+kind = "multi-step"
+q = "how do I get a transcript of my interview sequence?"
+sources = ["text.transcripts"]
+must = ["Sequence ▸ Transcript ▸ Transcribe… (transcript.generate): model, language, speaker detection", "the Transcript tab fills in; click a word to jump there"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-cut-by-text"
+kind = "approach"
+q = "can I delete sentences from the interview by selecting the text?"
+sources = ["text.transcripts"]
+must = ["select the words, then Extract (closes the gap) or Lift (leaves it)", "every cut is an ordinary timeline edit; check the cut point for breaths"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-find-line"
+kind = "tool"
+q = "find every place she says 'budget' in two hours of footage"
+sources = ["text.transcripts"]
+must = ["transcribe, then search the transcript (transcript.search) and jump between the places"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-f1-speakers"
+kind = "tool"
+q = "how do I rename Speaker 1 to the guest's name?"
+sources = ["text.transcripts"]
+must = ["transcript.renameSpeaker"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-whisper-model"
+kind = "approach"
+q = "transcript has loads of mistakes on names and the audio is noisy"
+sources = ["text.speech-models"]
+must = ["try whisper-small (better on hard audio and names, about four times slower)", "clean the voice first (Voice Isolation): the model hears clean speech better"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-transcribe-privacy"
+kind = "pro-practice"
+q = "is my interview uploaded anywhere for transcription?"
+sources = ["text.speech-models"]
+must = ["no: Whisper runs locally, offline; only the one-time model download"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-pauses-settings"
+kind = "tweak"
+q = "Remove Pauses cuts too tight, words sound clipped"
+sources = ["text.cleanup"]
+must = ["raise keepSeconds (0.15 s kept each side by default); minSeconds sets which pauses count"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-pauses-breathless"
+kind = "pro-practice"
+q = "after removing all pauses the talk feels breathless"
+sources = ["text.cleanup"]
+must = ["many editors remove only the long pauses and put a few back by hand where a thought ends"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-captions-from-transcript"
+kind = "multi-step"
+q = "make captions from my transcript, max 32 characters per line"
+sources = ["text.captions"]
+must = ["Sequence ▸ Transcript ▸ Create Captions from Transcript (transcript.createCaptions)", "maxChars sets characters per line (42 by default)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-f1-srt-import"
+kind = "tool"
+q = "the client sent an srt file, how do I bring it in?"
+sources = ["text.captions"]
+must = ["File ▸ Import the .srt (or captions.import): it arrives as a new caption track"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-sidecar-vs-burn"
+kind = "approach"
+q = "for YouTube should captions be a separate file or burned in?"
+sources = ["text.captions"]
+must = ["a sidecar file (SRT / VTT): viewers can turn them off and platforms index them", "burned in suits social clips that autoplay muted, but can't be turned off or translated"]
+must_not = ["claims one is always right"]
+style = "beginner"
+
+[[question]]
+id = "pool-f1-caption-split"
+kind = "tool"
+q = "one caption is too long, how do I split it in two?"
+sources = ["text.captions"]
+must = ["captions.split in the Text panel's Captions tab (merge, trim, move also there)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-tts"
+kind = "multi-step"
+q = "turn my script into a spoken narration"
+sources = ["text.narration"]
+must = ["Window ▸ Text to Speech: write the script, pick a voice, pitch and pace; Preview", "Create writes a WAV, imports it and places it at the playhead on a free track"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-tts-natural"
+kind = "tool"
+q = "the default TTS voice sounds robotic, are there better ones?"
+sources = ["text.narration"]
+must = ["Natural voices (Kokoro-82M, nine US English voices): a one-time 336 MB download (tts.downloadVoices)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-tts-edit"
+kind = "tweak"
+q = "I need to change one word in my generated narration"
+sources = ["text.narration"]
+must = ["select the clip and edit it (tts.edit): it keeps its place and length", "the old version stays so Undo is exact"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-f1-tts-or-record"
+kind = "approach"
+q = "should I use the AI voice or record myself for my explainer?"
+sources = ["text.narration-vs-recording"]
+must = ["text to speech for drafts, timing and late line changes (sounds synthetic)", "record for the final voice with personality", "both: cut to a TTS draft, then record over the same timing"]
+must_not = ["claims one is always right"]
+style = "beginner"
+
+# ---------- keyword-coach format (indexed pages only) ----------
+
+[[coach]]
+id = "pool-f1k-glitch"
+q = "glitch effect"
+kind = "how"
+origin = "agent"
+page = "shader-effects.md"
+heading = "Using a shader effect"
+status = "covered"
+facts = ["Video Effects ▸ User ▸ Stylize"]
+
+[[coach]]
+id = "pool-f1k-wgsl"
+q = "write a wgsl effect"
+kind = "how"
+origin = "agent"
+page = "shader-effects.md"
+heading = "Writing your own effect"
+alt = [{ page = "shader-effects.md", heading = "Recipes: three effects to copy" }]
+status = "covered"
+facts = ["Effects folder", "Reload"]
+
+[[coach]]
+id = "pool-f1k-unquarantine"
+q = "shader effect broken after gpu hang"
+kind = "why"
+origin = "agent"
+page = "shader-effects.md"
+heading = "When an effect doesn't work"
+status = "covered"
+facts = ["effects.unquarantine"]
+
+[[coach]]
+id = "pool-f1k-transcribe"
+q = "transcribe my interview"
+kind = "how"
+origin = "agent"
+page = "text.md"
+heading = "Transcripts: editing by text"
+status = "covered"
+facts = ["Transcribe…"]
+
+[[coach]]
+id = "pool-f1k-whisper"
+q = "which whisper model"
+kind = "what-for"
+origin = "agent"
+page = "text.md"
+heading = "Speech models"
+status = "covered"
+facts = ["tiny, base, small"]
+
+[[coach]]
+id = "pool-f1k-fillers"
+q = "cut out all the ums"
+kind = "how"
+origin = "agent"
+page = "text.md"
+heading = "Removing pauses and filler words"
+status = "covered"
+facts = ["Remove Filler Words"]
+
+[[coach]]
+id = "pool-f1k-srt"
+q = "export srt subtitles"
+kind = "how"
+origin = "agent"
+page = "text.md"
+heading = "Captions"
+status = "covered"
+facts = ["captions.export"]
+
+[[coach]]
+id = "pool-f1k-tts"
+q = "make the computer read my script out loud"
+kind = "how"
+origin = "agent"
+page = "text.md"
+heading = "Narration: text to speech"
+alt = [{ page = "text.md", heading = "Narration or recording a voice-over?" }]
+status = "covered"
+facts = ["Text to Speech panel", "Create"]

@@ -11,10 +11,10 @@
 # Clean-room: every entry was written from the plain meaning of the English text using ordinary
 # Spanish video-editing vocabulary (pista, cabezal, secuencia, bandeja, procesar…). No proprietary
 # localisation resource, string table or product UI was consulted or copied; add entries the same
-# way. Product and technology names (FilmCraft, ArtCraft, Lumetri, ProRes, LUFS…) keep their
+# way. Product and technology names (Revolution, ArtCraft, Lumetri, ProRes, LUFS…) keep their
 # spelling. "video" is written without an accent, as in the rest of this catalog.
 
-	About FilmCraft	Acerca de FilmCraft
+	About Revolution	Acerca de Revolution
 	Add Audio Submix Track	Añadir pista de submezcla de audio
 	Add Caption at Playhead	Añadir subtítulo en el cabezal
 	Add Chapter Marker…	Añadir marcador de capítulo…
@@ -40,7 +40,7 @@
 	Apply Default Transitions to Selection	Aplicar transiciones predeterminadas a la selección
 	Apply Video Transition	Aplicar transición de video
 	Arrange	Organizar
-	ArtCraft Website	Sitio web de ArtCraft
+	Based on FilmCraft (Original Project)	Basado en FilmCraft (proyecto original)
 	Assembly	Ensamblaje
 	Attach Proxies…	Adjuntar proxies…
 	Audio Channels…	Canales de audio…
@@ -135,9 +135,9 @@
 	File	Archivo
 	File…	Archivo…
 	Fill frame	Rellenar fotograma
-	FilmCraft Help…	Ayuda de FilmCraft…
-	FilmCraft on GitHub	FilmCraft en GitHub
-	FilmCraft on getartcraft.com	FilmCraft en getartcraft.com
+	Revolution Help…	Ayuda de Revolution…
+	Revolution on GitHub	Revolution en GitHub
+	Source Code on GitHub	Código fuente en GitHub
 	Find Next	Buscar siguiente
 	Find…	Buscar…
 	Fit	Ajustar
@@ -184,7 +184,7 @@
 	Installed: it loads the first time the Voice Isolation effect plays.	Instalado: se carga la primera vez que se reproduce el efecto Aislamiento de voz.
 	Installed: the Voice Isolation effect uses this model.	Instalado: el efecto Aislamiento de voz usa este modelo.
 	Interpret Footage…	Interpretar material…
-	Join the ArtCraft Discord…	Únete al Discord de ArtCraft…
+	Revolution Releases…	Versiones de Revolution…
 	Keyboard Shortcuts…	Atajos de teclado…
 	Label	Etiqueta
 	Labels…	Etiquetas…
@@ -196,7 +196,7 @@
 	Lift	Levantar
 	Light	Claro
 	Not installed: the Voice Isolation effect works as DeNoise until you download the model.	No instalado: el efecto Aislamiento de voz funciona como Reductor de ruido hasta que descargue el modelo.
-	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download.	Opcional y sin conexión: una pequeña red neuronal (unos 8 MB) en este equipo separa la voz del ruido para el efecto de audio Aislamiento de voz. Nunca se incluye con FilmCraft y solo se descarga de su editor cuando hace clic en Descargar.
+	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with Revolution and is downloaded from its publisher only when you click Download.	Opcional y sin conexión: una pequeña red neuronal (unos 8 MB) en este equipo separa la voz del ruido para el efecto de audio Aislamiento de voz. Nunca se incluye con Revolution y solo se descarga de su editor cuando hace clic en Descargar.
 	Remove Voice Isolation Model	Quitar el modelo de aislamiento de voz
 	Resolve	Resolve
 	Link	Vincular
@@ -313,7 +313,7 @@
 	Select Previous Graphic	Seleccionar gráfico anterior
 	Select Previous Layer	Seleccionar capa anterior
 	Selection Follows Playhead	La selección sigue al cabezal
-	Selection as FilmCraft Project…	Selección como proyecto de FilmCraft…
+	Selection as Revolution Project…	Selección como proyecto de Revolution…
 	Selection…	Selección…
 	Send Backward	Enviar atrás
 	Send to Back	Enviar al fondo
@@ -384,7 +384,6 @@
 	Master volume: use the Audio Track Mixer	Volumen maestro: usa el mezclador de pistas de audio
 	Search	Buscar
 	Quick Export	Exportación rápida
-	Join the ArtCraft Discord (discord.gg/artcraft)	Únete al Discord de ArtCraft (discord.gg/artcraft)
 	Cancel	Cancelar
 	OK	Aceptar
 	Interpret Footage	Interpretar material
@@ -427,8 +426,8 @@
 	Delete Caption Track	Eliminar pista de subtítulos
 	Delete Empty Caption Tracks	Eliminar pistas de subtítulos vacías
 	Version {version}	Versión {version}
-	A clean-room, pure-Rust non-linear video editor. Part of the ArtCraft family.	Un editor de video no lineal en Rust puro, desarrollado en sala limpia. Parte de la familia ArtCraft.
-	Join the ArtCraft Discord	Únete al Discord de ArtCraft
+	A pure-Rust non-linear video editor. Based on FilmCraft by the ArtCraft team and community.	Un editor de video no lineal en Rust puro. Basado en FilmCraft, del equipo y la comunidad de ArtCraft.
+	Get the newest release	Descargar la versión más reciente
 	Source code on GitHub	Código fuente en GitHub
 	Report an issue	Informar de un problema
 	MIT OR Apache-2.0. Fonts: Inter, Noto Serif and JetBrains Mono (SIL OFL 1.1).	MIT OR Apache-2.0. Fuentes: Inter, Noto Serif y JetBrains Mono (SIL OFL 1.1).
@@ -448,8 +447,8 @@
 	No background jobs.	No hay tareas en segundo plano.
 	Recover Unsaved Changes	Recuperar cambios no guardados
 	Untitled	Sin título
-	FilmCraft was closed while “{name}” had unsaved changes.	FilmCraft se cerró mientras “{name}” tenía cambios sin guardar.
-	FilmCraft quit unexpectedly while “{name}” had unsaved changes.	FilmCraft se cerró de forma inesperada mientras “{name}” tenía cambios sin guardar.
+	Revolution was closed while “{name}” had unsaved changes.	Revolution se cerró mientras “{name}” tenía cambios sin guardar.
+	Revolution quit unexpectedly while “{name}” had unsaved changes.	Revolution se cerró de forma inesperada mientras “{name}” tenía cambios sin guardar.
 	Recover unsaved changes from {when}?	¿Recuperar los cambios no guardados de {when}?
 	The project had not been saved yet.	El proyecto aún no se había guardado.
 	{n} sessions have unsaved changes:	{n} sesiones tienen cambios sin guardar:
@@ -469,7 +468,6 @@
 	Bars and Tone	Barras y tono
 	SMPTE HD bars with 1 kHz reference tone	Barras SMPTE HD con tono de referencia de 1 kHz
 	Community	Comunidad
-	Join us on Discord	Únete a nosotros en Discord
 	OMF Export Settings	Ajustes de exportación OMF
 	AAF Export Settings	Ajustes de exportación AAF
 	OMF Title:	Título OMF:
@@ -979,7 +977,7 @@
 	Label Colors	Colores de etiqueta
 	Decoded frames held for the monitors and thumbnails: {used} of {budget}.	Fotogramas descodificados en memoria para los monitores y miniaturas: {used} de {budget}.
 	Decoded source frames shared by all clips: {used} of {budget}, up to {decoders} live decoders.	Fotogramas de origen descodificados compartidos por todos los clips: {used} de {budget}, hasta {decoders} descodificadores activos.
-	FilmCraft keeps the rest of the RAM free for other applications.	FilmCraft deja el resto de la RAM libre para otras aplicaciones.
+	Revolution keeps the rest of the RAM free for other applications.	Revolution deja el resto de la RAM libre para otras aplicaciones.
 	not available in this session	no disponible en esta sesión
 	Currently: {loc} — {files} file(s), {size}	Actualmente: {loc} — {files} archivo(s), {size}
 	 ({ch} output channels)	 ({ch} canales de salida)
@@ -1090,7 +1088,7 @@
 	Video Frame	Fotograma de video
 	Pin To	Fijar a
 	Pinned Edges	Bordes fijados
-	FilmCraft Graphics Template	Plantilla de gráficos de FilmCraft
+	Revolution Graphics Template	Plantilla de gráficos de Revolution
 	{n} Font	{n} Fuente
 	{n} Size	{n} Tamaño
 	{n} Color	{n} Color
@@ -1100,7 +1098,7 @@
 	Export As Motion Graphics Template	Exportar como plantilla de animación
 	Category:	Categoría:
 	Editable properties:	Propiedades editables:
-	Saved as a FilmCraft graphics template (.fcgt) in your templates folder.	Se guarda como plantilla de gráficos de FilmCraft (.fcgt) en tu carpeta de plantillas.
+	Saved as a Revolution graphics template (.fcgt) in your templates folder.	Se guarda como plantilla de gráficos de Revolution (.fcgt) en tu carpeta de plantillas.
 	Exported graphics template to {path}	Plantilla de gráficos exportada a {path}
 	Replace Fonts in Projects	Reemplazar fuentes en proyectos
 	Fonts used in the project:	Fuentes usadas en el proyecto:
@@ -1261,6 +1259,8 @@
 	(RGB) Output White Level	(RGB) Nivel de blanco de salida
 	+ Cmd	+ Cmd
 	+ Opt	+ Opt
+	+ Ctrl	+ Ctrl
+	+ Alt	+ Alt
 	10 Bit Black Point	Punto negro de 10 bits
 	10 Bit White Point	Punto blanco de 10 bits
 	105mm Prime	Objetivo fijo de 105 mm
@@ -1470,7 +1470,7 @@
 	Center of Sphere	Centro de la esfera
 	Cents	Centésimas
 	Change to Color	Cambiar a color
-	Changes are copied in the background a moment after each edit. If FilmCraft quits unexpectedly, they are offered the next time it starts.	Los cambios se copian en segundo plano poco después de cada edición. Si FilmCraft se cierra de forma inesperada, se ofrecen la próxima vez que se inicie.
+	Changes are copied in the background a moment after each edit. If Revolution quits unexpectedly, they are offered the next time it starts.	Los cambios se copian en segundo plano poco después de cada edición. Si Revolution se cierra de forma inesperada, se ofrecen la próxima vez que se inicie.
 	Channel	Canal
 	Channel Blur	Desenfoque de canal
 	Channel Mix	Mezcla de canales
@@ -1843,7 +1843,7 @@
 	Hard Limiter	Limitador duro
 	Hard Mix	Mezcla definida
 	Hardware decoding	Descodificación por hardware
-	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	Descodificación por hardware: Automático usa el descodificador de video del sistema (VideoToolbox en macOS, Media Foundation en Windows, VA-API o NVDEC para H.264 y HEVC en Linux) para los flujos que admite, y el descodificador propio de FilmCraft para todo lo demás o si falla el hardware. Los medios ya abiertos mantienen su descodificador hasta que se vuelven a abrir.
+	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and Revolution's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	Descodificación por hardware: Automático usa el descodificador de video del sistema (VideoToolbox en macOS, Media Foundation en Windows, VA-API o NVDEC para H.264 y HEVC en Linux) para los flujos que admite, y el descodificador propio de Revolution para todo lo demás o si falla el hardware. Los medios ya abiertos mantienen su descodificador hasta que se vuelven a abrir.
 	Head Size	Tamaño de la cabeza
 	Heart	Corazón
 	Height	Altura
@@ -2118,7 +2118,7 @@
 	Night	Noche
 	No Motion	Sin movimiento
 	No Scroll	Sin desplazamiento
-	No plugins are installed. Changes will take effect the next time you start FilmCraft.	No hay complementos instalados. Los cambios se aplicarán la próxima vez que inicies FilmCraft.
+	No plugins are installed. Changes will take effect the next time you start Revolution.	No hay complementos instalados. Los cambios se aplicarán la próxima vez que inicies Revolution.
 	Noise	Ruido
 	Noise & Grain	Ruido y grano
 	Noise (Legacy)	Ruido (heredado)
@@ -2549,7 +2549,7 @@
 	Template Properties	Propiedades de la plantilla
 	Text Animator	Animador de texto
 	Text Color	Color del texto
-	The media cache holds render previews of unsaved projects and other files FilmCraft can recreate. Deleting them is always safe; FilmCraft rebuilds them as needed.	La caché de medios guarda previsualizaciones procesadas de proyectos sin guardar y otros archivos que FilmCraft puede volver a crear. Eliminarlos siempre es seguro; FilmCraft los regenera cuando hace falta.
+	The media cache holds render previews of unsaved projects and other files Revolution can recreate. Deleting them is always safe; Revolution rebuilds them as needed.	La caché de medios guarda previsualizaciones procesadas de proyectos sin guardar y otros archivos que Revolution puede volver a crear. Eliminarlos siempre es seguro; Revolution los regenera cuando hace falta.
 	Thickness	Grosor
 	Tile Gradient	Degradado en mosaico
 	Tilt	Inclinación
@@ -2759,7 +2759,7 @@
 	System Compatibility Report	Informe de compatibilidad del sistema
 	no GPU adapter: the CPU compositor is used	no hay adaptador de GPU: se usa el compositor de CPU
 	Avid Log Exchange	Avid Log Exchange
-	FilmCraft Project	Proyecto de FilmCraft
+	Revolution Project	Proyecto de Revolution
 	{name} Selection.fcproj	{name} Selección.fcproj
 	{name} (Simplified)	{name} (simplificada)
 	Find in:	Buscar en:
@@ -2901,7 +2901,7 @@
 	Start Queue	Iniciar cola
 	Stop	Detener
 	Clear Finished	Borrar terminadas
-	Not supported by FilmCraft's encoders yet	Los codificadores de FilmCraft aún no lo admiten
+	Not supported by Revolution's encoders yet	Los codificadores de Revolution aún no lo admiten
 	Sequence name	Nombre de la secuencia
 	Folder	Carpeta
 	Preset	Ajuste preestablecido
@@ -2987,7 +2987,7 @@
 	Drag a clip to slide it between its neighbours.	Arrastra un clip para deslizarlo entre sus vecinos.
 	Drag to scroll the timeline.	Arrastra para desplazar la línea de tiempo.
 	Click to zoom in; Opt-click to zoom out.	Haz clic para acercar; Opción+clic para alejar.
-	FilmCraft hit an error	FilmCraft ha encontrado un error
+	Revolution hit an error	Revolution ha encontrado un error
 	Details: {path}	Detalles: {path}
 	Opened {url}	Abierto {url}
 	(empty)	(vacío)
@@ -3241,7 +3241,7 @@
 	QuickTime, ProRes 4444 (4:4:4) with alpha channel, 24-bit 48 kHz PCM	QuickTime, ProRes 4444 (4:4:4) con canal alfa, PCM de 24 bits y 48 kHz
 	QuickTime, ProRes 4444 XQ (4:4:4), 24-bit 48 kHz PCM	QuickTime, ProRes 4444 XQ (4:4:4), PCM de 24 bits y 48 kHz
 	QuickTime, ProRes 422, 24-bit 48 kHz PCM	QuickTime, ProRes 422, PCM de 24 bits y 48 kHz
-	Quit FilmCraft	Salir de FilmCraft
+	Quit Revolution	Salir de Revolution
 	Rate Stretch Tool	Herramienta Ajuste de velocidad
 	Razor Tool	Herramienta Cuchilla
 	Rectangle Tool	Herramienta Rectángulo
@@ -3541,8 +3541,8 @@
 	Composite in Linear Color	Componer en color lineal
 	Auto Tone Map Media (HDR and log into SDR)	Mapeo de tonos automático de medios (HDR y log a SDR)
 	Configure…	Configurar…
-	Not supported in FilmCraft yet	FilmCraft aún no lo admite
-	FilmCraft always composites in linear light	FilmCraft siempre compone en luz lineal
+	Not supported in Revolution yet	Revolution aún no lo admite
+	Revolution always composites in linear light	Revolution siempre compone en luz lineal
 	Loop marked range	Bucle del intervalo marcado
 	Play Source	Reproducir origen
 	Source Play/Stop	Reproducir/Detener origen
@@ -3735,9 +3735,9 @@
 	This build can't run AI models (built without the `llm` feature): the plain template is shown.	Esta compilación no puede ejecutar modelos de IA (compilada sin la función `llm`): se muestra la plantilla sencilla.
 	This build isn't optimised for AVX2: an explanation takes 15–30 s instead of about 5 s.	Esta compilación no está optimizada para AVX2: una explicación tarda 15–30 s en lugar de unos 5 s.
 	Model downloads are not available in this build.	Las descargas de modelos no están disponibles en esta compilación.
-	Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead.	Opcional y sin conexión: un pequeño modelo de lenguaje en este ordenador reescribe con palabras sencillas los datos medidos por el explicador de nodos. Nunca se incluye con FilmCraft y solo se descarga de su editor cuando pulsas Descargar. Cada texto se comprueba con los datos medidos; si no pasa la comprobación, se muestra la frase de plantilla sencilla.
-	Most stock models fail the strict check. The FilmCraft-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used.	La mayoría de los modelos de serie no superan la comprobación estricta. Los explicadores ajustados para FilmCraft la superan casi siempre; por ahora se crean en este ordenador y podrán descargarse cuando se publiquen. Mientras no elijas un modelo, se usa el mejor explicador ajustado instalado.
-	{name}: {size}, licence {licence}. Built on this computer (FilmCraft fine-tune of {base}); not downloadable yet.	{name}: {size}, licencia {licence}. Creado en este ordenador (ajuste de FilmCraft sobre {base}); aún no se puede descargar.
+	Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with Revolution and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead.	Opcional y sin conexión: un pequeño modelo de lenguaje en este ordenador reescribe con palabras sencillas los datos medidos por el explicador de nodos. Nunca se incluye con Revolution y solo se descarga de su editor cuando pulsas Descargar. Cada texto se comprueba con los datos medidos; si no pasa la comprobación, se muestra la frase de plantilla sencilla.
+	Most stock models fail the strict check. The Revolution-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used.	La mayoría de los modelos de serie no superan la comprobación estricta. Los explicadores ajustados para Revolution la superan casi siempre; por ahora se crean en este ordenador y podrán descargarse cuando se publiquen. Mientras no elijas un modelo, se usa el mejor explicador ajustado instalado.
+	{name}: {size}, licence {licence}. Built on this computer (Revolution fine-tune of {base}); not downloadable yet.	{name}: {size}, licencia {licence}. Creado en este ordenador (ajuste de Revolution sobre {base}); aún no se puede descargar.
 	checked	comprobado
 	Written by the local AI model and checked against the measured facts.	Escrito por el modelo de IA local y comprobado con los datos medidos.
 	Writing a plain-language version…	Escribiendo una versión en lenguaje sencillo…
@@ -3905,7 +3905,7 @@
 	Off (reduce motion)	Desactivado (reducir movimiento)
 	Media keys and the desktop's media controls	Teclas multimedia y controles multimedia del escritorio
 	Window title bar	Barra de título de la ventana
-	FilmCraft (like DaVinci Resolve)	FilmCraft (como DaVinci Resolve)
+	Revolution (like DaVinci Resolve)	Revolution (como DaVinci Resolve)
 	System (desktop title bar)	Sistema (barra de título del escritorio)
 	Minimize	Minimizar
 	Maximize	Maximizar
@@ -3963,7 +3963,7 @@
 	In the window	En la ventana
 	Preferences…	Preferencias…
 	Untitled project: File ▸ Save As keeps it	Proyecto sin título: Archivo ▸ Guardar como lo conserva
-	FilmCraft	FilmCraft
+	Revolution	Revolution
 	Project Manager full screen	Gestor de proyectos en pantalla completa
 	discrete	dedicada
 	integrated	integrada
@@ -3972,7 +3972,10 @@
 	other	otra
 	List Graphics Devices	Mostrar dispositivos gráficos
 	{gpu} (not found: Auto)	{gpu} (no encontrada: Automático)
+	Power saving (integrated GPU)	Ahorro de energía (GPU integrada)
+	Performance (discrete GPU)	Rendimiento (GPU dedicada)
 	Graphics device (takes effect at the next start)	Dispositivo gráfico (se aplica en el próximo inicio)
+	Lower playback resolution on battery	Bajar la resolución de reproducción con batería
 	Audio mixing stopped after an error: playing without sound	La mezcla de audio se detuvo por un error: reproducción sin sonido
 	No sound: the audio output could not start ({why})	Sin sonido: no se pudo iniciar la salida de audio ({why})
 	No sound: the audio output keeps changing its sample rate (check Settings ▸ Audio Hardware)	Sin sonido: la salida de audio cambia continuamente su frecuencia de muestreo (revisa Ajustes ▸ Hardware de audio)
@@ -4032,12 +4035,12 @@
 	Mask Opacity	Opacidad de máscara
 	Mask Expansion	Expansión de máscara
 	View Node	Ver nodo
-	Also ask the assistant (slow: runs on this computer)	Preguntar también al asistente de IA (lento: se ejecuta en este equipo)
+	Also ask the assistant (runs on this computer)	Preguntar también al asistente de IA (se ejecuta en este equipo)
 	The assistant is reading the guide…	El asistente de IA está leyendo la guía…
 	Assistant	Asistente de IA
 	Not checked against the guide yet.	Aún no se ha comprobado con la guía.
 	The assistant can't run here yet (its model isn't installed or this build has none), so the guide's answer above is all there is.	El asistente de IA aún no puede ejecutarse aquí (su modelo no está instalado o esta compilación no lo incluye), así que la respuesta de la guía de arriba es todo lo que hay.
-	The assistant's answer named things FilmCraft doesn't have, so it was left out; the guide's answer above is checked.	La respuesta del asistente de IA nombraba cosas que FilmCraft no tiene, así que se omitió; la respuesta de la guía de arriba está comprobada.
+	The assistant's answer named things Revolution doesn't have, so it was left out; the guide's answer above is checked.	La respuesta del asistente de IA nombraba cosas que Revolution no tiene, así que se omitió; la respuesta de la guía de arriba está comprobada.
 	The assistant couldn't answer this time; the guide's answer above still stands.	El asistente de IA no pudo responder esta vez; la respuesta de la guía de arriba sigue siendo válida.
 	Sources: {list}	Fuentes: {list}
 	{n} lines left out: they named controls, commands or shortcuts the guide doesn't have.	Se omitieron {n} líneas: nombraban controles, comandos o atajos que la guía no tiene.
@@ -4047,8 +4050,8 @@
 	The assistant says the guide doesn't cover this; the guide's closest answer is above.	El asistente dice que la guía no trata esto; arriba está la respuesta más cercana de la guía.
 	Show me: {title}	Muéstramelo: {title}
 # fork §1a.78: coach buttons in the page bar, Assistant panel
-	Answers come from FilmCraft's guide and run on this computer.	Las respuestas salen de la guía de FilmCraft y se generan en este ordenador.
-	Ask how to do something in FilmCraft: grading, editing, audio, compositing, export…	Pregunta cómo hacer algo en FilmCraft: etalonaje, edición, audio, composición, exportación…
+	Answers come from Revolution's guide and run on this computer.	Las respuestas salen de la guía de Revolution y se generan en este ordenador.
+	Ask how to do something in Revolution: grading, editing, audio, compositing, export…	Pregunta cómo hacer algo en Revolution: etalonaje, edición, audio, composición, exportación…
 	Ask the assistant…	Pregunta al asistente…
 	Ask the guide how to do something.	Pregunta a la guía cómo hacer algo.
 	Chat with the assistant: a panel you can float anywhere or dock beside any panel.	Chatea con el asistente: un panel que puedes dejar flotando en cualquier lugar o acoplar junto a cualquier panel.
@@ -4058,11 +4061,78 @@
 	Step-by-step lessons.	Lecciones paso a paso.
 	Stopped.	Detenido.
 	The assistant can't run here yet (its model isn't installed or this build has none). The guide's answer:	El asistente aún no puede funcionar aquí (su modelo no está instalado o esta versión no lo incluye). La respuesta de la guía:
+	Set up the assistant's model (Settings ▸ Color)	Configurar el modelo del asistente (Ajustes ▸ Color)
 	The assistant couldn't answer this time. The guide's answer:	El asistente no ha podido responder esta vez. La respuesta de la guía:
 	The assistant says the guide doesn't cover this; the guide's closest answer:	El asistente dice que la guía no trata esto; la respuesta más cercana de la guía:
-	The assistant's answer named things FilmCraft doesn't have, so it was left out. The guide's answer:	La respuesta del asistente nombraba cosas que FilmCraft no tiene, así que se ha omitido. La respuesta de la guía:
+	The assistant's answer named things Revolution doesn't have, so it was left out. The guide's answer:	La respuesta del asistente nombraba cosas que Revolution no tiene, así que se ha omitido. La respuesta de la guía:
 	There's no panel to open the Assistant beside.	No hay ningún panel junto al que abrir el asistente.
 	e.g. how do I make the sky bluer without changing skin?	p. ej., ¿cómo hago el cielo más azul sin cambiar la piel?
 	Claim Files of No Known Project	Reclamar archivos sin proyecto conocido
 	Claimed {n} render cache file(s)	Se reclamaron {n} archivo(s) de la caché de procesamiento
 	Claim Render Cache Files of No Known Project	Reclamar archivos de la caché de procesamiento sin proyecto conocido
+	On this frame (measured):	En este fotograma (medido):
+	Picture model	Modelo de imagen
+	Download picture model	Descargar modelo de imagen
+	Remove picture model	Quitar modelo de imagen
+	not installed	no instalado
+	Helpful	Útil
+	Not helpful	No es útil
+	Help improve the Assistant…	Ayuda a mejorar el Asistente…
+	What should it have said? (optional)	¿Qué debería haber dicho? (opcional)
+	Help improve the Assistant	Ayuda a mejorar el Asistente
+	This is exactly what would be shared or saved. Names of your project, clips, files and folders, your user name and network addresses are replaced.	Esto es exactamente lo que se compartiría o guardaría. Los nombres de tu proyecto, clips, archivos y carpetas, tu nombre de usuario y las direcciones de red se sustituyen.
+	Include the grade's settings	Incluir los ajustes de la corrección
+	Include the measured picture facts	Incluir los datos medidos de la imagen
+	Include a small frame from my footage (saved as an image)	Incluir un fotograma pequeño de mi material (se guarda como imagen)
+	I agree: it will be public on GitHub and used to train and improve Revolution's Assistant, including models released openly. It holds nothing private.	Acepto: será público en GitHub y se usará para entrenar y mejorar el Asistente de Revolution, incluidos modelos publicados abiertamente. No contiene nada privado.
+	Open on GitHub	Abrir en GitHub
+	Tick that you agree first.	Primero marca que estás de acuerdo.
+	Save example…	Guardar ejemplo…
+	Save the same text (and the frame, if ticked) to a folder. No agreement needed.	Guarda el mismo texto (y el fotograma, si está marcado) en una carpeta. No hace falta aceptar.
+	Too long for a link: the GitHub page asks for the file. Use Save example… and drag the file into the issue.	Demasiado largo para un enlace: la página de GitHub pide el archivo. Usa Guardar ejemplo… y arrastra el archivo a la incidencia.
+	Opened on GitHub. A frame can't go in a link: use Save example… and drag the image into the issue.	Abierto en GitHub. Un fotograma no cabe en un enlace: usa Guardar ejemplo… y arrastra la imagen a la incidencia.
+	Opened on GitHub. Check it there and submit it with your account.	Abierto en GitHub. Revísalo allí y envíalo con tu cuenta.
+	Saved as {path}	Guardado como {path}
+	Project file: on a network share ({fs}, {source})	Archivo de proyecto: en un recurso compartido de red ({fs}, {source})
+	Project file: on a local disk	Archivo de proyecto: en un disco local
+	Clips on network shares: {n} of {total}	Clips en recursos compartidos de red: {n} de {total}
+	On a network share: {share}	En un recurso compartido de red: {share}
+	{n} clip(s) went offline: their files can't be reached	{n} clip(s) sin conexión: no se puede acceder a sus archivos
+	{n} clip(s) are back online	{n} clip(s) vuelven a estar en línea
+	Packaging {name}	Empaquetando {name}
+	Packaging {name} (about {size})	Empaquetando {name} (unos {size})
+	Revolution package (.fcpackage or manifest.json)	Paquete de Revolution (.fcpackage o manifest.json)
+	Package as One File…	Empaquetar en un solo archivo…
+	Package	Empaquetar
+	Import Package	Importar paquete
+	Package…	Empaquetar…
+	Automatic (clips of the open project)	Automático (clips del proyecto abierto)
+	Local copies of clips on network shares	Copias locales de clips en recursos compartidos de red
+	Local copies size limit	Límite de tamaño de las copias locales
+	Network Copies	Copias de red
+	Local copy of {name} ready: it now plays from this computer	Copia local de {name} lista: ahora se reproduce desde este equipo
+	Couldn't copy {name} from the network share: {error}	No se pudo copiar {name} del recurso compartido de red: {error}
+	On a network share: {share}; plays from its local copy	En un recurso compartido de red: {share}; se reproduce desde su copia local
+	Update available	Actualización disponible
+	Update available: {current} → {new}	Actualización disponible: {current} → {new}
+	What the check sends: one request to GitHub (api.github.com) asking for the newest release. GitHub sees your IP address; nothing else is sent: no usage data, no identifiers.	Qué envía la comprobación: una sola petición a GitHub (api.github.com) para pedir la versión más reciente. GitHub ve tu dirección IP; no se envía nada más: ni datos de uso ni identificadores.
+	Downloading and checking the new build. You can keep working.	Descargando y comprobando la nueva versión. Puedes seguir trabajando.
+	Installed. Revolution starts the new build when you restart it; the old build is kept, so you can roll back in Settings ▸ Updates.	Instalada. Revolution abrirá la nueva versión al reiniciarlo; la versión anterior se conserva, así que puedes volver a ella en Ajustes ▸ Actualizaciones.
+	Restart Now	Reiniciar ahora
+	Later	Más tarde
+	The update didn't install (nothing was changed): {error}	La actualización no se instaló (no se cambió nada): {error}
+	Update	Actualizar
+	Open the Release Page	Abrir la página de la versión
+	Don't check for updates	No buscar actualizaciones
+	Revolution won't check for updates. Turn it back on in Settings ▸ Updates.	Revolution no buscará actualizaciones. Vuelve a activarlo en Ajustes ▸ Actualizaciones.
+	Updates	Actualizaciones
+	Check for updates every day	Buscar actualizaciones cada día
+	This build doesn't check for updates.	Esta versión no busca actualizaciones.
+	Checking…	Comprobando…
+	Up to date ({current}).	Al día ({current}).
+	The last check didn't get an answer: {error}	La última comprobación no obtuvo respuesta: {error}
+	This build: {current}. Not checked yet in this session.	Esta versión: {current}. Aún no se ha comprobado en esta sesión.
+	Check Now	Comprobar ahora
+	Roll Back to {build}	Volver a {build}
+	The launcher starts {build} again from the next start.	El lanzador volverá a abrir {build} a partir del próximo inicio.
+	Installed {new}: restart Revolution to use it.	Instalada {new}: reinicia Revolution para usarla.

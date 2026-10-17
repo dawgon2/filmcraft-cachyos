@@ -152,7 +152,7 @@ pub struct PackContents {
 
 /// Read a pack from its bytes. Errors name the entry that broke a rule.
 pub fn read_pack(bytes: &[u8]) -> std::result::Result<PackContents, String> {
-    let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| format!("not a FilmCraft pack: {e}"))?;
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| format!("not a Revolution pack: {e}"))?;
     if z.len() > MAX_ENTRIES {
         return Err(format!("the pack has {} entries (at most {MAX_ENTRIES})", z.len()));
     }
@@ -169,7 +169,7 @@ pub fn read_pack(bytes: &[u8]) -> std::result::Result<PackContents, String> {
             return Err(format!("`{name}`: not a plain file name"));
         }
         if name.to_ascii_lowercase().ends_with(".mogrt") {
-            return Err(format!("`{name}`: FilmCraft does not open .mogrt files"));
+            return Err(format!("`{name}`: Revolution does not open .mogrt files"));
         }
         let declared = f.size();
         if declared > MAX_ENTRY {
@@ -204,12 +204,12 @@ pub fn read_pack(bytes: &[u8]) -> std::result::Result<PackContents, String> {
             return Err(format!("`{name}`: not something a pack holds"));
         }
     }
-    let m = manifest.ok_or("not a FilmCraft pack (no pack.json)")?;
+    let m = manifest.ok_or("not a Revolution pack (no pack.json)")?;
     if m.format != PACK_FORMAT {
-        return Err(format!("not a FilmCraft pack (format `{}`)", m.format));
+        return Err(format!("not a Revolution pack (format `{}`)", m.format));
     }
     if m.version > 1 {
-        return Err(format!("this pack needs a newer FilmCraft (version {})", m.version));
+        return Err(format!("this pack needs a newer Revolution (version {})", m.version));
     }
     out.name = m.name;
     Ok(out)

@@ -7,7 +7,9 @@
 //! whose sliders show what was done, one undo step, every value adjustable afterwards. It runs as a
 //! background job (several renders of the clip) applied by [`poll`] when done; `"wait": true` runs it
 //! in place and returns the report. With `"apply": false` it only reports the suggestion ("Suggest
-//! settings"), always in place.
+//! settings"), always in place. Both in-place forms block the caller for the renders, so they are for
+//! the control channel, CLI and MCP only (whoever asks reads the report); the UI's Clean Up Voice
+//! button sends neither and never waits.
 //!
 //! | measured (on the clip without its Essential Sound effects) | sets |
 //! |---|---|

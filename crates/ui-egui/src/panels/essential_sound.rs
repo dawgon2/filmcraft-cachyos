@@ -49,7 +49,16 @@ const TICKS_PER_SAMPLE_48K: f64 = filmcraft_time::TICKS_PER_SECOND as f64 / 48_0
 
 /// The takes of `clip` when it is a voice-over recording with more than one take.
 fn takes_of(app: &mut FilmcraftApp, clip: u64) -> Vec<TakeRow> {
-    let list = filmcraft_engine::voiceover_takes::list(&app.session, filmcraft_project::ClipId(clip));
+    // the list only changes with the project: read it again after an edit, undo or another project
+    let key = (clip, app.session.revision, std::sync::Arc::as_ptr(&app.session.project) as usize);
+    let list = match &app.ui.essential_sound_takes {
+        Some((k, list)) if *k == key => list.clone(),
+        _ => {
+            let list = filmcraft_engine::voiceover_takes::list(&app.session, filmcraft_project::ClipId(clip));
+            app.ui.essential_sound_takes = Some((key, list.clone()));
+            list
+        }
+    };
     if list.len() < 2 {
         return Vec::new();
     }

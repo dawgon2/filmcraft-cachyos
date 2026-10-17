@@ -129,14 +129,14 @@ pub const COMMANDS: &[UiCommand] = &[
     uic!("textPanel.rippleDelete", "Ripple Delete", [], None),
     uic!("textPanel.showProgramTranscript", "Show Program Transcript", [], None),
     uic!("graphics.beginTextEditing", "Begin Text Editing for a Graphic Layer", [], Some("Cmd+Alt+'")),
-    uic!("help.filmcraftHelp", "FilmCraft Help…", ["Help"], Some("F1")),
+    uic!("help.filmcraftHelp", "Revolution Help…", ["Help"], Some("F1")),
     // fork (owner 2026-10-13): the FilmCraft menu left of File, as on macOS
-    uic!("app.preferences", "Preferences…", ["FilmCraft"], None),
-    uic!("app.quit", "Quit FilmCraft", ["FilmCraft"], Some("Cmd+Q")),
+    uic!("app.preferences", "Preferences…", ["Revolution"], None),
+    uic!("app.quit", "Quit Revolution", ["Revolution"], Some("Cmd+Q")),
 ];
 
 /// FilmCraft's documentation (Help ▸ FilmCraft Help…, F1).
-pub const HELP_URL: &str = "https://github.com/storytold/filmcraft/tree/main/docs";
+pub const HELP_URL: &str = "https://github.com/dawgon2/revolution/tree/fork/docs/guide";
 
 const HEIGHT_STEP: f32 = 12.0;
 const MIN_TRACK_H: f32 = 24.0;

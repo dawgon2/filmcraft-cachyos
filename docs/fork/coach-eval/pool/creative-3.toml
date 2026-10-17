@@ -1,0 +1,326 @@
+# AI-POOL batch creative-3 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families. Ten families: five extend creative-1's (freeze-frame-colour-drain,
+# phone-screen-replace, clone-yourself, stormy-sky, word-by-word-captions) with variants; five are new
+# (billboard logo, green-screen presenter, VHS home video, security-camera look, vintage film).
+# `must` = plan sub-goals from the guide's own text. Families with an admitted gap (part not possible
+# yet, with the guide's workaround): security-camera-look, word-by-word-captions, stormy-sky. Held-out only.
+
+# --- freeze-frame-colour-drain ---
+
+[[question]]
+id = "pool-cr3-freeze-bw-beginner"
+kind = "creative"
+family = "freeze-frame-colour-drain"
+q = "at the end of my video I want it to pause on a frame and slowly go black and white"
+sources = ["media.clips", "color.lumetri.panel", "effects.keyframes"]
+must = ["Frame Hold (clip.frameHold) freezes the clip on a frame", "Lumetri on the held clip, Saturation keyframed from its value down to 0 over the hold"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-freeze-node"
+kind = "creative"
+family = "freeze-frame-colour-drain"
+q = "freeze frame then desaturate over 2 seconds, can I animate the node grader saturation or only Lumetri"
+sources = ["media.clips", "color.lumetri.panel", "effects.keyframes"]
+must = ["freeze with Frame Hold (clip.frameHold)", "every Lumetri slider is an effect parameter and can be keyframed (effects.setParam / keyframes): Saturation to 0 over 2 seconds"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr3-freeze-title"
+kind = "creative"
+family = "freeze-frame-colour-drain"
+q = "freeze on the character, drain the colour and slam their name on screen like an intro card"
+sources = ["media.clips", "color.lumetri.panel", "graphics.text", "practice.titles.in-out"]
+must = ["Frame Hold on the moment, Lumetri Saturation keyframed down to 0", "a graphic clip with the name on a track above, with a matching entrance and exit"]
+must_not = []
+style = "sloppy"
+
+# --- phone-screen-replace ---
+
+[[question]]
+id = "pool-cr3-phone-handheld"
+kind = "creative"
+family = "phone-screen-replace"
+q = "replace what's on a laptop screen in a shot where the camera moves around"
+sources = ["tracking.screen", "tracking.what"]
+must = ["new picture on V2 with Corner Pin, the four corners set on a clear frame", "Track Surface forward / backward follows the screen's perspective, even when a corner leaves the frame", "track the surface's detail; each run is one undo step"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-phone-fingers"
+kind = "creative"
+family = "phone-screen-replace"
+q = "screen insert on a green phone screen, my thumb goes over it"
+sources = ["tracking.screen", "keying.ultra-key", "keying.check"]
+must = ["Corner Pin with Track Surface puts the insert on the screen", "key the green screen (Ultra Key) so the thumb stays in front of the insert", "check the key's matte with Output ▸ Alpha Channel"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr3-phone-resolve"
+kind = "creative"
+family = "phone-screen-replace"
+q = "planar tracker style screen replacement like in resolve fusion?"
+sources = ["tracking.screen", "tracking.what"]
+must = ["Corner Pin's Track Surface (tracking.cornerPin) follows a flat surface's perspective change", "set the four corners on one frame, then track forward and backward"]
+must_not = []
+style = "resolve-words"
+
+# --- clone-yourself ---
+
+[[question]]
+id = "pool-cr3-clone-three"
+kind = "creative"
+family = "clone-yourself"
+q = "three of me sitting around a table talking to each other"
+sources = ["practice.editing.clean-plate", "effects.opacity", "compositor.masks"]
+must = ["camera locked off, one take per position, exposure unchanged", "each take on its own track with a feathered mask on Opacity around that position, Normal blend for a clone", "light changes between takes give it away"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-clone-cross"
+kind = "creative"
+family = "clone-yourself"
+q = "clone shot where I walk behind my other self, the masks overlap"
+sources = ["practice.editing.clean-plate", "effects.opacity", "tracking.what"]
+must = ["animate or track the mask so it follows you as you walk (masks.track)", "the take in front goes on the upper track; feather the mask edge"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr3-clone-comp"
+kind = "creative"
+family = "clone-yourself"
+q = "twin effect, build it in the compositor"
+sources = ["compositor.basics", "compositor.masks", "practice.editing.clean-plate"]
+must = ["Media In for each take; a Mask node on the second take covering your other position; Merge it over the first", "the camera must not move between takes"]
+must_not = []
+style = "sloppy"
+
+# --- stormy-sky ---
+
+[[question]]
+id = "pool-cr3-sky-blown"
+kind = "creative"
+family = "stormy-sky"
+q = "dramatic dark sky but mine is almost white"
+sources = ["color.recipes.sky", "color.secondaries.windows"]
+must = ["a blown-out sky has no colour left to select: darken what detail is left with a gradient (Linear) window", "Revolution can't replace the sky with new clouds"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr3-sky-premiere"
+kind = "creative"
+family = "stormy-sky"
+q = "moody overcast sky in lumetri, darker and greyer but faces untouched"
+sources = ["color.lumetri.panel", "color.recipes.sky", "color.secondaries.qualifier"]
+must = ["Lumetri's HSL Secondary keys the sky's hue, then the correction darkens and desaturates it", "or the node grader: qualifier on the sky on its own node, Matte view to check faces stay black"]
+must_not = []
+style = "premiere-words"
+
+# --- billboard-logo-replace ---
+
+[[question]]
+id = "pool-cr3-billboard"
+kind = "creative"
+family = "billboard-logo-replace"
+q = "put my company logo on a billboard we drive past"
+sources = ["tracking.screen", "graphics.layers"]
+must = ["the logo (an image or a graphic clip) on V2 over the shot, Corner Pin with the corners on the billboard", "Track Surface follows the billboard's perspective as you drive past"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-billboard-blend"
+kind = "creative"
+family = "billboard-logo-replace"
+q = "the pinned poster looks pasted on, too clean compared to the wall"
+sources = ["tracking.screen", "effects.opacity", "color.lumetri.panel"]
+must = ["a blend mode on the pinned clip's Opacity (Multiply lets the wall's texture and shadows through)", "grade the insert to the shot's light and contrast (e.g. Lumetri on the pinned clip)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr3-billboard-occlusion"
+kind = "creative"
+family = "billboard-logo-replace"
+q = "a person walks in front of the sign I replaced and the new sign covers them"
+sources = ["tracking.screen", "effects.opacity", "tracking.what"]
+must = ["the corner pin's track survives something passing in front of one corner", "the person must be cut back in front: a tracked mask (masks.track) on the insert's Opacity, Inverted around the person, or the original on a track above through a mask"]
+must_not = []
+style = "beginner"
+
+# --- green-screen-presenter ---
+
+[[question]]
+id = "pool-cr3-gs-weather"
+kind = "creative"
+family = "green-screen-presenter"
+q = "me in front of a map like a weather presenter, I shot on green"
+sources = ["keying.ultra-key", "keying.check", "keying.cleanup"]
+must = ["map on V1, the green-screen clip on V2 with Ultra Key (effects.apply, ultra_key); Key Color from a mid-green part", "check the matte with Output ▸ Alpha Channel, then Composite", "Choke / Soften the edge and Spill Suppression for green on skin and hair"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-gs-hair"
+kind = "creative"
+family = "green-screen-presenter"
+q = "keying flyaway hair without chewing it up"
+sources = ["keying.ultra-key", "keying.cleanup", "keying.check"]
+must = ["Setting Relaxed if edges look chewed", "small Choke only (large values eat into hair), a little Soften, Spill Suppression for the green cast in hair"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr3-gs-comp"
+kind = "creative"
+family = "green-screen-presenter"
+q = "green screen in a comp so I can grade the whole result as one picture"
+sources = ["compositor.recipes", "keying.ultra-key"]
+must = ["Media In → Key node (Ultra Key) → foreground of a Merge whose background is a second Media In of the plate", "a Color node after the Merge grades the composite as one picture → Media Out"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-cr3-gs-uneven"
+kind = "creative"
+family = "green-screen-presenter"
+q = "green screen has wrinkles and shadows, key leaves grey blotches"
+sources = ["keying.check", "keying.ultra-key"]
+must = ["in the Alpha Channel view, grey speckles in the background: raise Tolerance or Transparency (Setting Custom), or Aggressive", "light the screen more evenly next time"]
+must_not = []
+style = "sloppy"
+
+# --- vhs-home-video ---
+
+[[question]]
+id = "pool-cr3-vhs-90s"
+kind = "creative"
+family = "vhs-home-video"
+q = "make my clip look like a 90s home video tape"
+sources = ["practice.looks.vhs", "shader-effects.use"]
+must = ["the bundled VHS shader effect (Video Effects ▸ User ▸ Stylize, effects.apply): wobble, colour bleed, lifted blacks, grain, scanlines", "for more: a little less saturation, blacks lifted with the master curve, warm or magenta highlights", "keep it subtle: real tape is mostly soft and dull, not glitchy"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-vhs-cpu"
+kind = "creative"
+family = "vhs-home-video"
+q = "I added the VHS effect but nothing changes on my laptop"
+sources = ["shader-effects.use", "shader-effects.trouble"]
+must = ["shader effects run only on the GPU: where a frame renders on the CPU (no usable graphics card or the software renderer) they leave the picture unchanged", "the User folder says so; check the graphics card / renderer setting"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr3-vhs-audio"
+kind = "creative"
+family = "vhs-home-video"
+q = "camcorder look, picture and sound both"
+sources = ["practice.looks.vhs", "shader-effects.use"]
+must = ["the VHS shader effect plus lower saturation and lifted blacks for the picture", "keep the audio matching: thin, a little hiss"]
+must_not = []
+style = "pro"
+
+# --- security-camera-look (partly a gap) ---
+
+[[question]]
+id = "pool-cr3-cctv"
+kind = "creative"
+family = "security-camera-look"
+q = "make it look like security camera footage with the date in the corner"
+sources = ["practice.looks.vhs", "graphics.text", "effect-reference.video-transform"]
+must = ["low saturation (0–20 %) or a slight green tint, contrast up, strong grain on the look node", "a text layer with the camera name and date in a corner; a ticking counter: Metadata & Timecode Burn-in (Video Effects ▸ Video, Sequence Timecode) runs by itself, but a real wall-clock time needs keyframed text changes", "a high, wide framing via Motion Scale / Position sells it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-cctv-stutter"
+kind = "creative"
+family = "security-camera-look"
+q = "CCTV choppy low frame rate stutter"
+sources = ["effects.stylize", "practice.looks.vhs", "media.clips"]
+must = ["Posterize Time (Video Effects ▸ Time) with a low Frame Rate (e.g. 8) makes it jump like a cheap camera", "by hand instead: cut every few frames and Frame Hold each piece (clip.frameHold)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr3-cctv-found"
+kind = "creative"
+family = "security-camera-look"
+q = "found-footage style surveillance shot for a horror short, grade plus overlay"
+sources = ["practice.looks.vhs", "color.finishing.grain", "graphics.layers"]
+must = ["grade: saturation way down, contrast up, heavy grain (grade.param.grain.*)", "overlay: a graphic clip with the camera name and timestamp text layers"]
+must_not = []
+style = "pro"
+
+# --- vintage-film-look ---
+
+[[question]]
+id = "pool-cr3-film-old"
+kind = "creative"
+family = "vintage-film-look"
+q = "make my digital footage look like old film"
+sources = ["practice.looks.film-curve", "practice.looks.faded-blacks", "color.finishing.grain"]
+must = ["master curve with a gentle toe and shoulder, Lift slightly cool, Gain slightly warm, Saturation a touch lower", "lifted (faded) blacks by raising the curve's bottom point", "grain on the last node"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-film-70s"
+kind = "creative"
+family = "vintage-film-look"
+q = "70s faded print look, warm and washed out"
+sources = ["practice.looks.faded-blacks", "practice.looks.film-curve", "color.finishing.grain"]
+must = ["raise the bottom point of the master curve (grade.curve.master), tint the lifted blacks warm with the Lift wheel", "grain on top; deliver 10-bit or keep the grain to avoid banding in the darks"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr3-film-lut"
+kind = "creative"
+family = "vintage-film-look"
+q = "film emulation: LUT or build it myself in nodes?"
+sources = ["practice.looks.film-curve", "practice.looks.creative-lut", "color.finishing.lut"]
+must = ["a film-emulation LUT on a node (one you're licensed to use), after balancing, at partial strength", "or build it: toe / shoulder curve, warm gain / cool lift, grain; the S-curve alone isn't film"]
+must_not = []
+style = "pro"
+
+# --- word-by-word-captions ---
+
+[[question]]
+id = "pool-cr3-words-highlight"
+kind = "creative"
+family = "word-by-word-captions"
+q = "highlight each word in yellow as I say it, like shorts captions"
+sources = ["practice.titles.kinetic-captions", "text.captions", "graphics.source"]
+must = ["captions from the transcript, then Upgrade Caption to Graphic (graphics.upgradeCaption)", "colour the active word with a per-character style (graphics.setCharStyle) keyed to the word timings", "automatic word-by-word highlighting isn't offered yet"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr3-words-big"
+kind = "creative"
+family = "word-by-word-captions"
+q = "big bold one-word-at-a-time captions in the middle of a vertical video"
+sources = ["text.captions", "practice.youtube.vertical-captions", "practice.youtube.safe-areas"]
+must = ["large, high-contrast words for silent autoplay, near the centre and out of the bottom fifth", "no automatic one-word-at-a-time animation: split captions into short ones (one word each) or keyframe by hand"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr3-words-premiere"
+kind = "creative"
+family = "word-by-word-captions"
+q = "premiere's captions can't do karaoke style either, any way here"
+sources = ["practice.titles.kinetic-captions", "graphics.source", "text.transcripts"]
+must = ["the transcript has each word's time; upgrade the caption to a graphic and colour words with per-character styles at those times", "it is by hand: there's no automatic highlighting yet"]
+must_not = []
+style = "premiere-words"

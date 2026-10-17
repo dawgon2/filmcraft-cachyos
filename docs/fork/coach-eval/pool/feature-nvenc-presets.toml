@@ -1,0 +1,46 @@
+# FEATURE-POOL batch feature-nvenc-presets (FEATURE-QUEUE row "XPS b: Export ▸ Encoder speed picks
+# NVIDIA's NVENC preset (Driver default P5, Speed P1, Balanced P4, Quality P7); an unknown preset falls
+# back to P5").
+# Source: export.md (export.hevc, its Encoder speed paragraph). Held-out test questions, written from the
+# guide's text (README.md beside this file). The guide doesn't list the `hwEncodeSpeed` parameter's
+# values, so no question names them. A small setting: few honest questions.
+# No creative family: encoder effort is not a creative goal.
+# No recipe spot check: no NVIDIA card on the Dell.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-nvp-map"
+kind = "tool"
+q = "I have an NVIDIA card. Which NVENC preset does each Encoder speed choice give me?"
+sources = ["export.hevc"]
+must = ["Driver default is P5", "Speed P1, Balanced P4, Quality P7"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-nvp-old-driver"
+kind = "tool"
+q = "what if my nvidia driver is old and doesnt know the preset i picked, does the export fail"
+sources = ["export.hevc"]
+must = ["a driver that doesn't know the chosen preset gets P5", "the export still runs"]
+must_not = ["the export fails"]
+style = "sloppy"
+
+[[question]]
+id = "feat-nvp-same-as-before"
+kind = "tool"
+q = "Will my NVENC exports look different after this update if I never touch Encoder speed?"
+sources = ["export.hevc"]
+must = ["Driver default is P5, what Revolution always used"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-nvp-premiere-words"
+kind = "tool"
+q = "Premiere's hardware encoding has a performance setting for NVENC. How do I make Revolution's NVIDIA export spend more effort on quality?"
+sources = ["export.hevc"]
+must = ["Encoder speed in the Export dialog's Video section: Quality", "on NVENC Quality is preset P7, the slowest"]
+must_not = []
+style = "premiere-words"

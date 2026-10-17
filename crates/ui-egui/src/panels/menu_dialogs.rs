@@ -46,6 +46,41 @@ impl Default for Extras {
 
 type Elems = Vec<(String, egui::Rect, String)>;
 
+/// Where the project file and its clips live (STORAGE-PLAN S1 item 1), from the mount table only,
+/// so it answers at once even while a share is down: `media.storage`'s result.
+fn storage_info(s: &filmcraft_engine::Session) -> Value {
+    let table = filmcraft_engine::netfs::mount_table().unwrap_or_default();
+    let kind = |path: &str| filmcraft_engine::netfs::classify_mountinfo(&table, std::path::Path::new(path));
+    let files = filmcraft_engine::media_watch::media_files(&s.project);
+    let network = files.iter().filter(|f| kind(f).is_network()).count();
+    json!({"project": s.path.as_deref().map(kind), "clips": files.len(), "networkClips": network})
+}
+
+/// Project Settings ▸ General: "Project file: on a network share (cifs, //nas/media)" and how many
+/// clips are on shares (`projectSettings.storage.project`, `projectSettings.storage.clips`).
+fn storage_lines(ui: &mut egui::Ui, elems: &mut Elems, info: &Value) {
+    let project = &info["project"];
+    let line = match project["kind"].as_str() {
+        Some("network") => Some(tlf!(
+            "Project file: on a network share ({fs}, {source})",
+            fs = project["fsType"].as_str().unwrap_or_default(),
+            source = project["source"].as_str().unwrap_or_default()
+        )),
+        Some("local") => Some(tl!("Project file: on a local disk").to_string()),
+        _ => None,
+    };
+    if let Some(line) = line {
+        let r = ui.label(&line);
+        push(elems, "projectSettings.storage.project", &r, line);
+    }
+    let network = info["networkClips"].as_u64().unwrap_or(0);
+    if network > 0 {
+        let line = tlf!("Clips on network shares: {n} of {total}", n = network, total = info["clips"].as_u64().unwrap_or(0));
+        let r = ui.label(&line);
+        push(elems, "projectSettings.storage.clips", &r, line);
+    }
+}
+
 fn push(elems: &mut Elems, id: impl Into<String>, r: &egui::Response, label: impl Into<String>) {
     elems.push((id.into(), r.rect, label.into()));
 }
@@ -138,7 +173,7 @@ pub fn logs_dir(app: &FilmcraftApp) -> std::path::PathBuf {
         .as_ref()
         .and_then(|p| p.parent())
         .map(|d| filmcraft_engine::dirs::AppDirs::for_data_dir(d).logs())
-        .unwrap_or_else(|| filmcraft_engine::temp_dir().join("FilmCraft Logs"))
+        .unwrap_or_else(|| filmcraft_engine::temp_dir().join("Revolution Logs"))
 }
 
 /// Write this session's log (system report and the command journal) into [`logs_dir`].
@@ -219,7 +254,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
             let (filter, ext, name) = if id == "file.exportAle" {
                 (tl!("Avid Log Exchange"), "ale", format!("{}.ale", app.session.project.name))
             } else {
-                (tl!("FilmCraft Project"), "fcproj", tlf!("{name} Selection.fcproj", name = app.session.project.name))
+                (tl!("Revolution Project"), "fcproj", tlf!("{name} Selection.fcproj", name = app.session.project.name))
             };
             let mut p = params.clone();
             if !p.is_object() {
@@ -306,7 +341,7 @@ fn defaults(app: &mut FilmcraftApp, cmd: &str, id: &str) -> Result<(Value, Value
                     "captured": sc.captured, "videoPreviews": sc.video_previews, "audioPreviews": sc.audio_previews, "autoSave": sc.auto_save,
                     "ingest": ingest.clone(),
                 }),
-                json!({"scratch": scratch, "ingest": ingest, "project": s.project.name}),
+                json!({"scratch": scratch, "ingest": ingest, "project": s.project.name, "storage": storage_info(s)}),
             )
         }
         "file.mediaProperties" => {
@@ -596,6 +631,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                         p["ingest"] = ing;
                     }
                     _ => {
+                        storage_lines(ui, &mut elems, &d.info["storage"]);
                         ui.label(RichText::new(tl!("Video Rendering and Playback")).strong());
                         let rs = vec![
                             (filmcraft_engine::project_tools::RENDERER_GPU.to_string(), filmcraft_engine::project_tools::RENDERER_GPU.to_string()),

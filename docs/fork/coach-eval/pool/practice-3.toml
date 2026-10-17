@@ -1,0 +1,140 @@
+# AI-POOL batch practice-3: practice/looks.md. Notes without a held-out question get the main
+# question; the others get pitfalls.
+
+[[question]]
+id = "pool-r3-bw-flat"
+kind = "tweak"
+q = "my black and white looks flat and the red and green shirts are the same grey"
+sources = ["practice.looks.black-white"]
+must = ["plain desaturation makes red and green the same grey", "shift colours first (wheels or a qualifier: blue darker, skin lighter), then Saturation 0 on a later node"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r3-punchy-bw"
+kind = "multi-step"
+q = "punchy high contrast monochrome for a music video"
+sources = ["practice.looks.high-contrast-bw"]
+must = ["black and white with controlled channels", "Contrast up with the pivot on the subject, a little grain", "don't crush blacks so far that hair and clothes lose detail"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r3-bleach-skin"
+kind = "tweak"
+q = "my bleach bypass makes the actors look grey and ill"
+sources = ["practice.looks.bleach-bypass"]
+must = ["skin goes grey in bleach bypass: protect it a little with a skin qualifier"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r3-faded"
+kind = "multi-step"
+q = "how do I get that faded vintage look with grey blacks?"
+sources = ["practice.looks.faded-blacks"]
+must = ["raise the bottom point of the master curve", "optionally tint lifted blacks slightly warm or green with Lift; grain on top"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r3-faded-banding"
+kind = "pro-practice"
+q = "the lifted blacks show banding after upload"
+sources = ["practice.looks.faded-blacks"]
+must = ["banding in dark areas on 8-bit delivery: deliver 10-bit or add grain"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r3-thriller"
+kind = "approach"
+q = "cold muted thriller look, how?"
+sources = ["practice.looks.cool-thriller"]
+must = ["Temperature cool, Lift towards teal-green, Saturation about 70–80 %", "a skin qualifier to keep faces from turning blue"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r3-commercial"
+kind = "approach"
+q = "clean bright look for a product video"
+sources = ["practice.looks.commercial"]
+must = ["precise balance on the first node, white point near the top, gentle contrast, saturation slightly up", "check the waveform for clipped whites on product edges"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r3-pastel"
+kind = "approach"
+q = "soft pastel look for a fashion piece"
+sources = ["practice.looks.pastel"]
+must = ["Contrast down, blacks lifted, Saturation a little down, Gain slightly warm or pink", "keep a clean white point or it turns muddy"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r3-neon-clip"
+kind = "tweak"
+q = "my neon signs look clipped and flat"
+sources = ["practice.looks.neon"]
+must = ["saturate less and let the roll-off do its job", "watch out-of-gamut colours on Rec. 709"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r3-doc-consistency"
+kind = "pro-practice"
+q = "for a doc with ten interviews, what's the biggest trap?"
+sources = ["practice.looks.documentary"]
+must = ["every interview balanced differently: match them", "balance and contrast only, skin on the line, no or a very light look"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r3-film-curve-texture"
+kind = "pro-practice"
+q = "I added an S-curve but it still doesn't feel like film"
+sources = ["practice.looks.film-curve"]
+must = ["the S-curve alone isn't film: the roll-off and texture matter as much", "gentle toe and shoulder, slightly cool Lift, slightly warm Gain, saturation a touch lower, grain last"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r3-lut-folder"
+kind = "tool"
+q = "I bought a pack of 40 creative LUTs, how do I load them all?"
+sources = ["practice.looks.creative-lut", "packs.make"]
+must = ["Import LUT Folder (lut.importFolder)", "use them on a late node at 50–80 % mix, after balancing"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r3-exterior"
+kind = "multi-step"
+q = "landscape shot: bluer sky but warmer ground"
+sources = ["practice.looks.exterior"]
+must = ["a linear window on the sky (Gain down, a little blue)", "its inverse on the ground, a touch warmer", "soften and angle the gradient so it doesn't cross a mountain or building badly"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r3-lowkey-lift"
+kind = "pro-practice"
+q = "the director says the night scene is too dark, should I just lift everything?"
+sources = ["practice.looks.low-key"]
+must = ["lifting the whole picture kills the mood", "keep faces and lamps readable with ellipse windows instead"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r3-reference-limits"
+kind = "pro-practice"
+q = "I can't get my footage to match the movie still the client sent"
+sources = ["practice.looks.reference"]
+must = ["the footage may not support it (different light, lens or exposure)", "match levels first, then colour, then contrast shape"]
+must_not = []
+style = "pro"

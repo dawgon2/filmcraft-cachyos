@@ -8,7 +8,8 @@
 
 **[Resolve-style]**
 
-A cut feels wrong when two shots of one scene differ in colour. The quickest route: save a good
+A cut between two shots can feel off even though nothing in them moves: usually the two shots
+of one scene differ in colour or brightness. The quickest route: save a good
 shot as a **still**, compare the next shot against it, then reuse or adjust the grade.
 
 ## Stills gallery
@@ -28,8 +29,9 @@ Program frame plus the grade that made it, saved in the project.
 | **Delete** | {ui:stills.delete} | `stills.delete` | removes the selected still |
 | **Off / Wipe / Split** | {ui:stills.mode.off} {ui:stills.mode.wipe} {ui:stills.mode.split} | `compare.set` | the comparison mode (Wipe and Split need a chosen still) |
 
-`stills.label` renames a still; there is no rename button yet. With Workflow set to Resolve,
-**Ctrl+Alt+G** runs `stills.grab`.
+With Workflow set to Resolve, **Ctrl+Alt+G** runs `stills.grab`.
+
+- **Revolution:** no button to rename a still yet: `stills.label` renames one.
 
 ## Compare
 
@@ -68,9 +70,9 @@ clips it touches.
 
 ### Paste Attributes
 
-**[FilmCraft]**
+**[Revolution]**
 
-Edit ▸ **Paste Attributes…** (`edit.pasteAttributes`, Ctrl+Alt+V, **[FilmCraft]**) pastes the
+Edit ▸ **Paste Attributes…** (`edit.pasteAttributes`, Ctrl+Alt+V, **[Revolution]**) pastes the
 copied clip's motion, opacity, effects and so on; since G1 it also carries the grade. The
 command's `grade` option (default on) leaves the grade out when set to false; the dialog has no
 Grade checkbox yet, so from the dialog the grade always comes along.
@@ -83,9 +85,10 @@ Grade checkbox yet, so from the dialog the grade always comes along.
 
 ### Why
 
-After copying a grade around a scene it is easy to nudge one clip by accident. FilmCraft can tell
+After copying a grade around a scene it is easy to nudge one clip by accident. Revolution can tell
 you which clips carry *exactly* the same grade: same nodes in the same order with the same
-settings (node names and ids don't matter, nor do settings left at their neutral value).
+settings. Different node names or ids don't make two grades count as different, nor do settings
+left at their neutral value.
 
 ### Steps
 
@@ -93,7 +96,7 @@ settings (node names and ids don't matter, nor do settings left at their neutral
 2. The first line says **Same grade as:** followed by the other clips with an identical grade, or
    that no other clip has it.
 3. For scripts, `grade.compareData` groups every video clip of the sequence by grade
-   (`{"groups": [{"clips": [...]}]}`); pass `"clips"` to look at some only.
+   (a list of `groups`, each with its `clips`); pass `"clips"` to look at some only.
 
 ## Compare shots and check a scene
 
@@ -146,7 +149,7 @@ nothing); the commands work on any video clip. These requests render frames whil
 long scene check takes a few seconds (at most 64 clips are measured).
 
 **[Resolve-style]** Like Resolve's Shot Match, the idea is "make this look like that"; the solver
-and its controls are FilmCraft's own (it writes the primaries of a node instead of a hidden
+and its controls are Revolution's own (it writes the primaries of a node instead of a hidden
 adjustment).
 
 ## The node explainer
@@ -185,7 +188,7 @@ a stop and whole percentages; anything below a just-noticeable change is called 
 The explainer's template sentence is exact but terse ("midtones +⅙ stop, slightly less
 magenta"). A small language model running on your own computer can say the same thing in plainer
 words for a beginner ("this node brightens the middle tones a little"). It is optional and
-offline, and it never decides anything: it only rewrites the measured facts, and FilmCraft checks
+offline, and it never decides anything: it only rewrites the measured facts, and Revolution checks
 every word it writes against them before showing it.
 
 ### Steps
@@ -218,30 +221,30 @@ remembered for that node until it changes. While the model writes, each finished
 passes the check appears as soon as it is done (usually under half a second for the first), so
 you can read along; if a later sentence fails the check, the whole text falls back to the
 template. **[Fork]** You often won't wait at all: when you stop adjusting a node for about
-half a second (and nothing is playing), FilmCraft starts writing its explanation in the
+half a second (and nothing is playing), Revolution starts writing its explanation in the
 background, so **Explain node** is usually answered at once. Only the latest node is written
 ahead; an older background answer you never asked for is dropped. When the model was asked, a small **plain template**
 hint under the sentence says why. Most stock models fail this strict check, so with them expect
 the template often.
 
-### The FilmCraft-tuned explainer
+### The Revolution-tuned explainer
 
-FilmCraft has its own explainer models: small models trained to describe a node in exactly the
+Revolution has its own explainer models: small models trained to describe a node in exactly the
 words the check accepts. In tests the best one passed 35 of 36 sample nodes and answered in about
 1.6 seconds. For now they are built on the owner's computer and can't be downloaded: in the
 **Model** list they say "Built on this computer" and **Download** stays greyed out. Once they are
-published, they download like any other model. If you haven't picked a model yourself, FilmCraft
+published, they download like any other model. If you haven't picked a model yourself, Revolution
 uses the best tuned explainer that is installed, and the standard default model otherwise.
 
-On a slower computer, pick **FilmCraft explainer, SmolLM2 135M tuned (8-bit, fast)** in the
+On a slower computer, pick **Revolution explainer, SmolLM2 135M tuned (8-bit, fast)** in the
 **Model** list: it answers in about half the time (0.6 s instead of 1.3 s here) and passed nearly
-as many sample nodes (one fewer of 76). FilmCraft never picks it on its own: it is for when the
+as many sample nodes (one fewer of 76). Revolution never picks it on its own: it is for when the
 standard tune feels slow.
 
 ### Privacy
 
 Nothing leaves your computer. The only network use is the download you start; the model is
-never bundled with FilmCraft and runs on the CPU. Agents can do the same with `ai.models`,
+never bundled with Revolution and runs on the CPU. Agents can do the same with `ai.models`,
 `ai.download`, `ai.select`, `ai.setEnabled` and `grade.explainNode` with `"wait": true` (which
 blocks at most 20 s; still writing then, it returns the template with an `aiKey` to poll with
 `ai.explanation`; while pending, its `partial` field holds the checked sentences so far).
@@ -252,5 +255,6 @@ blocks at most 20 s; still writing then, it returns the template with an `aiKey`
 
 **[Resolve-style]**
 
-Stills, wipe and split work like the gallery and its wipe. There are no memories, versions,
-groups or timeline grades yet: grades belong to clips.
+Stills, wipe and split work like the gallery and its wipe.
+
+- **Revolution:** no memories, versions, groups or timeline grades yet: grades belong to clips.

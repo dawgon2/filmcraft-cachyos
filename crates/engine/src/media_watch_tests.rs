@@ -98,3 +98,33 @@ fn a_background_look_reads_changed_media_again() {
     assert_eq!(look(&mut s), json!({"refreshed": [items[0].0]}));
     assert!(s.media_scan.is_none());
 }
+
+/// (STORAGE-PLAN S1 item 3b) A clip whose file goes away (a network share dropping) goes offline
+/// on the next look, and comes back online by itself when the file is there again: the offline
+/// slate is dropped and the picture is the file's again, with no undo step.
+#[test]
+fn a_file_that_goes_away_and_comes_back_relinks_by_itself() {
+    let root = tmp_dir("watch-return");
+    let a = root.join("a.mov");
+    let away = root.join("a.mov.away");
+    make_movie(&a, DemoScene::Aurora, W, H, 12);
+    let (mut s, items, _) = session_with(&[&a]);
+    let item = items[0];
+    let good = frame_rgba(&mut s, 3, 1.0).2;
+    let undo = s.history.undo.len();
+    assert_eq!(refresh(&mut s), json!({"refreshed": []}));
+    std::fs::rename(&a, &away).unwrap();
+    s.media.remove(item);
+    let gone = frame_rgba(&mut s, 3, 1.0).2;
+    assert!(psnr(&gone, &good) < 30.0, "offline slate while the file is away");
+    assert_eq!(refresh(&mut s), json!({"refreshed": [], "offline": [item.0]}));
+    assert!(s.offline.missing.contains(&item));
+    assert_eq!(refresh(&mut s), json!({"refreshed": []}), "reported once");
+    std::fs::rename(&away, &a).unwrap();
+    assert_eq!(refresh(&mut s), json!({"refreshed": [], "online": [item.0]}));
+    assert!(!s.offline.missing.contains(&item));
+    let back = frame_rgba(&mut s, 3, 1.0).2;
+    assert!(psnr(&back, &good) > 40.0, "the file's picture again");
+    assert_eq!(s.history.undo.len(), undo);
+    let _ = std::fs::remove_dir_all(&root);
+}

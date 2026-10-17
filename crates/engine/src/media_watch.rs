@@ -34,7 +34,12 @@ pub type MediaScan = Arc<Mutex<Option<Vec<(String, Option<Stamp>)>>>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn stamp(path: &str) -> Option<Stamp> {
-    let meta = std::fs::metadata(path).ok()?;
+    // a file on a share that stopped answering counts as not there (S1 item 3b), after a time limit
+    let p = path.to_string();
+    let meta = match crate::netfs::share_call(path, move || std::fs::metadata(p)) {
+        Some(r) => r.ok()?,
+        None => std::fs::metadata(path).ok()?,
+    };
     let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
     Some((meta.len(), modified.as_nanos()))
 }
@@ -42,6 +47,18 @@ fn stamp(path: &str) -> Option<Stamp> {
 #[cfg(target_arch = "wasm32")]
 fn stamp(_: &str) -> Option<Stamp> {
     None
+}
+
+/// `{refreshed: [ids], online?: [ids], offline?: [ids]}` (the last two only when not empty).
+fn scan_result(refreshed: &[u64], online: &[u64], offline: &[u64]) -> Value {
+    let mut v = json!({"refreshed": refreshed});
+    if !online.is_empty() {
+        v["online"] = json!(online);
+    }
+    if !offline.is_empty() {
+        v["offline"] = json!(offline);
+    }
+    v
 }
 
 /// The files of `p`'s file media items (made-offline ones aside).
@@ -99,23 +116,29 @@ impl Session {
         // Only the files the project uses now are remembered.
         let before: HashMap<String, Stamp> = std::mem::take(&mut self.media_stamps);
         let mut changed = BTreeSet::new();
+        let (mut present, mut absent) = (BTreeSet::new(), BTreeSet::new());
         for (path, stamp) in now {
             match (before.get(&path), stamp) {
                 // Not there right now (an app saving by delete and rename): keep the last stamp.
                 (Some(old), None) => {
-                    self.media_stamps.insert(path, *old);
+                    self.media_stamps.insert(path.clone(), *old);
+                    absent.insert(path);
                 }
                 (old, Some(new)) => {
                     if old.is_some_and(|o| *o != new) {
                         changed.insert(path.clone());
                     }
-                    self.media_stamps.insert(path, new);
+                    self.media_stamps.insert(path.clone(), new);
+                    present.insert(path);
                 }
-                (None, None) => {}
+                (None, None) => {
+                    absent.insert(path);
+                }
             }
         }
+        let (online, offline) = self.follow_presence(&present, &absent);
         if changed.is_empty() {
-            return Ok(json!({"refreshed": []}));
+            return Ok(scan_result(&[], &online, &offline));
         }
         let mut fresh = Vec::new();
         let mut failed = BTreeSet::new();
@@ -145,7 +168,7 @@ impl Session {
         // A file that can't be opened (still being written, or not media FilmCraft reads) keeps its
         // new stamp: it is tried again once it changes again, not on every look.
         if fresh.is_empty() {
-            return Ok(json!({"refreshed": []}));
+            return Ok(scan_result(&[], &online, &offline));
         }
         let p = Arc::make_mut(&mut self.project);
         let mut refreshed: Vec<ItemId> = Vec::new();
@@ -160,6 +183,36 @@ impl Session {
             refreshed.push(id);
         }
         self.bump_view();
-        Ok(json!({"refreshed": refreshed.iter().map(|i| i.0).collect::<Vec<_>>()}))
+        Ok(scan_result(&refreshed.iter().map(|i| i.0).collect::<Vec<_>>(), &online, &offline))
+    }
+
+    /// Clips whose file vanished go offline ("Media missing"), and clips that were missing come
+    /// back online once their file is there again, e.g. a network share that dropped and returned
+    /// (STORAGE-PLAN S1 item 3b): the cached "Media Offline" slate is dropped so the next look
+    /// opens the file again. Works from the stamps the look took on its worker thread, so nothing
+    /// here touches the disk. Returns the item ids that came back and went away.
+    fn follow_presence(&mut self, present: &BTreeSet<String>, absent: &BTreeSet<String>) -> (Vec<u64>, Vec<u64>) {
+        let (mut online, mut offline) = (Vec::new(), Vec::new());
+        for (id, it) in &self.project.items {
+            let Some(m) = it.as_media().filter(|m| !m.offline) else { continue };
+            let MediaRef::File { path } = &m.media else { continue };
+            // listed when the look found it gone, or when the project opened without it
+            let listed = self.offline.missing.contains(id);
+            if present.contains(path) && listed {
+                online.push(*id);
+            } else if absent.contains(path) && !listed {
+                offline.push(*id);
+            }
+        }
+        if online.is_empty() && offline.is_empty() {
+            return (Vec::new(), Vec::new());
+        }
+        self.offline.missing.retain(|i| !online.contains(i));
+        for id in &online {
+            self.media.remove(*id);
+        }
+        self.offline.missing.extend(offline.iter().copied());
+        self.bump_view();
+        (online.iter().map(|i| i.0).collect(), offline.iter().map(|i| i.0).collect())
     }
 }

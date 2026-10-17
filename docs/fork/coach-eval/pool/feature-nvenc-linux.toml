@@ -1,0 +1,82 @@
+# FEATURE-POOL batch feature-nvenc-linux (FEATURE-QUEUE row "XPS b: on Linux, Auto H.265 export also uses
+# NVIDIA's NVENC (8-bit SDR 4:2:0): first when the export renders on the NVIDIA GPU, else after VA-API and
+# before x265; NVENC failing part-way ends the export with a message").
+# Source: export.md (export.hevc), linux.md (linux.gpu: which GPU exports render on). Held-out test
+# questions, written from the guide's text (README.md beside this file). The guide says NVENC's 10-bit
+# path on Linux is still to be checked: asked only as that "not yet".
+# No creative family: picking an encoder is not a creative goal.
+# No recipe spot check: no NVIDIA card on the Dell.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-nvl-order"
+kind = "tool"
+q = "On Linux with an NVIDIA laptop, in what order does Auto try the H.265 encoders?"
+sources = ["export.hevc"]
+must = ["NVENC first when the export renders on the NVIDIA GPU", "otherwise NVENC comes after the VA-API encoders and before software x265"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-nvl-why-first"
+kind = "tool"
+q = "Why does Revolution put NVENC first only when the export renders on the NVIDIA GPU?"
+sources = ["export.hevc"]
+must = ["so the pictures don't cross to another GPU's video engine"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-nvl-422"
+kind = "tool"
+q = "Will my 10-bit 4:2:2 master use the NVIDIA encoder?"
+sources = ["export.hevc"]
+must = ["no: 10-bit, HDR and 4:2:2 keep using VA-API or x265", "NVIDIA's encoder has no 4:2:2"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-nvl-10bit-gap"
+kind = "gap"
+q = "Can Revolution export 10-bit HDR H.265 with NVENC on Linux?"
+sources = ["export.hevc"]
+must = ["not yet: NVENC on Linux is used for 8-bit SDR 4:2:0 only; its 10-bit path is still to be checked on a real card", "10-bit and HDR go to VA-API or x265"]
+must_not = ["yes, NVENC exports 10-bit HDR"]
+style = "gap"
+
+[[question]]
+id = "feat-nvl-hardware-choice"
+kind = "tool"
+q = "If I set Encoder to Hardware (VA-API), can it still end up on NVENC?"
+sources = ["export.hevc"]
+must = ["Hardware (VA-API) never uses NVENC"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-nvl-failed"
+kind = "tool"
+q = "my export stopped halfway with a message about NVENC, what now"
+sources = ["export.hevc"]
+must = ["NVENC stopping part-way (card lost, driver reset) ends the export with a message", "export again, or pick Hardware (VA-API)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-nvl-which-used"
+kind = "task"
+q = "On my XPS with Intel and NVIDIA, how do I make sure H.265 exports go through NVENC, and confirm afterwards that they did?"
+sources = ["export.hevc", "linux.gpu"]
+must = ["set Graphics device to Performance (discrete GPU) so the export renders on the NVIDIA GPU and Auto tries NVENC first", "only 8-bit SDR 4:2:0 uses NVENC", "perf.stats names the encoder that was actually used"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-nvl-premiere-words"
+kind = "tool"
+q = "Premiere has Hardware Encoding for NVIDIA cards. Does Revolution on Linux use my NVIDIA card's encoder for HEVC?"
+sources = ["export.hevc"]
+must = ["yes, Auto uses NVENC for 8-bit SDR 4:2:0 H.265"]
+must_not = []
+style = "premiere-words"

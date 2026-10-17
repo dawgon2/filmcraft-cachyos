@@ -1,0 +1,2 @@
+{"q": "Why does a 10-bit export help with gradients?", "a": "8-bit has 256 steps per channel and soft gradients show them after compression. Export H.265 with the Main 10 profile (HDR sequences use it automatically).", "sources": ["practice.delivery.ten-bit"], "kind": "practice"}
+{"q": "What goes wrong when I upload an already heavily compressed file to YouTube?", "a": "YouTube compresses it again, so you get compression on compression. Upload a high-bitrate or constant-quality (CRF) 4K H.265 file instead.", "sources": ["practice.delivery.youtube-res"], "kind": "practice"}

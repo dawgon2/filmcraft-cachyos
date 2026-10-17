@@ -1,0 +1,261 @@
+# AI-POOL batch creative-30 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: autumn colours, making eyes pop, adding a moon, a rainy-window mood,
+# a confetti burst, a lo-fi music video look, a dramatic meme zoom, a TV channel-surf transition.
+# `must` = plan sub-goals from the guide's own text. Admitted-gap family: confetti-burst (no particle
+# generator; overlay footage or a shader effect). Held-out only.
+
+# --- autumn-colours ---
+
+[[question]]
+id = "pool-cr30-autumn"
+kind = "creative"
+family = "autumn-colours"
+q = "make the autumn leaves in my shots more orange and vivid"
+sources = ["color.lumetri.panel", "practice.node-trees.hue-curves", "color.secondaries.qualifier"]
+must = ["Lumetri's Hue Saturation Curves (Hue vs Sat up on the oranges and reds)", "or a qualifier on the leaves' colours with saturation and warmth raised on that node"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-autumn-green"
+kind = "creative"
+family = "autumn-colours"
+q = "turn the green summer trees yellow-orange so it looks like fall"
+sources = ["practice.node-trees.hue-curves", "color.lumetri.panel", "color.secondaries.qualifier"]
+must = ["Hue vs Hue in Lumetri's curves moving the greens towards yellow / orange", "or qualify the greens and shift their hue on a node; check skin is not caught"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr30-autumn-tear"
+kind = "creative"
+family = "autumn-colours"
+q = "hue shift on foliage tears and blotches in my 8-bit footage"
+sources = ["practice.node-trees.hue-curves", "practice.grading.grain-finish"]
+must = ["wider, gentler curve bumps (narrow bumps tear gradients in compressed footage), or a softened qualifier", "a little grain on the last node to hide banding"]
+must_not = []
+style = "pro"
+
+# --- eye-pop-beauty ---
+
+[[question]]
+id = "pool-cr30-eyes"
+kind = "creative"
+family = "eye-pop-beauty"
+q = "make her eyes brighter and pop more in a close-up"
+sources = ["color.secondaries.windows", "color.secondaries.tracking", "practice.node-trees.sharpen"]
+must = ["a small soft window over each eye on its own node, a little brighter (Gain / Gamma up)", "the window tracked (masks.track) so it follows the face", "a touch of Sharpen / Unsharp Mask, kept subtle"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-eyes-colour"
+kind = "creative"
+family = "eye-pop-beauty"
+q = "boost the blue of the eyes without making the skin weird"
+sources = ["color.secondaries.qualifier", "color.secondaries.windows"]
+must = ["a qualifier on the iris colour limited by a window around the eyes", "saturation up a little inside the key, the matte checked"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr30-eyes-lumetri"
+kind = "creative"
+family = "eye-pop-beauty"
+q = "lumetri way to brighten eyes in premiere style"
+sources = ["color.lumetri.panel", "tracking.follow"]
+must = ["Lumetri on the clip limited by a mask around the eyes, the mask tracked (Mask Path's track buttons)", "small Exposure / Whites lift inside the mask"]
+must_not = []
+style = "premiere-words"
+
+# --- add-moon-sky ---
+
+[[question]]
+id = "pool-cr30-moon"
+kind = "creative"
+family = "add-moon-sky"
+q = "add a big full moon into my night sky shot"
+sources = ["effects.opacity", "practice.titles.overlays", "media.import"]
+must = ["a moon photo on black on the track above with Blend Mode Screen, so the black disappears", "Motion Scale / Position to size and place it; Opacity down a little to sit in the haze"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-moon-trees"
+kind = "creative"
+family = "add-moon-sky"
+q = "moon should be behind the trees not on top of them"
+sources = ["effects.opacity", "keying.luma-color", "compositor.masks"]
+must = ["a mask on the moon layer's Opacity cutting it where the trees are", "or key the bright sky (Luma Key) on a copy of the shot placed above the moon"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr30-moon-glow"
+kind = "creative"
+family = "add-moon-sky"
+q = "make the added moon glow and match the cold night grade"
+sources = ["effects.stylize", "color.recipes.cool"]
+must = ["Wonder Glow on the moon layer for a soft halo", "the shot and moon graded cool together (or the moon tinted to match)"]
+must_not = []
+style = "pro"
+
+# --- rainy-window-mood ---
+
+[[question]]
+id = "pool-cr30-rain"
+kind = "creative"
+family = "rainy-window-mood"
+q = "sad scene looking out of a rainy window, but it wasn't raining"
+sources = ["practice.titles.overlays", "practice.looks.cool-thriller", "practice.audio.ambience-beds"]
+must = ["rain-on-glass footage on the track above with a blend mode (Screen for drops on black)", "a cool, muted grade", "a rain ambience bed under the scene"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-rain-bokeh"
+kind = "creative"
+family = "rainy-window-mood"
+q = "blurry city lights through the rainy window"
+sources = ["effects.lens-light", "practice.titles.overlays"]
+must = ["Bokeh Blur on the outside shot so its lights turn into discs", "the rain overlay on top, sharp"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr30-rain-sound"
+kind = "creative"
+family = "rainy-window-mood"
+q = "rain sound should feel muffled because we're inside"
+sources = ["mixing.inserts", "essential-sound.presets"]
+must = ["the rain on its own track with its highs cut (an EQ / lowpass insert, mixer.addInsert), or typed SFX with the In a Room preset", "keep it low under the dialogue"]
+must_not = []
+style = "sloppy"
+
+# --- confetti-burst (admitted gap) ---
+
+[[question]]
+id = "pool-cr30-confetti"
+kind = "creative"
+family = "confetti-burst"
+q = "confetti explosion when the couple walks out"
+sources = ["practice.titles.overlays", "shader-effects.use"]
+must = ["no particle generator yet: use confetti stock footage", "on black with Blend Mode Screen, or on green with Ultra Key, on the track above the shot"]
+must_not = ["a built-in particle or confetti effect"]
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-confetti-green"
+kind = "creative"
+family = "confetti-burst"
+q = "my confetti clip is on a green screen, how do I put it over the video"
+sources = ["keying.ultra-key", "keying.cleanup", "practice.titles.overlays"]
+must = ["the confetti clip above the shot with Ultra Key picking the green", "Matte Cleanup / Spill Suppression for the edges"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr30-confetti-generate"
+kind = "creative"
+family = "confetti-burst"
+q = "can filmcraft generate falling particles like After Effects?"
+sources = ["practice.titles.overlays", "shader-effects.write", "compositor.basics"]
+must = ["not yet: no particle generator (the Compositor has no particles either)", "workarounds: overlay footage, or a .wgsl shader effect for simple generated patterns"]
+must_not = ["a built-in particle system"]
+style = "pro"
+
+# --- lofi-music-look ---
+
+[[question]]
+id = "pool-cr30-lofi"
+kind = "creative"
+family = "lofi-music-look"
+q = "cozy lo-fi music video look, grainy and warm with muffled music"
+sources = ["practice.looks.vhs", "color.finishing.grain", "mixing.inserts"]
+must = ["a soft, warm, slightly faded grade with grain on the last node (or the VHS shader effect)", "the music track's highs cut with an EQ / lowpass insert (mixer.addInsert)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-lofi-loop"
+kind = "creative"
+family = "lofi-music-look"
+q = "lofi stream style: one looping clip of a window for an hour of music"
+sources = ["editing.cutting", "effects.transitions"]
+must = ["a short clip repeated end to end, cut where the motion matches, with short dissolves to hide the joins", "the music laid as one long track; the export covers the whole length"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr30-lofi-crackle"
+kind = "creative"
+family = "lofi-music-look"
+q = "vinyl crackle under the beat"
+sources = ["essential-sound.types", "practice.audio.ambience-beds"]
+must = ["a crackle recording on its own track under the music, typed SFX or Ambience", "low in level, continuous across the cuts"]
+must_not = []
+style = "pro"
+
+# --- dramatic-zoom-meme ---
+
+[[question]]
+id = "pool-cr30-meme"
+kind = "creative"
+family = "dramatic-zoom-meme"
+q = "that meme where it zooms in fast on someone's face with a dun dun dun sound"
+sources = ["effects.keyframes", "essential-sound.types", "practice.youtube.punch-in"]
+must = ["Motion Scale (and Position on the face) keyframed with Hold steps, or cut to punch-ins at 100 / 150 / 200 %", "the sting sound typed SFX on the jumps"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr30-meme-shake"
+kind = "creative"
+family = "dramatic-zoom-meme"
+q = "dramatic zoom with a shake and a red tint on the last hit"
+sources = ["practice.titles.shake", "media.generated", "effects.opacity"]
+must = ["Camera Shake for a few frames on the last zoom", "a red tint on that part: a red Color Matte (file.newColorMatte) above it with a blend mode such as Multiply"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-meme-preset"
+kind = "creative"
+family = "dramatic-zoom-meme"
+q = "make the zoom-in meme reusable on any clip"
+sources = ["effects.presets", "effects.keyframes"]
+must = ["save the Motion keyframes as a preset with Anchor to In Point (presets.save)", "apply it (presets.apply) and recentre Position on the face"]
+must_not = []
+style = "pro"
+
+# --- channel-surf-transition ---
+
+[[question]]
+id = "pool-cr30-channel"
+kind = "creative"
+family = "channel-surf-transition"
+q = "flick between clips like changing TV channels"
+sources = ["effects.transitions", "shader-effects.use", "essential-sound.types"]
+must = ["very short Glitch or VHS Damage transitions on each cut (sequence.applyVideoTransition)", "a click / static sound typed SFX on each change"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr30-channel-tv"
+kind = "creative"
+family = "channel-surf-transition"
+q = "channel surfing shown on an old TV in the room"
+sources = ["tracking.screen", "media.clips", "effects.transitions"]
+must = ["the channel-surf sequence nested and pinned onto the TV screen with Corner Pin (Track Surface)", "the glitch cuts inside the nest"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr30-channel-static"
+kind = "creative"
+family = "channel-surf-transition"
+q = "few frames of tv static between each channel"
+sources = ["shader-effects.use", "editing.cutting"]
+must = ["a few frames of static (stock footage or the VHS / Glitch shader effect on a short clip) between the shots", "a static hiss under it"]
+must_not = []
+style = "sloppy"

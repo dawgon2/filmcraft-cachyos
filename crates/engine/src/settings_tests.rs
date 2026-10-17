@@ -89,7 +89,9 @@ fn categories_follow_premiere_order() {
             "playback",
             "plugins",
             "timeline",
-            "trim"
+            "trim",
+            // fork UPD: after Premiere's categories
+            "update"
         ]
     );
 }

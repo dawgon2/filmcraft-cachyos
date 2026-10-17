@@ -1,0 +1,56 @@
+# AI-POOL batch tasks-1 (FORK-PLAN §1a.87): jobs that need two or three practice notes in order.
+# Held-out slice: jobs that differ from the ones in tasks-1.jsonl.
+
+[[question]]
+id = "pool-t1-after-shoot"
+kind = "task"
+q = "just got back from a two day shoot with three cards, what do I do before editing anything?"
+sources = ["practice.workflow.card-copy", "practice.workflow.backups", "practice.workflow.project-folder"]
+must = ["copy every card with the verified copy (card.offload) into the project's Footage folder", "back up to a second kind of storage and one copy elsewhere; two copies on one drive count as one", "format the cards in the camera only after the copy is verified and backed up"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-t1-podcast-voice"
+kind = "task"
+q = "even out a two-person podcast interview and deliver it at the right loudness"
+sources = ["practice.audio.dialogue-first", "practice.audio.voice-compression", "practice.audio.loudness-targets"]
+must = ["dialogue first: type and Auto-Match the voices (essentialSound.autoMatch)", "gentle compression, about 2:1–4:1 (Dynamics in Essential Sound)", "about −16 LUFS for a stereo podcast, −1 dBTP peaks"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-t1-teaser-vertical"
+kind = "task"
+q = "cut a vertical teaser with burned-in captions, then export it together with the master overnight"
+sources = ["practice.delivery.vertical", "practice.youtube.vertical-captions", "practice.youtube.batch-export"]
+must = ["duplicate the sequence and set it to 1080 × 1920 (sequence.settings), reposition with Motion ▸ Position", "captions from the transcript, big with a stroke, burned in, kept in the middle third", "add both to the export queue (export.queue.add) and start it (export.queue.start)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-t1-series-titles"
+kind = "task"
+q = "set up the titles for a branded series so every episode looks the same and the brand colours stay right"
+sources = ["practice.titles.type-system", "practice.titles.templates", "practice.titles.colour"]
+must = ["one font for titles, one for body, three sizes, the same colours", "save them as Motion Graphics Templates with only the text editable", "keep graphics on tracks above the graded clips so the creative grade doesn't tint them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-t1-lock-handoff"
+kind = "task"
+q = "tighten the fine cut, lock it and send it off to the sound mixer"
+sources = ["practice.editing.pacing", "practice.editing.assembly", "practice.workflow.handoff"]
+must = ["tighten while playing (Ripple Trim Previous / Next Edit to Playhead), not while paused", "picture lock: no more timing changes", "AAF / OMF for sound (file.exportAaf) with a reference export"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-t1-wrap-archive"
+kind = "task"
+q = "the client approved the film, how do I wrap up the project for good?"
+sources = ["practice.delivery.master", "practice.workflow.archive", "practice.delivery.archive"]
+must = ["export a high-quality master (H.265 4:2:2 10-bit or ProRes)", "export the project (projects.export) and keep the originals, the card checksum lists and the master together", "clear unused render files; not only the proxies"]
+must_not = []
+style = "beginner"

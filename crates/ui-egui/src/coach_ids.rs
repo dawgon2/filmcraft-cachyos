@@ -28,7 +28,7 @@ pub const MAX_SEEN: usize = 50_000;
 #[rustfmt::skip]
 pub const DYNAMIC_ID_PATTERNS: &[&str] = &[
     "about.*", "about.credits.header.*", "about.credits.names.*", "about.tab.*", "addTracks.*.amount", "addTracks.*.placement",
-    "addTracks.*.placement.option.*", "addTracks.*.type", "addTracks.*.type.option.*", "align.*", "assistant.lesson.*", "assistant.line.*.*", "assistant.step.*.*", "assistant.turn.*", "audioGain.*", "audioGain.*.value",
+    "addTracks.*.placement.option.*", "addTracks.*.type", "addTracks.*.type.option.*", "align.*", "assistant.lesson.*", "assistant.line.*.*", "assistant.noSteps.*", "assistant.rate.*.correction", "assistant.rate.*.down", "assistant.rate.*.share", "assistant.rate.*.up", "assistant.seen.*", "assistant.setup.*", "assistant.step.*.*", "assistant.turn.*", "audioGain.*", "audioGain.*.value",
     "audioMeters.channel.*", "clipMixer.*", "clips.card.*", "clips.split.*", "coach.ask.assistLine.*", "coach.ask.step.*", "coach.lessons.item.*", "comp.param.*", "comp.wheel.*", "comp.curve.*", "comp.param.*.stopwatch", "comp.mask.*", "comp.mask*.*", "colorDialog.par.*", "colorDialog.space.*", "colorDialog.working.*",
     "deleteTracks.*", "deleteTracks.*.option.*", "deleteTracks.*.option.empty", "deleteTracks.*.target", "display.*", "dock.gutter.*",
     "editCameras.enabled.*", "editCameras.name.*", "editCameras.thumb.*", "effectControls.*.*", "effectControls.*.*.eyedropper",

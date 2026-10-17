@@ -87,7 +87,63 @@ pub fn register() -> bool {
 
 /// The encoder factory for [`Format::Hevc`].
 pub fn factory(format: Format, w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> Option<Result<Box<dyn VideoEncoder>>> {
-    (format == Format::Hevc).then(|| HevcEncoder::new(w, h, rate, s).map(|e| Box::new(e) as Box<dyn VideoEncoder>))
+    (format == Format::Hevc).then(|| open_encoder(w, h, rate, s))
+}
+
+const VENDOR_NVIDIA: u32 = 0x10de;
+
+/// Where NVENC goes among the H.265 encoders (fork XPS b).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NvencPlace {
+    /// Before VA-API: the export renders on an NVIDIA GPU, whose own encoder saves a copy to
+    /// another GPU.
+    First,
+    /// After the VA-API encoders, before libx265 (a hardware encoder is many times faster).
+    BeforeX265,
+    Never,
+}
+
+/// Auto only (Hardware means VA-API, Software x265), and only where NVENC has an H.265 encoder
+/// (`nvenc`); `render_vendor`: the PCI vendor of the GPU exports render on.
+fn nvenc_place(choice: Choice, render_vendor: Option<u32>, nvenc: impl FnOnce() -> bool) -> NvencPlace {
+    if choice != Choice::Auto || !nvenc() {
+        NvencPlace::Never
+    } else if render_vendor == Some(VENDOR_NVIDIA) {
+        NvencPlace::First
+    } else {
+        NvencPlace::BeforeX265
+    }
+}
+
+/// The H.265 encoder for an export: VA-API in process, ffmpeg `hevc_vaapi`, NVENC and libx265 in
+/// the order [`nvenc_place`] gives.
+fn open_encoder(w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> Result<Box<dyn VideoEncoder>> {
+    let boxed = |e: HevcEncoder| Box::new(e) as Box<dyn VideoEncoder>;
+    #[cfg(target_pointer_width = "64")]
+    {
+        let place = nvenc_place(s.hevc_encoder, filmcraft_gpu::adapter_pick::chosen_vendor(), crate::nvenc::hevc_available);
+        let nvenc = || crate::nvenc::export::linux_hevc_encoder(w, h, rate, s).inspect_err(|why| log::info!("HEVC export: NVENC not used: {why}"));
+        match place {
+            NvencPlace::First => {
+                if let Ok(e) = nvenc() {
+                    log::info!("HEVC export: NVENC {w}x{h} (the export's GPU)");
+                    return Ok(e);
+                }
+            }
+            NvencPlace::BeforeX265 => {
+                let hardware = HevcEncoder::new_with(w, h, rate, s, false);
+                if let Ok(e) = hardware {
+                    return Ok(boxed(e));
+                }
+                if let Ok(e) = nvenc() {
+                    log::info!("HEVC export: NVENC {w}x{h}");
+                    return Ok(e);
+                }
+            }
+            NvencPlace::Never => {}
+        }
+    }
+    HevcEncoder::new(w, h, rate, s).map(boxed)
 }
 
 /// The encoders, in order of preference.
@@ -787,6 +843,11 @@ pub struct HevcEncoder {
 
 impl HevcEncoder {
     pub fn new(w: u32, h: u32, rate: FrameRate, s: &ExportSettings) -> Result<Self> {
+        Self::new_with(w, h, rate, s, true)
+    }
+
+    /// [`new`](Self::new); `x265`: whether Auto may end with libx265.
+    fn new_with(w: u32, h: u32, rate: FrameRate, s: &ExportSettings, x265: bool) -> Result<Self> {
         let params = Self::params(w, h, rate, s)?;
         let (has_vaapi, has_x265) = encoders();
         let profile = if params.ten_bit { "VAProfileHEVCMain10" } else { "VAProfileHEVCMain" };
@@ -794,7 +855,7 @@ impl HevcEncoder {
         let native_ok = native(params.ten_bit);
         let va = [native_ok.then_some(Backend::VaNative), vaapi_ok.then_some(Backend::Vaapi)];
         let order: Vec<Backend> = match s.hevc_encoder {
-            Choice::Auto => va.into_iter().chain([has_x265.then_some(Backend::X265)]).flatten().collect(),
+            Choice::Auto => va.into_iter().chain([(x265 && has_x265).then_some(Backend::X265)]).flatten().collect(),
             Choice::Vaapi if native_ok || vaapi_ok => va.into_iter().flatten().collect(),
             Choice::Vaapi => {
                 return Err(ExportError::Unsupported(
@@ -1088,6 +1149,20 @@ impl VideoEncoder for HevcEncoder {
 
 #[cfg(test)]
 mod tests {
+    /// Fork XPS b: NVENC comes first when the export renders on an NVIDIA GPU, after VA-API
+    /// otherwise, and never for Hardware (VA-API) / Software (x265) or without an NVENC encoder.
+    #[test]
+    fn nvenc_takes_its_place_among_the_hevc_encoders() {
+        use super::{NvencPlace as P, nvenc_place};
+        assert_eq!(nvenc_place(Choice::Auto, Some(0x10de), || true), P::First);
+        assert_eq!(nvenc_place(Choice::Auto, Some(0x8086), || true), P::BeforeX265);
+        assert_eq!(nvenc_place(Choice::Auto, None, || true), P::BeforeX265);
+        assert_eq!(nvenc_place(Choice::Auto, Some(0x10de), || false), P::Never);
+        for c in [Choice::Vaapi, Choice::X265] {
+            assert_eq!(nvenc_place(c, Some(0x10de), || panic!("the probe isn't needed")), P::Never);
+        }
+    }
+
     use super::*;
     use filmcraft_frame::PixelData;
 

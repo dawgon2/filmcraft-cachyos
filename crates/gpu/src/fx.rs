@@ -403,7 +403,7 @@ impl UserWatch {
         *n = n.saturating_add(1);
         if *n >= USER_SLOW_FRAMES && self.disabled.insert(key.clone()) {
             let msg = format!(
-                "the shader effect {} took {ms:.0} ms per frame ({} frames in a row over {limit:.1} ms): turned off until FilmCraft restarts",
+                "the shader effect {} took {ms:.0} ms per frame ({} frames in a row over {limit:.1} ms): turned off until Revolution restarts",
                 key.0, USER_SLOW_FRAMES
             );
             log::warn!("{msg}");

@@ -1,0 +1,261 @@
+# AI-POOL batch creative-28 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: candlelight flicker, a sound hit on a title, a zoom-out reveal,
+# blurring private details in a screen recording, hiding a logo on a shirt, end credits with
+# bloopers, an inner-monologue voice, a subscribe reminder. `must` = plan sub-goals from the
+# guide's own text. No admitted-gap family in this batch. Held-out only.
+
+# --- candlelight-flicker ---
+
+[[question]]
+id = "pool-cr28-candle"
+kind = "creative"
+family = "candlelight-flicker"
+q = "make the light on her face flicker like it's from a candle"
+sources = ["practice.titles.overlays", "color.secondaries.windows", "effects.keyframes"]
+must = ["a soft window over the lit side of the face with warm Gain on its own node", "its strength keyframed up and down irregularly so it flickers like a flame"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-candle-fire"
+kind = "creative"
+family = "candlelight-flicker"
+q = "campfire scene: add flames in front and make the faces catch the light"
+sources = ["practice.titles.overlays", "effects.opacity", "color.secondaries.windows"]
+must = ["fire footage shot on black on the track above with Blend Mode Screen (or Linear Dodge (Add))", "on the shot's grade a soft warm window over the lit side, keyframed to flicker with the flames"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr28-candle-dark"
+kind = "creative"
+family = "candlelight-flicker"
+q = "candle-lit dinner scene shot too bright, make it moody with warm pools of light"
+sources = ["practice.looks.low-key", "color.secondaries.windows", "color.recipes.warm"]
+must = ["Gamma down for a dark scene with deep shadows, faces protected with windows", "warm the candle areas (Temperature / warm Gain) on their own node"]
+must_not = []
+style = "pro"
+
+# --- title-stinger-hit ---
+
+[[question]]
+id = "pool-cr28-stinger"
+kind = "creative"
+family = "title-stinger-hit"
+q = "add a boom sound when my title slams onto the screen"
+sources = ["essential-sound.types", "practice.titles.in-out", "effects.keyframes"]
+must = ["the title's Scale keyframed from large to its size with a fast ease so it slams in", "a hit sound effect typed SFX lined up on the frame it lands"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-stinger-shake"
+kind = "creative"
+family = "title-stinger-hit"
+q = "trailer title hit with a bass boom and the picture shaking on impact"
+sources = ["practice.titles.shake", "essential-sound.types", "effects.stylize"]
+must = ["Camera Shake (Transform) on the shot, or keyframed Position / Rotation moves, for a few frames at the hit", "the boom typed SFX on the impact frame, music cut or ducked so it hits clean"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr28-stinger-sync"
+kind = "creative"
+family = "title-stinger-hit"
+q = "whoosh before the title and a hit when it lands, how do i line it up"
+sources = ["timeline.markers", "essential-sound.types", "practice.editing.music-beat"]
+must = ["a marker on the frame the title lands (markers.add) and snapping to it", "the whoosh ending on the marker, the hit starting on it, both typed SFX"]
+must_not = []
+style = "sloppy"
+
+# --- zoom-out-reveal ---
+
+[[question]]
+id = "pool-cr28-zoomout"
+kind = "creative"
+family = "zoom-out-reveal"
+q = "start close on a detail and slowly zoom out to reveal the whole place"
+sources = ["effects.keyframes", "practice.titles.easing", "media.clips"]
+must = ["Motion ▸ Scale keyframed from high (e.g. 150 %) down to 100 % with Position keyframes to frame the detail", "Ease In / Ease Out so the move starts and settles smoothly"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-zoomout-res"
+kind = "creative"
+family = "zoom-out-reveal"
+q = "zoom out from a tight crop without it going soft at the start"
+sources = ["effects.keyframes", "practice.youtube.punch-in"]
+must = ["a source larger than the sequence (6.2K open gate in a 4K sequence scales to about 160 % with no loss); footage already the sequence size goes soft when zoomed", "Scale keyframes eased"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr28-zoomout-photo"
+kind = "creative"
+family = "zoom-out-reveal"
+q = "zoom out from one face in a group photo to the whole photo"
+sources = ["effects.keyframes", "practice.titles.easing", "media.import"]
+must = ["the photo imported and placed, Motion Scale and Position keyframed from the face to the whole picture", "eased keyframes, the photo large enough that the start stays sharp"]
+must_not = []
+style = "sloppy"
+
+# --- blur-screen-info ---
+
+[[question]]
+id = "pool-cr28-screenblur"
+kind = "creative"
+family = "blur-screen-info"
+q = "blur my email address in a screen recording"
+sources = ["tracking.follow", "effects.opacity", "effects.apply"]
+must = ["Gaussian Blur (or Mosaic) on the clip with a mask around the address so the blur stays inside it", "if the page scrolls, track the mask (Mask Path's track buttons) or tracking.blurRegion"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-screenblur-many"
+kind = "creative"
+family = "blur-screen-info"
+q = "pixelate several passwords and names that show up at different times in a tutorial"
+sources = ["tracking.follow", "effects.keyframes", "editing.cutting"]
+must = ["Mosaic with a mask per item (tracking.blurRegion with effect mosaic does the effect, mask and track)", "split the clip (sequence.addEdit) or keyframe the masks so each blur is only there while the item shows"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr28-screenblur-box"
+kind = "creative"
+family = "blur-screen-info"
+q = "just cover the private part of the screen with a box instead of blur"
+sources = ["graphics.layers", "practice.youtube.screen-recordings"]
+must = ["a rectangle graphic (graphics.newRectangle) over the area on the track above", "kept only as long as the info is on screen"]
+must_not = []
+style = "sloppy"
+
+# --- hide-shirt-logo ---
+
+[[question]]
+id = "pool-cr28-logo"
+kind = "creative"
+family = "hide-shirt-logo"
+q = "hide the brand logo on someone's t-shirt while they walk around"
+sources = ["tracking.follow", "effects.opacity"]
+must = ["a blur (Gaussian Blur or Mosaic) limited by a mask around the logo", "the mask tracked so it follows (tracking.blurRegion does effect, mask and track)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-logo-colour"
+kind = "creative"
+family = "hide-shirt-logo"
+q = "blur looks obvious, can I make the logo blend into the shirt colour instead"
+sources = ["color.secondaries.qualifier", "color.secondaries.tracking"]
+must = ["a qualifier on the logo's colours inside a tracked window, saturation down and brightness matched to the shirt", "check the edges at full size"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr28-logo-lost"
+kind = "creative"
+family = "hide-shirt-logo"
+q = "logo blur tracker loses it when he turns"
+sources = ["tracking.follow", "effects.keyframes"]
+must = ["track forward and backward from frames where the logo is clear", "fix the lost frames by hand: move the mask and its keyframes (each track run is one undo step)"]
+must_not = []
+style = "sloppy"
+
+# --- credits-with-bloopers ---
+
+[[question]]
+id = "pool-cr28-bloopers"
+kind = "creative"
+family = "credits-with-bloopers"
+q = "end credits scrolling on one side with bloopers playing on the other"
+sources = ["graphics.responsive", "practice.editing.split-screen", "practice.titles.credits"]
+must = ["the credits as text with Roll (graphics.setRoll) at a readable, steady speed, on one half", "the bloopers on V1 moved and scaled into the other half (Motion Position / Scale, or Crop)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-bloopers-sound"
+kind = "creative"
+family = "credits-with-bloopers"
+q = "blooper reel under credits: music or the blooper sound?"
+sources = ["essential-sound.ducking", "practice.audio.music-under-dialogue"]
+must = ["keep the blooper dialogue audible: music typed Music and ducked under it (essentialSound.generateDucking)", "or music only, with the blooper sound off, if the jokes read visually"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr28-bloopers-pip"
+kind = "creative"
+family = "credits-with-bloopers"
+q = "small blooper windows popping up during credits"
+sources = ["practice.editing.split-screen", "effects.shape-move", "effects.keyframes"]
+must = ["each blooper on V2 or above at Scale about 25–35 % in a corner (picture-in-picture)", "Rounded Crop or a Drop Shadow, and a Scale / Opacity pop in and out"]
+must_not = []
+style = "sloppy"
+
+# --- inner-monologue-voice ---
+
+[[question]]
+id = "pool-cr28-inner"
+kind = "creative"
+family = "inner-monologue-voice"
+q = "make the voice over sound like the character's thoughts in their head"
+sources = ["audio.voiceover-record", "essential-sound.controls", "practice.audio.pan-dialogue"]
+must = ["record it close and dry (audio.voiceover.start), centred", "a touch of Reverb (Essential Sound Creative, Small Room) and a softer EQ so it sits apart from the scene's dialogue"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-inner-scene"
+kind = "creative"
+family = "inner-monologue-voice"
+q = "thoughts over a scene where people are talking, both should be clear"
+sources = ["essential-sound.ducking", "mixing.clip-mixer", "practice.audio.dialogue-first"]
+must = ["the scene's sound lowered under the thoughts (ducking or Volume keyframes with the Audio Clip Mixer)", "dialogue level set first, the thought voice placed against it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr28-inner-echo"
+kind = "creative"
+family = "inner-monologue-voice"
+q = "dreamy echoing thought voice in a flashback"
+sources = ["essential-sound.controls", "essential-sound.presets"]
+must = ["more Reverb (a bigger room preset) on the voice, typed Dialogue", "saved as an Essential Sound preset (essentialSound.savePreset) for every thought line"]
+must_not = []
+style = "sloppy"
+
+# --- subscribe-reminder ---
+
+[[question]]
+id = "pool-cr28-sub"
+kind = "creative"
+family = "subscribe-reminder"
+q = "pop up a subscribe button mid video with a click sound"
+sources = ["graphics.layers", "practice.titles.in-out", "essential-sound.types"]
+must = ["a graphic (rounded shape + text, or an imported PNG via graphics.newFromFile) on the top track, in a corner inside the safe area", "a Scale / Opacity pop in and matching exit; a click sound typed SFX"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr28-sub-template"
+kind = "creative"
+family = "subscribe-reminder"
+q = "same subscribe animation in every episode, change the wording sometimes"
+sources = ["graphics.templates", "graphics.responsive"]
+must = ["saved as a graphics template with the text editable", "protected intro / outro (graphics.setResponsiveTime) so the animation survives trimming"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr28-sub-when"
+kind = "creative"
+family = "subscribe-reminder"
+q = "when should the subscribe reminder show up so people don't click away"
+sources = ["practice.youtube.hook", "practice.youtube.pattern-interrupt"]
+must = ["not in the opening: the hook comes first", "after the first payoff or as a pattern interrupt, short and out of the way of the content"]
+must_not = []
+style = "sloppy"

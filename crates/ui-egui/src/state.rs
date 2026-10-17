@@ -144,6 +144,15 @@ pub enum PlaybackRes {
 
 impl PlaybackRes {
     pub const ALL: [PlaybackRes; 5] = [PlaybackRes::Full, PlaybackRes::Half, PlaybackRes::Quarter, PlaybackRes::Eighth, PlaybackRes::Sixteenth];
+    /// One step lower (1/16 stays 1/16): the battery preview (fork XPS d).
+    pub fn lower(self) -> PlaybackRes {
+        match self {
+            PlaybackRes::Full => PlaybackRes::Half,
+            PlaybackRes::Half => PlaybackRes::Quarter,
+            PlaybackRes::Quarter => PlaybackRes::Eighth,
+            PlaybackRes::Eighth | PlaybackRes::Sixteenth => PlaybackRes::Sixteenth,
+        }
+    }
     pub fn scale(self) -> f32 {
         match self {
             PlaybackRes::Full => 1.0,
@@ -577,6 +586,10 @@ pub struct UiState {
     /// Essential Sound sub-tab: "Edit" or "Browse".
     #[serde(default)]
     pub essential_sound_tab: String,
+    /// Essential Sound ▸ Takes: the last list read, keyed on (clip, project revision, project) so the
+    /// panel doesn't scan every item each frame.
+    #[serde(skip)]
+    pub essential_sound_takes: Option<((u64, u64, usize), Vec<filmcraft_engine::voiceover_takes::Take>)>,
     /// Text to Speech panel: the script and voice settings being written or edited.
     #[serde(default)]
     pub tts: crate::panels::tts::TtsDraft,
@@ -1094,6 +1107,7 @@ impl Default for UiState {
             assistant: AssistantChat::default(),
             keyframe_selection: Vec::new(),
             essential_sound_tab: "Edit".into(),
+            essential_sound_takes: None,
             tts: Default::default(),
             export: Default::default(),
             text_tab: captions_tab(),

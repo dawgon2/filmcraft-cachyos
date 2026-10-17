@@ -30,7 +30,6 @@ macro_rules! tlf {
 }
 
 pub mod automation;
-pub mod brand;
 mod cjk;
 pub mod coach_ids;
 pub mod control;
@@ -318,7 +317,7 @@ pub(crate) const EXPORT_SAVE_DIALOGS: [(&str, &str, &str); 7] = [
     ("file.exportFcpxml", "FCPXML", "fcpxml"),
     ("file.exportOtio", "OpenTimelineIO", "otio"),
     ("file.exportAle", "Avid Log Exchange", "ale"),
-    ("file.exportSelectionProject", "FilmCraft Project", "fcproj"),
+    ("file.exportSelectionProject", "Revolution Project", "fcproj"),
 ];
 
 pub struct FilmcraftApp {
@@ -334,6 +333,14 @@ pub struct FilmcraftApp {
     pub hooks: HostHooks,
     pub dialog: Option<Dialog>,
     pub file_dialogs: panels::file_dialogs::FileDialogState,
+    /// Ratings of Assistant answers and the Help improve the Assistant dialog (fork AI5).
+    pub share: panels::share_example::ShareState,
+    /// Fork UPD: when the open app next asks whether the daily update check is due (egui time).
+    pub update_next_auto: f64,
+    /// The update window was closed after installing (until restart).
+    pub update_closed: bool,
+    /// Restart Now: the build to start once this one has closed.
+    pub restart_into: Option<std::path::PathBuf>,
     /// The native file dialog the host is showing ([`Self::pick`]).
     native_dialog: Option<native_dialogs::PendingDialog>,
     pub auto: automation::Registry,
@@ -560,7 +567,7 @@ pub fn wgpu_configuration_on(graphics_device: &str) -> eframe::egui_wgpu::WgpuCo
         return c;
     }
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(n) = &mut c.wgpu_setup
-        && graphics_device::parse(graphics_device).is_some()
+        && (graphics_device::preference(graphics_device) != filmcraft_gpu::adapter_pick::GpuPref::Auto || filmcraft_gpu::adapter_pick::driver_override())
     {
         let pref = graphics_device.to_string();
         n.native_adapter_selector = Some(std::sync::Arc::new(move |adapters: &[eframe::wgpu::Adapter], surface: Option<&eframe::wgpu::Surface<'_>>| {
@@ -569,11 +576,7 @@ pub fn wgpu_configuration_on(graphics_device: &str) -> eframe::egui_wgpu::WgpuCo
             let mut usable: Vec<&eframe::wgpu::Adapter> = adapters.iter().filter(|a| surface.is_none_or(|s| a.is_surface_supported(s))).collect();
             usable.sort_by_key(|a| a.get_info().backend == eframe::wgpu::Backend::Vulkan);
             let infos: Vec<_> = usable.iter().map(|a| a.get_info()).collect();
-            let ids: Vec<_> = infos.iter().map(|i| (i.vendor, i.device)).collect();
-            let index = graphics_device::pick(&ids, &pref).or_else(|| {
-                log::warn!("graphics device {pref} not found; Auto");
-                graphics_device::auto_index(&infos.iter().map(|i| i.device_type).collect::<Vec<_>>())
-            });
+            let index = graphics_device::pick(&infos, &pref);
             index.and_then(|i| usable.get(i).map(|a| (*a).clone())).ok_or_else(|| "no GPU adapter".to_string())
         }));
     }
@@ -614,17 +617,13 @@ fn interop_setup(graphics_device: &str) -> Option<eframe::egui_wgpu::WgpuSetupEx
         memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
         display: None,
     });
-    let chosen = match graphics_device::parse(graphics_device) {
-        Some(_) => {
-            let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN));
-            let ids: Vec<_> = adapters.iter().map(|a| a.get_info()).map(|i| (i.vendor, i.device)).collect();
-            let found = graphics_device::pick(&ids, graphics_device).and_then(|i| adapters.into_iter().nth(i));
-            if found.is_none() {
-                log::warn!("graphics device {graphics_device} not found; Auto");
-            }
-            found
-        }
-        None => None,
+    // Auto with `WGPU_POWER_PREF` set: wgpu's own choice; otherwise the shared rule (fork XPS a)
+    let chosen = if graphics_device::preference(graphics_device) == filmcraft_gpu::adapter_pick::GpuPref::Auto && wgpu::PowerPreference::from_env().is_some() {
+        None
+    } else {
+        let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN));
+        let infos: Vec<_> = adapters.iter().map(|a| a.get_info()).collect();
+        graphics_device::pick(&infos, graphics_device).and_then(|i| adapters.into_iter().nth(i))
     };
     let adapter = match chosen {
         Some(a) => a,
@@ -792,6 +791,10 @@ impl FilmcraftApp {
             // Unsaved changes left by a session that died are offered first thing.
             dialog: recovery.then_some(Dialog::Recovery),
             file_dialogs: Default::default(),
+            share: Default::default(),
+            update_next_auto: 0.0,
+            update_closed: false,
+            restart_into: None,
             native_dialog: None,
             auto,
             textures: HashMap::new(),
@@ -2036,6 +2039,35 @@ impl FilmcraftApp {
 
     // ---------------------------------------------------------------- frame
 
+    /// Local copies of share clips (STORAGE-PLAN S1 item 2): one file at a time while not
+    /// playing; a copy that finishes switches its clip over and says so.
+    fn tick_net_copies(&mut self, ctx: &egui::Context) {
+        if let Some((source, r)) = self.session.poll_net_copy().filter(|(_, r)| r.as_ref().err().is_none_or(|e| e != "stopped")) {
+            let name = std::path::Path::new(&source).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let text = match r {
+                Ok(_) => tlf!("Local copy of {name} ready: it now plays from this computer", name = name),
+                Err(e) => tlf!("Couldn't copy {name} from the network share: {error}", name = name, error = e),
+            };
+            self.toast = Some((text, ctx.input(|i| i.time)));
+        }
+        if self.playback.playing {
+            if let Some(job) = &self.session.net_copy {
+                job.stop();
+            }
+            return;
+        }
+        let key = egui::Id::new("netCopies.lastTry");
+        let now = ctx.input(|i| i.time);
+        let last: f64 = ctx.data(|d| d.get_temp(key)).unwrap_or(f64::NEG_INFINITY);
+        if self.session.net_copy.is_none() && now - last >= 5.0 {
+            ctx.data_mut(|d| d.insert_temp(key, now));
+            self.session.start_net_copy();
+        }
+        if self.session.net_copy.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+    }
+
     /// Settings ▸ Media ▸ Automatically refresh growing files: every *Refresh growing files every*
     /// seconds, and as soon as the window comes back to the front (after a render in another app),
     /// stamp the project's media files on a worker thread and read the changed ones again
@@ -2047,6 +2079,13 @@ impl FilmcraftApp {
                 Ok(r) => {
                     if let Some(n) = r["refreshed"].as_array().map(Vec::len).filter(|n| *n > 0) {
                         self.toast = Some((format!("Refreshed {n} media item(s) changed on disk"), ctx.input(|i| i.time)));
+                    }
+                    // a share that dropped or came back (STORAGE-PLAN S1 item 3b)
+                    if let Some(n) = r["offline"].as_array().map(Vec::len).filter(|n| *n > 0) {
+                        self.toast = Some((tlf!("{n} clip(s) went offline: their files can't be reached", n = n), ctx.input(|i| i.time)));
+                    }
+                    if let Some(n) = r["online"].as_array().map(Vec::len).filter(|n| *n > 0) {
+                        self.toast = Some((tlf!("{n} clip(s) are back online", n = n), ctx.input(|i| i.time)));
                     }
                 }
                 Err(e) => self.toast = Some((e.to_string(), ctx.input(|i| i.time))),
@@ -2090,6 +2129,8 @@ impl FilmcraftApp {
         self.apply_prefs(&ctx);
         #[cfg(not(target_arch = "wasm32"))]
         self.tick_media_refresh(&ctx);
+        self.tick_net_copies(&ctx);
+        panels::update_prompt::tick(self, &ctx);
         for ev in self.session.drain_events() {
             match ev {
                 filmcraft_engine::Event::OpenSequence(_) => {
@@ -2312,8 +2353,8 @@ impl FilmcraftApp {
     fn error_window(&mut self, ctx: &egui::Context) {
         let Some(msg) = self.ui_error.clone() else { return };
         let mut close = false;
-        egui::Window::new(tl!("FilmCraft hit an error"))
-            .id(egui::Id::new("FilmCraft hit an error"))
+        egui::Window::new(tl!("Revolution hit an error"))
+            .id(egui::Id::new("Revolution hit an error"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -2475,6 +2516,8 @@ impl eframe::App for FilmcraftApp {
         // Flush the recovery journal and stop the auto-save worker; a session with nothing unsaved
         // removes its journal, one with unsaved changes keeps it for the next launch.
         self.session.shutdown();
+        // Restart Now (fork UPD): the new build starts after this one has let go of everything
+        panels::update_prompt::spawn_restart(self);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

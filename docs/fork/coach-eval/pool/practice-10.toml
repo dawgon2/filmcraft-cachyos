@@ -1,0 +1,165 @@
+# AI-POOL batch practice-10: practice/mixed-cameras.md. The original set asks the main question
+# of eleven notes: those get pitfalls; per-camera-input, hero, day-continuity, night-street and
+# screens get their main question.
+
+[[question]]
+id = "pool-r10-per-camera"
+kind = "multi-step"
+q = "X-M5 in F-Log2 plus an iPhone and a GoPro on one timeline, how do I set up colour management?"
+sources = ["practice.mixed-cameras.per-camera-input"]
+must = ["Interpret Footage per camera (clip.interpretFootage): F-Log2 for the X-M5, Rec. 709 (or HLG) for the phone, the right log for the others", "one working space for the sequence"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r10-auto-wrong"
+kind = "pro-practice"
+q = "one camera's clips look totally washed out next to the others even before grading"
+sources = ["practice.mixed-cameras.per-camera-input"]
+must = ["a camera left on auto detecting the wrong input space: set it with Interpret Footage"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-hero"
+kind = "multi-step"
+q = "three camera shoot, which one do I grade first and how do I get the rest to match?"
+sources = ["practice.mixed-cameras.hero"]
+must = ["grade the A (hero) camera first, grab a still (stills.grab)", "Shot Match each other camera to it (grade.shotMatch), then Check scene (grade.checkScene)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r10-phone-hdr"
+kind = "pro-practice"
+q = "phone shots' bright sky looks weird and crunchy when I pull it down"
+sources = ["practice.mixed-cameras.phone"]
+must = ["phones' HDR-processed highlights don't roll off like a camera's; don't push them"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-color-chart"
+kind = "gap"
+q = "can Revolution auto-match a colour checker chart like Resolve's chart match?"
+sources = ["practice.mixed-cameras.grey-card"]
+must = ["automatic chart matching isn't offered yet", "use the white-balance picker (grade.wb.pick) on a grey card frame and copy the node to the set-up's clips"]
+must_not = ["Revolution matches colour charts automatically"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-r10-mixed-fake"
+kind = "pro-practice"
+q = "I neutralised both the window light and the lamps and now the room looks fake"
+sources = ["practice.mixed-cameras.mixed-light"]
+must = ["fully neutralising both makes the scene look fake: leave some of the other light's cast for realism", "Temperature only part of the way back under the soft window"]
+must_not = []
+style = "follow-up"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-flicker"
+kind = "pro-practice"
+q = "the green tint from the shop lights keeps pulsing, will temporal NR fix it?"
+sources = ["practice.mixed-cameras.green-cast"]
+must = ["flickering lights change the cast frame to frame; Temporal NR doesn't fix flicker"]
+must_not = ["Temporal NR removes flicker"]
+style = "pro"
+
+[[question]]
+id = "pool-r10-halo"
+kind = "tweak"
+q = "there's a bright ring around his head after I lifted the face"
+sources = ["practice.mixed-cameras.backlit"]
+must = ["a hard window edge makes a halo: soften the ellipse window"]
+must_not = []
+style = "follow-up"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-8bit-blocks"
+kind = "pro-practice"
+q = "lifting the shadows on my dark 8-bit clip shows ugly blocks"
+sources = ["practice.mixed-cameras.underexposed"]
+must = ["lifting shadows of 8-bit footage reveals blocks; log 10-bit holds up much better", "noise reduction first, gentle contrast, grain to hide what remains"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-grey-clouds"
+kind = "tweak"
+q = "pulling down the blown out sky just turns it flat grey"
+sources = ["practice.mixed-cameras.overexposed"]
+must = ["clipped areas hold no detail and turn grey when pulled down: leave them white", "Highlight soft clip / a curve shoulder for what still has detail"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-day-drift"
+kind = "multi-step"
+q = "an interview shot from noon to sunset, the light keeps changing between answers"
+sources = ["practice.mixed-cameras.day-continuity"]
+must = ["grade the best-lit shot, match the rest to it, Check scene (grade.checkScene) finds the drifting ones", "a little warmth progression reads naturally; don't make late shots fully neutral"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r10-drone-flat"
+kind = "pro-practice"
+q = "my drone's flat profile bands in the sky when I add contrast"
+sources = ["practice.mixed-cameras.drone"]
+must = ["flat drone profiles with 8-bit compression band when graded hard: grade gently"]
+must_not = []
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-interview-bg"
+kind = "pro-practice"
+q = "I matched the wide and close backgrounds perfectly but the cut still looks off"
+sources = ["practice.mixed-cameras.interview"]
+must = ["match the face (skin) first, not the backgrounds"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-r10-night"
+kind = "approach"
+q = "high ISO night street footage, orange street lamps, how to grade?"
+sources = ["practice.mixed-cameras.night-street"]
+must = ["temporal NR on the clip, blacks kept deep", "partly neutralise the sodium-orange with a qualifier if skin is the priority"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r10-skin-global"
+kind = "pro-practice"
+q = "brightening the frame fixes one person's face but blows out the other's"
+sources = ["practice.mixed-cameras.skin-range"]
+must = ["one global move is right for one person and wrong for the other: a soft tracked window per face with small Gamma moves"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r10-archive-new"
+kind = "pro-practice"
+q = "should I clean up the 90s VHS footage so it matches the new 4K shots?"
+sources = ["practice.mixed-cameras.archival"]
+must = ["making 1990s video look new looks fake: keep its age, match only brightness and contrast", "Field Options (clip.fieldOptions) to deinterlace"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r10-screens"
+kind = "multi-step"
+q = "the laptop screen in my shot is a glowing blue rectangle"
+sources = ["practice.mixed-cameras.screens"]
+must = ["replace what's on the screen with Corner Pin's Track Surface, or tame the glow with a qualifier", "screens flicker at some shutter speeds: reshoot or replace them"]
+must_not = []
+style = "sloppy"
+needs_clip = true

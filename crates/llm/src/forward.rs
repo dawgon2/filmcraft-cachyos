@@ -9,6 +9,7 @@
 //! no `output.weight`).
 
 use std::io::{Read, Seek};
+use std::sync::Arc;
 
 use crate::LlmError;
 use crate::gguf::GgufSummary;
@@ -40,6 +41,13 @@ pub struct Config {
     /// Every `no_rope_step`-th layer (layers `step − 1`, `2·step − 1`, …) has no rotary embedding
     /// (SmolLM3's NoPE layers, as llama.cpp's `n_no_rope_layer_step`); 0: every layer rotates.
     pub no_rope_step: usize,
+    /// Width of the query projection (`n_head × head_dim`); the hidden width except for Qwen3,
+    /// whose heads are wider than `embd / n_head`.
+    pub q_dim: usize,
+    /// Qwen2's q / k / v biases.
+    pub qkv_bias: bool,
+    /// Qwen3's per-head RMSNorm on q and k before the rotary embedding.
+    pub qk_norm: bool,
 }
 
 /// Caps that keep a hostile header from sizing huge tables (the catalogue's largest model, Qwen2.5
@@ -62,15 +70,20 @@ impl Config {
         let n_head = int("attention.head_count")?;
         let n_kv_head = int("attention.head_count_kv")?;
         let n_layer = int("block_count")?;
-        if embd == 0 || n_head == 0 || n_kv_head == 0 || n_head % n_kv_head != 0 || embd % n_head != 0 || n_layer == 0 || n_layer > MAX_LAYERS {
+        let qwen3 = arch == "qwen3";
+        if embd == 0 || n_head == 0 || n_kv_head == 0 || n_head % n_kv_head != 0 || (!qwen3 && embd % n_head != 0) || n_layer == 0 || n_layer > MAX_LAYERS {
             return Err(err(format!("bad shape: embd {embd}, heads {n_head}/{n_kv_head}, layers {n_layer}")));
         }
-        let head_dim = embd / n_head;
-        if head_dim % 2 != 0 || head_dim > MAX_HEAD_DIM {
+        // Qwen3 states its head width (`key_length`; values the same width)
+        let head_dim = if qwen3 { int("attention.key_length")? } else { embd / n_head };
+        if qwen3 && s.get(&format!("{arch}.attention.value_length")).is_some_and(|v| usize::try_from(v).ok() != Some(head_dim)) {
+            return Err(err("value_length differs from key_length"));
+        }
+        if head_dim == 0 || head_dim % 2 != 0 || head_dim > MAX_HEAD_DIM {
             return Err(err(format!("head dimension {head_dim}")));
         }
         let rope = match arch {
-            "qwen2" => Rope::Halves,
+            "qwen2" | "qwen3" => Rope::Halves,
             "llama" | "smollm3" => {
                 if int("rope.dimension_count")? != head_dim {
                     return Err(err("rope.dimension_count differs from the head dimension"));
@@ -92,38 +105,71 @@ impl Config {
             Some([e, v]) if usize::try_from(*e).ok() == Some(embd) => usize::try_from(*v).map_err(|_| err("vocabulary too large"))?,
             other => return Err(err(format!("token_embd.weight is {other:?}"))),
         };
-        Ok(Config { embd, n_head, n_kv_head, head_dim, n_layer, vocab, eps, rope_base, rope, max_pos: max_pos.clamp(1, MAX_POS), no_rope_step })
+        let q_dim = n_head.checked_mul(head_dim).ok_or_else(|| err("query width"))?;
+        Ok(Config {
+            embd,
+            n_head,
+            n_kv_head,
+            head_dim,
+            n_layer,
+            vocab,
+            eps,
+            rope_base,
+            rope,
+            max_pos: max_pos.clamp(1, MAX_POS),
+            no_rope_step,
+            q_dim,
+            qkv_bias: arch == "qwen2",
+            qk_norm: qwen3,
+        })
     }
 }
 
-struct Layer {
-    attn_norm: Vec<f32>,
-    wq: Weight,
-    wk: Weight,
-    wv: Weight,
-    bias: Option<[Vec<f32>; 3]>,
-    wo: Weight,
-    ffn_norm: Vec<f32>,
-    gate: Weight,
-    up: Weight,
-    down: Weight,
+/// One token of a multimodal prompt ([`Forward::forward_multimodal`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MmToken {
+    Text(u32),
+    /// The picture's merged token number `k` (its row in [`MmPicture::tokens`]).
+    Picture(usize),
+}
+
+/// A picture's encoder output: `tokens` and every DeepStack tap are `count × embd` rows.
+#[derive(Clone, Copy, Debug)]
+pub struct MmPicture<'a> {
+    pub tokens: &'a [f32],
+    pub deepstack: &'a [Vec<f32>],
+}
+
+pub(crate) struct Layer {
+    pub(crate) attn_norm: Vec<f32>,
+    pub(crate) wq: Weight,
+    pub(crate) wk: Weight,
+    pub(crate) wv: Weight,
+    pub(crate) bias: Option<[Vec<f32>; 3]>,
+    /// Per-head RMSNorm weights for q and k ([`Config::qk_norm`]).
+    pub(crate) qk_norm: Option<[Vec<f32>; 2]>,
+    pub(crate) wo: Weight,
+    pub(crate) ffn_norm: Vec<f32>,
+    pub(crate) gate: Weight,
+    pub(crate) up: Weight,
+    pub(crate) down: Weight,
     /// Whether this layer applies the rotary embedding ([`Config::no_rope_step`]).
-    rope: bool,
+    pub(crate) rope: bool,
     /// `pos × n_kv_head × head_dim`, appended per token.
-    k_cache: Vec<f32>,
-    v_cache: Vec<f32>,
+    pub(crate) k_cache: Vec<f32>,
+    pub(crate) v_cache: Vec<f32>,
 }
 
 pub struct Forward {
     pub cfg: Config,
-    embd: Weight,
-    layers: Vec<Layer>,
-    norm: Vec<f32>,
+    pub(crate) embd: Arc<Weight>,
+    pub(crate) layers: Vec<Layer>,
+    pub(crate) norm: Vec<f32>,
     /// `None`: tied to `embd`.
-    output: Option<Weight>,
+    pub(crate) output: Option<Weight>,
     /// `max_pos × head_dim / 2`.
-    cos: Vec<f32>,
-    sin: Vec<f32>,
+    pub(crate) cos: Vec<f32>,
+    pub(crate) sin: Vec<f32>,
     /// Tokens in the KV cache.
     len: usize,
     scratch: Scratch,
@@ -161,22 +207,26 @@ impl Forward {
                 check_dims(&w, rows, cols)?;
                 Ok(w)
             };
-            let wq = read(r, "attn_q.weight", cfg.embd, cfg.embd)?;
+            let wq = read(r, "attn_q.weight", cfg.q_dim, cfg.embd)?;
             let wk = read(r, "attn_k.weight", kv_dim, cfg.embd)?;
             let wv = read(r, "attn_v.weight", kv_dim, cfg.embd)?;
-            let wo = read(r, "attn_output.weight", cfg.embd, cfg.embd)?;
+            let wo = read(r, "attn_output.weight", cfg.embd, cfg.q_dim)?;
             let gate = Weight::read(r, s, &name("ffn_gate.weight"))?;
             let ffn = gate.rows;
             check_dims(&gate, ffn, cfg.embd)?;
             let up = read(r, "ffn_up.weight", ffn, cfg.embd)?;
             let down = read(r, "ffn_down.weight", cfg.embd, ffn)?;
-            let bias = match cfg.rope {
-                Rope::Halves => Some([
-                    vector(r, s, &name("attn_q.bias"), cfg.embd)?,
+            let bias = match cfg.qkv_bias {
+                true => Some([
+                    vector(r, s, &name("attn_q.bias"), cfg.q_dim)?,
                     vector(r, s, &name("attn_k.bias"), kv_dim)?,
                     vector(r, s, &name("attn_v.bias"), kv_dim)?,
                 ]),
-                Rope::Interleaved => None,
+                false => None,
+            };
+            let qk_norm = match cfg.qk_norm {
+                true => Some([vector(r, s, &name("attn_q_norm.weight"), cfg.head_dim)?, vector(r, s, &name("attn_k_norm.weight"), cfg.head_dim)?]),
+                false => None,
             };
             layers.push(Layer {
                 attn_norm: vector(r, s, &name("attn_norm.weight"), cfg.embd)?,
@@ -185,6 +235,7 @@ impl Forward {
                 wk,
                 wv,
                 bias,
+                qk_norm,
                 wo,
                 gate,
                 up,
@@ -205,7 +256,7 @@ impl Forward {
                 sin.push(a.sin());
             }
         }
-        Ok(Forward { cfg, embd, layers, norm, output, cos, sin, len: 0, scratch: Scratch::default() })
+        Ok(Forward { cfg, embd: Arc::new(embd), layers, norm, output, cos, sin, len: 0, scratch: Scratch::default() })
     }
 
     /// Forget the KV cache (a new conversation).
@@ -259,21 +310,89 @@ impl Forward {
                 let t = usize::try_from(t).map_err(|_| err("token id"))?;
                 xs.extend(self.embd.row(t)?);
             }
-            self.chunk(&mut xs, pos + ci * PREFILL_CHUNK)?;
+            self.chunk(&mut xs, pos + ci * PREFILL_CHUNK, None, None)?;
             last = xs.get(xs.len().saturating_sub(embd)..).map(<[f32]>::to_vec).unwrap_or_default();
         }
+        self.logits(&last)
+    }
+
+    /// Qwen3-VL: appends `toks` (text tokens and a picture's merged tokens) after the cached ones,
+    /// each at its own (t, h, w) position from [`crate::mrope::positions`] with the config's
+    /// M-RoPE `sections`, and returns the logits after the last. A picture token's input is its
+    /// row of `picture.tokens`; after decoder layer l < `picture.deepstack.len()` its hidden state
+    /// gets that tap's row added (DeepStack). Text-only calls continue a conversation (positions
+    /// from the previous call's `next`).
+    pub fn forward_multimodal(
+        &mut self,
+        toks: &[MmToken],
+        positions: &[[u32; 3]],
+        sections: [usize; 3],
+        picture: Option<MmPicture<'_>>,
+    ) -> Result<Vec<f32>, LlmError> {
+        let embd = self.cfg.embd;
+        let pos = self.len;
+        let end = pos.checked_add(toks.len()).filter(|e| *e <= self.cfg.max_pos);
+        if toks.is_empty() || end.is_none() || positions.len() != toks.len() {
+            return Err(err(format!("{} tokens / {} positions at {pos} (context {})", toks.len(), positions.len(), self.cfg.max_pos)));
+        }
+        if self.cfg.rope != Rope::Halves || sections.iter().try_fold(0usize, |a, s| a.checked_add(*s)) != Some(self.cfg.head_dim / 2) {
+            return Err(err("multimodal positions need a halves-rotary model whose sections fill half a head"));
+        }
+        // every picture row the tokens need must exist in the encoder output and every tap
+        // before anything is cached, so an error never leaves a half-appended KV cache
+        if let Some(need) = toks.iter().filter_map(|t| if let MmToken::Picture(k) = t { Some(*k) } else { None }).max() {
+            let rows = need.checked_add(1).and_then(|n| n.checked_mul(embd)).ok_or_else(|| err("picture token number"))?;
+            let p = picture.as_ref().ok_or_else(|| err("a picture token without a picture"))?;
+            if p.tokens.len() < rows || p.deepstack.iter().any(|t| t.len() < rows) {
+                return Err(err(format!("picture token {need} past the encoder's output")));
+            }
+        }
+        let pic_rows = |k: usize, data: &[f32]| data.get(k.checked_mul(embd)?..k.checked_mul(embd)?.checked_add(embd)?).map(<[f32]>::to_vec);
+        let half = self.cfg.head_dim / 2;
+        let mut last = Vec::new();
+        for (ci, (chunk, pchunk)) in toks.chunks(PREFILL_CHUNK).zip(positions.chunks(PREFILL_CHUNK)).enumerate() {
+            let mut xs = Vec::with_capacity(chunk.len() * embd);
+            let mut which = Vec::with_capacity(chunk.len());
+            for &t in chunk {
+                match t {
+                    MmToken::Text(id) => {
+                        let id = usize::try_from(id).map_err(|_| err("token id"))?;
+                        xs.extend(self.embd.row(id)?);
+                        which.push(None);
+                    }
+                    MmToken::Picture(k) => {
+                        let p = picture.as_ref().ok_or_else(|| err("a picture token without a picture"))?;
+                        xs.extend(pic_rows(k, p.tokens).ok_or_else(|| err(format!("picture token {k} past the encoder's output")))?);
+                        which.push(Some(k));
+                    }
+                }
+            }
+            let mut angles = Vec::with_capacity(chunk.len() * half);
+            for p in pchunk {
+                angles.extend(crate::mrope::angles(*p, self.cfg.head_dim, sections, self.cfg.rope_base));
+            }
+            let taps = picture.as_ref().map(|p| p.deepstack);
+            self.chunk(&mut xs, pos + ci * PREFILL_CHUNK, Some(&angles), taps.map(|t| (which.as_slice(), t)))?;
+            last = xs.get(xs.len().saturating_sub(embd)..).map(<[f32]>::to_vec).unwrap_or_default();
+        }
+        self.logits(&last)
+    }
+
+    fn logits(&mut self, last: &[f32]) -> Result<Vec<f32>, LlmError> {
         let c = &self.cfg;
         let mut normed = vec![0.0; c.embd];
-        rms_norm(&last, &self.norm, c.eps, &mut normed);
+        rms_norm(last, &self.norm, c.eps, &mut normed);
         let mut logits = vec![0.0; c.vocab];
-        self.output.as_ref().unwrap_or(&self.embd).matvec(&normed, &mut logits, &mut self.scratch)?;
+        self.output.as_ref().unwrap_or(&*self.embd).matvec(&normed, &mut logits, &mut self.scratch)?;
         Ok(logits)
     }
 
     /// `t = xs.len() / embd` tokens at positions `pos..pos + t` through every layer at once (each
     /// weight row is read once per chunk); appends to the KV cache. Bit-identical to running the
     /// tokens one by one.
-    fn chunk(&mut self, xs: &mut [f32], pos: usize) -> Result<(), LlmError> {
+    /// `angles` (`t × head_dim / 2`) replace the position table's (M-RoPE); `deepstack` names each
+    /// token's picture-token number (or None) and the per-layer rows added after the first layers.
+    fn chunk(&mut self, xs: &mut [f32], pos: usize, angles: Option<&[f32]>, deepstack: Option<(&[Option<usize>], &[Vec<f32>])>) -> Result<(), LlmError> {
         use rayon::prelude::*;
         let c = self.cfg.clone();
         let t = xs.len() / c.embd;
@@ -281,25 +400,48 @@ impl Forward {
         let group = c.n_head / c.n_kv_head;
         let half = c.head_dim / 2;
         let sqrt_dim = (c.head_dim as f32).sqrt();
-        let (mut h, mut q, mut k, mut v) = (vec![0.0; t * c.embd], vec![0.0; t * c.embd], vec![0.0; t * kv_dim], vec![0.0; t * kv_dim]);
-        let mut att = vec![0.0; t * c.embd];
+        let (mut h, mut q, mut k, mut v) = (vec![0.0; t * c.embd], vec![0.0; t * c.q_dim], vec![0.0; t * kv_dim], vec![0.0; t * kv_dim]);
+        let mut att = vec![0.0; t * c.q_dim];
+        let mut normed = vec![0.0; c.head_dim];
         let mut proj = vec![0.0; t * c.embd];
-        for l in &mut self.layers {
+        let (mut cos_t, mut sin_t) = (Vec::new(), Vec::new());
+        if let Some(a) = angles {
+            if a.len() != t * half {
+                return Err(err("rotary angles don't match the tokens"));
+            }
+            cos_t = a.iter().map(|x| x.cos()).collect();
+            sin_t = a.iter().map(|x| x.sin()).collect();
+        }
+        for (li, l) in self.layers.iter_mut().enumerate() {
             for (x, hh) in xs.chunks_exact(c.embd).zip(h.chunks_exact_mut(c.embd)) {
                 rms_norm(x, &l.attn_norm, c.eps, hh);
             }
             l.wq.matmul(&h, &mut q, &mut self.scratch)?;
             l.wk.matmul(&h, &mut k, &mut self.scratch)?;
             l.wv.matmul(&h, &mut v, &mut self.scratch)?;
-            for (i, ((qi, ki), vi)) in q.chunks_exact_mut(c.embd).zip(k.chunks_exact_mut(kv_dim)).zip(v.chunks_exact_mut(kv_dim)).enumerate() {
+            for (i, ((qi, ki), vi)) in q.chunks_exact_mut(c.q_dim).zip(k.chunks_exact_mut(kv_dim)).zip(v.chunks_exact_mut(kv_dim)).enumerate() {
                 if let Some([bq, bk, bv]) = &l.bias {
                     add(qi, bq);
                     add(ki, bk);
                     add(vi, bv);
                 }
-                let at = (pos + i).checked_mul(half).ok_or_else(|| err("position"))?;
-                let cos = self.cos.get(at..at + half).ok_or_else(|| err("position past the rope table"))?;
-                let sin = self.sin.get(at..at + half).ok_or_else(|| err("position past the rope table"))?;
+                if let Some([qn, kn]) = &l.qk_norm {
+                    for (heads, w) in [(&mut *qi, qn), (&mut *ki, kn)] {
+                        for head in heads.chunks_exact_mut(c.head_dim) {
+                            rms_norm(head, w, c.eps, &mut normed);
+                            head.copy_from_slice(&normed);
+                        }
+                    }
+                }
+                let (cos, sin) = if angles.is_some() {
+                    (cos_t.get(i * half..(i + 1) * half).ok_or_else(|| err("angles"))?, sin_t.get(i * half..(i + 1) * half).ok_or_else(|| err("angles"))?)
+                } else {
+                    let at = (pos + i).checked_mul(half).ok_or_else(|| err("position"))?;
+                    (
+                        self.cos.get(at..at + half).ok_or_else(|| err("position past the rope table"))?,
+                        self.sin.get(at..at + half).ok_or_else(|| err("position past the rope table"))?,
+                    )
+                };
                 if l.rope {
                     for head in qi.chunks_exact_mut(c.head_dim).chain(ki.chunks_exact_mut(c.head_dim)) {
                         rotate(head, cos, sin, c.rope);
@@ -311,7 +453,7 @@ impl Forward {
             // Tokens are independent here (each reads the cache up to its own position), so the
             // split across threads never changes a result.
             let (kc, vc) = (&l.k_cache, &l.v_cache);
-            att.par_chunks_mut(c.embd).zip(q.par_chunks(c.embd)).enumerate().try_for_each(|(i, (ai, qi))| -> Result<(), LlmError> {
+            att.par_chunks_mut(c.q_dim).zip(q.par_chunks(c.q_dim)).enumerate().try_for_each(|(i, (ai, qi))| -> Result<(), LlmError> {
                 let n = pos + i + 1;
                 let mut scores = Vec::with_capacity(n);
                 for (hi, (qh, out)) in qi.chunks_exact(c.head_dim).zip(ai.chunks_exact_mut(c.head_dim)).enumerate() {
@@ -348,6 +490,17 @@ impl Forward {
             }
             l.down.matmul(&g, &mut proj, &mut self.scratch)?;
             add(xs, &proj);
+            // DeepStack: the picture's tap for this layer joins its tokens' hidden states
+            if let Some((which, taps)) = deepstack
+                && let Some(tap) = taps.get(li)
+            {
+                for (x, k) in xs.chunks_exact_mut(c.embd).zip(which) {
+                    if let Some(k) = *k {
+                        let row = k.checked_mul(c.embd).and_then(|a| tap.get(a..a + c.embd)).ok_or_else(|| err(format!("DeepStack row {k} missing")))?;
+                        add(x, row);
+                    }
+                }
+            }
         }
         self.len = pos + t;
         Ok(())
@@ -362,7 +515,7 @@ fn add(x: &mut [f32], y: &[f32]) {
 
 /// f32 dot in eight explicit lanes, so it vectorizes (a single running sum cannot be reordered by
 /// the compiler); attention spends most of its time here on long prompts.
-fn dot(a: &[f32], b: &[f32]) -> f32 {
+pub(crate) fn dot(a: &[f32], b: &[f32]) -> f32 {
     let (a8, a_rest) = a.as_chunks::<8>();
     let (b8, b_rest) = b.as_chunks::<8>();
     let mut lanes = [0f32; 8];
@@ -375,13 +528,13 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
     lanes.iter().sum::<f32>() + tail
 }
 
-fn silu(x: f32) -> f32 {
+pub(crate) fn silu(x: f32) -> f32 {
     x / (1.0 + (-x).exp())
 }
 
 /// `out = x / sqrt(mean(x²) + eps) · w`, rounded exactly as candle's `rms_norm` (divide, not
 /// multiply by the reciprocal: the difference grows through the layers on 4-bit models).
-fn rms_norm(x: &[f32], w: &[f32], eps: f32, out: &mut [f32]) {
+pub(crate) fn rms_norm(x: &[f32], w: &[f32], eps: f32, out: &mut [f32]) {
     let n = x.len().max(1) as f32;
     let m = (x.iter().map(|v| v * v).sum::<f32>() / n + eps).sqrt();
     for ((o, &v), &g) in out.iter_mut().zip(x).zip(w) {
@@ -389,7 +542,7 @@ fn rms_norm(x: &[f32], w: &[f32], eps: f32, out: &mut [f32]) {
     }
 }
 
-fn softmax(v: &mut [f32]) {
+pub(crate) fn softmax(v: &mut [f32]) {
     let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mut sum = 0.0;
     for x in v.iter_mut() {
@@ -403,7 +556,7 @@ fn softmax(v: &mut [f32]) {
     }
 }
 
-fn rotate(head: &mut [f32], cos: &[f32], sin: &[f32], style: Rope) {
+pub(crate) fn rotate(head: &mut [f32], cos: &[f32], sin: &[f32], style: Rope) {
     match style {
         Rope::Halves => {
             let (a, b) = head.split_at_mut(head.len() / 2);
@@ -448,7 +601,11 @@ mod tests {
     /// A tiny random model of `arch` that candle loads too: embd 64, 4 heads (2 KV), 2 layers,
     /// MLP 128, vocabulary 96; matrices Q8_0, vectors F32; tied output.
     fn tiny(arch: &str) -> Vec<u8> {
-        let (embd, kv, ffn, vocab, layers) = (64u64, 32u64, 128u64, 96u64, 2);
+        // Qwen3's heads are wider than embd / heads: 32 here, so q is 128 wide and k / v 64
+        let qwen3 = arch == "qwen3";
+        let (embd, ffn, vocab, layers) = (64u64, 128u64, 96u64, 2);
+        let head = if qwen3 { 32 } else { 16 };
+        let (q_dim, kv) = (4 * head, 2 * head);
         let mut b = Builder::default()
             .str("general.architecture", arch)
             .u32(&format!("{arch}.embedding_length"), embd as u32)
@@ -459,6 +616,9 @@ mod tests {
             .u32(&format!("{arch}.rope.dimension_count"), 16)
             .f32(&format!("{arch}.attention.layer_norm_rms_epsilon"), 1e-6)
             .f32(&format!("{arch}.rope.freq_base"), 10_000.0);
+        if qwen3 {
+            b = b.u32("qwen3.attention.key_length", head as u32).u32("qwen3.attention.value_length", head as u32);
+        }
         let mut seed = 1;
         let mut mat = |b: Builder, name: &str, rows: u64, cols: u64, amp: f32| {
             seed += 1;
@@ -466,10 +626,10 @@ mod tests {
         };
         b = mat(b, "token_embd.weight", vocab, embd, 2.0);
         for i in 0..layers {
-            b = mat(b, &format!("blk.{i}.attn_q.weight"), embd, embd, 0.5);
+            b = mat(b, &format!("blk.{i}.attn_q.weight"), q_dim, embd, 0.5);
             b = mat(b, &format!("blk.{i}.attn_k.weight"), kv, embd, 0.5);
             b = mat(b, &format!("blk.{i}.attn_v.weight"), kv, embd, 0.5);
-            b = mat(b, &format!("blk.{i}.attn_output.weight"), embd, embd, 0.5);
+            b = mat(b, &format!("blk.{i}.attn_output.weight"), embd, q_dim, 0.5);
             b = mat(b, &format!("blk.{i}.ffn_gate.weight"), ffn, embd, 0.5);
             b = mat(b, &format!("blk.{i}.ffn_up.weight"), ffn, embd, 0.5);
             b = mat(b, &format!("blk.{i}.ffn_down.weight"), embd, ffn, 0.5);
@@ -488,6 +648,10 @@ mod tests {
                 b = vec(b, &format!("blk.{i}.attn_k.bias"), kv, 0.0);
                 b = vec(b, &format!("blk.{i}.attn_v.bias"), kv, 0.0);
             }
+            if qwen3 {
+                b = vec(b, &format!("blk.{i}.attn_q_norm.weight"), head, 1.0);
+                b = vec(b, &format!("blk.{i}.attn_k_norm.weight"), head, 1.0);
+            }
         }
         b.build()
     }
@@ -502,6 +666,7 @@ mod tests {
     enum Candle {
         Qwen(candle_transformers::models::quantized_qwen2::ModelWeights),
         Llama(candle_transformers::models::quantized_llama::ModelWeights),
+        Qwen3(candle_transformers::models::quantized_qwen3::ModelWeights),
     }
 
     fn candle_logits(bytes: &[u8], arch: &str, steps: &[(&[u32], usize)]) -> Vec<Vec<f32>> {
@@ -512,6 +677,7 @@ mod tests {
         let content = gguf_file::Content::read(&mut c).unwrap();
         let mut m = match arch {
             "qwen2" => Candle::Qwen(candle_transformers::models::quantized_qwen2::ModelWeights::from_gguf(content, &mut c, &dev).unwrap()),
+            "qwen3" => Candle::Qwen3(candle_transformers::models::quantized_qwen3::ModelWeights::from_gguf(content, &mut c, &dev).unwrap()),
             _ => Candle::Llama(candle_transformers::models::quantized_llama::ModelWeights::from_gguf(content, &mut c, &dev).unwrap()),
         };
         steps
@@ -521,6 +687,7 @@ mod tests {
                 let l = match &mut m {
                     Candle::Qwen(w) => w.forward(&x, *pos),
                     Candle::Llama(w) => w.forward(&x, *pos),
+                    Candle::Qwen3(w) => w.forward(&x, *pos),
                 }
                 .unwrap();
                 l.squeeze(0).unwrap().to_vec1::<f32>().unwrap()
@@ -538,8 +705,46 @@ mod tests {
     }
 
     #[test]
+    fn multimodal_text_equals_plain_forward_and_checks_its_inputs() {
+        let bytes = tiny("qwen3");
+        let toks = [5u32, 17, 3, 88];
+        let want = ours(&bytes, "qwen3").forward(&toks, 0).unwrap();
+        let mm: Vec<MmToken> = toks.iter().map(|&t| MmToken::Text(t)).collect();
+        let (pos, _) = crate::mrope::positions(&[crate::mrope::Span::Text(4)]).unwrap();
+        // head 32 → 16 frequency pairs
+        let sections = [6, 5, 5];
+        let mut f = ours(&bytes, "qwen3");
+        let got = f.forward_multimodal(&mm, &pos, sections, None).unwrap();
+        assert!(got.iter().zip(&want).all(|(a, b)| (a - b).abs() <= 1e-4 * b.abs().max(1.0)));
+
+        // a picture token reads its row; zero DeepStack taps change nothing
+        let row: Vec<f32> = values(64, 9, 0.5);
+        let zeros = vec![vec![0.0f32; 64]; 2];
+        let toks = [MmToken::Text(5), MmToken::Picture(0), MmToken::Text(3)];
+        let (pos, _) =
+            crate::mrope::positions(&[crate::mrope::Span::Text(1), crate::mrope::Span::Picture { rows: 1, cols: 1 }, crate::mrope::Span::Text(1)]).unwrap();
+        let a = ours(&bytes, "qwen3").forward_multimodal(&toks, &pos, sections, Some(MmPicture { tokens: &row, deepstack: &[] })).unwrap();
+        let b = ours(&bytes, "qwen3").forward_multimodal(&toks, &pos, sections, Some(MmPicture { tokens: &row, deepstack: &zeros })).unwrap();
+        assert_eq!(a, b);
+        let c = ours(&bytes, "qwen3").forward_multimodal(&toks, &pos, sections, Some(MmPicture { tokens: &row, deepstack: &[values(64, 4, 1.0)] })).unwrap();
+        assert_ne!(a, c, "a DeepStack tap changes the result");
+
+        // hostile inputs are errors, not panics
+        let mut f = ours(&bytes, "qwen3");
+        assert!(f.forward_multimodal(&toks, &pos, sections, None).is_err(), "picture token without a picture");
+        assert!(f.forward_multimodal(&[MmToken::Picture(3)], &pos[..1], sections, Some(MmPicture { tokens: &row, deepstack: &[] })).is_err());
+        assert!(f.forward_multimodal(&toks, &pos[..2], sections, Some(MmPicture { tokens: &row, deepstack: &[] })).is_err());
+        assert!(f.forward_multimodal(&toks, &pos, [6, 5, 4], Some(MmPicture { tokens: &row, deepstack: &[] })).is_err());
+        assert!(f.forward_multimodal(&toks, &pos, sections, Some(MmPicture { tokens: &row, deepstack: &[vec![1.0; 3]] })).is_err());
+        assert!(f.forward_multimodal(&[], &[], sections, None).is_err());
+        // after all those refusals nothing was cached: a good call still matches a fresh model
+        assert_eq!(f.len(), 0);
+        assert_eq!(f.forward_multimodal(&toks, &pos, sections, Some(MmPicture { tokens: &row, deepstack: &[] })).unwrap(), a);
+    }
+
+    #[test]
     fn matches_candle_for_both_families_token_by_token() {
-        for arch in ["qwen2", "llama"] {
+        for arch in ["qwen2", "llama", "qwen3"] {
             let bytes = tiny(arch);
             let mut f = ours(&bytes, arch);
             // Single-token steps only: candle 0.9's prefill mask is (t, t), which is wrong once the

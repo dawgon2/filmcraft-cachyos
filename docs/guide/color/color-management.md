@@ -9,7 +9,7 @@
 **[Standard]**
 
 A log clip stores brightness with a curve that squeezes the sun and the shadows into a flat
-picture, and its colours use a gamut (F-Gamut) wider than your screen. Grading numbers only mean
+picture, and its colours use a gamut (F-Gamut) wider than your screen. That is why you don't grade the log directly: grading numbers only mean
 the same thing from clip to clip if all clips are first translated into one **working space**.
 This fork uses **DaVinci Wide Gamut / DaVinci Intermediate** (Blackmagic's published
 specification). Its signal has mid grey at about 0.336, which is why the Pivot slider defaults to
@@ -17,14 +17,14 @@ that value. Grade nodes work on this signal when the sequence's working space is
 Gamut; in a Rec. 709 sequence they work on the Rec. 709 signal, in a Rec. 2100 sequence on the
 PQ or HLG signal, so the same numbers look different in each.
 
-## Tell FilmCraft what the clip is (input)
+## Tell Revolution what the clip is (input)
 
 > id: color.color-management.input | does: sets a clip's input colour space, such as F-Log2 / F-Gamut | ui: colorDialog.space.* | cmd: clip.interpretFootage | resolve: Input Color Space per clip | premiere: Interpret Footage ▸ Color Management | when: a log clip looks grey or wrong | see: color.color-management.working
 
-**[FilmCraft]**
+**[Revolution]**
 
 Most files announce their colour space and need nothing. If an F-Log2 clip looks grey and flat
-in the viewer, tell it explicitly:
+in the viewer, set the clip to F-Log2 explicitly:
 
 1. In the Project panel select the clip (the footage item).
 2. Choose Clip ▸ Modify ▸ **Interpret Footage…** (`clip.interpretFootage`). The window
@@ -40,7 +40,7 @@ Plain F-Log (not F-Log2) is `flog-fgamut`, "Fujifilm F-Log / F-Gamut".
 
 > id: color.color-management.working | does: picks the sequence's working space, DaVinci Wide Gamut / Intermediate for grading | ui: colorDialog.working.dwg-di, colorDialog.wideGamut, colorDialog.ok | cmd: sequence.colorSettings | resolve: Timeline Color Space | premiere: Sequence Color Management | when: setting up a sequence for grading | see: color.color-management.output
 
-**[FilmCraft]** **[Fork]**
+**[Revolution]** **[Fork]**
 
 1. Choose Sequence ▸ **Color Management…** (`sequence.colorSettings`). The window "Sequence Color
    Management" opens.
@@ -82,7 +82,7 @@ transform node: the input transform is applied automatically before your first n
 
 > id: color.color-management.premiere | does: how this compares with Premiere's Interpret Footage and sequence colour settings | premiere: Interpret Footage, Sequence Color Management | when: you come from Premiere | see: color.color-management.input
 
-**[FilmCraft]**
+**[Revolution]**
 
 Interpret Footage and Sequence Color Management are the same dialogs as upstream FilmCraft's
-(**[FilmCraft]**); the DaVinci working space is the fork's addition (**[Fork]**).
+(**[Revolution]**); the DaVinci working space is the fork's addition (**[Fork]**).

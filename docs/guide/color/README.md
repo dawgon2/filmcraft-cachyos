@@ -3,17 +3,17 @@
 **[Resolve-style] [Standard] [Fork]** · status: written for G0 + G1 (what exists today)
 
 This fork adds a **node grader**: a list of small correction steps (nodes) on each clip, in the
-spirit of DaVinci Resolve's Color page. It sits next to FilmCraft's Premiere-style **Lumetri
+spirit of DaVinci Resolve's Color page. It sits next to Revolution's Premiere-style **Lumetri
 Color** panel; you can use either, or both.
 
 ## The idea in one minute
 
-> id: color.readme.idea | does: why F-Log2 looks flat and how a colour-managed grade turns it into a finished picture | resolve: colour-managed grading | premiere: log footage with Lumetri | when: starting to grade camera log footage | see: color.color-management.why
+> id: color.readme.idea | does: why F-Log2 looks flat and how a colour-managed grade turns it into a finished picture | resolve: colour-managed grading | premiere: log footage with Lumetri | when: why log footage looks washed out, grey and flat out of the camera; starting to grade it | see: color.color-management.why
 
 **[Standard]** **[Fork]**
 
 Footage from the Fujifilm X-M5 in F-Log2 looks flat and grey on purpose: it keeps as much picture
-as the sensor saw. Colour work has three jobs, always in this order:
+as the sensor saw. Colour work has three jobs (the big stages), always in this order:
 
 1. **Translate** the footage into a common working space, so every clip starts from the same
    ground. Done for you by colour management ([color-management.md](color-management.md)).
@@ -48,7 +48,7 @@ clip → input transform (F-Log2/F-Gamut → working space)
 
 ## The Color page layout
 
-> id: color.readme.layout | does: the Color page: gallery, viewer, clips strip, node graph and tool panels | ui: clips.*, grade.* | cmd: window.workspace.colorgrading | resolve: Color page | premiere: Color workspace | when: finding your way around the Color page | see: color.readme.first-grade
+> id: color.readme.layout | does: the Color page: gallery, viewer, clips strip, node graph and tool panels | ui: clips.*, grade.* | cmd: window.workspace.colorgrading | resolve: Color page | premiere: Color workspace | when: finding your way around the Color page; seeing the previous and next shots side by side | see: color.readme.first-grade
 
 **[Resolve-style]**
 
@@ -66,8 +66,9 @@ middle, **Nodes** on the right; the **Clips** strip across the whole width under
 4. **The viewer fits the picture to the panel** (zoom **Fit**) and keeps fitting it when the
    panels are resized. Scrolling the mouse wheel over the picture zooms in; scrolling back out
    stops at Fit. The zoom menu under the picture still offers fixed sizes.
-5. **Several clips at once (split screen):** choose **Adjacent Clips** (previous, current, next)
-   or **Selected Clips** (up to 16; select them in the timeline first) in the split-screen menu
+5. **Several clips at once, side by side (split screen):** choose **Adjacent Clips** (the shots
+   before and after the one you grade: previous, current, next) or **Selected Clips** (up to 16,
+   say 8 interview shots to compare while you match them; select them in the timeline first) in the split-screen menu
    {ui:clips.split} of the Clips panel, or **View ▸ Split Screen**. **Ctrl+Alt+W** turns it on
    and off (Selected Clips when several clips are selected). Each tile shows that clip with its
    grade; the one you are grading is outlined; click a tile to grade that clip. While playing,
@@ -81,7 +82,7 @@ shows the graded frames.
 
 ## First grade in six steps
 
-> id: color.readme.first-grade | does: a first grade on a log clip in six steps | ui: grade.addFirst, grade.bypass | cmd: grade.addNode | resolve: first node, primaries | premiere: Lumetri Basic Correction | when: your first grade in FilmCraft | see: color.primaries.flog2-steps
+> id: color.readme.first-grade | does: a first grade on a log clip in six steps | ui: grade.addFirst, grade.bypass | cmd: grade.addNode | resolve: first node, primaries | premiere: Lumetri Basic Correction | when: your first grade in Revolution; how undo works while dragging | see: color.primaries.flog2-steps
 
 **[Resolve-style]**
 
@@ -92,7 +93,8 @@ shows the graded frames.
    ([color-management.md](color-management.md)).
 4. Drag the **Gain** wheel's ring up until the brightest part looks right.
 5. Raise **Contrast** a little, then **Saturation**.
-6. Press **Bypass** {ui:grade.bypass} to compare before and after. Press it again to restore.
+6. Press **Bypass** {ui:grade.bypass} to compare before and after (graded and ungraded). Press it again to
+   restore.
 
 Every step is one undo step (Ctrl+Z); dragging a control counts as one step however long you drag.
 
@@ -102,6 +104,12 @@ Every step is one undo step (Ctrl+Z); dragging a control counts as one step howe
 
 **[Fork]**
 
-Qualifier (pick a colour), windows (shapes), tracking, noise reduction, LUT node, "same grade?",
-Shot Match, node explainer and the Grading Coach arrive in phase G2. Parallel and layer nodes
-arrive with C2. Each page says what is missing.
+Not built yet: parallel and layer nodes arrive with C2 (with splitter / combiner, outside and
+key-mixer nodes, see [later nodes](nodes.md)); an object mask that finds a person or thing for you
+(like Resolve's Magic Mask) comes in phase G3; a colour warper, extra tonal-zone wheels, a 3D
+qualifier and planar-tracked windows come in phase G4. Each page says what is missing.
+
+Already here (they were listed as coming before): the qualifier, windows and tracking
+([secondaries](secondaries.md)), noise reduction ([noise](noise.md)), LUTs on a node
+([finishing](finishing.md)), "same grade?", Shot Match and the node explainer
+([matching](matching.md)) and the Grading Coach ([coach](coach.md)).

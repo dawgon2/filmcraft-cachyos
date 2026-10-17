@@ -1,0 +1,309 @@
+# AI-POOL batch color-5: color/finishing.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c5-why-grain"
+kind = "approach"
+q = "why would anyone add grain to clean digital footage?"
+sources = ["color.finishing.why", "color.finishing.grain"]
+must = ["a heavy grade can look too clean", "a little grain makes shots feel alike and hides banding in smooth gradients"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-banding-sky"
+kind = "approach"
+q = "there's banding in the sky gradient after my grade"
+sources = ["color.finishing.why", "color.finishing.grain"]
+must = ["a little film grain on the last node hides banding in smooth gradients"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-c5-grain-amount"
+kind = "tweak"
+q = "how much grain is a sensible starting point?"
+sources = ["color.finishing.grain"]
+must = ["raise Grain strength slowly, try 0.1 to 0.2", "set Grain size while viewing at 100 percent"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-grain-colour"
+kind = "pro-practice"
+q = "is the grain colour or mono, and does it change every frame?"
+sources = ["color.finishing.grain"]
+must = ["monochrome, weighted by brightness", "different on every frame, but the same frame always gets the same grain, so an export matches the viewer"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c5-grain-size-units"
+kind = "pro-practice"
+q = "grain size 2 means what exactly, and what does softness do?"
+sources = ["color.finishing.grain"]
+must = ["Grain size 1 to 4 is the cell size in the clip's source pixels", "Grain softness 0 to 1 goes from crisp to smooth"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c5-softclip-steps"
+kind = "multi-step"
+q = "how do I make the clipped sky roll off gently instead of a hard white edge?"
+sources = ["color.finishing.soft-clip"]
+must = ["a late node, Curves tab, Soft clip", "raise Highlight roll-off", "Roll-off knee chooses where the bending starts"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c5-knee"
+kind = "tweak"
+q = "the soft clip is flattening my faces too, not just the sky"
+sources = ["color.finishing.soft-clip"]
+must = ["raise the Roll-off knee (0.95 only touches the brightest highlights; 0.5 starts in the upper mid-tones)"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c5-softclip-hue"
+kind = "pro-practice"
+q = "a saturated neon sign changes hue slightly when I add highlight roll-off"
+sources = ["color.finishing.soft-clip"]
+must = ["the roll-off acts on each channel with the same curve, so a very saturated highlight can shift slightly in hue"]
+must_not = []
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-c5-softclip-hdr"
+kind = "pro-practice"
+q = "should I use highlight soft clip in an HDR timeline?"
+sources = ["color.finishing.soft-clip"]
+must = ["in an HDR working space it compresses everything above diffuse white, the speculars HDR keeps", "use it for SDR looks"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c5-low-softclip"
+kind = "gap"
+q = "where's the low soft clip for the shadows?"
+sources = ["color.finishing.soft-clip"]
+must = ["no separate low (shadow) soft clip and no per-channel setting"]
+must_not = ["invents a low soft clip control"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c5-lut-steps"
+kind = "multi-step"
+q = "how do I put a .cube file on a node?"
+sources = ["color.finishing.lut"]
+must = ["select the node, LUT menu at the bottom of the Primaries tab", "Browse… for a .cube / .3dl (copied into the project)", "LUT mix to blend; None removes it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-lut-balance-first"
+kind = "node-role"
+q = "my film LUT makes the shot look really green"
+sources = ["color.finishing.lut"]
+must = ["balance the shot on an earlier node first: a LUT exaggerates an unbalanced shot's cast", "check the LUT was made for the working signal"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-c5-lut-missing"
+kind = "tweak"
+q = "I opened a project on another machine and the LUT does nothing"
+sources = ["color.finishing.lut"]
+must = ["an unknown or missing LUT applies nothing", "browsed LUTs are copied into the project (lut.import); re-pick it from the project's LUT library"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-lut-camera-log"
+kind = "pro-practice"
+q = "can I use Fujifilm's official F-Log2 to 709 LUT on a node in a DWG sequence?"
+sources = ["color.finishing.lut", "color.color-management.input"]
+must = ["no: a LUT built for camera log gives the wrong result on the DaVinci Intermediate signal", "colour management already does that conversion (Interpret Footage), or use the LUT in a Rec. 709 sequence with a conversion before it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c5-scopes-why"
+kind = "pro-practice"
+q = "why look at scopes if the picture looks fine to me?"
+sources = ["color.finishing.scopes"]
+must = ["your eyes adapt and your monitor may be off; the scopes don't", "look before and after each correction"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-which-scope-balance"
+kind = "tool"
+q = "which scope shows me whether the whites are neutral?"
+sources = ["color.finishing.scopes"]
+must = ["the Parade: on something white or grey the red, green and blue traces sit at the same height"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-which-scope-skin"
+kind = "tool"
+q = "how do I check skin tone on a scope"
+sources = ["color.finishing.scopes", "practice.grading.skin-line"]
+must = ["Vectorscope YUV: skin should lie along the skin-tone line"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c5-histogram"
+kind = "tool"
+q = "what's the histogram good for?"
+sources = ["color.finishing.scopes"]
+must = ["how many pixels sit at each brightness", "clipping shows as a pile-up at either end; overall contrast"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-open-scopes"
+kind = "tool"
+q = "where do I open the scopes on the Color page?"
+sources = ["color.finishing.scopes"]
+must = ["the Lumetri Scopes button in the page toolbar (a tab in the Color workspace in the Premiere workflow)", "the wrench chooses which scopes show"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c5-clamp"
+kind = "pro-practice"
+q = "should Clamp Signal be on while I grade?"
+sources = ["color.finishing.scopes"]
+must = ["leave it off while grading so you can see clipping", "turn it on only to hide values outside the legal range"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c5-scope-space"
+kind = "pro-practice"
+q = "what colour space do the scopes measure in when I'm in an HDR sequence?"
+sources = ["color.finishing.scopes"]
+must = ["Automatic follows the sequence: Rec. 2100 for an HDR working space, otherwise Rec. 709", "the scale can be 8 Bit, Float or HDR"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c5-scopes-agent"
+kind = "tool"
+q = "can an agent read the waveform numbers?"
+sources = ["color.finishing.scopes"]
+must = ["scopes.read returns the same numbers"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c5-grain-ofx"
+kind = "pro-practice"
+q = "in Resolve grain is an OFX plugin, what is it here?"
+sources = ["color.finishing.resolve", "color.finishing.grain"]
+must = ["here grain is a setting of a node (Primaries panel, Film grain group)"]
+must_not = []
+style = "resolve-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c5k-grain"
+q = "add film grain"
+kind = "how"
+origin = "agent"
+page = "color/finishing.md"
+heading = "Film grain"
+alt = [{ page = "color/recipes.md", heading = "7. Finish with film grain" }, { page = "glossary.md", heading = "Grain" }]
+status = "covered"
+facts = ["Grain strength 0.1 to 0.2"]
+
+[[coach]]
+id = "pool-c5k-grain-size"
+q = "grain size"
+kind = "what-for"
+origin = "agent"
+page = "color/finishing.md"
+heading = "Film grain"
+status = "covered"
+facts = ["1 to 4, cell size in source pixels"]
+
+[[coach]]
+id = "pool-c5k-knee"
+q = "roll-off knee"
+kind = "what-for"
+origin = "agent"
+page = "color/finishing.md"
+heading = "Highlight soft clip"
+status = "covered"
+facts = ["where the bending starts"]
+
+[[coach]]
+id = "pool-c5k-cube"
+q = "load a cube lut on a node"
+kind = "how"
+origin = "agent"
+page = "color/finishing.md"
+heading = "A LUT on a node"
+status = "covered"
+facts = ["LUT menu", "Browse…", "LUT mix"]
+
+[[coach]]
+id = "pool-c5k-lut-mix"
+q = "lut mix"
+kind = "what-for"
+origin = "agent"
+page = "color/finishing.md"
+heading = "A LUT on a node"
+status = "covered"
+facts = ["blend 50–80 %"]
+
+[[coach]]
+id = "pool-c5k-parade"
+q = "what is the parade scope"
+kind = "what-for"
+origin = "agent"
+page = "color/finishing.md"
+heading = "Scopes: reading exposure, balance and skin"
+status = "covered"
+facts = ["red, green and blue traces"]
+
+[[coach]]
+id = "pool-c5k-vectorscope"
+q = "vectorscope"
+kind = "resolve-word"
+origin = "agent"
+page = "color/finishing.md"
+heading = "Scopes: reading exposure, balance and skin"
+status = "covered"
+facts = ["skin-tone line", "casts cluster away from centre"]
+
+[[coach]]
+id = "pool-c5k-lumetri-scopes"
+q = "lumetri scopes"
+kind = "premiere-word"
+origin = "agent"
+page = "color/finishing.md"
+heading = "Scopes: reading exposure, balance and skin"
+status = "covered"
+facts = ["page toolbar button", "wrench"]
+
+[[coach]]
+id = "pool-c5k-clamp-typo"
+q = "clamp signl on scopes"
+kind = "typo"
+origin = "agent"
+page = "color/finishing.md"
+heading = "Scopes: reading exposure, balance and skin"
+status = "covered"
+facts = ["leave it off while grading"]

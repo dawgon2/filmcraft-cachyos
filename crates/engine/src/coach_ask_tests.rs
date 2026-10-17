@@ -292,7 +292,7 @@ fn intros_fold_into_the_first_section_and_stubs_are_not_answers() {
 
 /// Questions of the eval set that must pass (DIAGNOSIS.md §1 rule). This may only go up; raise it
 /// when the guide or the coach improves (FORK-PLAN §1a.47).
-const EVAL_FLOOR: usize = 98;
+const EVAL_FLOOR: usize = 100;
 
 #[derive(Deserialize)]
 struct EvalFile {
@@ -689,9 +689,9 @@ fn retrieval_finds_the_advanced_sets_sources() {
 }
 
 /// The measured recall@5 of [`retrieve`] on advanced.toml (raise it when retrieval improves).
-const RETRIEVAL_FLOOR: usize = 85;
+const RETRIEVAL_FLOOR: usize = 87;
 /// The measured recall@1 (70 / 85; 65 before the quoted-`when:` boost, the grain-finish header and the cleanup / quickest / late synonyms).
-const RETRIEVAL_FLOOR_FIRST: usize = 71;
+const RETRIEVAL_FLOOR_FIRST: usize = 73;
 
 /// Hostile questions: empty, huge, only stopwords or symbols, a huge `k`: no panic, at most
 /// [`MAX_RETRIEVE`] sections, scores finite and best first.
@@ -762,8 +762,8 @@ fn grounding_survives_hostile_answers() {
 fn invented_plain_word_controls_and_shortcuts_are_removed() {
     let yes = |_: &str| true;
     let checks = Checks { command: &yes, namespace: &yes, ui: Some(&yes) };
-    let sent = "[color.nodes.add] Add a node\n1. Click **Add node** in the node strip (Alt+S).\nParallel nodes are not in FilmCraft yet.";
-    let answer = "Parallel nodes are not in FilmCraft yet.\n\
+    let sent = "[color.nodes.add] Add a node\n1. Click **Add node** in the node strip (Alt+S).\nParallel nodes are not in Revolution yet.";
+    let answer = "Parallel nodes are not in Revolution yet.\n\
         - Click on the **\"Nodes\"** panel (or press Ctrl+N).\n\
         - Scroll down until you find the **Parallel Mixer**.\n\
         1. Click **Add node** (or press Alt+S) to add a serial node instead.\n\
@@ -803,4 +803,131 @@ fn a_number_at_the_start_of_a_wrapped_line_is_not_a_step() {
     let steps = coach_ask::numbered_list(&sec.section.body);
     assert_eq!(steps.len(), 3, "{steps:?}");
     assert!(steps.first().is_some_and(|s| s.contains("Reference")), "{steps:?}");
+}
+
+// ---------- every command has a guide section (AI-PLAN AI3 acceptance) ----------
+
+/// Commands that need no guide text, each with the reason. Keep this short and honest.
+const COMMANDS_WITHOUT_GUIDE: &[(&str, &str)] = &[];
+
+#[test]
+fn every_registered_command_is_named_in_the_guide() {
+    // Backtick segments of every page: exact ids, and family lines such as `clip.*`.
+    let mut exact = std::collections::HashSet::new();
+    let mut families: Vec<String> = Vec::new();
+    for (_, src) in GUIDE_PAGES {
+        for seg in src.split('`') {
+            let seg = seg.trim();
+            if seg.is_empty() || !seg.bytes().all(|b| b.is_ascii_alphanumeric() || b".*_-".contains(&b)) {
+                continue;
+            }
+            match seg.strip_suffix(".*") {
+                Some(prefix) if !prefix.is_empty() => families.push(format!("{prefix}.")),
+                _ => {
+                    exact.insert(seg.to_string());
+                }
+            }
+        }
+    }
+    let mut missing: Vec<String> = crate::commands::command_specs()
+        .iter()
+        .filter(|c| !exact.contains(c.id) && !families.iter().any(|f| c.id.starts_with(f.as_str())))
+        .filter(|c| !COMMANDS_WITHOUT_GUIDE.iter().any(|(x, _)| *x == c.id))
+        .map(|c| format!("{} | {} | {} | {} | {}", c.id, c.label, c.menu.join(" > "), c.shortcut.unwrap_or("-"), c.params))
+        .collect();
+    missing.sort_unstable();
+    assert!(
+        missing.is_empty(),
+        "{} command(s) with no guide section (name each id in backticks on a page, or a `family.*` line; id | label | menu | shortcut | params):\n{}",
+        missing.len(),
+        missing.join("\n")
+    );
+    for (id, why) in COMMANDS_WITHOUT_GUIDE {
+        assert!(!why.is_empty(), "{id}: an exclusion needs a reason");
+    }
+}
+
+/// The effect reference names every effect and transition the Effects panel shows, one line per
+/// folder (`- **Folder** (path): A, B.`), and nothing else (AI4.5c: answers and the creative set
+/// called effects missing that the catalogue has, because no page named them).
+#[test]
+fn effect_reference_matches_the_catalog() {
+    use std::collections::BTreeMap;
+    let page = GUIDE_PAGES.iter().find(|(p, _)| *p == "effect-reference.md").map(|(_, s)| *s).unwrap_or("");
+    let mut listed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for line in page.lines() {
+        let Some((path, names)) = line.strip_prefix("- **").and_then(|r| r.split_once("** (")).and_then(|(_, r)| r.split_once("): ")) else {
+            continue;
+        };
+        let mut names: Vec<String> = names.trim_end_matches('.').split(", ").map(str::to_string).collect();
+        names.sort();
+        assert!(listed.insert(path.to_string(), names).is_none(), "{path} listed twice");
+    }
+    let mut want: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // what the Effects panel shows: no intrinsic effects, nothing outside a folder, no hidden
+    // top-level Obsolete bin (the transitions Premiere no longer lists)
+    for d in filmcraft_project::effect_defs() {
+        if d.intrinsic || d.category.is_empty() || d.category.first() == Some(&"Obsolete") {
+            continue;
+        }
+        want.entry(d.category.join(" ▸ ")).or_default().push(d.name.to_string());
+    }
+    for names in want.values_mut() {
+        names.sort();
+    }
+    assert_eq!(listed, want, "regenerate docs/guide/effect-reference.md's folder lines from the catalogue");
+}
+
+/// The command reference is quoted word for word by the assistant, so every shortcut and menu
+/// path it states next to a command id must be the one the command's spec registers. A key
+/// written after an id (up to the next id) belongs to that id; a bold `A ▸ B` path written
+/// before an id (after the previous id) belongs to it.
+#[test]
+fn command_reference_shortcuts_and_menus_match_the_specs() {
+    let page = GUIDE_PAGES.iter().find(|(p, _)| *p == "command-reference.md").map(|(_, s)| *s).unwrap_or("");
+    assert!(!page.is_empty());
+    let mut problems = Vec::new();
+    // logical blocks: a line plus its indented continuation lines
+    let mut blocks: Vec<String> = Vec::new();
+    for line in page.lines().filter(|l| !l.starts_with('>')) {
+        match blocks.last_mut() {
+            Some(b) if line.starts_with(' ') => {
+                b.push(' ');
+                b.push_str(line.trim());
+            }
+            _ => blocks.push(line.to_string()),
+        }
+    }
+    for block in &blocks {
+        // (byte start, byte end, text) of every backtick segment
+        let mut segs = Vec::new();
+        let mut pos = 0;
+        for (n, part) in block.split('`').enumerate() {
+            if n % 2 == 1 {
+                segs.push((pos, pos + part.len(), part));
+            }
+            pos += part.len() + 1;
+        }
+        let ids: Vec<(usize, usize, &str)> = segs.iter().copied().filter(|(_, _, t)| crate::commands::find(t).is_some()).collect();
+        for (k, (start, end, id)) in ids.iter().enumerate() {
+            let Some(spec) = crate::commands::find(id) else { continue };
+            let next = ids.get(k + 1).map_or(block.len(), |n| n.0);
+            let prev = if k == 0 { 0 } else { ids[k - 1].1 };
+            for (_, _, key) in segs.iter().filter(|(a, _, t)| *a > *end && *a < next && ["Cmd+", "Ctrl+", "Shift+", "Alt+"].iter().any(|p| t.starts_with(p))) {
+                if spec.shortcut != Some(*key) {
+                    problems.push(format!("{id}: states key `{key}`, spec has {:?}", spec.shortcut));
+                }
+            }
+            let before = block.get(prev..*start).unwrap_or("");
+            for bold in before.split("**").skip(1).step_by(2).filter(|b| b.contains('▸')) {
+                let have: Vec<&str> = spec.menu.iter().flat_map(|m| m.split(" > ")).chain(std::iter::once(spec.label)).collect();
+                for part in bold.split('▸').map(|p| p.trim().trim_end_matches('…')) {
+                    if !part.is_empty() && !have.iter().any(|h| h.trim_end_matches('…') == part) {
+                        problems.push(format!("{id}: menu path `{bold}`: `{part}` not in spec menu {:?} / label {:?}", spec.menu, spec.label));
+                    }
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{} mismatch(es):\n{}", problems.len(), problems.join("\n"));
 }

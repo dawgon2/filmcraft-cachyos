@@ -32,6 +32,7 @@ pub mod mask;
 pub mod mixer;
 pub mod multicam;
 pub mod offline;
+pub mod picture_facts;
 pub mod plan;
 pub mod preview;
 pub mod remix;

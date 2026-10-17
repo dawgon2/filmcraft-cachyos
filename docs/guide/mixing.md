@@ -1,6 +1,6 @@
 # Mixing audio
 
-**[FilmCraft]** · the Audio Track Mixer and the Audio Clip Mixer: levels, pan, track effects,
+**[Revolution]** · the Audio Track Mixer and the Audio Clip Mixer: levels, pan, track effects,
 submixes and sends, and automation recorded while you play; modelled on Premiere Pro's mixers;
 written for AI-PLAN AI3-PREP (feature pages)
 
@@ -8,7 +8,7 @@ written for AI-PLAN AI3-PREP (feature pages)
 
 > id: mixing.track-mixer | does: one strip per audio track, submix and the master Mix: fader, pan, mute, solo, record arm | cmd: mixer.inspect, mixer.setStrip, mixer.setValue | resolve: Fairlight mixer | premiere: Audio Track Mixer | when: balancing whole tracks rather than single clips | see: mixing.clip-or-track, mixing.automation
 
-**[FilmCraft]**
+**[Revolution]**
 
 Open Window ▸ **Audio Track Mixer** (on the Fairlight page in the Resolve workflow). Each audio
 track (A1, A2…) has a strip, each submix (S1, S2…) has one, and the master **Mix** has the last
@@ -21,7 +21,7 @@ voice-over recording) and its automation mode. `mixer.setStrip` sets these from 
 
 > id: mixing.clip-or-track | does: when to set a level on the clip and when on the track | cmd: clipMixer.set, mixer.setValue | resolve: clip gain vs track fader | premiere: Audio Clip Mixer vs Audio Track Mixer | when: deciding where a level change belongs | see: mixing.track-mixer, mixing.clip-mixer
 
-**[FilmCraft]**
+**[Revolution]**
 
 | Option | Good for | Trade-offs |
 |---|---|---|
@@ -38,7 +38,7 @@ voice-over recording) and its automation mode. `mixer.setStrip` sets these from 
 
 > id: mixing.inserts | does: effects on a whole track, submix or the Mix, before or after its fader | cmd: mixer.addInsert, mixer.setInsert, mixer.removeInsert | resolve: Fairlight track effects | premiere: Audio Track Mixer effect slots | when: one EQ or compressor for a whole track; a limiter on the Mix | see: mixing.submixes
 
-**[FilmCraft]**
+**[Revolution]**
 
 Each strip has effect slots. `mixer.addInsert` puts an audio effect in a slot (`effect`, `slot`,
 `postFader`), `mixer.setInsert` turns it on or off, moves it after the fader or sets its
@@ -52,11 +52,12 @@ post-fader effects see it after.
 
 ## Submixes and sends
 
-> id: mixing.submixes | does: groups tracks into a submix and sends part of a track to a submix | cmd: mixer.addSubmix, mixer.deleteSubmix, mixer.addSend, mixer.setSend, mixer.removeSend, mixer.setStrip | resolve: Fairlight buses | premiere: submix tracks and sends | when: one fader for all dialogue; one reverb shared by several tracks | see: mixing.inserts
+> id: mixing.submixes | does: groups tracks into a submix and sends part of a track to a submix | cmd: mixer.addSubmix, mixer.deleteSubmix, mixer.addSend, mixer.setSend, mixer.removeSend, mixer.setStrip | resolve: Fairlight buses | premiere: submix tracks and sends | when: one fader for all dialogue tracks; one reverb shared by several tracks | see: mixing.inserts
 
-**[FilmCraft]**
+**[Revolution]**
 
-A **submix** is a strip without clips that takes the sound of the tracks routed to it.
+A **submix** is a strip without clips that takes the sound of the tracks routed to it: one fader
+that controls several tracks at once (all the dialogue tracks, say).
 
 1. **Add Audio Submix Track** (Sequence menu, `mixer.addSubmix`): S1 appears in the mixer.
 2. Route tracks to it: set a strip's **output** to S1 (`mixer.setStrip` with `output`). Its
@@ -71,7 +72,7 @@ A **submix** is a strip without clips that takes the sound of the tracks routed 
 
 > id: mixing.automation | does: records fader, pan, mute, send and effect moves during playback as track keyframes | cmd: mixer.recordStart, mixer.recordStop, mixer.touch, mixer.release, mixer.setStrip | resolve: Fairlight automation (Latch, Touch, Write) | premiere: track automation modes | when: riding music under dialogue, fades and swells by ear | see: mixing.keyframes
 
-**[FilmCraft]**
+**[Revolution]**
 
 Set a strip's automation mode, play, and move its controls: the moves are heard at once and
 written as keyframes when playback stops (one undo step).
@@ -96,7 +97,7 @@ few keyframes (Settings ▸ Audio sets how much).
 
 > id: mixing.keyframes | does: adds, moves and deletes track automation keyframes, or writes a whole curve | cmd: mixer.setKeyframe, mixer.moveKeyframe, mixer.deleteKeyframe, mixer.clearLane, mixer.writeAutomation | resolve: Fairlight automation editing | premiere: track keyframes in the timeline | when: fixing a recorded move; drawing a fade exactly | see: mixing.automation
 
-**[FilmCraft]**
+**[Revolution]**
 
 Every automated control is a **lane** of its strip: `volume`, `pan`, `mute`,
 `send.<n>.level` and `fx.<slot>.<parameter>`. `mixer.setKeyframe` adds or changes a keyframe at a
@@ -108,7 +109,7 @@ one step (for agents and scripts).
 
 > id: mixing.clip-mixer | does: a fader and pan per track that write the clip's own Volume and Panner keyframes | cmd: clipMixer.set, clipMixer.setMode, clipMixer.touch, clipMixer.release | resolve: clip gain and clip keyframes | premiere: Audio Clip Mixer | when: riding one clip's level by ear; the level should move with the clip | see: mixing.clip-or-track
 
-**[FilmCraft]**
+**[Revolution]**
 
 The Audio Clip Mixer looks like the track mixer, but its controls belong to the **clip under the
 playhead** on each track. With the same Off / Read / Latch / Touch / Write modes

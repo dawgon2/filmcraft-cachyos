@@ -1,6 +1,6 @@
 # Editing
 
-**[FilmCraft] [Resolve-style] [Fork]** · cutting on the timeline, JKL shuttle, trimming and
+**[Revolution] [Resolve-style] [Fork]** · cutting on the timeline, JKL shuttle, trimming and
 multicam; written for the fork after Phase 6 (GUIDE-7)
 
 The editing tools come from upstream FilmCraft, which models them on Premiere. The fork defaults to
@@ -9,7 +9,7 @@ on screen (Sequence → Timeline, Project panel → Media Pool) but not what the
 below are given for both presets; every command can also be run by its id from the command
 palette, the control channel or MCP.
 
-If playback stutters while you cut heavy footage, don't fight it here: let FilmCraft make proxies
+If playback stutters while you cut heavy footage, don't fight it here: let Revolution make proxies
 ([proxies.md](proxies.md)) or render the busy part into the cache
 ([render-cache.md](render-cache.md)).
 
@@ -19,7 +19,8 @@ If playback stutters while you cut heavy footage, don't fight it here: let FilmC
 
 **[Fork]**
 
-People cut in very different ways, and all of them work. Two common ones:
+People start cutting in very different ways (say with 3 hours of footage for a 10-minute video),
+and all of them work. Two common ones:
 
 - **Rough first, then trim** (good for beginners and long material): lay every usable take on the
   timeline in order, then cut away what you don't need, then tighten each edit. Easy to follow,
@@ -32,18 +33,18 @@ Mixing the two is normal. Try both on a short project and keep what feels natura
 
 ## Cutting clips on the timeline
 
-> id: editing.cutting | does: splits a clip so a part can be removed, moved or trimmed | cmd: tool.razor, sequence.addEdit, sequence.addEditAllTracks, edit.rippleDelete, sequence.lift, sequence.extract | resolve: Blade, Split Clip | premiere: Razor, Add Edit | when: removing a part of a clip | see: editing.trimming
+> id: editing.cutting | does: splits a clip so a part can be removed, moved or trimmed | cmd: tool.razor, sequence.addEdit, sequence.addEditAllTracks, edit.rippleDelete, sequence.lift, sequence.extract | resolve: Blade, Split Clip | premiere: Razor, Add Edit | when: removing a part of a clip; cutting through video and all audio tracks at once | see: editing.trimming
 
 ### Why
 
-**[FilmCraft]**
+**[Revolution]**
 
 A cut splits one clip into two, so you can remove, move or trim one part without touching the
 other. You can cut where the playhead is, or click exactly where you want with the razor tool.
 
 ### Steps: cut at the playhead
 
-**[FilmCraft]** · Resolve keys **[Resolve-style]**
+**[Revolution]** · Resolve keys **[Resolve-style]**
 
 1. Move the playhead to the frame where the cut should go (click the time ruler, or step with the
    Left / Right arrow keys).
@@ -54,7 +55,7 @@ other. You can cut where the playhead is, or click exactly where you want with t
 
 ### Steps: cut with the razor tool
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Pick the razor tool (`tool.razor`): **C** in the Premiere preset, **B** in the Resolve preset.
 2. Click the clip where you want the cut.
@@ -62,7 +63,7 @@ other. You can cut where the playhead is, or click exactly where you want with t
 
 ### Removing material
 
-**[FilmCraft]**
+**[Revolution]**
 
 - **Delete** (`edit.clear`) removes the selected clips and leaves a gap.
 - **Ripple Delete** (`edit.rippleDelete`, Shift+Delete) removes them and closes the gap.
@@ -74,19 +75,19 @@ their own yet, so run them from the Sequence (Timeline) menu or the command pale
 
 ## Three-point editing
 
-> id: editing.three-point | does: sets three of the four In / Out points and lets FilmCraft work out the fourth | cmd: markers.markIn, markers.markOut, source.insert, source.overwrite | resolve: three-point editing, Insert / Overwrite | premiere: three-point editing, Insert / Overwrite | when: placing exactly the part of a clip you want | see: editing.jkl
+> id: editing.three-point | does: sets three of the four In / Out points and lets Revolution work out the fourth | cmd: markers.markIn, markers.markOut, source.insert, source.overwrite | resolve: three-point editing, Insert / Overwrite | premiere: three-point editing, Insert / Overwrite | when: placing exactly the part of a clip you want | see: editing.jkl
 
 ### Why
 
-**[FilmCraft]**
+**[Revolution]**
 
 Three-point editing means you set three of the four points (Source In, Source Out, Timeline In,
-Timeline Out) and FilmCraft works out the fourth. It is the quickest way to put only the good
+Timeline Out) and Revolution works out the fourth. It is the quickest way to put only the good
 part of a clip into the edit.
 
 ### Steps: insert or overwrite a marked part of a clip
 
-**[FilmCraft]** · Resolve keys **[Resolve-style]**
+**[Revolution]** · Resolve keys **[Resolve-style]**
 
 1. Double-click a clip in the Project panel / Media Pool to open it in the Source monitor.
 2. Play to the start of the part you want and press **I** (`markers.markIn`), then to the end and
@@ -108,14 +109,14 @@ part of a clip into the edit.
 
 ### Why
 
-**[FilmCraft]** · same keys in Premiere and Resolve
+**[Revolution]** · same keys in Premiere and Resolve
 
 Your left hand stays on J, K and L, so you can find frames fast without the mouse. Each key press
 in the same direction speeds playback up, which is the fastest way to skim long material.
 
 ### Steps: shuttle with J, K and L
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Press **L** (`playback.forward`) to play forward at normal speed.
 2. Press **L** again: each extra press **doubles** the speed (2×, 4×, up to 8×).
@@ -130,8 +131,11 @@ monitor. At 2× and faster, 6.2K originals may skip frames on playback; proxies 
 smooth ([proxies.md](proxies.md)).
 
 **Difference from Resolve and Premiere:** both of them also have a "hold K and tap J / L" frame
-step and a slow shuttle (K+L held). FilmCraft has slow shuttle while trimming (Shift+J / Shift+L
-in trim mode, quarter speed, below) but not as K+L on normal playback.
+step and a slow shuttle (K+L held).
+
+- **Revolution:** no "hold K and tap J / L" frame step yet, and no K+L slow shuttle on normal
+  playback: slow shuttle works while trimming (Shift+J / Shift+L in trim mode, quarter speed,
+  below).
 
 ## Trimming
 
@@ -139,7 +143,7 @@ in trim mode, quarter speed, below) but not as K+L on normal playback.
 
 ### Why
 
-**[FilmCraft]**
+**[Revolution]**
 
 Trimming moves an edit point: it makes one clip a bit longer or shorter without cutting again.
 Most of the polish in an edit happens here. The four trim tools differ in what else moves:
@@ -156,7 +160,7 @@ the blade, so the trim tools are reached from the toolbar or the command palette
 
 ### Steps: trim an edit point with the keyboard
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Click an edit point (the line between two clips) with the selection tool, or press
    **Trim Edit** (`trim.edit`, Shift+T in Premiere) to select the nearest one under the playhead.
@@ -164,10 +168,12 @@ the blade, so the trim tools are reached from the toolbar or the command palette
    want (ripple, rolling, or ripple on one side).
 3. Press **Alt+Left** / **Alt+Right** (`trim.backward` / `trim.forward`, Premiere preset) to
    move it one frame, or add Shift (`trim.backwardMany` / `trim.forwardMany`) to move it several
-   frames.
+   frames. A rolling edit point moves the cut and keeps the sequence length; a ripple one changes
+   one side and shifts everything after it.
 4. Or press **L** / **J** while the edit point is selected: the trim plays live (dynamic
    trimming), and **K** stops and keeps it. Shift+J / Shift+L shuttle at quarter speed.
-5. Undo (Cmd+Z) puts the whole trim back in one step.
+5. Undo (Cmd+Z) puts the whole trim back in one step. To change which part of a clip shows
+   instead, use Slip (`tool.slip`); Slide (`tool.slide`) moves the clip between its neighbours.
 
 ## Multicam
 
@@ -175,18 +181,18 @@ the blade, so the trim tools are reached from the toolbar or the command palette
 
 ### Why
 
-**[FilmCraft]** · Resolve-style notes **[Resolve-style]**
+**[Revolution]** · Resolve-style notes **[Resolve-style]**
 
 When several cameras recorded the same moment, multicam puts them in one clip with **angles**. You
 then watch all angles side by side and switch between them while playing, like a live vision
 mixer, instead of stacking and cutting tracks by hand.
 
-FilmCraft follows Premiere's model (a "Multi-Camera Source Sequence"). Resolve's equivalent is a
+Revolution follows Premiere's model (a "Multi-Camera Source Sequence"). Resolve's equivalent is a
 **Multicam clip**, made from the Media Pool; the steps are very similar.
 
 ### Steps: make a multicam clip and cut it
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. In the Project panel / Media Pool select the clips from all cameras.
 2. Run **Clip ▸ Create Multi-Camera Source Sequence…** (`clip.createMulticam`). Pick how the

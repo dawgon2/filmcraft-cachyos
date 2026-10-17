@@ -1,0 +1,50 @@
+# FEATURE-POOL batch feature-project-package-newer (FEATURE-QUEUE row "S1.5 import: a package whose
+# project was saved by a newer Revolution is imported (checked) instead of failing; opening it asks to
+# update"). Source: network-storage.md (network-storage.package, "Receiving a package" item 4).
+# Held-out test questions, written from the guide's text (README.md beside this file). A one-sentence
+# behaviour change, so the set is small: few honest questions beat many rewordings. No creative family.
+# `feat-pk-newer-version` in feature-project-package.toml was updated to the new behaviour (it said
+# "refused"). The guide doesn't say whether the project must be imported again after updating, so no
+# question asks. No recipe spot check: making a package "from a newer Revolution" needs a project file
+# with a future schema version, which only the engine's own test (projects_tests.rs) builds.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-pn-opens-asks-update"
+kind = "tool"
+q = "Importing a colleague's package went through with no errors, but when I open the project it tells me to update Revolution. What's going on?"
+sources = ["network-storage.package"]
+must = ["the project was saved by a newer Revolution than yours", "it is still imported (checked against the manifest), but opening it asks you to update"]
+must_not = ["the package is damaged"]
+style = "beginner"
+
+[[question]]
+id = "feat-pn-resolve-archive"
+kind = "tool"
+q = "resolve chokes on a .dra from a newer version, does filmcraft just refuse packages from newer versions too"
+sources = ["network-storage.package"]
+must = ["no: a package from a newer Revolution is imported, but opening it asks you to update", "only a newer package format is refused"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-pn-format-vs-project"
+kind = "tool"
+q = "When I import a package, what's the difference between it coming from a newer Revolution and it using a newer package format?"
+sources = ["network-storage.package"]
+must = ["a project saved by a newer Revolution: imported, opening it asks you to update", "a newer package format: refused"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-pn-c-newer"
+q = "package from a newer filmcraft asks me to update"
+kind = "why"
+origin = "agent"
+page = "network-storage.md"
+heading = "Send a whole project as a package"
+status = "covered"
+facts = ["newer Revolution is imported", "asks you to update"]

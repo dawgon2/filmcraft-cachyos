@@ -1,0 +1,327 @@
+# AI-POOL batch creative-9 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families, weighted to looks: the goal is a mood or genre, the plan is several
+# grading steps (plus effects where a look needs them). Ten new families: horror mood, stronger golden
+# hour, film-noir black and white, gritty war look, clean product commercial, copying a movie's
+# look, a creative LUT done well, reusing a look everywhere, natural documentary, a pastel storybook
+# look. `must` = plan sub-goals from the guide's own text. Family with a gap: gritty-war-look (no
+# layer mixer; Overlay duplicate as the workaround). Held-out only.
+
+# --- horror-mood ---
+
+[[question]]
+id = "pool-cr9-horror"
+kind = "creative"
+family = "horror-mood"
+q = "make my short film look creepy and unsettling"
+sources = ["practice.looks.cool-thriller", "practice.looks.low-key", "practice.grading.vignette"]
+must = ["cool and desaturated: Temperature cool, Lift towards teal-green, Saturation 70–80 %", "low key: Gamma and Lift down, windows keep faces readable", "a soft vignette pulls the eye in; a skin qualifier keeps faces from going dead blue"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-horror-wobble"
+kind = "creative"
+family = "horror-mood"
+q = "horror scene where the picture subtly warps when the ghost is near"
+sources = ["effects.stylize", "effects.keyframes", "practice.looks.cool-thriller"]
+must = ["Turbulent Displace at a small amount, keyframed up when the ghost is near and back down", "under a cool, desaturated grade"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr9-horror-skin"
+kind = "creative"
+family = "horror-mood"
+q = "my creepy blue grade makes the actors look sick"
+sources = ["practice.looks.cool-thriller", "practice.grading.qualify-skin"]
+must = ["dead, blue skin reads as illness: protect faces with a skin qualifier on its own node", "pull the skin back towards the skin line while the world stays cool"]
+must_not = []
+style = "sloppy"
+
+# --- golden-hour-boost ---
+
+[[question]]
+id = "pool-cr9-golden"
+kind = "creative"
+family = "golden-hour-boost"
+q = "make my sunset shots more golden and warm"
+sources = ["practice.looks.golden-hour", "color.finishing.scopes"]
+must = ["Gain wheel towards orange, Temperature a little warmer, a soft highlight shoulder", "keep shadows neutral or slightly cool for depth; check skin on the vectorscope line"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-golden-glow"
+kind = "creative"
+family = "golden-hour-boost"
+q = "golden hour with a soft glow around the backlit hair"
+sources = ["practice.looks.golden-hour", "effects.stylize", "practice.node-trees.glow"]
+must = ["the warm grade: Gain towards orange, warmer Temperature, highlight shoulder", "Wonder Glow with a warm Glow Color and a high Threshold for the rim light"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr9-golden-fake"
+kind = "creative"
+family = "golden-hour-boost"
+q = "shot at noon but want it to look like golden hour"
+sources = ["practice.looks.golden-hour", "practice.grading.sky", "color.recipes.warm"]
+must = ["warm the light: Gain towards orange, Temperature warmer, a little less contrast in the highlights", "a gradient window warms / darkens the sky; harsh noon shadows limit how far it can go"]
+must_not = []
+style = "sloppy"
+
+# --- film-noir-bw ---
+
+[[question]]
+id = "pool-cr9-noir"
+kind = "creative"
+family = "film-noir-bw"
+q = "black and white film noir look"
+sources = ["practice.looks.high-contrast-bw", "practice.looks.black-white", "practice.looks.low-key"]
+must = ["shift colours first (wheels or a qualifier: skin lighter, blue darker), then Saturation 0 on a later node", "Contrast up with the pivot on the subject, deep shadows; crushed blacks lose hair and clothing detail", "a little grain"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-noir-flat"
+kind = "creative"
+family = "film-noir-bw"
+q = "my black and white looks flat and grey"
+sources = ["practice.looks.black-white", "practice.looks.high-contrast-bw"]
+must = ["plain desaturation makes red and green the same grey: weight the colours before taking saturation to 0", "then more contrast around a pivot on the subject"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr9-noir-lumetri"
+kind = "creative"
+family = "film-noir-bw"
+q = "noir in lumetri with the HSL curves before going mono"
+sources = ["color.lumetri.panel", "practice.looks.black-white"]
+must = ["Lumetri Curves: Hue vs Luma to lighten or darken colour ranges first", "then Saturation 0 and Contrast up"]
+must_not = []
+style = "premiere-words"
+
+# --- gritty-war-look (gap: no layer mixer) ---
+
+[[question]]
+id = "pool-cr9-war"
+kind = "creative"
+family = "gritty-war-look"
+q = "gritty desaturated war movie look like Saving Private Ryan"
+sources = ["practice.looks.bleach-bypass", "color.finishing.grain"]
+must = ["bleach bypass: Saturation about 40–60 %, Contrast up, slight highlight shoulder on the look node", "or a desaturated duplicate on V2 with the Overlay blend mode (no layer mixer yet)", "grain; protect skin a little with a qualifier"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-war-resolve"
+kind = "creative"
+family = "gritty-war-look"
+q = "bleach bypass with a layer mixer like in resolve?"
+sources = ["practice.looks.bleach-bypass", "color.nodes.later"]
+must = ["no layer mixer node yet (planned)", "workaround: the look node with lower saturation and more contrast, or a desaturated duplicate track with Overlay blend"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-cr9-war-shutter"
+kind = "creative"
+family = "gritty-war-look"
+q = "war battle scene with that staccato choppy motion and grit"
+sources = ["effects.stylize", "practice.looks.bleach-bypass"]
+must = ["Posterize Time (or footage shot with a narrow shutter) for choppy motion", "the bleach-bypass grade plus grain for the grit"]
+must_not = []
+style = "pro"
+
+# --- product-commercial ---
+
+[[question]]
+id = "pool-cr9-product"
+kind = "creative"
+family = "product-commercial"
+q = "make my product video look clean and bright like an ad"
+sources = ["practice.looks.commercial", "color.primaries.white-balance", "color.finishing.scopes"]
+must = ["precise balance on the first node (pick something neutral), white point near the top, gentle contrast curve, Saturation slightly up", "check the waveform so whites on product edges don't clip"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-product-sharp"
+kind = "creative"
+family = "product-commercial"
+q = "product shot looks soft, crisp it up"
+sources = ["practice.node-trees.sharpen", "practice.looks.commercial"]
+must = ["Unsharp Mask or Sharpen effect on the clip, sparingly", "sharpen before grain; too much gives halos and noise"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr9-product-brand"
+kind = "creative"
+family = "product-commercial"
+q = "the brand's red has to look exactly right on the packaging"
+sources = ["color.secondaries.qualifier", "practice.looks.commercial", "color.finishing.scopes"]
+must = ["isolate the red with a qualifier on its own node and adjust its hue / saturation", "check against a reference with the scopes; keep the rest of the balance neutral"]
+must_not = []
+style = "pro"
+
+# --- copy-movie-look ---
+
+[[question]]
+id = "pool-cr9-movie"
+kind = "creative"
+family = "copy-movie-look"
+q = "make my video look like a screenshot from a film I like"
+sources = ["practice.looks.reference", "color.matching.stills", "color.matching.compare"]
+must = ["import the reference image, put it on a timeline and grab it as a still (stills.grab)", "wipe against your shot: match levels first, then colour, then contrast shape", "the footage can't become a look it doesn't support (different light, lens, exposure)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-movie-match"
+kind = "creative"
+family = "copy-movie-look"
+q = "can shot match do the matching to a movie still automatically"
+sources = ["color.matching.shot-match", "practice.looks.reference"]
+must = ["Shot Match solves a new node so a shot matches a reference shot / still; then refine by hand", "match levels first, then colour"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr9-movie-pro"
+kind = "creative"
+family = "copy-movie-look"
+q = "reverse-engineer a reference grade: where do I start"
+sources = ["practice.looks.reference", "practice.grading.match-order", "color.finishing.scopes"]
+must = ["compare on the scopes: black level, white level, midtones, then colour", "build it on a look node after your balance so it applies to every shot"]
+must_not = []
+style = "pro"
+
+# --- creative-lut-done-well ---
+
+[[question]]
+id = "pool-cr9-lut"
+kind = "creative"
+family = "creative-lut-done-well"
+q = "I bought a LUT pack, how do I use them without it looking bad"
+sources = ["practice.looks.creative-lut", "packs.make", "color.finishing.lut"]
+must = ["bring the folder in with Import LUT Folder (lut.importFolder)", "balance first, then the LUT on a late node (grade.setLut) at partial mix (grade.param.lut.mix, about 50–80 %)", "a LUT made for another camera's log looks wrong"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-lut-lumetri"
+kind = "creative"
+family = "creative-lut-done-well"
+q = "creative LUT in lumetri at lower intensity"
+sources = ["color.lumetri.panel", "practice.looks.creative-lut"]
+must = ["Lumetri Creative ▸ Look LUT (lumetri.setLook) with Intensity lowered", "balance in Basic Correction first"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-cr9-lut-harsh"
+kind = "creative"
+family = "creative-lut-done-well"
+q = "the LUT crushes my shadows and makes skin orange"
+sources = ["practice.looks.creative-lut", "practice.grading.look-node"]
+must = ["lower the LUT's mix and correct around it on the nodes after / before it", "the shot must be balanced before the LUT; a LUT on an unbalanced shot exaggerates problems"]
+must_not = []
+style = "sloppy"
+
+# --- reuse-look-everywhere ---
+
+[[question]]
+id = "pool-cr9-reuse"
+kind = "creative"
+family = "reuse-look-everywhere"
+q = "I made a look I love, how do I use it on my next projects too"
+sources = ["effects.presets", "packs.make", "color.matching.copy-paste"]
+must = ["within the project: copy the grade or append the look node to other clips", "across projects: save the effects as a preset (presets.save) and export LUTs / presets in a look pack (packs.export)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-reuse-share"
+kind = "creative"
+family = "reuse-look-everywhere"
+q = "send my look to a friend who also uses Revolution"
+sources = ["packs.make", "packs.open"]
+must = ["Export Look Pack (packs.export) with the presets, LUTs and templates you choose", "they import it: nothing is overwritten and every file is checked"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr9-reuse-lumetri"
+kind = "creative"
+family = "reuse-look-everywhere"
+q = "save a Lumetri look as a preset and drop it on 50 clips"
+sources = ["effects.presets", "color.lumetri.no-carry-over"]
+must = ["Save Preset (presets.save) from the clip's Lumetri, then apply it from the Presets bin to the selected clips", "Lumetri settings and node grades don't convert into each other"]
+must_not = []
+style = "pro"
+
+# --- natural-documentary ---
+
+[[question]]
+id = "pool-cr9-doc"
+kind = "creative"
+family = "natural-documentary"
+q = "natural honest look for a documentary with lots of interviews"
+sources = ["practice.looks.documentary", "practice.grading.balance-first", "practice.grading.skin-line"]
+must = ["balance and contrast nodes only, no or a very light look node", "every interview balanced consistently: match them; skin on the vectorscope line"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-doc-mixed"
+kind = "creative"
+family = "natural-documentary"
+q = "doc with drone, phone and cinema camera footage that has to look like one film"
+sources = ["practice.mixed-cameras.per-camera-input", "practice.mixed-cameras.phone", "practice.mixed-cameras.drone"]
+must = ["each camera's own input colour space into one working space", "tame the phone's and drone's sharpening and saturation, match contrast; grade the hero camera first"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr9-doc-fast"
+kind = "creative"
+family = "natural-documentary"
+q = "fastest way to make 30 interview shots look the same"
+sources = ["color.recipes.scene", "color.matching.check-scene", "color.matching.copy-paste"]
+must = ["grade one clip and copy it to the scene", "check the scene for the odd one out (it measures which clip doesn't match) and fix that one"]
+must_not = []
+style = "sloppy"
+
+# --- pastel-storybook ---
+
+[[question]]
+id = "pool-cr9-pastel"
+kind = "creative"
+family = "pastel-storybook"
+q = "soft pastel storybook look, like a whimsical indie film"
+sources = ["practice.looks.pastel", "practice.looks.faded-blacks"]
+must = ["Contrast down, blacks lifted, Saturation a little down, Gain slightly warm or pink", "keep a clean white point so it's soft, not muddy"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr9-pastel-titles"
+kind = "creative"
+family = "pastel-storybook"
+q = "pastel look plus centred chapter titles in a cute font"
+sources = ["practice.looks.pastel", "graphics.text", "graphics.arrange"]
+must = ["the pastel grade (low contrast, lifted blacks, lighter colours)", "a graphic with the chapter title, centred to the frame (align to frame), with a type system of one or two fonts"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr9-pastel-colours"
+kind = "creative"
+family = "pastel-storybook"
+q = "pastel but with the greens turned more mint and the sky more baby blue"
+sources = ["practice.looks.pastel", "practice.node-trees.hue-curves", "color.secondaries.qualifier"]
+must = ["Lumetri's Hue Saturation Curves (the node grader's hue curves aren't built yet), or a qualifier per colour on its own node, shift greens towards mint and the sky lighter", "on top of the low-contrast pastel base; narrow hue bumps tear gradients"]
+must_not = []
+style = "pro"

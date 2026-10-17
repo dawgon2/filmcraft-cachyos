@@ -32,7 +32,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::commands::{CommandSpec, always, bad, bool_p, str_p};
+use crate::commands::{CommandSpec, always, bad, bool_p, str_p, u64_p};
 use crate::{EngineError, Result, Session};
 
 /// Largest project file read for a summary (and imported).
@@ -1129,7 +1129,7 @@ fn target(s: &Session, cmd: &str, path: &Path) -> Result<Target> {
     let root = root_of(s, cmd).ok();
     let in_root = root.as_deref().is_some_and(|r| inside_entry(r, path));
     if in_root && root.as_deref().is_some_and(|r| protected_entry(r, path)) {
-        return Err(bad(cmd, "hidden folders and FilmCraft's own folders (Auto-Save, Proxies, previews) can't be changed here"));
+        return Err(bad(cmd, "hidden folders and Revolution's own folders (Auto-Save, Proxies, previews) can't be changed here"));
     }
     let link = meta.file_type().is_symlink();
     let dir = meta.is_dir();
@@ -1306,6 +1306,8 @@ fn export_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     // the open project as it is now (saved or not), else the file
     let mut tmp = Session::new(s.services.clone());
     tmp.prefs.timeline.restore_open_sequences = false;
+    // this computer's data folder (its user shader effects go into packages, S1 item 5d)
+    tmp.prefs_path = s.prefs_path.clone();
     if !is_open(s, &path) {
         tmp.execute("file.open", json!({"path": path.to_string_lossy()}))?;
     } else {
@@ -1331,6 +1333,79 @@ fn export_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         json!({"destination": dest, "mode": "collect", "excludeUnused": false, "includeProxies": false, "projectName": name, "wait": wait}),
     )?;
     // the copy runs on: its job joins this session's (status bar, `jobs.list`)
+    if let Some(mut job) = tmp.jobs.pop() {
+        job.id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
+        r["job"] = json!(job.id);
+        s.jobs.push(job);
+    }
+    Ok(r)
+}
+
+/// `projects.package` (STORAGE-PLAN S1 item 5): `<destination>/<name> package/` with the project,
+/// every media file it uses (and its proxies with `proxies`), and a `manifest.json` listing each
+/// file's size and SHA-256 so the receiver can check it. Runs as a background job (`wait` to block);
+/// a failed or stopped package is removed again.
+fn package_cmd(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "projects.package";
+    let path = path_p(CMD, p)?;
+    let dest = str_p(p, "destination").filter(|d| !d.is_empty()).ok_or_else(|| bad(CMD, "need `destination` (a folder)"))?;
+    if !is_project_file(&path) || !path.is_file() {
+        return Err(bad(CMD, "not a project file"));
+    }
+    let mut tmp = Session::new(s.services.clone());
+    tmp.prefs.timeline.restore_open_sequences = false;
+    // this computer's data folder (its user shader effects go into packages, S1 item 5d)
+    tmp.prefs_path = s.prefs_path.clone();
+    if !is_open(s, &path) {
+        tmp.execute("file.open", json!({"path": path.to_string_lossy()}))?;
+    } else {
+        tmp.project = s.project.clone();
+        tmp.path = s.path.clone();
+    }
+    if tmp.project.sequences().next().is_none() {
+        return Err(bad(CMD, "the project has no sequences to package"));
+    }
+    let name = stem_of(&path);
+    let folder = Path::new(dest).join(format!("{name} package"));
+    let dry = bool_p(p, "dryRun").unwrap_or(false);
+    if folder.exists() && !dry {
+        return Err(bad(CMD, format!("{} already exists", folder.display())));
+    }
+    // `format: "file"`: one `<name>.fcpackage` (the folder is made, zipped and removed)
+    let file = match str_p(p, "format").unwrap_or("folder") {
+        "folder" => None,
+        "file" => Some(Path::new(dest).join(format!("{name}.{}", crate::package::EXT))),
+        f => return Err(bad(CMD, format!("unknown format `{f}` (folder | file)"))),
+    };
+    if let Some(f) = &file
+        && f.exists()
+        && !dry
+    {
+        return Err(bad(CMD, format!("{} already exists", f.display())));
+    }
+    let mut r = tmp.execute(
+        "file.projectManager",
+        json!({
+            "destination": folder.to_string_lossy(),
+            "mode": "collect",
+            "excludeUnused": false,
+            "includeProxies": bool_p(p, "proxies").unwrap_or(false),
+            "projectName": name,
+            "manifest": true,
+            // S1 item 5d: MP4 / MOV cut to the used parts by stream copy (never re-encoded)
+            "trim": bool_p(p, "trim").unwrap_or(false),
+            "handles": u64_p(p, "handles").unwrap_or(30),
+            "zipTo": file.as_ref().map(|f| f.to_string_lossy().into_owned()),
+            "dryRun": dry,
+            "wait": bool_p(p, "wait").unwrap_or(false),
+        }),
+    )?;
+    r["package"] = json!(file.as_ref().unwrap_or(&folder).to_string_lossy());
+    if dry {
+        // the size estimate: the bytes that would be copied
+        r["estimateBytes"] = r["resultBytes"].clone();
+        return Ok(r);
+    }
     if let Some(mut job) = tmp.jobs.pop() {
         job.id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
         r["job"] = json!(job.id);
@@ -1391,6 +1466,10 @@ fn import_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     let dir = folder_of(s, CMD, p)?;
     std::fs::create_dir_all(&dir).map_err(|e| other(format!("{}: {e}", dir.display())))?;
     let meta = std::fs::metadata(&path).map_err(|e| other(format!("{}: {e}", path.display())))?;
+    if meta.is_file() && path.extension().is_some_and(|e| e.eq_ignore_ascii_case(crate::package::EXT)) {
+        let m = crate::package::read_zip_manifest(&path).map_err(|e| bad(CMD, e))?;
+        return import_package_file(s, p, &path, &dir, m);
+    }
     if meta.is_file() {
         if !is_project_file(&path) {
             return Err(bad(CMD, "choose a .fcproj project file or an exported project folder"));
@@ -1412,6 +1491,28 @@ fn import_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     if !has_project {
         return Err(bad(CMD, "the folder has no .fcproj project in it"));
     }
+    // a package (`projects.package`): checked against its manifest, then relinked to the copies
+    let manifest_path = path.join(crate::package::MANIFEST_FILE);
+    let manifest = if manifest_path.is_file() {
+        let parsed = read_capped(&manifest_path, crate::package::MAX_MANIFEST_BYTES)
+            .ok_or_else(|| "the package manifest can't be read".to_string())
+            .and_then(|b| crate::package::Manifest::parse(&b));
+        match parsed {
+            Ok(m) => Some(m),
+            Err(e)
+                if bool_p(p, "package").unwrap_or(false)
+                    || read_capped(&manifest_path, 4096).is_some_and(|b| String::from_utf8_lossy(&b).contains(crate::package::FORMAT)) =>
+            {
+                return Err(bad(CMD, e));
+            }
+            // somebody else's manifest.json: an ordinary folder
+            Err(_) => None,
+        }
+    } else if bool_p(p, "package").unwrap_or(false) {
+        return Err(bad(CMD, "this folder isn't a Revolution package (no manifest.json)"));
+    } else {
+        None
+    };
     let base = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Imported".into());
     // reserve the destination folder (create, not create_all: never merge into one that appeared)
     let mut reserved = None;
@@ -1432,9 +1533,18 @@ fn import_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     job.progress.total.store(count_files(&path, 0).max(1), std::sync::atomic::Ordering::Relaxed);
     let (prog, res) = (job.progress.clone(), job.result.clone());
     let (from, dst) = (path.clone(), to.clone());
+    let is_package = manifest.is_some();
+    let effects = crate::user_effects::folder(s);
     let run = move || {
         let t0 = web_time::Instant::now();
-        let r = copy_tree(&from, &dst, 0, &prog).map_err(|e| e.to_string());
+        let r = match &manifest {
+            Some(m) => import_package(&from, &dst, m, effects.as_deref(), &prog),
+            None => copy_tree(&from, &dst, 0, &prog).map_err(|e| e.to_string()),
+        };
+        if r.is_err() && manifest.is_some() {
+            // a package that didn't check out or didn't copy leaves nothing behind
+            let _ = std::fs::remove_dir_all(&dst);
+        }
         let r = r.map(|bytes| filmcraft_export::Report {
             path: dst.to_string_lossy().into_owned(),
             frames: prog.done.load(std::sync::atomic::Ordering::Relaxed),
@@ -1456,7 +1566,214 @@ fn import_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     } else {
         std::thread::Builder::new().name("filmcraft-project-import".into()).spawn(run).map_err(other)?;
     }
-    Ok(json!({"path": to.to_string_lossy(), "job": id}))
+    Ok(json!({"path": to.to_string_lossy(), "job": id, "package": is_package}))
+}
+
+/// A package comes in: checked against its manifest (every file there, the right size and
+/// checksum), copied, and its project's media and proxies pointed at the copies.
+fn import_package(
+    from: &Path,
+    to: &Path,
+    m: &crate::package::Manifest,
+    effects: Option<&Path>,
+    prog: &filmcraft_export::Progress,
+) -> std::result::Result<u64, String> {
+    // copied first and the copy checked: the files checked are the files kept, even if the
+    // source (a USB disk, a synced share) changes meanwhile; links are neither copied nor followed
+    *prog.status.lock().unwrap_or_else(|e| e.into_inner()) = "Copying".into();
+    let bytes = copy_tree(from, to, 0, prog).map_err(|e| e.to_string())?;
+    *prog.status.lock().unwrap_or_else(|e| e.into_inner()) = "Checking the package".into();
+    check_and_relink(to, m, effects, prog)?;
+    Ok(bytes)
+}
+
+/// Checks an unpacked package against its manifest and relinks its project to the copies.
+fn check_and_relink(to: &Path, m: &crate::package::Manifest, effects: Option<&Path>, prog: &filmcraft_export::Progress) -> std::result::Result<(), String> {
+    use std::sync::atomic::Ordering;
+    let report = crate::package::verify(to, m, &|| prog.cancel.load(Ordering::Relaxed))?;
+    if !report.is_complete() {
+        let mut why = Vec::new();
+        for (what, list) in [("missing", &report.missing), ("the wrong size", &report.wrong_size), ("damaged", &report.damaged)] {
+            if !list.is_empty() {
+                why.push(format!("{what}: {}", list.iter().take(10).cloned().collect::<Vec<_>>().join(", ")));
+            }
+        }
+        return Err(format!("the package is incomplete ({})", why.join("; ")));
+    }
+    relink_package(to, m)?;
+    if let Some(dir) = effects {
+        install_effects(to, m, dir);
+    }
+    Ok(())
+}
+
+/// The package's user shader effects (`Effects/*.wgsl`, S1 item 5d) installed into this
+/// computer's Effects folder `dir`: a file that isn't there is copied; one that is there is never
+/// overwritten (the same file is fine; a different one keeps this computer's, and is logged).
+/// Returns how many were installed. Failures only log: the project still opens, with the effect
+/// shown as missing, as before packages carried effects.
+pub(crate) fn install_effects(root: &Path, m: &crate::package::Manifest, dir: &Path) -> usize {
+    let mut installed = 0;
+    for e in m.entries.iter().filter(|e| e.role == crate::package::Role::Shader) {
+        let Some(rel) = crate::package::safe_relative(&e.path) else { continue };
+        let (Some(name), Some(parent)) = (rel.file_name(), rel.parent()) else { continue };
+        if parent != Path::new(crate::project_manager::EFFECTS_FOLDER) {
+            continue;
+        }
+        let (from, to) = (root.join(&rel), dir.join(name));
+        match std::fs::symlink_metadata(&to) {
+            Ok(_) => {
+                if read_capped(&to, filmcraft_usershader::MAX_SOURCE as u64) != read_capped(&from, filmcraft_usershader::MAX_SOURCE as u64) {
+                    log::info!("{}: this computer has a different effect of that name; kept it", to.display());
+                }
+            }
+            Err(_) => {
+                let ok = std::fs::create_dir_all(dir).and_then(|()| std::fs::copy(&from, &to));
+                match ok {
+                    Ok(_) => installed += 1,
+                    Err(err) => log::warn!("installing {}: {err}", to.display()),
+                }
+            }
+        }
+    }
+    installed
+}
+
+/// Points the unpacked project's file media and proxies at the package's copies: a path whose
+/// end matches a manifest entry (the sender's folder is never written into the manifest, so the
+/// match is by the path inside the package). Returns how many were relinked.
+pub(crate) fn relink_package(root: &Path, m: &crate::package::Manifest) -> std::result::Result<usize, String> {
+    let Some(rel) = crate::package::safe_relative(&m.project) else { return Err("the package names no project".into()) };
+    let project = root.join(rel);
+    let bytes = read_capped(&project, MAX_PROJECT_BYTES).ok_or_else(|| format!("{} can't be read", project.display()))?;
+    // a project saved by a newer FilmCraft: the package is still imported (checked, complete) but
+    // can't be relinked here; opening it says to update FilmCraft (STORAGE-PLAN S1 item 5: warn,
+    // don't fail)
+    if let Ok(Err(filmcraft_format::FormatError::TooNew { found, supported })) = std::panic::catch_unwind(|| filmcraft_format::decode(&bytes).map(|_| ())) {
+        log::warn!("{}: project schema v{found} is newer than this build (v{supported}); imported without relinking", project.display());
+        return Ok(0);
+    }
+    let loaded = decode_guarded(&bytes)?;
+    let mut proj = loaded.project;
+    let entries: std::collections::HashSet<&str> = m.entries.iter().filter(|e| e.role != crate::package::Role::Project).map(|e| e.path.as_str()).collect();
+    // the sender's package folder: the folder most media paths sit in, below which their rest is
+    // an entry (so a path that merely ends like an entry elsewhere on the sender's disk isn't taken)
+    let split = |path: &str| -> Option<(String, String)> {
+        let path = path.replace('\\', "/");
+        let mut at = 0usize;
+        while let Some(i) = path.get(at..).and_then(|r| r.find('/')).map(|i| i.saturating_add(at)) {
+            let (prefix, rest) = (path.get(..i)?, path.get(i.saturating_add(1)..)?);
+            if entries.contains(rest) {
+                return Some((prefix.to_string(), rest.to_string()));
+            }
+            at = i.saturating_add(1);
+        }
+        None
+    };
+    let mut roots: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for item in proj.items.values() {
+        if let Some(filmcraft_project::MediaRef::File { path }) = item.as_media().map(|m| &m.media)
+            && let Some((prefix, _)) = split(path)
+        {
+            *roots.entry(prefix).or_insert(0) += 1;
+        }
+    }
+    let mut ranked: Vec<(String, usize)> = roots.into_iter().collect();
+    ranked.sort_by_key(|r| std::cmp::Reverse(r.1));
+    // a tie is ambiguous: relink nothing rather than guess (Link Media still works)
+    let sender = match (ranked.first(), ranked.get(1)) {
+        (Some(a), Some(b)) if a.1 == b.1 => None,
+        (Some(a), _) => Some(a.0.clone()),
+        _ => None,
+    };
+    let find = |path: &str| -> Option<String> {
+        let (prefix, rest) = split(path)?;
+        (Some(&prefix) == sender.as_ref()).then(|| crate::package::safe_relative(&rest)).flatten().map(|r| root.join(r).to_string_lossy().into_owned())
+    };
+    let mut n = 0usize;
+    for item in proj.items.values_mut() {
+        let Some(mc) = item.as_media_mut() else { continue };
+        if let filmcraft_project::MediaRef::File { path } = &mut mc.media
+            && let Some(new) = find(path)
+        {
+            *path = new;
+            mc.offline = false;
+            n = n.saturating_add(1);
+        }
+        if let Some(filmcraft_project::MediaRef::File { path }) = &mut mc.proxy
+            && let Some(new) = find(path)
+        {
+            *path = new;
+        }
+    }
+    let out = filmcraft_format::encode_with_view(&proj, loaded.view.as_ref(), false);
+    filmcraft_format::atomic_write(&project, &out).map_err(|e| format!("{}: {e}", project.display()))?;
+    Ok(n)
+}
+
+/// A `.fcpackage` file comes in: unpacked into a new folder of the projects list (only the
+/// files its manifest lists), checked, and relinked; on any failure the folder is removed.
+fn import_package_file(s: &mut Session, p: &Value, file: &Path, dir: &Path, m: crate::package::Manifest) -> Result<Value> {
+    const CMD: &str = "projects.import";
+    let base = file.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Imported".into());
+    let mut reserved = None;
+    for n in candidates(&base) {
+        let to = dir.join(&n);
+        match std::fs::create_dir(&to) {
+            Ok(()) => {
+                reserved = Some((n, to));
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(other(format!("{}: {e}", to.display()))),
+        }
+    }
+    let (name, to) = reserved.ok_or_else(|| bad(CMD, "no free name"))?;
+    let id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
+    let job = crate::Job { id, label: format!("Import project: {name}"), progress: Default::default(), result: Default::default() };
+    job.progress.total.store(m.entries.len().max(1) as u64, std::sync::atomic::Ordering::Relaxed);
+    let (prog, res) = (job.progress.clone(), job.result.clone());
+    let (from, dst) = (file.to_path_buf(), to.clone());
+    let effects = crate::user_effects::folder(s);
+    let run = move || {
+        use std::sync::atomic::Ordering;
+        let t0 = web_time::Instant::now();
+        *prog.status.lock().unwrap_or_else(|e| e.into_inner()) = "Unpacking".into();
+        let r = crate::package::unzip_package(&from, &dst, &m, &|| prog.cancel.load(Ordering::Relaxed)).and_then(|bytes| {
+            *prog.status.lock().unwrap_or_else(|e| e.into_inner()) = "Checking the package".into();
+            check_and_relink(&dst, &m, effects.as_deref(), &prog).map(|()| bytes)
+        });
+        if r.is_err() {
+            let _ = std::fs::remove_dir_all(&dst);
+        }
+        let r = r.map(|bytes| filmcraft_export::Report {
+            path: dst.to_string_lossy().into_owned(),
+            frames: prog.done.load(Ordering::Relaxed),
+            seconds: t0.elapsed().as_secs_f64(),
+            bytes,
+            render_fps: 0.0,
+            extra_files: Vec::new(),
+        });
+        if let Err(e) = &r {
+            *prog.error.lock().unwrap_or_else(|x| x.into_inner()) = Some(e.clone());
+        }
+        prog.finished.store(true, Ordering::Relaxed);
+        *res.lock().unwrap_or_else(|x| x.into_inner()) = Some(r);
+    };
+    let run = crate::export_tools::guard_job(job.progress.clone(), job.result.clone(), run);
+    s.jobs.push(job);
+    if bool_p(p, "wait").unwrap_or(false) || cfg!(target_arch = "wasm32") {
+        run();
+    } else {
+        std::thread::Builder::new().name("filmcraft-project-import".into()).spawn(run).map_err(other)?;
+    }
+    Ok(json!({"path": to.to_string_lossy(), "job": id, "package": true}))
+}
+
+fn import_package_cmd(s: &mut Session, p: &Value) -> Result<Value> {
+    let mut q = p.clone();
+    q["package"] = json!(true);
+    import_cmd(s, &q)
 }
 
 fn reveal_cmd(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1520,6 +1837,15 @@ pub fn commands() -> Vec<CommandSpec> {
         spec("projects.locate", "Locate Project", &[], r#"{"path":str,"newPath":str}"#, locate_cmd, true),
         spec("projects.trash", "Move Project to Trash", &[], r#"{"path":str}"#, trash_cmd, true),
         spec("projects.export", "Export Project Archive", &[], r#"{"path":str,"destination":str,"wait":bool?}"#, export_cmd, true),
+        spec("projects.importPackage", "Import Project Package", &[], r#"{"path":str,"folder":str?,"wait":bool?}"#, import_package_cmd, true),
+        spec(
+            "projects.package",
+            "Package Project",
+            &[],
+            r#"{"path":str,"destination":str,"proxies":bool=false,"trim":bool=false,"handles":frames=30,"format":str?,"dryRun":bool=false,"wait":bool?}"#,
+            package_cmd,
+            true,
+        ),
         spec("projects.import", "Import Project", &[], r#"{"path":str,"folder":str?,"wait":bool?}"#, import_cmd, true),
     ]
 }

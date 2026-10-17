@@ -1,0 +1,175 @@
+# AI-POOL batch practice-7: practice/youtube.md. No note had a held-out question yet: the main
+# question per note plus pitfalls where the note has a sharp one.
+
+[[question]]
+id = "pool-r7-hook"
+kind = "approach"
+q = "people click away in the first ten seconds, how should my video start?"
+sources = ["practice.youtube.hook"]
+must = ["show or say what the viewer gets in the first few seconds; logos and intros later or never", "move the best moment to the start (edit.cut / edit.pasteInsert) or a subsequence teaser"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-cold-open"
+kind = "multi-step"
+q = "open on the finished result and only then show the title card"
+sources = ["practice.youtube.cold-open"]
+must = ["the result shot first, then a short title from a template (graphics.template.apply)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-talking-boring"
+kind = "approach"
+q = "my 12 minute talking head video loses viewers halfway, any editing tricks?"
+sources = ["practice.youtube.pattern-interrupt"]
+must = ["change the picture every few seconds: punch-ins (100 % / 115 %), B-roll on V2, a lower third or a tracked callout", "vary the device; constant zooms are tiring"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-punch-limit"
+kind = "pro-practice"
+q = "how far can I punch in on 6.2K open gate in a 4K timeline before it gets soft?"
+sources = ["practice.youtube.punch-in"]
+must = ["to about 160 % with no loss (Motion ▸ Scale), Position recentres the face"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r7-punch-soft"
+kind = "pro-practice"
+q = "punch ins on my 1080p clips look mushy"
+sources = ["practice.youtube.punch-in"]
+must = ["punching in on footage that's already the sequence size softens it"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-r7-tiktok-caps"
+kind = "multi-step"
+q = "big bold captions for a tiktok so it works with the sound off"
+sources = ["practice.youtube.vertical-captions"]
+must = ["captions from the transcript (transcript.createCaptions) with short maxChars and one line, styled big with a stroke (captions.setStyle), burned in at export", "Upgrade Caption to Graphic for word-by-word styling"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r7-caps-hidden"
+kind = "pro-practice"
+q = "my reel captions are hidden behind the like and comment buttons"
+sources = ["practice.youtube.vertical-captions", "practice.youtube.safe-areas"]
+must = ["keep captions in the middle third", "leave the bottom fifth and the right edge clear on vertical video"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-safe-guides"
+kind = "tool"
+q = "how do I mark the zones the Shorts interface covers so I don't put text there?"
+sources = ["practice.youtube.safe-areas"]
+must = ["drag guides into the Program monitor to mark the clear zones", "check the exported file on a phone"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-chapters"
+kind = "multi-step"
+q = "add youtube chapters to my tutorial"
+sources = ["practice.youtube.chapters"]
+must = ["a marker at each chapter start (markers.add or markers.addChapter) named for the chapter", "Export Markers as CSV (markers.exportCsv), paste the times into the description; the first must be 0:00"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r7-chapters-missing"
+kind = "pro-practice"
+q = "two of my chapters don't show up on YouTube"
+sources = ["practice.youtube.chapters"]
+must = ["chapters shorter than ten seconds are ignored by YouTube"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-r7-thumb-blur"
+kind = "pro-practice"
+q = "every frame I pull for the thumbnail has motion blur"
+sources = ["practice.youtube.thumbnail-plan"]
+must = ["pick a still moment or shoot a dedicated photo; plan the thumbnail moment during the shoot"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r7-volume-jumps"
+kind = "approach"
+q = "viewers say each of my uploads is a different volume"
+sources = ["practice.youtube.loudness"]
+must = ["Clean Up Voice at −14 LUFS on the voice clips, music ducked under it, a limiter on the Mix, check the meter"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-overnight"
+kind = "tool"
+q = "queue the youtube file, the vertical cut and a master and let it run overnight"
+sources = ["practice.youtube.batch-export"]
+must = ["add each to the export queue (export.queue.add) and start it (export.queue.start)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r7-episode-template"
+kind = "multi-step"
+q = "I make a weekly show, can each episode start with my bins, titles and sequences already set up?"
+sources = ["practice.youtube.template"]
+must = ["Save as Template (file.saveAsTemplate) on a finished, emptied project", "New Project from Template for each episode"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-broll-library"
+kind = "approach"
+q = "best way to keep stock b-roll and sfx reusable between projects?"
+sources = ["practice.youtube.b-roll-library"]
+must = ["a folder structure on disk with clear names, imported per project", "search bins by name or label inside the project (file.newSearchBin)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-screen-blurry"
+kind = "multi-step"
+q = "my screen recording text looks blurry in the final video"
+sources = ["practice.youtube.screen-recordings"]
+must = ["a sequence at the recording's size and frame rate (file.newSequenceFromClip), no up-scaling", "constant-quality export so text stays sharp"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-vfr-drift"
+kind = "pro-practice"
+q = "audio drifts out of sync on my OBS screen capture"
+sources = ["practice.youtube.screen-recordings"]
+must = ["variable-frame-rate recordings drift out of sync: record at a constant rate"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r7-music-rights"
+kind = "approach"
+q = "can I just use a popular song in the background and call it fair use?"
+sources = ["practice.youtube.music-rights"]
+must = ["don't rely on fair use for background music: licensed libraries or your own music", "keep the licence file with the project"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r7-phone-review"
+kind = "approach"
+q = "last thing before I hit publish?"
+sources = ["practice.youtube.review"]
+must = ["watch the export once as a viewer on a phone, with sound on and off", "send it to the phone with KDE Connect"]
+must_not = []
+style = "sloppy"

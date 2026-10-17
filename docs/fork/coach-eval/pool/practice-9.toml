@@ -1,0 +1,138 @@
+# AI-POOL batch practice-9: practice/workflow.md. The original set asks the main question of
+# handoff and smooth-playback: those get a pitfall / option question; the other notes get their
+# main question.
+
+[[question]]
+id = "pool-r9-folders"
+kind = "approach"
+q = "how should I lay out the folders for a new project on disk?"
+sources = ["practice.workflow.project-folder"]
+must = ["one folder per project: Footage (by date or card), Audio, Music, Graphics, Exports, Project", "media scattered over the desktop and downloads breaks links when moving"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r9-format-card"
+kind = "pro-practice"
+q = "when is it safe to format the SD card after offloading?"
+sources = ["practice.workflow.card-copy"]
+must = ["only after the copy is verified and backed up, and format in the camera", "the card bar's verified copy (card.offload)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r9-321"
+kind = "approach"
+q = "how many backups of my footage do I actually need?"
+sources = ["practice.workflow.backups"]
+must = ["three copies on two kinds of storage, one somewhere else (another building or cloud)", "two copies on the same drive count as one"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r9-naming"
+kind = "approach"
+q = "I've got final, final2 and final_real exports, there must be a better way"
+sources = ["practice.workflow.naming"]
+must = ["name with client, project, version and date, e.g. Client_Project_v03_2026-10-14", "rename sequences (clip.rename); the export name defaults to the sequence name"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r9-bins"
+kind = "tool"
+q = "organise a messy project panel with 300 clips"
+sources = ["practice.workflow.bins"]
+must = ["bins by type and by scene or day (file.newBin, project.moveToBin)", "search bins for labels or names (file.newSearchBin)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r9-labels"
+kind = "tool"
+q = "select every music clip on the timeline at once"
+sources = ["practice.workflow.labels"]
+must = ["label colours with a fixed meaning (edit.label.*), then Select Label Group"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r9-crash-recover"
+kind = "multi-step"
+q = "Revolution crashed and I hadn't saved for an hour"
+sources = ["practice.workflow.saving"]
+must = ["the journal recovers unsaved changes after a crash (file.recover)", "save at milestones; Save a Copy before experiments (file.saveCopy)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r9-proxy-quality"
+kind = "pro-practice"
+q = "if I edit with proxies and the render cache, will my export be lower quality?"
+sources = ["practice.workflow.smooth-playback"]
+must = ["no: an export still reads the original files"]
+must_not = ["the export uses the proxies"]
+style = "beginner"
+
+[[question]]
+id = "pool-r9-desktop"
+kind = "tool"
+q = "notifications keep popping up while I'm editing on Linux"
+sources = ["practice.workflow.desktop"]
+must = ["full screen by default and do-not-disturb during sessions; notifications when a long export finishes"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r9-track-roles"
+kind = "approach"
+q = "which tracks should I use for what, is there a standard layout?"
+sources = ["practice.workflow.track-roles"]
+must = ["fixed roles: V1 main, V2 B-roll, V3 graphics; A1–A2 dialogue, A3 music, A4 effects", "name tracks and route them to submixes (mixer.setStrip, mixer.addSubmix)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r9-shortcuts"
+kind = "tool"
+q = "coming from Premiere, can I keep my keyboard shortcuts?"
+sources = ["practice.workflow.keyboard"]
+must = ["load a preset that matches your habits (shortcuts.loadPreset), then set your own keys (shortcuts.set)"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-r9-review-copy"
+kind = "multi-step"
+q = "send the client a small review file so their notes point to exact frames"
+sources = ["practice.workflow.review-copies"]
+must = ["a review export with the timecode overlay on, at a modest bitrate", "collect the notes as markers"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r9-archive-space"
+kind = "multi-step"
+q = "free up disk space on a delivered project without losing anything I need"
+sources = ["practice.workflow.archive"]
+must = ["export the project, keep originals and the master", "clear unused render files (Settings ▸ Media Cache ▸ Clear unused); proxies and caches can go"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r9-handoff-sound"
+kind = "multi-step"
+q = "the sound mixer wants an AAF of the locked cut"
+sources = ["practice.workflow.handoff"]
+must = ["AAF / OMF for sound (file.exportAaf)", "include a reference export to check against"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r9-notes"
+kind = "tool"
+q = "where can I write down the client's feedback inside the project?"
+sources = ["practice.workflow.notes"]
+must = ["markers with comments on the sequence", "project notes (project.setNotes)"]
+must_not = []
+style = "beginner"

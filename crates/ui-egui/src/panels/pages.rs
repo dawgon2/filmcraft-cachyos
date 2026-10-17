@@ -102,8 +102,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     // the app's name (our own icon and name; never Resolve's mark)
     let mark = Rect::from_center_size(pos2(rect.min.x + 26.0, rect.center().y), vec2(18.0, 18.0));
     icons::paint(&p, mark, Icon::Film, t.text);
-    let name = p.text(pos2(mark.max.x + 8.0, rect.center().y), Align2::LEFT_CENTER, "FilmCraft", Tokens::semibold(13.0), t.text);
-    app.auto.add("pageBar.app", mark.union(name), "FilmCraft");
+    let name = p.text(pos2(mark.max.x + 8.0, rect.center().y), Align2::LEFT_CENTER, "Revolution", Tokens::semibold(13.0), t.text);
+    app.auto.add("pageBar.app", mark.union(name), "Revolution");
     // the coach's buttons left of Home (FORK-PLAN §1a.78)
     let pills = crate::panels::coach::bar_buttons(app, ui, rect.max.x - 92.0, rect.center().y);
     // the pages, centred: icon over label; the current one lit with an accent underline; moved

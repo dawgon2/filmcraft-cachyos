@@ -146,6 +146,8 @@ fn home_screen_at_launch_in_resolve_not_in_premiere() {
         "projects.open",
         "projects.close",
         "projects.import",
+        "projects.package",
+        "projects.importPackage",
         "projects.search",
         "projects.tab.local",
         "projects.crumb.root",

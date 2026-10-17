@@ -112,7 +112,11 @@ impl ExportRenderer {
                     return None;
                 }
                 let instance = wgpu::Instance::default();
-                let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+                // the GPU Settings ▸ Playback ▸ Graphics device picks (fork XPS a), as the window
+                let adapter = match crate::adapter_pick::choose(&instance, wgpu::Backends::all()) {
+                    Some(a) => a,
+                    None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?,
+                };
                 let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
                 // wgpu's default handler panics on a validation or out-of-memory error; log it and
                 // send the remaining frames to the CPU instead.

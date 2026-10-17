@@ -23,6 +23,19 @@ use filmcraft_frame::PixelData;
 use filmcraft_platform::HybridDecoder;
 use filmcraft_platform::vaapi::{NAME_H264_ZERO_COPY, NAME_HEVC_422_ZERO_COPY, NAME_HEVC_ZERO_COPY, VaDecoder};
 
+/// Whether the hostile-stream tests skip this machine's VA-API device: AMD's VCN (radeonsi) took a
+/// page fault on damaged streams twice on 2026-10-15 and then decoded slowly until a reboot
+/// (OWNER-QUESTIONS Q37 / Q39), so they run on Intel (and the Dell) unless
+/// `FILMCRAFT_VAAPI_HOSTILE_AMD=1`. Provisional (owner question Q39).
+fn skip_hostile_on_this_gpu() -> bool {
+    let amd = filmcraft_platform::va::Display::get().is_ok_and(|d| d.vendor.contains("radeonsi"));
+    let opted_in = std::env::var("FILMCRAFT_VAAPI_HOSTILE_AMD").is_ok_and(|v| v == "1");
+    if amd && !opted_in {
+        eprintln!("SKIPPED: damaged streams on AMD VCN (set FILMCRAFT_VAAPI_HOSTILE_AMD=1 to run)");
+    }
+    amd && !opted_in
+}
+
 /// The hardware decoder for a stream, or `None` (skip) when this machine has none for it.
 fn hardware(s: &Stream) -> Option<Box<dyn VideoDecoder>> {
     match filmcraft_platform::vaapi_factory(&s.entry) {
@@ -552,6 +565,9 @@ fn bounded(what: &str, limit: Duration, f: impl FnOnce() + Send + 'static) {
 #[test]
 fn damaged_samples_and_parameter_sets_never_crash_or_hang() {
     let _engine = engine_exclusive();
+    if skip_hostile_on_this_gpu() {
+        return;
+    }
     let ff = filmcraft_testkit::require_ffmpeg!();
     for (name, s) in small_streams(&ff) {
         let name = name.as_str();
@@ -939,6 +955,9 @@ mod pipe {
     #[test]
     fn damaged_samples_and_parameter_sets_never_crash_or_hang() {
         let _engine = engine_exclusive();
+        if super::skip_hostile_on_this_gpu() {
+            return;
+        }
         let ff = filmcraft_testkit::require_ffmpeg!();
         for (name, _) in FIXTURES {
             let Some(path) = named(&ff, name) else { continue };

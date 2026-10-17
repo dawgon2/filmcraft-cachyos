@@ -1,0 +1,400 @@
+# AI-POOL batch color-4: color/matching.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c4-cut-feels-wrong"
+kind = "approach"
+q = "the cut between these two shots feels off even though nothing moves, why?"
+sources = ["color.matching.why", "color.matching.check-scene"]
+must = ["the two shots of the scene probably differ in colour", "save a still of the good shot and compare, or measure with Compare shots"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c4-still-keeps-grade"
+kind = "pro-practice"
+q = "if I regrade the clip I took a still from, does the still change too?"
+sources = ["color.matching.compare", "color.matching.stills"]
+must = ["no: a still keeps its look even if the source clip is regraded"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-apply-still"
+kind = "tool"
+q = "can I put a still's grade onto other clips?"
+sources = ["color.matching.stills"]
+must = ["double-click the still's thumbnail (stills.apply)", "it gives its grade to the selected clips"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-rename-still"
+kind = "gap"
+q = "how do I rename a still in the gallery"
+sources = ["color.matching.stills"]
+must = ["no rename button yet", "stills.label renames a still from the command list, control channel or MCP"]
+must_not = ["invents a rename button for stills"]
+style = "sloppy"
+
+[[question]]
+id = "pool-c4-grab-shortcut"
+kind = "tool"
+q = "Ctrl+Alt+G to grab a still, does that exist?"
+sources = ["color.matching.stills"]
+must = ["yes with Workflow set to Resolve: Ctrl+Alt+G runs stills.grab"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-c4-wipe-vertical"
+kind = "tweak"
+q = "can the wipe go top to bottom instead of left to right?"
+sources = ["color.matching.compare"]
+must = ["compare.set with vertical makes a top / bottom wipe", "no button for it yet"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-wipe-steps"
+kind = "multi-step"
+q = "how do I wipe between my hero shot and the one I'm matching"
+sources = ["color.matching.compare"]
+must = ["Grab Still on the hero shot", "on the other shot click the still's thumbnail: the wipe starts", "drag the divider; Split for side by side; Off to leave"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c4-append-vs-paste"
+kind = "tool"
+q = "what's the difference between paste grade and append grade?"
+sources = ["color.matching.copy-paste"]
+must = ["Paste Grade replaces the target's grade", "Append Grade adds the copied nodes after the nodes it already has"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-append-look"
+kind = "approach"
+q = "every shot already has its own balance node; how do I add my look node to all of them without wiping that?"
+sources = ["color.matching.copy-paste"]
+must = ["copy the look from a clip whose grade is only the look", "Append Grade on the targets adds it after their own nodes"]
+must_not = ["tells the user to use Paste Grade (it would replace the balance)"]
+style = "pro"
+
+[[question]]
+id = "pool-c4-apply-from"
+kind = "tool"
+q = "is there a one-step command to copy a grade from clip A to clip B for a script?"
+sources = ["color.matching.copy-paste"]
+must = ["grade.applyFrom with the source clip id in from"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-paste-attr-grade"
+kind = "pro-practice"
+q = "Paste Attributes brought the grade along but I only wanted the motion"
+sources = ["color.matching.copy-paste"]
+must = ["since G1 Paste Attributes carries the grade", "the dialog has no Grade checkbox yet; the command's grade option set to false leaves it out"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-c4-undo-paste-many"
+kind = "tweak"
+q = "I pasted a grade to 40 clips by mistake, do I have to undo 40 times?"
+sources = ["color.matching.copy-paste"]
+must = ["no: each paste / append is one undo step however many clips it touches"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-same-grade"
+kind = "tool"
+q = "how can I tell if any clip in the scene got nudged after I pasted the grade everywhere?"
+sources = ["color.matching.same-grade"]
+must = ["the Match tab's first line: Same grade as … lists clips with an identical grade", "grade.compareData groups every clip by grade"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-same-grade-names"
+kind = "pro-practice"
+q = "do different node names make two grades count as different?"
+sources = ["color.matching.same-grade"]
+must = ["no: node names and ids don't matter, nor settings left at neutral", "same nodes, same order, same settings counts as the same"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-compare-score"
+kind = "tool"
+q = "what does the match score out of 100 mean?"
+sources = ["color.matching.check-scene"]
+must = ["Compare shots measures the two graded pictures (brightness by tonal range, cast, saturation)", "it says how they differ in words with a score; a guide, not a verdict"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-wide-closeup"
+kind = "pro-practice"
+q = "check scene keeps flagging my wide shot against the close-ups"
+sources = ["color.matching.check-scene"]
+must = ["a wide shot and a close-up can legitimately differ", "only tonal ranges both shots contain are compared; a note says when they share little"]
+must_not = []
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-c4-compare-any-frame"
+kind = "tool"
+q = "can I compare against a frame that isn't a clip in the Match tab list, like a time in the sequence?"
+sources = ["color.matching.check-scene"]
+must = ["grade.compareShots with referenceTime for any frame of the sequence"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-shot-match-steps"
+kind = "multi-step"
+q = "how do I get Revolution to do a first pass of matching this shot to that one?"
+sources = ["color.matching.shot-match"]
+must = ["choose the Reference clip in the Match tab", "Shot Match adds a node labelled Shot Match at the end (one undo step)", "compare again, then refine the node by hand"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-shot-match-faces"
+kind = "pro-practice"
+q = "does shot match get thrown off by skin tones?"
+sources = ["color.matching.shot-match"]
+must = ["skin tones are weighted less so a cast on faces doesn't drive the match", "faceDetection false turns that off"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-match-tab-missing"
+kind = "tweak"
+q = "I can't see the Match tab for this clip"
+sources = ["color.matching.shot-match"]
+must = ["it shows once the clip has a grade", "add an empty node first: it changes nothing"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-shot-match-vs-resolve"
+kind = "pro-practice"
+q = "is Shot Match here the same algorithm as Resolve's?"
+sources = ["color.matching.shot-match"]
+must = ["the idea is the same, the solver is Revolution's own", "it writes the primaries of a visible node, not a hidden adjustment"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-c4-explain-heatmap"
+kind = "tool"
+q = "can I see where in the frame a node is doing its work?"
+sources = ["color.matching.explainer"]
+must = ["Show what changed: a heat map of where and how strongly the node changed the picture"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-explain-precision"
+kind = "pro-practice"
+q = "how precise are the explainer's numbers, and what does untouched mean?"
+sources = ["color.matching.explainer"]
+must = ["measured on the frame at the playhead (or the clip's middle frame)", "rounded to ⅙ stop and whole percentages", "below a just-noticeable change is called untouched"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-explain-whole"
+kind = "tool"
+q = "I inherited a grade from someone else, can it describe every node for me?"
+sources = ["color.matching.explainer"]
+must = ["Explain grade: one sentence per node", "Explain node for the selected one"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-ai-privacy"
+kind = "pro-practice"
+q = "do the AI explanations send my footage anywhere?"
+sources = ["color.matching.ai"]
+must = ["nothing leaves the computer; the model runs locally on the CPU", "the only network use is the download you start"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-ai-checked"
+kind = "pro-practice"
+q = "what does the small checked badge on an explanation mean?"
+sources = ["color.matching.ai"]
+must = ["every number, direction, range and strength word agreed with the node's measured facts", "otherwise the plain template sentence is shown"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-ai-template-often"
+kind = "tweak"
+q = "I turned on AI explanations but I keep getting the plain template sentence"
+sources = ["color.matching.ai"]
+must = ["most stock models fail the strict check, so expect the template often", "a plain template hint says why", "a Revolution-tuned explainer passes far more often"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-ai-slow-pc"
+kind = "approach"
+q = "the explanations are slow on my old laptop, which model should I pick?"
+sources = ["color.matching.ai"]
+must = ["the Revolution explainer SmolLM2 135M tuned (8-bit, fast)", "about half the time, nearly as accurate"]
+must_not = ["recommends SmolLM3 3B for speed"]
+style = "beginner"
+
+[[question]]
+id = "pool-c4-ai-enable"
+kind = "multi-step"
+q = "how do I switch on plain-words explanations with a local model?"
+sources = ["color.matching.ai"]
+must = ["Settings ▸ Color ▸ AI explanations: pick a Model, Download", "tick Explain nodes in plain words with a local AI model, OK", "Explain node in the Match tab"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c4-ai-agent"
+kind = "tool"
+q = "for an agent, how do I wait for the AI explanation of a node?"
+sources = ["color.matching.ai"]
+must = ["grade.explainNode with wait true (blocks at most 20 s)", "if still writing it returns the template with an aiKey to poll with ai.explanation"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c4-memories"
+kind = "gap"
+q = "does it have grade memories or versions like Resolve?"
+sources = ["color.matching.resolve"]
+must = ["no memories, versions, groups or timeline grades yet: grades belong to clips"]
+must_not = ["invents memories or versions"]
+style = "resolve-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c4k-grab"
+q = "grab still"
+kind = "how"
+origin = "agent"
+page = "color/matching.md"
+heading = "Stills gallery"
+alt = [{ page = "color/matching.md", heading = "Compare" }, { page = "glossary.md", heading = "Still" }]
+status = "covered"
+facts = ["Grab Still"]
+
+[[coach]]
+id = "pool-c4k-wipe"
+q = "wipe between a still and my shot"
+kind = "how"
+origin = "agent"
+page = "color/matching.md"
+heading = "Compare"
+alt = [{ page = "glossary.md", heading = "Wipe" }, { page = "color/recipes.md", heading = "5. Match a wide shot and a close-up" }]
+status = "covered"
+facts = ["click the still", "drag the divider"]
+
+[[coach]]
+id = "pool-c4k-append"
+q = "append grade"
+kind = "how"
+origin = "agent"
+page = "color/matching.md"
+heading = "Copy, paste and append grades"
+status = "covered"
+facts = ["Append Grade"]
+
+[[coach]]
+id = "pool-c4k-paste-attr"
+q = "paste attributes"
+kind = "premiere-word"
+origin = "agent"
+page = "color/matching.md"
+heading = "Copy, paste and append grades"
+status = "covered"
+facts = ["Ctrl+Alt+V", "carries the grade"]
+
+[[coach]]
+id = "pool-c4k-same"
+q = "which clips have the same grade"
+kind = "how"
+origin = "agent"
+page = "color/matching.md"
+heading = "\"Same grade?\""
+status = "covered"
+facts = ["Match tab", "Same grade as"]
+
+[[coach]]
+id = "pool-c4k-compare-shots"
+q = "compare shots score"
+kind = "what-for"
+origin = "agent"
+page = "color/matching.md"
+heading = "Compare shots and check a scene"
+status = "covered"
+facts = ["match score out of 100"]
+
+[[coach]]
+id = "pool-c4k-shotmatch"
+q = "shot match this clip to the reference"
+kind = "how"
+origin = "agent"
+page = "color/matching.md"
+heading = "Shot Match"
+status = "covered"
+facts = ["Reference clip", "Shot Match node"]
+
+[[coach]]
+id = "pool-c4k-apply-match"
+q = "apply match"
+kind = "premiere-word"
+origin = "agent"
+page = "color/matching.md"
+heading = "Shot Match"
+alt = [{ page = "color/lumetri.md", heading = "Using the Lumetri Color panel" }]
+status = "covered"
+facts = ["Shot Match", "Lumetri Apply Match"]
+
+[[coach]]
+id = "pool-c4k-heatmap"
+q = "show what changed heat map"
+kind = "what-for"
+origin = "agent"
+page = "color/matching.md"
+heading = "The node explainer"
+status = "covered"
+facts = ["Show what changed"]
+
+[[coach]]
+id = "pool-c4k-ai-download"
+q = "download an ai model for explanations"
+kind = "how"
+origin = "agent"
+page = "color/matching.md"
+heading = "AI explanations"
+status = "covered"
+facts = ["Settings ▸ Color", "Download"]
+
+[[coach]]
+id = "pool-c4k-memories"
+q = "grade memories"
+kind = "resolve-word"
+origin = "agent"
+page = "color/matching.md"
+heading = "If you know Resolve"
+status = "covered"
+facts = ["no memories yet"]

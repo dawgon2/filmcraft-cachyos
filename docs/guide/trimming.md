@@ -1,6 +1,6 @@
 # Trimming, the Source monitor and multicam in detail
 
-**[FilmCraft]** · edit-point selection and trimming to the playhead, dynamic trimming, the
+**[Revolution]** · edit-point selection and trimming to the playhead, dynamic trimming, the
 Source monitor, and the multicam controls; modelled on Premiere Pro; written for AI-PLAN
 AI3-PREP (feature pages). The basics are in [editing.md](editing.md).
 
@@ -8,7 +8,7 @@ AI3-PREP (feature pages). The basics are in [editing.md](editing.md).
 
 > id: trimming.edit-points | does: selects one or more edit points to trim, nearest to the playhead or by clicking | cmd: trim.selectEditPoint, trim.selectNearest, trim.clear, trim.toggleType | resolve: Trim edit mode selection | premiere: Select Nearest Edit Point, Toggle Trim Type | when: trimming from the keyboard | see: trimming.to-playhead, editing.trimming
 
-**[FilmCraft]**
+**[Revolution]**
 
 **Select Nearest Edit Point** (`trim.selectNearest`) picks the cut closest to the playhead on
 the targeted tracks; `trim.selectEditPoint` selects a given one, and several can be selected to
@@ -19,7 +19,7 @@ edit between a regular trim, a ripple trim and a rolling edit; `trim.clear` dese
 
 > id: trimming.to-playhead | does: moves a clip's start or end to the playhead in one key, with or without ripple | cmd: trim.previous, trim.next, trim.ripplePrevious, trim.rippleNext, trim.extendToPlayhead, trim.extendPreviousEdit, trim.extendNextEdit, trim.nudge | resolve: Trim Start / End to Playhead | premiere: Trim / Ripple Trim Previous / Next Edit to Playhead, Extend Edit | when: fast rough-to-fine cutting while playing | see: trimming.edit-points
 
-**[FilmCraft]**
+**[Revolution]**
 
 | Command | Does |
 |---|---|
@@ -36,7 +36,7 @@ tracks must not move.
 
 > id: trimming.dynamic | does: trims while playing with J, K and L, and plays around a selected edit | cmd: trim.shuttle, trim.shuttleStop, trim.cancelDynamic, trim.playAround, trim.monitor | resolve: dynamic trim mode (W) | premiere: Trim Monitor, dynamic trimming with JKL, Play Around | when: finding the edit point by ear and eye in motion | see: editing.jkl
 
-**[FilmCraft]**
+**[Revolution]**
 
 With an edit point selected, J, K and L shuttle the **edit** instead of the playhead
 (`trim.shuttle`): the cut follows playback and stops where you stop (`trim.shuttleStop`);
@@ -48,7 +48,7 @@ monitor's two sides (outgoing and incoming frame) for agents.
 
 > id: trimming.source-monitor | does: views a clip before it goes on the timeline, marks In / Out and places it | cmd: source.open, source.close, source.closeAll, source.setPlayhead, source.inspect, source.insert, source.overwrite | resolve: Source viewer | premiere: Source Monitor | when: choosing the part of a clip to use | see: editing.three-point
 
-**[FilmCraft]**
+**[Revolution]**
 
 Double-click a clip in the Project panel (`source.open`) to see it in the Source monitor. Mark
 In and Out there, then **Insert** (`source.insert`) or **Overwrite** (`source.overwrite`) it at
@@ -60,7 +60,7 @@ from scripts.
 
 > id: trimming.multicam | does: the multicam monitor's layout and pages, recording angle cuts, audio follows video, editing the camera list | cmd: multicam.recordStart, multicam.recordStop, multicam.switchAngle, multicam.cut, multicam.audioFollowsVideo, multicam.editCameras, multicam.gridLayout, multicam.page, multicam.nextPage, multicam.prevPage, multicam.toggleView | resolve: Multicam viewer | premiere: Multi-Camera view and its settings | when: cutting a multi-camera recording | see: editing.multicam
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Make the multicam clip and put it on a sequence ([editing.md](editing.md)), then show the
    multi-camera view in the Program monitor (`multicam.toggleView`).

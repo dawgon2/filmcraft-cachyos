@@ -1,14 +1,14 @@
 # Titles and graphics
 
-**[FilmCraft]** · graphic clips with text and shape layers, the Essential Graphics panel,
+**[Revolution]** · graphic clips with text and shape layers, the Essential Graphics panel,
 templates, responsive design and source graphics; modelled on Premiere Pro's Essential Graphics;
 written for AI-PLAN AI3-PREP (feature pages)
 
 ## Graphic clips and their layers
 
-> id: graphics.layers | does: a graphic clip holds text and shape layers drawn over the picture | cmd: graphics.newText, graphics.newVerticalText, graphics.newRectangle, graphics.newEllipse, graphics.newPolygon, graphics.newShape, graphics.newFromFile, graphics.list, graphics.deleteLayer | resolve: Text+ / Fusion titles | premiere: Essential Graphics ▸ Edit, graphic clips | when: titles, lower thirds, labels, simple shapes | see: graphics.text, graphics.templates
+> id: graphics.layers | does: a graphic clip holds text and shape layers drawn over the picture | cmd: graphics.newText, graphics.newVerticalText, graphics.newRectangle, graphics.newEllipse, graphics.newPolygon, graphics.newShape, graphics.newFromFile, graphics.list, graphics.deleteLayer | resolve: Text+ / Fusion titles | premiere: Essential Graphics ▸ Edit, graphic clips | when: titles, lower thirds, labels, simple shapes such as a rectangle behind text | see: graphics.text, graphics.templates
 
-**[FilmCraft]**
+**[Revolution]**
 
 A **graphic clip** sits on a video track like any clip and holds **layers**: text and shapes,
 drawn back to front. The Essential Graphics panel (Window ▸ Essential Graphics) lists the layers
@@ -31,11 +31,11 @@ Every change is one undo step; properties that are animated get a keyframe at th
 
 > id: graphics.text | does: types and styles text: font, size, leading, alignment, per-character styles | cmd: graphics.setText, graphics.setTextType, graphics.setCharStyle, graphics.set, graphics.fontSizeUp, graphics.fontSizeDown, graphics.leadingUp, graphics.leadingDown, graphics.alignTextLeft, graphics.alignTextCenter, graphics.alignTextRight | resolve: Text+ inspector | premiere: Essential Graphics ▸ Text | when: writing and styling a title | see: graphics.fonts
 
-**[FilmCraft]**
+**[Revolution]**
 
 Type into a text layer in the Program monitor, or set it with `graphics.setText`. Font, size,
 colour, stroke, shadow and the rest are layer properties (`graphics.set`); the keyboard
-shortcuts for size (`graphics.fontSizeUp` / `fontSizeDown`, five steps at a time with Shift) and line spacing
+shortcuts that make text bigger or smaller (`graphics.fontSizeUp` / `fontSizeDown`, five steps at a time with Shift) and line spacing
 (`graphics.leadingUp` / `leadingDown`) work while a text layer is selected. Style part of a line
 (one word bold or in another colour) with `graphics.setCharStyle` on a range of characters.
 `graphics.setTextType` switches a layer between point text (no box: dragging its handles scales
@@ -45,7 +45,7 @@ the text) and paragraph text (the text wraps inside a box whose handles resize i
 
 > id: graphics.arrange | does: aligns layers to the frame or each other, spaces them evenly and changes their order | cmd: graphics.align, graphics.distribute, graphics.arrangeLayer, graphics.bringToFront, graphics.sendToBack, graphics.bringForward, graphics.sendBackward | resolve: Fusion transform / align | premiere: Essential Graphics ▸ Align and Transform | when: laying out a lower third or a title card | see: graphics.responsive
 
-**[FilmCraft]**
+**[Revolution]**
 
 - **Align** to the frame (`graphics.alignFrame.left` … `.vcenter`), to the selection
   (`graphics.alignSelection.*`) or within a group (`graphics.alignGroup.*`).
@@ -59,7 +59,7 @@ the text) and paragraph text (the text wraps inside a box whose handles resize i
 
 > id: graphics.responsive | does: keeps a design working when text or duration changes: pins, protected intro / outro, roll and crawl | cmd: graphics.pin, graphics.setResponsiveTime, graphics.setRoll | resolve: — (Fusion expressions) | premiere: Responsive Design: Position and Time, Roll / Crawl | when: a lower third whose box must fit any name; a title that must animate the same at any length | see: graphics.templates
 
-**[FilmCraft]**
+**[Revolution]**
 
 - **Pin** a layer's edges to another layer or the frame (`graphics.pin`): a box pinned to a text
   layer grows and shrinks with the name typed into it.
@@ -72,17 +72,18 @@ the text) and paragraph text (the text wraps inside a box whose handles resize i
 
 > id: graphics.templates | does: saves a graphic as a reusable template with chosen editable properties, and applies templates | cmd: graphics.template.list, graphics.template.apply, graphics.template.set, graphics.template.controls, graphics.template.export, graphics.template.install, graphics.template.remove | resolve: Fusion title templates, Effects Library titles | premiere: Motion Graphics templates (.mogrt) | when: "the same lower third in every episode"; sharing a design | see: graphics.layers, packs.what
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. **Apply** a template from Essential Graphics ▸ Browse (`graphics.template.apply`): it places a
-   new graphic clip at the playhead. Built-in templates are FilmCraft's own designs.
+   new graphic clip at the playhead. Built-in templates are Revolution's own designs.
 2. Change what the template's author made editable (the name in a lower third, a colour) in
    Essential Graphics ▸ Edit (`graphics.template.controls` lists them, `graphics.template.set`
    changes them).
 3. **Make your own:** select a graphic clip and choose Export As Motion Graphics Template
    (`graphics.template.export`), picking which properties stay editable. Templates are saved as
    `.fcgt` files in your data folder; `graphics.template.install` adds one someone sent you,
-   `graphics.template.remove` removes one. Adobe `.mogrt` files are refused without being opened.
+   `graphics.template.remove` removes one. Adobe `.mogrt` files (Premiere's templates) can't be imported: they are refused without
+   being opened.
    To share templates together with presets and LUTs, use a look pack ([packs.md](packs.md)).
 
 | Option | Good for | Trade-offs |
@@ -95,7 +96,7 @@ the text) and paragraph text (the text wraps inside a box whose handles resize i
 
 > id: graphics.source | does: shares one set of layers between every clip of a graphic, and turns captions into graphics | cmd: graphics.upgradeToSourceGraphic, graphics.upgradeCaption | resolve: compound clip (closest) | premiere: Upgrade to Source Graphic, Upgrade Caption to Graphic | when: a logo bug or title that must be identical everywhere; styling a caption beyond caption styles | see: graphics.templates, text.captions
 
-**[FilmCraft]**
+**[Revolution]**
 
 **Upgrade to Source Graphic** (`graphics.upgradeToSourceGraphic`) makes a graphic's layers
 belong to its project item, so every clip of that item shows the same layers and editing one
@@ -106,7 +107,7 @@ into a graphic clip with a text layer, for styling and animation that captions d
 
 > id: graphics.fonts | does: lists the fonts a project uses and replaces fonts across projects | cmd: graphics.fonts.used | resolve: — | premiere: Replace Fonts in Projects | when: a font is missing on this computer; changing a typeface everywhere | see: graphics.text
 
-**[FilmCraft]**
+**[Revolution]**
 
 `graphics.fonts.used` lists every font the project's graphics use. **Replace Fonts in Projects**
 swaps one font for another in every graphic at once. Characters a font doesn't have (Japanese in

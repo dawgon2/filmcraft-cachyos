@@ -1,7 +1,7 @@
 # Practice notes: sound
 
 **[Standard]** · how editors and mixers commonly treat dialogue, music and effects, one technique
-per note, with the Resolve (Fairlight) and Premiere way and the FilmCraft way side by side.
+per note, with the Resolve (Fairlight) and Premiere way and the Revolution way side by side.
 Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 ## Dialogue first, then everything else
@@ -12,7 +12,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 - **Goal:** words that are always understood.
 - **Common practice:** even out every dialogue clip, then bring music and effects up underneath.
-- **FilmCraft:** type dialogue clips and **Auto-Match** them (`essentialSound.autoMatch`), or **Clean
+- **Revolution:** type dialogue clips and **Auto-Match** them (`essentialSound.autoMatch`), or **Clean
   Up Voice** (`audio.cleanupVoice`); then the music and effects tracks.
 - **Pitfalls:** mixing music first and squeezing the voice in afterwards.
 
@@ -25,7 +25,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 - **Goal:** music you feel but don't fight.
 - **Common practice:** music roughly 15–20 dB under the voice while words play, up between
   sentences and at the end.
-- **FilmCraft:** **Ducking** on the music clip (`essentialSound.generateDucking`), or ride the
+- **Revolution:** **Ducking** on the music clip (`essentialSound.generateDucking`), or ride the
   music fader in **Touch** mode ([mixing.md](../mixing.md)).
 - **Pitfalls:** pumping (music jumping up in every word gap); slow the fades or lower sensitivity.
 
@@ -35,7 +35,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** **Reduce Rumble** in Essential Sound (3–4 = 66–78 Hz) or a High Pass effect.
+- **Revolution:** **Reduce Rumble** in Essential Sound (3–4 = 66–78 Hz) or a High Pass effect.
 - **Why:** traffic, handling and air conditioning live down there; voices don't.
 - **Pitfalls:** too high (150 Hz+) thins deep voices.
 
@@ -45,7 +45,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** **Voice Isolation** for changing noise, **Reduce Noise** for steady hiss; raise
+- **Revolution:** **Voice Isolation** for changing noise, **Reduce Noise** for steady hiss; raise
   the amount while listening to the voice, stop at the first artefact ([audio.md](../audio.md)).
 - **Pitfalls:** "watery" or robotic speech from too much; noise reduction on the music or effects
   tracks.
@@ -56,7 +56,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** **DeEss** in Essential Sound (3–6), or the DeEsser effect.
+- **Revolution:** **DeEss** in Essential Sound (3–6), or the DeEsser effect.
 - **Why:** EQ and compression bring sibilance up; de-essing after catches it.
 - **Pitfalls:** too much and the speaker lisps.
 
@@ -68,7 +68,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 - **Common practice:** around 2:1–4:1, a few dB of gain reduction on loud words, attack slow enough
   to keep consonants.
-- **FilmCraft:** **Dynamics** in Essential Sound (2–3 for steady speakers, 4–6 for wild ones) or
+- **Revolution:** **Dynamics** in Essential Sound (2–3 for steady speakers, 4–6 for wild ones) or
   the Dynamics Processing effect.
 - **Pitfalls:** heavy compression brings the room noise up between words.
 
@@ -78,7 +78,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** a Hard Limiter insert on the **Mix** strip (`mixer.addInsert`) at −1 dB, or each
+- **Revolution:** a Hard Limiter insert on the **Mix** strip (`mixer.addInsert`) at −1 dB, or each
   voice clip's **Limit True Peak** (Essential Sound ▸ Loudness).
 - **Pitfalls:** using the limiter to make things loud squashes them; set levels first.
 
@@ -94,7 +94,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 | Podcasts | about −16 LUFS (stereo) | −1 dBTP |
 | Broadcast (EBU R128 / ATSC A/85) | −23 LUFS / −24 LKFS | −1 / −2 dBTP |
 
-- **FilmCraft:** **Clean Up Voice** matches voice clips to −14 LUFS under −1 dBTP; check the whole
+- **Revolution:** **Clean Up Voice** matches voice clips to −14 LUFS under −1 dBTP; check the whole
   mix on the loudness meter before export.
 - **Pitfalls:** platforms turn loud mixes down, so louder than the target only costs dynamics.
 
@@ -104,7 +104,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** **Apply Default Transitions to Selection** (`sequence.applyDefaultTransitionsToSelection`)
+- **Revolution:** **Apply Default Transitions to Selection** (`sequence.applyDefaultTransitionsToSelection`)
   or an audio transition per edit (`sequence.applyAudioTransition`), a few frames long.
 - **Pitfalls:** long crossfades on dialogue make words overlap.
 
@@ -114,7 +114,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** ambience on its own track typed **Ambience** (Stereo Width, Reverb), effects
+- **Revolution:** ambience on its own track typed **Ambience** (Stereo Width, Reverb), effects
   typed **SFX** with Pan; duck ambience under dialogue if needed.
 - **Pitfalls:** an ambience change at every picture cut; let beds run across cuts within a scene.
 
@@ -124,9 +124,10 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** leave dialogue pan at 0; pan effects with Essential Sound ▸ Pan or the Panner.
+- **Revolution:** leave dialogue pan at 0; pan effects with Essential Sound ▸ Pan or the Panner.
 - **Why:** phones and many TVs fold to mono or sit off-axis; centred voices survive.
-- **Pitfalls:** a mono microphone recorded on one channel only plays on one side: fix it with
+- **Pitfalls:** a mono microphone (often a lav) recorded on one channel only plays on one side, e.g.
+  only in the left ear: fix it with
   Audio Channels (`clip.audioChannels`).
 
 ## Check on small speakers
@@ -145,7 +146,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** Reduce Rumble or a High Pass removes most pops; for a single bump, a quick Volume
+- **Revolution:** Reduce Rumble or a High Pass removes most pops; for a single bump, a quick Volume
   keyframe dip on the clip (Effect Controls) or cut it out under room tone.
 - **Pitfalls:** heavy high-passing to fix one pop thins the whole voice.
 
@@ -155,7 +156,7 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** Reduce Rumble at 4 plus **Voice Isolation** at 10: on FilmCraft's own test set
+- **Revolution:** Reduce Rumble at 4 plus **Voice Isolation** at 10: on Revolution's own test set
   Voice Isolation beat DeNoise on wind by about 4–8 dB of SI-SDR at 0–5 dB signal-to-noise.
 - **Pitfalls:** gusts that distort the microphone can't be repaired; a furry windscreen at the
   shoot beats any plugin.
@@ -167,6 +168,6 @@ Written in our own words from common practice (AI-PLAN AI3 item 0a, 0c).
 **[Standard]**
 
 - **Common practice:** peaks around −6 dBFS while mixing, the limiter and loudness at the end.
-- **FilmCraft:** watch the strip meters in the Audio Track Mixer; lower track faders rather than
+- **Revolution:** watch the strip meters in the Audio Track Mixer; lower track faders rather than
   limiting.
 - **Pitfalls:** a red Mix meter means the export clips.

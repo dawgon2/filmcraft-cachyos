@@ -1,0 +1,83 @@
+# AI4 accept fixtures (fork AI-PLAN AI4.1e): frames with a known problem, a question about it, and
+# what the answer's "On this frame (measured)" lines must say. Frames are generated in the test
+# (`coach_assist_tests::picture_fixtures_name_the_problem`), never committed media.
+#
+# frame: dark | clipped | warm | cool | green | skin-red | skin-yellow | muted | log-flat
+# fact:  the line the answer must show (its prefix); says: words that line must contain.
+
+[[case]]
+id = "pic-dark"
+frame = "dark"
+q = "why does my shot look so dark?"
+fact = "Exposure:"
+says = ["below middle grey"]
+
+[[case]]
+id = "pic-clipped"
+frame = "clipped"
+q = "the sky is blown out, can I get it back?"
+fact = "Exposure:"
+says = ["clipped highlights"]
+
+[[case]]
+id = "pic-warm"
+frame = "warm"
+q = "everything looks too orange"
+fact = "White balance:"
+says = ["warm (towards orange)", " K"]
+
+[[case]]
+id = "pic-cool"
+frame = "cool"
+q = "shot in the shade and it's all blue, how do I fix it?"
+fact = "White balance:"
+says = ["cool (towards blue)"]
+
+[[case]]
+id = "pic-green"
+frame = "green"
+q = "there's a green tint from the office lights"
+fact = "White balance:"
+says = ["green tint"]
+
+[[case]]
+id = "pic-skin-red"
+frame = "skin-red"
+q = "her face looks too red"
+fact = "Skin-tone colours"
+says = ["towards red / magenta from the skin line"]
+
+[[case]]
+id = "pic-skin-yellow"
+frame = "skin-yellow"
+q = "skin tones look yellow and sickly"
+fact = "Skin-tone colours"
+says = ["towards yellow from the skin line"]
+
+[[case]]
+id = "pic-muted"
+frame = "muted"
+q = "the colours look washed out and dull"
+fact = "Saturation:"
+says = ["low (muted)"]
+
+[[case]]
+id = "pic-log"
+frame = "log-flat"
+q = "my F-Log2 footage looks flat and grey, what do I do first?"
+fact = "Source:"
+says = ["log footage"]
+
+[[case]]
+id = "pic-general"
+frame = "warm"
+q = "can you help me fix this shot?"
+fact = "White balance:"
+says = ["warm"]
+
+[[case]]
+id = "pic-off-topic"
+frame = "dark"
+q = "how do I add a serial node?"
+fact = ""
+says = []

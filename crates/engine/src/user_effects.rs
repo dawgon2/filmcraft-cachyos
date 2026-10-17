@@ -228,7 +228,7 @@ pub fn reload(s: &mut Session) -> Vec<UserEffectStatus> {
     let specs: Vec<UserEffectSpec> = out.iter().filter_map(|o| o.effect.as_ref().map(|fx| spec_of(&o.id, fx))).collect();
     let ok = filmcraft_project::effect::register_user_effects(&specs);
     for o in out.iter_mut().filter(|o| o.effect.is_some() && !ok.contains(&o.id)) {
-        o.error = Some("too many versions of this effect loaded in this session: restart FilmCraft to load it".into());
+        o.error = Some("too many versions of this effect loaded in this session: restart Revolution to load it".into());
         o.effect = None;
     }
     for o in out.iter().filter(|o| o.error.is_some()) {

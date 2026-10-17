@@ -103,10 +103,10 @@ pub const OLDEST_SCHEMA: u32 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FormatError {
-    #[error("not a FilmCraft project: {0}")]
+    #[error("not a Revolution project: {0}")]
     NotAProject(String),
     #[error(
-        "this project was saved by a newer version of FilmCraft (project schema v{found}); this build reads up to v{supported}. Update FilmCraft to open it."
+        "this project was saved by a newer version of Revolution (project schema v{found}); this build reads up to v{supported}. Update Revolution to open it."
     )]
     TooNew { found: u32, supported: u32 },
     #[error("project schema v{found} is too old for this build (oldest supported: v{oldest})")]
@@ -116,7 +116,7 @@ pub enum FormatError {
     #[error("project file is damaged: {0}")]
     Corrupt(String),
     #[error(
-        "this project (schema v{found}) was saved by another FilmCraft lineage, not this fork; its v{found} fields differ from this build's. Open it with the FilmCraft that wrote it."
+        "this project (schema v{found}) was saved by FilmCraft or another build that isn't Revolution; its v{found} fields differ from this build's. Open it with the app that wrote it."
     )]
     OtherLineage { found: u32 },
 }
@@ -146,7 +146,7 @@ impl Loaded {
 
 /// Writer identification stored in the envelope.
 pub fn generator() -> String {
-    format!("FilmCraft {}", env!("CARGO_PKG_VERSION"))
+    format!("Revolution {}", env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Serialize)]
@@ -377,7 +377,7 @@ fn v1_to_v2(doc: Value) -> Result<Value, String> {
     Ok(serde_json::json!({
         "format": FORMAT_ID,
         "schema_version": 2,
-        "generator": "FilmCraft (schema v1)",
+        "generator": "Revolution (schema v1)",
         "project": Value::Object(project),
     }))
 }
@@ -730,7 +730,7 @@ mod tests {
         doc.as_object_mut().unwrap().remove("lineage");
         let e = decode(&serde_json::to_vec(&doc).unwrap()).unwrap_err();
         assert!(matches!(e, FormatError::OtherLineage { found } if found == SCHEMA_VERSION), "{e}");
-        assert!(e.to_string().contains("another FilmCraft lineage"), "{e}");
+        assert!(e.to_string().contains("isn't Revolution"), "{e}");
         // an unknown marker is not ours either; an older unmarked file (upstream's) still opens
         doc["lineage"] = Value::from("someone-else");
         assert!(matches!(decode(&serde_json::to_vec(&doc).unwrap()), Err(FormatError::OtherLineage { .. })));
@@ -870,7 +870,7 @@ mod tests {
         v["schema_version"] = Value::from(SCHEMA_VERSION + 1);
         let e = decode(&serde_json::to_vec(&v).unwrap()).unwrap_err();
         assert!(matches!(e, FormatError::TooNew { .. }));
-        assert!(e.to_string().contains("newer version of FilmCraft"), "{e}");
+        assert!(e.to_string().contains("newer version of Revolution"), "{e}");
     }
 
     #[test]

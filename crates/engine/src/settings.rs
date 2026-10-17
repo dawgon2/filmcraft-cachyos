@@ -544,6 +544,11 @@ pub struct MediaCachePrefs {
     pub render_cache: String,
     /// Size limit of the render cache in the project's preview folder (GB).
     pub render_cache_gb: u32,
+    /// Local copies of clips on network shares (STORAGE-PLAN S1 item 2): `auto` | `off`
+    /// (provisional default, OWNER-QUESTIONS Q49).
+    pub network_copies: String,
+    /// Size limit of the local copies (GB).
+    pub network_copies_gb: u32,
 }
 
 impl Default for MediaCachePrefs {
@@ -557,6 +562,8 @@ impl Default for MediaCachePrefs {
             max_size_gb: 92,
             render_cache: "smart".into(),
             render_cache_gb: crate::render_cache::DEFAULT_BUDGET_GB,
+            network_copies: "auto".into(),
+            network_copies_gb: crate::net_cache::DEFAULT_GB,
         }
     }
 }
@@ -663,6 +670,11 @@ impl TimelinePrefs {
         duration_in(self.audio_transition_duration, &self.audio_transition_unit, rate)
     }
 }
+
+/// The Bins / Projects "+ modifier" rows: the platform's key names (macOS Cmd / Opt, elsewhere
+/// Ctrl / Alt; the double-click reads `command` / `alt`, which are those keys).
+const CMD_LABEL: &str = if cfg!(target_os = "macos") { "+ Cmd" } else { "+ Ctrl" };
+const OPT_LABEL: &str = if cfg!(target_os = "macos") { "+ Opt" } else { "+ Alt" };
 
 /// Settings ▸ Plugins.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -794,7 +806,7 @@ const STARTUP: &[(&str, &str)] = &[("showHome", "Show Home"), ("openMostRecent",
 const STARTUP_SHOW: &[(&str, &str)] =
     &[("workflowDefault", "Workflow default"), ("projectManager", "Project Manager"), ("lastProject", "Last project"), ("newEmpty", "New empty project")];
 const MENU_BAR: &[(&str, &str)] = &[("auto", "In the desktop's global menu when it has one"), ("window", "In the window")];
-const TITLE_BAR: &[(&str, &str)] = &[("filmcraft", "FilmCraft (like DaVinci Resolve)"), ("system", "System (desktop title bar)")];
+const TITLE_BAR: &[(&str, &str)] = &[("filmcraft", "Revolution (like DaVinci Resolve)"), ("system", "System (desktop title bar)")];
 const OPENING: &[(&str, &str)] = &[("showOpenDialog", "Show Open Dialog"), ("showHome", "Show Home")];
 const BIN_OPEN: &[(&str, &str)] = &[("openInPlace", "Open in place"), ("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
 const PROJECT_OPEN: &[(&str, &str)] = &[("openNewTab", "Open new tab"), ("openNewWindow", "Open in new window")];
@@ -920,15 +932,15 @@ static CATEGORIES: &[Category] = &[
                 "Bins",
                 &[
                     f("general.binsDoubleClick", "Double-click", Kind::Choice(BIN_OPEN), false),
-                    f("general.binsCmdDoubleClick", "+ Cmd", Kind::Choice(BIN_OPEN), false),
-                    f("general.binsOptDoubleClick", "+ Opt", Kind::Choice(BIN_OPEN), false),
+                    f("general.binsCmdDoubleClick", CMD_LABEL, Kind::Choice(BIN_OPEN), false),
+                    f("general.binsOptDoubleClick", OPT_LABEL, Kind::Choice(BIN_OPEN), false),
                 ],
             ),
             Row::Group(
                 "Projects",
                 &[
                     f("general.projectsDoubleClick", "Double-click", Kind::Choice(PROJECT_OPEN), false),
-                    f("general.projectsOptDoubleClick", "+ Opt", Kind::Choice(PROJECT_OPEN), false),
+                    f("general.projectsOptDoubleClick", OPT_LABEL, Kind::Choice(PROJECT_OPEN), false),
                 ],
             ),
             b("general.showEventIndicator", "Show Event Indicator", false),
@@ -1033,7 +1045,7 @@ static CATEGORIES: &[Category] = &[
                     b("autoSave.recoveryJournal", "Keep a recovery copy of unsaved changes", true),
                     sub("autoSave.recoveryIntervalSeconds", "Update it at least every", int(1.0, 600.0, "second(s)"), "autoSave.recoveryJournal", true),
                     Row::Note(
-                        "Changes are copied in the background a moment after each edit. If FilmCraft quits unexpectedly, they are offered the next time it starts.",
+                        "Changes are copied in the background a moment after each edit. If Revolution quits unexpectedly, they are offered the next time it starts.",
                     ),
                     Row::Custom("autoSaveStatus"),
                 ],
@@ -1057,7 +1069,7 @@ static CATEGORIES: &[Category] = &[
                 "Grading Coach",
                 &[
                     b("color.coach.hints", "Show Grading Coach hints", false),
-                    b("color.coach.assistant", "Also ask the assistant (slow: runs on this computer)", false),
+                    b("color.coach.assistant", "Also ask the assistant (runs on this computer)", false),
                 ],
             ),
             Row::Group("AI explanations", &[b("color.ai.enabled", "Explain nodes in plain words with a local AI model", true), Row::Custom("aiExplanations")]),
@@ -1207,8 +1219,15 @@ static CATEGORIES: &[Category] = &[
                     Row::Custom("renderCacheInfo"),
                 ],
             ),
+            Row::Group(
+                "Network Copies",
+                &[
+                    f("mediaCache.networkCopies", "Local copies of clips on network shares", Kind::Choice(crate::net_cache::MODES), true),
+                    f("mediaCache.networkCopiesGb", "Local copies size limit", int(1.0, 100_000.0, "GB"), true),
+                ],
+            ),
             Row::Note(
-                "The media cache holds render previews of unsaved projects and other files FilmCraft can recreate. Deleting them is always safe; FilmCraft rebuilds them as needed.",
+                "The media cache holds render previews of unsaved projects and other files Revolution can recreate. Deleting them is always safe; Revolution rebuilds them as needed.",
             ),
         ],
     },
@@ -1238,8 +1257,9 @@ static CATEGORIES: &[Category] = &[
             b("playback.desktopMediaControls", "Media keys and the desktop's media controls", true),
             b("playback.desktopGlobalShortcuts", "Global shortcuts: Play / Pause and Add Marker while another window has focus", true),
             f("playback.graphicsDevice", "Graphics device (takes effect at the next start)", Kind::Device(DeviceList::Gpus), true),
+            b("playback.batteryPreview", "Lower playback resolution on battery", false),
             Row::Note(
-                "Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.",
+                "Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and Revolution's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.",
             ),
         ],
     },
@@ -1248,7 +1268,7 @@ static CATEGORIES: &[Category] = &[
         title: "Plugins",
         rows: &[
             Row::Group("Plugins", &[b("plugins.developerMode", "Enable developer mode", false)]),
-            Row::Note("No plugins are installed. Changes will take effect the next time you start FilmCraft."),
+            Row::Note("No plugins are installed. Changes will take effect the next time you start Revolution."),
         ],
     },
     Category {
@@ -1293,6 +1313,18 @@ static CATEGORIES: &[Category] = &[
             sub("trim.rippleAddsEdits", "Ripple trim adds edits to keep both sides of trim in sync", Kind::Bool, "trim.shiftOverlappingClips", false),
             b("trim.playheadDeterminesLoop", "Playhead position determines trim monitor loop playback", true),
             b("trim.dynamicRippleUpdates", "Update timeline dynamically during ripple edits.", false),
+        ],
+    },
+    // fork UPD (FORK-PLAN §1a.77): builds without an update channel show "doesn't check"
+    Category {
+        id: "update",
+        title: "Updates",
+        rows: &[
+            b("update.check", "Check for updates every day", true),
+            Row::Note(
+                "What the check sends: one request to GitHub (api.github.com) asking for the newest release. GitHub sees your IP address; nothing else is sent: no usage data, no identifiers.",
+            ),
+            Row::Custom("updateInfo"),
         ],
     },
 ];
@@ -1472,7 +1504,7 @@ impl crate::autosave::Preferences {
         };
         filmcraft_codecs::configure_decode_cache(budget, decoders);
         filmcraft_codecs::configure_vram(match self.memory.vram_cache_mb {
-            0 => filmcraft_codecs::auto_vram_budget(filmcraft_codecs::installed_vram()),
+            0 => filmcraft_codecs::auto_vram_budget_for(filmcraft_codecs::decode_memory()),
             mb => (mb as usize).saturating_mul(1 << 20),
         });
     }
@@ -1586,10 +1618,15 @@ pub fn previews_root(cache: &Path) -> PathBuf {
 fn cache_files(dir: &Path) -> Vec<(PathBuf, u64, std::time::SystemTime)> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
+    // the local copies of share clips keep their own size limit and index (S1 item 2)
+    let copies = dir.join(crate::net_cache::DIR_NAME);
     while let Some(d) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&d) else { continue };
         for e in rd.flatten() {
             let Ok(md) = e.metadata() else { continue };
+            if md.is_dir() && e.path() == copies {
+                continue;
+            }
             if md.is_dir() {
                 stack.push(e.path());
             } else {
@@ -1697,6 +1734,16 @@ impl Session {
         }
         let keep = self.previews.dir();
         enforce_policy(&dir, &self.prefs.media_cache, keep.as_deref(), std::time::SystemTime::now());
+        // local copies of share clips: on in `auto`, read by the pool once complete
+        let copies = (self.prefs.media_cache.network_copies == "auto").then(|| dir.join(crate::net_cache::DIR_NAME));
+        let current = self.media.net_copies().map(|c| c.lock().unwrap_or_else(std::sync::PoisonError::into_inner).dir().to_path_buf());
+        if copies != current {
+            // a copy running into the old cache stops (it would write the index the new one reads)
+            if let Some(job) = &self.net_copy {
+                job.stop();
+            }
+            self.media.set_net_copies(copies.map(|d| std::sync::Arc::new(std::sync::Mutex::new(crate::net_cache::NetCache::open(&d)))));
+        }
     }
 
     /// Note a project file as the most recent one (General ▸ At Startup ▸ Open Most Recent).

@@ -1,0 +1,285 @@
+# AI-POOL batch hardware-1: hardware.md, cards.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-h1-why-gpu"
+kind = "approach"
+q = "why can't my CPU just play the 6.2K files?"
+sources = ["hardware.why"]
+must = ["6.2K 10-bit HEVC is far too heavy to decode on the CPU at playback speed", "the graphics card's video engine (VCN) decodes it, and pictures stay on the card", "on by default, falls back quietly"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-zero-copy"
+kind = "pro-practice"
+q = "what does zero-copy mean in Revolution's hardware path?"
+sources = ["hardware.jobs"]
+must = ["a decoded picture never goes back to main memory: video engine → graphics memory → compositor → encoder memory", "if the driver refuses, pictures are copied instead (slower, same result) and the log says so"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-h264-10bit"
+kind = "pro-practice"
+q = "why does my 10-bit H.264 clip use so much CPU and show a 10 badge?"
+sources = ["hardware.jobs"]
+must = ["no graphics video engine decodes 10-bit H.264, so Revolution's own software decoder takes it", "options: edit the original, let a proxy play, or export an intra copy (ProRes / DNxHR)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-422-hevc-path"
+kind = "pro-practice"
+q = "how does Revolution decode 4:2:2 HEVC if the AMD card can't?"
+sources = ["hardware.jobs"]
+must = ["the Intel video engine decodes it and hands each picture to the AMD card (shared buffer, no copy)", "the AMD card composites and grades", "about 21 pictures a second at 6.2K"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-interlaced"
+kind = "tool"
+q = "can Revolution play my old AVCHD 1080i camcorder files?"
+sources = ["hardware.jobs"]
+must = ["yes: interlaced H.264 (PAFF / MBAFF) decodes on the video engine through VA-API, Revolution's own decoder as fallback", "pictures come out as woven frames; Field Options holds field settings"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-ffmpeg-h264"
+kind = "pro-practice"
+q = "do I need ffmpeg installed to edit H.264?"
+sources = ["hardware.jobs"]
+must = ["no: every H.264 clip decodes inside Revolution (VA-API or Revolution's own decoder)", "H.265 still keeps ffmpeg as a last fallback"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-which-decoder"
+kind = "multi-step"
+q = "how can I see which decoder a clip is using?"
+sources = ["hardware.jobs"]
+must = ["no badge: the video engine; an amber 4:2:2 or 10 badge: Revolution's own decoder", "File ▸ Get Media File Properties for ▸ Selection…: the Decoder line"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-hw-off-test"
+kind = "approach"
+q = "is it the driver or the file? playback is broken on one clip"
+sources = ["hardware.jobs", "hardware.switches"]
+must = ["set Preferences ▸ Playback ▸ Hardware decoding to Off: everything goes to Revolution's own decoder", "reopen the project so clips pick it up"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-graphics-device"
+kind = "tool"
+q = "how do I choose which GPU draws the interface?"
+sources = ["hardware.switches"]
+must = ["Preferences ▸ Playback ▸ Graphics device (Auto or one of the GPUs)", "takes effect at the next start"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-vram-cache"
+kind = "tool"
+q = "scrubbing back and forth keeps decoding again, can it keep more frames?"
+sources = ["hardware.switches"]
+must = ["Preferences ▸ Memory: Decoded frames in GPU memory and Decoded source frames (0 = Auto)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-gpu-rendering"
+kind = "pro-practice"
+q = "why is GPU Rendering off by default in the export dialog?"
+sources = ["hardware.switches"]
+must = ["upstream's choice: a CPU export is byte-identical on every machine", "tick it to render other formats on the graphics card (much faster with effects); H.265 always uses the card"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-encode-intel"
+kind = "tool"
+q = "can I make exports encode on the Intel iGPU while the AMD card decodes?"
+sources = ["hardware.switches"]
+must = ["FILMCRAFT_VAAPI_ENCODE_DEVICE=/dev/dri/renderD128 (advanced environment variable)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-other-driver"
+kind = "tweak"
+q = "on my older Intel laptop the log says it decodes in software because of the VA-API driver"
+sources = ["hardware.switches"]
+must = ["Revolution uses only AMD's Mesa and Intel's iHD drivers by default", "FILMCRAFT_VAAPI_ANY_DRIVER=1 allows others (i965, nvidia-vaapi-driver) but may crash"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-slow-steps"
+kind = "multi-step"
+q = "playback drops frames, what should I check first?"
+sources = ["hardware.slow"]
+must = ["an amber 4:2:2 badge means software decode", "check the log / status bar for a fallback line", "lower the playback resolution", "Hardware decoding should be Auto"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-resolve-hw"
+kind = "tool"
+q = "where's Resolve's decode using hardware acceleration option?"
+sources = ["hardware.resolve"]
+must = ["Preferences ▸ Playback ▸ Hardware decoding: Auto"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-h1-mercury"
+kind = "tool"
+q = "is there a Mercury GPU acceleration setting?"
+sources = ["hardware.premiere", "hardware.switches"]
+must = ["Hardware decoding and GPU Rendering correspond to Premiere's hardware decoding and Mercury GPU acceleration"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-h1-card-why"
+kind = "approach"
+q = "can't I just edit straight off the SD card?"
+sources = ["cards.insert", "cards.options"]
+must = ["risky: the card is the only copy and gets formatted or pulled out", "copy it first with the verified copy, then edit from the copy"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-card-steps"
+kind = "multi-step"
+q = "I just put my camera card in, what do I do?"
+sources = ["cards.insert"]
+must = ["click Copy on the Camera card bar in the Project panel (first time: choose the destination folder)", "wait for copied and verified; clips land in a bin", "Eject, then take the card out"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-card-no-bar"
+kind = "tweak"
+q = "I inserted the card but no bar appeared"
+sources = ["cards.insert"]
+must = ["only cards mounted under /run/media or /media with DCIM, PRIVATE, XDROOT, CONTENTS or CLIP get the bar", "check Settings ▸ Media ▸ Camera cards isn't Ignore; card.offload copies by command"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-card-verify"
+kind = "pro-practice"
+q = "how does Revolution verify the card copy?"
+sources = ["cards.copy-details"]
+must = ["each file is written under a temporary name, flushed, read back and compared by CRC-32", "a checksum list offload-crc32.txt is written"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-card-pulled"
+kind = "tweak"
+q = "I yanked the card out halfway through copying"
+sources = ["cards.copy-details"]
+must = ["the copy stops and says how many files are copied and verified", "put it back and run the copy again: identical files are kept, it carries on"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-h1-card-two-copies"
+kind = "approach"
+q = "how do pros back up cards before formatting?"
+sources = ["cards.options"]
+must = ["two verified copies on different drives before formatting", "run the copy twice, or back up the first copy (the checksum list verifies it)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-h1-mhl"
+kind = "gap"
+q = "does the card copy write MHL files for my DIT?"
+sources = ["cards.options"]
+must = ["no: Revolution's checksum list is a plain text CRC-32 file, not MHL", "use a dedicated offload tool if MHL is required"]
+must_not = ["claims it writes MHL"]
+style = "gap"
+
+[[question]]
+id = "pool-h1-card-agent"
+kind = "tool"
+q = "copy a card from a script without importing the clips"
+sources = ["cards.commands"]
+must = ["card.offload with mount, destination and import: false"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-h1k-jobs"
+q = "what runs on the gpu"
+kind = "what-for"
+origin = "agent"
+page = "hardware.md"
+heading = "The jobs and where they run"
+status = "covered"
+facts = ["AMD video engine", "Intel for 4:2:2"]
+
+[[coach]]
+id = "pool-h1k-hwdecode"
+q = "turn off hardware decoding"
+kind = "how"
+origin = "agent"
+page = "hardware.md"
+heading = "The switches"
+status = "covered"
+facts = ["Preferences ▸ Playback ▸ Hardware decoding"]
+
+[[coach]]
+id = "pool-h1k-slow"
+q = "dropped frames during playback"
+kind = "why"
+origin = "agent"
+page = "hardware.md"
+heading = "When something is slow"
+status = "covered"
+facts = ["lower playback resolution"]
+
+[[coach]]
+id = "pool-h1k-offload"
+q = "offload my sd card before formatting it"
+kind = "how"
+origin = "agent"
+page = "cards.md"
+heading = "When you put a card in"
+alt = [{ page = "getting-started.md", heading = "Import X-M5 clips" }]
+status = "covered"
+facts = ["Copy", "Eject"]
+
+[[coach]]
+id = "pool-h1k-checksum"
+q = "card copy checksum"
+kind = "what-for"
+origin = "agent"
+page = "cards.md"
+heading = "What the copy does"
+alt = [{ page = "cards.md", heading = "Options, and when to pick which" }]
+status = "covered"
+facts = ["CRC-32", "offload-crc32.txt"]
+
+[[coach]]
+id = "pool-h1k-clone"
+q = "clone tool"
+kind = "resolve-word"
+origin = "agent"
+page = "cards.md"
+heading = "When you put a card in"
+alt = [{ page = "cards.md", heading = "What the copy does" }, { page = "cards.md", heading = "Options, and when to pick which" }]
+status = "covered"
+facts = ["verified card copy"]

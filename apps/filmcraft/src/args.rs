@@ -13,7 +13,7 @@ Options:
   --empty            start with an empty project
   --recover          recover the newest unsaved changes without asking
   --no-recover       start without asking about unsaved changes
-  --new-instance     start another window even if FilmCraft is running
+  --new-instance     start another window even if Revolution is running
                      (normally files go to the running one)
   --data-dir <dir>   one folder for auto-save, crash recovery, logs and
                      the media cache (also: FILMCRAFT_DATA_DIR)

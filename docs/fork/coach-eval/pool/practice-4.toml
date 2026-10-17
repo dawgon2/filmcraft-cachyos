@@ -1,0 +1,176 @@
+# AI-POOL batch practice-4: practice/editing.md. Only sync-sound had a held-out question, so the
+# other notes get their main question (worded away from the base pairs' "How do people handle …"
+# and "In Resolve I'd use …" forms), plus pitfalls where the note has a sharp one.
+
+[[question]]
+id = "pool-r4-selects"
+kind = "approach"
+q = "I shot four hours for a ten minute film, where do I even start?"
+sources = ["practice.editing.selects"]
+must = ["watch everything once and mark the usable moments before cutting", "markers in the Source monitor (M), Make Subclip, a bin per scene or a Search Bin"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-selects-strict"
+kind = "pro-practice"
+q = "my selects bin has almost every take in it, is that a problem"
+sources = ["practice.editing.selects"]
+must = ["marking everything as good defeats the point; be strict"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r4-string-out"
+kind = "tool"
+q = "put all the subclips for one scene end to end on a fresh sequence in one go"
+sources = ["practice.editing.string-out"]
+must = ["select the subclips and run Automate to Sequence (clip.automateToSequence)"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-r4-passes"
+kind = "approach"
+q = "what's the difference between an assembly, a rough cut and a fine cut, and when is picture lock?"
+sources = ["practice.editing.assembly"]
+must = ["assembly: everything in script order; rough cut: structure and the right takes; fine cut: timing, trims, sound edits", "picture lock: no more timing changes, so colour and sound can finish"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-grade-early"
+kind = "pro-practice"
+q = "client wants to see it graded and mixed before we've locked, any downside?"
+sources = ["practice.editing.assembly", "practice.editing.temp-mix"]
+must = ["grading or mixing before lock means redoing it when timing changes"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r4-versions"
+kind = "tool"
+q = "before I restructure the second act I want to keep the current cut safe"
+sources = ["practice.editing.versions"]
+must = ["duplicate the sequence in the Project panel (edit.duplicate) and work on the copy", "name versions by date"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-cut-motion"
+kind = "multi-step"
+q = "cutting from the wide to the close-up while she sits down, where exactly should the cut go?"
+sources = ["practice.editing.cut-on-action"]
+must = ["cut a few frames into the movement, at the same moment in both angles", "fine-tune with the Rolling Edit tool (tool.rolling), frame by frame"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-cut-motion-jar"
+kind = "pro-practice"
+q = "my cut on action still jumps, the hand is up in the wide and down in the close"
+sources = ["practice.editing.cut-on-action"]
+must = ["mismatched motion between the angles breaks a cut on action"]
+must_not = []
+style = "follow-up"
+needs_clip = true
+
+[[question]]
+id = "pool-r4-hear-first"
+kind = "multi-step"
+q = "I want to hear the next speaker a second before we see them"
+sources = ["practice.editing.j-l-cuts"]
+must = ["a J-cut: sound starts before the picture cut", "split In / Out in the Source monitor, or trim one side of the edit with linked selection off (sequence.linkedSelection)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-lcut-sync"
+kind = "pro-practice"
+q = "after doing a bunch of L-cuts my clips drift out of sync when I move them"
+sources = ["practice.editing.j-l-cuts"]
+must = ["keep sync: move a clip's audio and video together afterwards"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r4-cover-interview"
+kind = "multi-step"
+q = "laying cutaways over the interview but it keeps replacing the interview audio"
+sources = ["practice.editing.b-roll"]
+must = ["target V2 and turn off source audio (timeline.setTargeting), then Overwrite", "the interview stays on V1 / A1, the B-roll goes on V2, video only"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r4-vlog-pauses"
+kind = "tool"
+q = "fastest way to strip all the ums and silences out of a talking-head vlog"
+sources = ["practice.editing.jump-cuts"]
+must = ["Remove Pauses / Remove Filler Words from the transcript (transcript.removePauses, transcript.removeFillers)", "punch in (Scale 110–120 %) on every other cut to soften the jump"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r4-montage"
+kind = "multi-step"
+q = "montage to a song, how do I get the cuts to land on the beat?"
+sources = ["practice.editing.music-beat"]
+must = ["press M while playing to drop markers on the beats, turn on Snap", "cut on phrases and accents, not every beat"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-silence-gaps"
+kind = "approach"
+q = "the background noise drops out completely every time I cut between two lines of dialogue"
+sources = ["practice.editing.room-tone"]
+must = ["room tone on its own audio track under the gaps, typed Ambience, with short audio crossfades at the edits", "record room tone on set; tone from another place sounds different"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-keyboard-edit"
+kind = "multi-step"
+q = "insert a source range at a timeline marker using only the keyboard"
+sources = ["practice.editing.three-point-markers"]
+must = ["mark In / Out in the Source monitor, park the playhead on the marker, Insert or Overwrite (source.insert, source.overwrite)", "check the source patching first"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r4-too-tight"
+kind = "pro-practice"
+q = "my scenes feel rushed and choppy after I trimmed them frame by frame"
+sources = ["practice.editing.pacing"]
+must = ["trimming while paused makes everything too tight; judge in playback", "tighten while playing with Ripple Trim Previous / Next Edit to Playhead"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r4-proxy-focus"
+kind = "pro-practice"
+q = "is the clip soft or is that just the proxy?"
+sources = ["practice.editing.proxies"]
+must = ["don't judge focus or noise while a proxy plays; in Auto the paused frame is the original", "media.toggleProxies switches proxies off to check"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-r4-sync-noisy"
+kind = "pro-practice"
+q = "audio sync won't line up the recorder track, the camera mic is mostly wind"
+sources = ["practice.editing.sync-sound"]
+must = ["very noisy camera audio may not match by waveform; sync by timecode, a marker or In / Out instead", "clap at the start of every take"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r4-temp-levels"
+kind = "approach"
+q = "how much should I bother with audio levels while I'm still cutting?"
+sources = ["practice.editing.temp-mix"]
+must = ["rough levels only: Essential Sound types and Auto-Match (essentialSound.autoMatch)", "the real mix with the mixer and automation after picture lock"]
+must_not = []
+style = "beginner"

@@ -1,0 +1,86 @@
+# AI-POOL batch creative-1 (FORK-PLAN §1a.90, AI-PLAN AI4 item 5c): open-ended creative questions no
+# single guide section answers. A good answer is a plan built from several tools (`sources` = every
+# section the plan needs, two or more), each step naming real controls, plus what Revolution can't do
+# yet said plainly with the closest workaround. Mixed: fully possible, partly possible, not possible.
+# Held-out only (no training pairs yet). Scored apart from lookup questions (ai_pool.rs).
+
+[[question]]
+id = "pool-cr1-ghost"
+kind = "creative"
+family = "ghost-figure"
+q = "how do I remove the person from this clip and replace it with a translucent ghost figure instead"
+sources = ["compositor.masks", "tracking.what", "compositor.basics", "effects.opacity", "practice.editing.clean-plate"]
+must = ["mask the person with a Mask node in a comp and track the mask so it follows them", "the ghost: Merge the masked person over the background at low opacity with a blend mode, softened by a Blur node", "Revolution can't remove an object or fill in behind it: use a clean plate (a frame or take without the person, tripod shots only)"]
+must_not = []
+style = "beginner"
+origin = "owner-verbatim"
+
+[[question]]
+id = "pool-cr1-freeze-drain"
+kind = "creative"
+family = "freeze-frame-colour-drain"
+q = "freeze the frame and make the colour drain out of it"
+sources = ["media.clips", "color.lumetri.panel", "effects.keyframes"]
+must = ["Frame Hold (clip.frameHold) freezes the clip on a frame", "keyframe Lumetri Saturation down to 0 over the hold (every Lumetri slider can be keyframed)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr1-day-to-night"
+kind = "creative"
+family = "day-to-night-street"
+q = "turn a daytime street shot into night, keep the shop lights glowing"
+sources = ["practice.grading.day-for-night", "color.secondaries.qualifier"]
+must = ["darker, cooler and less saturated overall: lower exposure and saturation, cool the balance", "keep the lights bright by isolating them with a qualifier on their own node"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr1-stormy-sky"
+kind = "creative"
+family = "stormy-sky"
+q = "make the sky look stormy and threatening"
+sources = ["color.recipes.sky", "color.secondaries.windows", "color.curves.steps"]
+must = ["isolate the sky with a qualifier limited by a gradient window", "darken and desaturate it, add contrast with a curve; Revolution can't replace the sky with new clouds"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr1-earthquake"
+kind = "creative"
+family = "camera-shake-impact"
+q = "a sudden earthquake shake on the shot"
+sources = ["effects.keyframes", "shader-effects.write", "practice.titles.shake", "effects.stylize"]
+must = ["keyframe the clip's Motion Position (and a little Scale so the edges stay hidden) in quick small jumps", "the Camera Shake effect (Video Effects ▸ Transform: Position, Rotation and Zoom Amount, Frequency, Motion Blur) shakes the shot; keyframe its amounts so the hit is strong and dies out", "or keyframe Position by hand; at a cut, the Earthquake transition (Grunge & Distort) shakes across the edit"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr1-phone-screen"
+kind = "creative"
+family = "phone-screen-replace"
+q = "the phone in my shot should show a different video on its screen"
+sources = ["tracking.screen", "keying.ultra-key"]
+must = ["Corner Pin's Track Surface pins the new video onto the screen and follows it", "a green screen on the phone can be keyed with Ultra Key so fingers stay in front"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr1-clone-me"
+kind = "creative"
+family = "clone-yourself"
+q = "clone myself so I appear twice in the same shot"
+sources = ["compositor.masks", "compositor.basics", "tracking.what"]
+must = ["two locked-off takes, one per side; in a comp, Merge the second take over the first through a Mask node covering your other position", "feather the mask edge; the camera must not move (tracking only helps a little)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr1-word-pop"
+kind = "creative"
+family = "word-by-word-captions"
+q = "subtitles where each word pops up as it's spoken"
+sources = ["text.transcripts", "text.captions", "graphics.source"]
+must = ["the transcript has the time of each word; Create Captions from Transcript (transcript.createCaptions) makes the caption track", "captions can become graphics to style them, but there is no automatic word-by-word pop animation: split captions into short ones or keyframe by hand"]
+must_not = []
+style = "pro"

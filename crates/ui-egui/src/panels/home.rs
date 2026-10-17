@@ -53,7 +53,7 @@ const POSTER_LOADS_PER_FRAME: usize = 4;
 /// The sort keys (`projects.sort.<key>`; [`HomeState::sort`]).
 pub const SORT_KEYS: [&str; 3] = ["name", "modified", "created"];
 /// The right-click menu items (`projects.menu.<item>`).
-pub const MENU_ITEMS: [&str; 8] = ["open", "rename", "duplicate", "reveal", "export", "trash", "remove", "locate"];
+pub const MENU_ITEMS: [&str; 9] = ["open", "rename", "duplicate", "reveal", "export", "package", "trash", "remove", "locate"];
 
 /// The home screen's state (serde, so agents can read and set it).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -390,6 +390,41 @@ pub fn route(app: &mut FilmcraftApp, id: &str, params: &Value) -> Option<Result<
                 None => Ok(Value::Null),
             })
         }
+        // STORAGE-PLAN S1 item 5: a checked package of the project and all its media
+        "projects.package" if param(params, "destination").is_none() => {
+            let Some(path) = param(params, "path").map(str::to_string).or_else(|| selected_summary(app).filter(|s| s.error.is_none()).map(|s| s.path)) else {
+                return Some(Err("select a project to package".into()));
+            };
+            let name = std::path::Path::new(&path).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let id = id.to_string();
+            // `"format": "file"`: one .fcpackage file (the tile menu's Package as One File…)
+            let format = param(params, "format").unwrap_or("folder").to_string();
+            app.pick(FileDialog::Folder { at: None }, move |app, paths| match paths.into_iter().next() {
+                Some(dir) => {
+                    // the size first (nothing written), so the status line can say it
+                    let est = run(app, &id, json!({"path": path, "destination": dir, "dryRun": true})).ok().and_then(|v| v["estimateBytes"].as_u64());
+                    let r = run(app, &id, json!({"path": path, "destination": dir, "format": format}));
+                    if r.is_ok() {
+                        app.ui.status = match est {
+                            Some(b) => tlf!("Packaging {name} (about {size})", name, size = package_size(b)),
+                            None => tlf!("Packaging {name}", name),
+                        };
+                    }
+                    r
+                }
+                None => Ok(Value::Null),
+            })
+        }
+        // one picker for both kinds: a .fcpackage file, or a package folder's manifest.json
+        "projects.importPackage" if param(params, "path").is_none() => {
+            let id = id.to_string();
+            let pick =
+                FileDialog::OpenFile { filter: tl!("Revolution package (.fcpackage or manifest.json)").into(), exts: vec!["fcpackage".into(), "json".into()] };
+            app.pick(pick, move |app, paths| match paths.into_iter().next() {
+                Some(path) => run(app, &id, json!({"path": package_pick(path), "folder": app.ui.home.folder})),
+                None => Ok(Value::Null),
+            })
+        }
         "projects.import" if param(params, "path").is_none() => {
             let id = id.to_string();
             app.pick(FileDialog::OpenProject, move |app, paths| match paths.into_iter().next() {
@@ -632,7 +667,7 @@ pub fn draw(app: &mut FilmcraftApp, ui: &mut egui::Ui, full: Rect) {
     }
     let x_left = title.min.x + if app.integrated_titlebar { 84.0 } else { 8.0 };
     let xr = Rect::from_min_size(pos2(x_left, title.min.y + 6.0), vec2(24.0, 24.0));
-    if icon_button(ui, &mut app.auto, xr, "projects.close.x", Icon::Close, false, &t, tl!("Quit FilmCraft")) {
+    if icon_button(ui, &mut app.auto, xr, "projects.close.x", Icon::Close, false, &t, tl!("Quit Revolution")) {
         // the Project Manager's × quits FilmCraft (owner, 2026-10-14; unsaved changes ask first)
         acts.push(Act::Cmd("app.quit".into(), json!({})));
     }
@@ -640,7 +675,7 @@ pub fn draw(app: &mut FilmcraftApp, ui: &mut egui::Ui, full: Rect) {
     p.text(local.center(), Align2::CENTER_CENTER, tl!("Local"), Tokens::ui(13.0), t.text);
     p.line_segment([pos2(local.min.x + 10.0, local.max.y - 1.0), pos2(local.max.x - 10.0, local.max.y - 1.0)], Stroke::new(2.0, t.accent));
     app.auto.add("projects.tab.local", local, "Local");
-    p.text(title.center(), Align2::CENTER_CENTER, "FilmCraft", Tokens::semibold(14.0), t.text);
+    p.text(title.center(), Align2::CENTER_CENTER, "Revolution", Tokens::semibold(14.0), t.text);
 
     // ---- row 2: sidebar, breadcrumb | new folder, size, sort, info, grid / list, search
     let bar = Rect::from_min_size(pos2(full.min.x, title.max.y), vec2(full.width(), BAR_H));
@@ -742,8 +777,15 @@ pub fn draw(app: &mut FilmcraftApp, ui: &mut egui::Ui, full: Rect) {
     let has_sel = app.ui.home.selected.is_some();
     let readable = sel.as_ref().is_some_and(|s| s.error.is_none());
     let mut fx = footer.min.x + 14.0;
-    for (id, label, enabled) in [("projects.export", tl!("Export"), readable), ("projects.import", tl!("Import"), true)] {
-        let r = Rect::from_min_size(pos2(fx, fy - 14.0), vec2(90.0, 28.0));
+    for (id, label, enabled) in [
+        ("projects.export", tl!("Export"), readable),
+        ("projects.import", tl!("Import"), true),
+        ("projects.package", tl!("Package"), readable),
+        ("projects.importPackage", tl!("Import Package"), true),
+    ] {
+        // wide enough for the label on one line (translations run longer)
+        let text_w = ui.painter().layout_no_wrap(label.to_string(), egui::FontId::proportional(13.0), Color32::WHITE).size().x;
+        let r = Rect::from_min_size(pos2(fx, fy - 14.0), vec2((text_w + 28.0).max(90.0), 28.0));
         if button(ui, &mut app.auto, r, id, label, false, &t, enabled) {
             acts.push(Act::Cmd(id.into(), json!({})));
         }
@@ -1036,6 +1078,8 @@ fn tile_response(app: &mut FilmcraftApp, resp: &egui::Response, e: &Entry, acts:
                 menu_item(ui, auto, &path, "reveal", tl!("Reveal in File Manager"), "projects.reveal", json!({"path": path}), acts);
                 if s.error.is_none() {
                     menu_item(ui, auto, &path, "export", tl!("Export…"), "projects.export", json!({"path": path}), acts);
+                    menu_item(ui, auto, &path, "package", tl!("Package…"), "projects.package", json!({"path": path}), acts);
+                    menu_item(ui, auto, &path, "package-file", tl!("Package as One File…"), "projects.package", json!({"path": path, "format": "file"}), acts);
                 }
                 ui.separator();
                 if *other {
@@ -1235,5 +1279,42 @@ fn dialogs(app: &mut FilmcraftApp, ctx: &egui::Context, acts: &mut Vec<Act>) {
             }
         }
         None => app.ui.home.dialog = None,
+    }
+}
+
+/// What Import Package imports for a picked file: a package folder's `manifest.json` stands for
+/// its folder; anything else (a `.fcpackage`) is itself.
+fn package_pick(path: String) -> String {
+    let p = std::path::Path::new(&path);
+    match p.parent() {
+        Some(d) if p.file_name().is_some_and(|n| n == "manifest.json") && !d.as_os_str().is_empty() => d.to_string_lossy().into_owned(),
+        _ => path,
+    }
+}
+
+/// A package size for the status line: "1.4 GB", "820 MB".
+fn package_size(bytes: u64) -> String {
+    let mb = bytes as f64 / 1_000_000.0;
+    if mb >= 1000.0 { format!("{:.1} GB", mb / 1000.0) } else { format!("{:.0} MB", mb.max(1.0)) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{package_pick, package_size};
+
+    #[test]
+    fn import_package_takes_a_manifest_as_its_folder() {
+        assert_eq!(package_pick("/a/Trip package/manifest.json".into()), "/a/Trip package");
+        assert_eq!(package_pick("/a/Trip.fcpackage".into()), "/a/Trip.fcpackage");
+        assert_eq!(package_pick("manifest.json".into()), "manifest.json", "no folder to stand for");
+        assert_eq!(package_pick("/a/other.json".into()), "/a/other.json");
+    }
+
+    #[test]
+    fn package_sizes_read_plainly() {
+        assert_eq!(package_size(0), "1 MB");
+        assert_eq!(package_size(820_000_000), "820 MB");
+        assert_eq!(package_size(1_400_000_000), "1.4 GB");
+        assert!(package_size(u64::MAX).ends_with("GB"));
     }
 }

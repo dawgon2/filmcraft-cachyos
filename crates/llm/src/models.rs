@@ -84,7 +84,7 @@ impl ModelInfo {
 
     /// Whether this is one of the fork's fine-tuned explainers (GRADE-PLAN G2.11b).
     pub fn is_tuned(&self) -> bool {
-        self.id.starts_with(TUNED_PREFIX)
+        self.id.starts_with(TUNED_PREFIX) || self.id.starts_with(ASSIST_TUNED_PREFIX)
     }
 
     /// The generation settings this model is evaluated with. The tuned explainers write a
@@ -104,10 +104,12 @@ impl ModelInfo {
 
 /// The id prefix of the fork's fine-tuned explainers (GRADE-PLAN G2.11b, docs/fork/TRAINING.md).
 pub const TUNED_PREFIX: &str = "filmcraft-explainer-";
+/// The id prefix of the fork's fine-tuned assistant models (FORK-PLAN §1a.97).
+pub const ASSIST_TUNED_PREFIX: &str = "filmcraft-assistant-";
 
 /// Where the fork publishes its fine-tuned explainers (docs/fork/TRAINING.md, "Publishing"):
 /// `<FORK_RELEASES><tag>/<file>`.
-pub const FORK_RELEASES: &str = "https://github.com/dawgon2/filmcraft-cachyos/releases/download/";
+pub const FORK_RELEASES: &str = "https://github.com/dawgon2/revolution/releases/download/";
 
 const APACHE: &str = "Apache-2.0";
 const APACHE_URL: &str = "https://www.apache.org/licenses/LICENSE-2.0";
@@ -243,12 +245,12 @@ static CATALOGUE: &[ModelInfo] = &[
     // download); the checksums pin the files of the test training run (2026-10-11).
     ModelInfo {
         id: "filmcraft-explainer-qwen05-v1-q8",
-        name: "FilmCraft explainer, Qwen2.5 0.5B tuned (8-bit)",
+        name: "Revolution explainer, Qwen2.5 0.5B tuned (8-bit)",
         family: Family::Qwen25,
         description: "Qwen2.5-0.5B-Instruct (revision 7ae5576) fine-tuned by the fork to explain grade nodes in the checked grammar. 97 % of the held-out cases pass the fact checker. Local file until published.",
         license: APACHE,
         license_url: APACHE_URL,
-        author: "Qwen team, Alibaba Cloud (base); FilmCraft fork (fine-tune)",
+        author: "Qwen team, Alibaba Cloud (base); Revolution fork (fine-tune)",
         source: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct",
         weights: "qwen05-v1-q8_0.gguf",
         tokenizer: "tokenizer.json",
@@ -256,12 +258,12 @@ static CATALOGUE: &[ModelInfo] = &[
     },
     ModelInfo {
         id: "filmcraft-explainer-smol360-v1-q8",
-        name: "FilmCraft explainer, SmolLM2 360M tuned (8-bit)",
+        name: "Revolution explainer, SmolLM2 360M tuned (8-bit)",
         family: Family::SmolLm2,
         description: "SmolLM2-360M-Instruct (revision a10cc15) fine-tuned by the fork to explain grade nodes in the checked grammar. 94 % of the held-out cases pass the fact checker. Local file until published.",
         license: APACHE,
         license_url: APACHE_URL,
-        author: "Hugging Face (base); FilmCraft fork (fine-tune)",
+        author: "Hugging Face (base); Revolution fork (fine-tune)",
         source: "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct",
         weights: "smol360-v1-q8_0.gguf",
         tokenizer: "tokenizer.json",
@@ -271,12 +273,12 @@ static CATALOGUE: &[ModelInfo] = &[
     // chosen in Settings, never automatically (not in TUNED_PREFERENCE)
     ModelInfo {
         id: "filmcraft-explainer-smol135-v1-q8",
-        name: "FilmCraft explainer, SmolLM2 135M tuned (8-bit, fast)",
+        name: "Revolution explainer, SmolLM2 135M tuned (8-bit, fast)",
         family: Family::SmolLm2,
         description: "SmolLM2-135M-Instruct (revision 12fd25f) fine-tuned by the fork like the 360M tune, for slower computers: about twice as fast, 34 / 36, 36 / 40 and 13 / 13 held-out cases pass the fact checker (the 360M tune: 34, 37, 13). Local file until published.",
         license: APACHE,
         license_url: APACHE_URL,
-        author: "Hugging Face (base); FilmCraft fork (fine-tune)",
+        author: "Hugging Face (base); Revolution fork (fine-tune)",
         source: "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct",
         weights: "smol135-v1-q8_0.gguf",
         tokenizer: "tokenizer.json",
@@ -378,12 +380,116 @@ pub fn verify(dir: &Path, m: &ModelInfo) -> Result<(), crate::LlmError> {
     Ok(())
 }
 
+/// The picture model (fork AI-PLAN AI4 item 2): Qwen3-VL 4B Instruct, run on FilmCraft's own code
+/// ([`crate::vl::VisionLanguage`]). Kept out of [`catalogue`]: it isn't a GGUF text model the
+/// explainer can select; its text half is converted to GGUF on this computer on first use
+/// ([`crate::convert`]). Only the files the runtime reads are pinned (the owner approved the
+/// download on 2026-10-15).
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct VisionModelInfo {
+    /// Folder name under the models directory.
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub license: &'static str,
+    pub license_url: &'static str,
+    pub author: &'static str,
+    pub source: &'static str,
+    pub files: &'static [ModelFile],
+}
+
+impl VisionModelInfo {
+    pub fn size(&self) -> u64 {
+        self.files.iter().map(|f| f.size).fold(0u64, u64::saturating_add)
+    }
+
+    /// All files present with their pinned sizes (contents were verified when downloaded).
+    pub fn installed(&self, models_dir: &Path) -> bool {
+        let d = models_dir.join(self.id);
+        self.files.iter().all(|f| std::fs::metadata(d.join(f.name)).is_ok_and(|md| md.len() == f.size))
+    }
+
+    /// Bytes still to download (files already present with the right size are skipped).
+    pub fn missing_bytes(&self, models_dir: &Path) -> u64 {
+        let d = models_dir.join(self.id);
+        self.files.iter().filter(|f| !std::fs::metadata(d.join(f.name)).is_ok_and(|md| md.len() == f.size)).map(|f| f.size).fold(0u64, u64::saturating_add)
+    }
+}
+
+pub static VISION_MODEL: VisionModelInfo = VisionModelInfo {
+    id: "qwen3-vl-4b-instruct",
+    name: "Qwen3-VL 4B Instruct (picture model)",
+    description: "Looks at the frame under the playhead when you ask about the picture. About 8.9 GB; \
+                  needs about 10 GB of free memory while it looks.",
+    license: APACHE,
+    license_url: APACHE_URL,
+    author: "Qwen team, Alibaba Cloud",
+    source: "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct",
+    files: &[
+        hf!(
+            "Qwen/Qwen3-VL-4B-Instruct",
+            "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+            "config.json",
+            "edac7703329133edfc53e46ac0081835144c99d7eebf28b71c732694d435224d",
+            1505
+        ),
+        hf!(
+            "Qwen/Qwen3-VL-4B-Instruct",
+            "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+            "model.safetensors.index.json",
+            "58a7841d7bff2548dd91577d216274a83cf1b500bc6a534b809d6c1b1707cf2b",
+            64742
+        ),
+        hf!(
+            "Qwen/Qwen3-VL-4B-Instruct",
+            "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+            "model-00001-of-00002.safetensors",
+            "30a01a0556622645a3cce87b655bbbbbc1f170c196099f1b666c93202c3339a9",
+            4967229296
+        ),
+        hf!(
+            "Qwen/Qwen3-VL-4B-Instruct",
+            "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+            "model-00002-of-00002.safetensors",
+            "046296a2a387efb43b0c997d5833c789604d168834f6e0d3064bf7bb13d002a6",
+            3908490048
+        ),
+        hf!(
+            "Qwen/Qwen3-VL-4B-Instruct",
+            "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+            "tokenizer.json",
+            "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7",
+            7032403
+        ),
+    ],
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn is_hex(s: &str, n: usize) -> bool {
         s.len() == n && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }
+
+    #[test]
+    fn the_vision_model_is_pinned_and_checksummed() {
+        let m = &VISION_MODEL;
+        assert_eq!(m.license, "Apache-2.0");
+        let mut names = std::collections::HashSet::new();
+        for f in m.files {
+            assert!(names.insert(f.name), "duplicate {}", f.name);
+            assert!(is_hex(f.sha256, 64), "{}", f.name);
+            assert!(f.url.starts_with("https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct/resolve/") && f.url.ends_with(f.name), "{}", f.url);
+            assert!(f.size > 0);
+        }
+        for need in ["config.json", "model.safetensors.index.json", "tokenizer.json"] {
+            assert!(names.contains(need), "{need}");
+        }
+        assert!((8_800_000_000..9_000_000_000).contains(&m.size()), "{}", m.size());
+        let dir = std::env::temp_dir().join(format!("fc-vision-missing-{}", std::process::id()));
+        assert!(!m.installed(&dir));
+        assert_eq!(m.missing_bytes(&dir), m.size());
     }
 
     #[test]

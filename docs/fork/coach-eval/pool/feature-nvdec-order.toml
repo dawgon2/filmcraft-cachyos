@@ -1,0 +1,45 @@
+# FEATURE-POOL batch feature-nvdec-order (FEATURE-QUEUE row "XPS c: on a laptop with Intel + NVIDIA, VA-API
+# on Intel decodes first and NVDEC takes only what it declines; `FILMCRAFT_NVDEC_FIRST=1` reverses").
+# Source: linux.md (linux.gpu), hardware.md (hardware.switches, its environment variables table).
+# Held-out test questions, written from the guide's text (README.md beside this file). A small change:
+# few honest questions. "By maker, not node number" is asked in `feature-gpu-rule`.
+# No creative family: decoder order is not a creative goal.
+# No recipe spot check: no NVIDIA card on the Dell.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-nvd-default"
+kind = "tool"
+q = "My laptop has Intel and NVIDIA graphics. Which one decodes my clips during playback?"
+sources = ["linux.gpu"]
+must = ["the Intel video engine (VA-API) decodes first", "NVIDIA's decoder (NVDEC) takes only the clips Intel's declines"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-nvd-why-intel"
+kind = "tool"
+q = "Why would Revolution decode on the weaker Intel chip instead of the NVIDIA card on a hybrid laptop?"
+sources = ["linux.gpu"]
+must = ["the Intel video engine decodes the 4:2:2 clips NVIDIA's can't"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-nvd-reverse"
+kind = "tool"
+q = "how do i force nvdec to decode first"
+sources = ["hardware.switches", "linux.gpu"]
+must = ["set FILMCRAFT_NVDEC_FIRST=1 before starting Revolution"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-nvd-resolve-words"
+kind = "tool"
+q = "Resolve has a decode option to use NVIDIA for H.265. On an Intel + NVIDIA laptop, how does Revolution split decoding?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["VA-API on the Intel GPU decodes first, NVDEC takes what it declines", "FILMCRAFT_NVDEC_FIRST=1 puts NVDEC first"]
+must_not = []
+style = "resolve-words"

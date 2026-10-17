@@ -1,0 +1,319 @@
+# AI-POOL batch proxies-1: proxies.md, render-cache.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-p1-proxy-badge"
+kind = "tool"
+q = "what's the little P on some clips in the project panel?"
+sources = ["proxies.what", "proxies.progress"]
+must = ["the clip has a proxy (blue P: ready and in use)", "grey P …: queued / being made; red P !: failed"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-which-get-proxies"
+kind = "pro-practice"
+q = "which clips does Revolution make proxies for automatically?"
+sources = ["proxies.auto"]
+must = ["4:2:2 H.265 / H.264 always (the video engine can't decode them)", "4K or larger long-GOP clips while the automatic setting is ticked", "ProRes, DNx and smaller H.264 are left alone"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-proxy-format"
+kind = "pro-practice"
+q = "what format and size are the automatic proxies?"
+sources = ["proxies.auto"]
+must = ["half size, H.265 10-bit on the graphics card's video engine", "ProRes 422 Proxy (half size) when the video engine can't encode", "no sound: audio plays from the original"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-proxy-folder"
+kind = "tool"
+q = "where are proxy files written?"
+sources = ["proxies.auto"]
+must = ["a Proxies folder next to the media (or Scratch Disks ▸ Captured and Generated when set)", "names carry a fingerprint of the original, so re-imports reuse them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-cli-proxies"
+kind = "tweak"
+q = "the command-line tool didn't make any proxies on import"
+sources = ["proxies.auto", "proxies.manual"]
+must = ["automatic proxies happen in the desktop app only", "CLI / headless: media.createProxies with preset auto"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-undo-proxy"
+kind = "pro-practice"
+q = "does attaching a finished proxy show up in my undo history?"
+sources = ["proxies.auto"]
+must = ["no: attaching a proxy isn't an edit; Undo / Redo keep it in place"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-slow-playback"
+kind = "pro-practice"
+q = "will proxies being made in the background make my playback drop frames?"
+sources = ["proxies.background"]
+must = ["no: the worker pauses while you play, scrub or export, and restarts half a second after you stop", "one proxy at a time, 4:2:2 first"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-progress-agent"
+kind = "tool"
+q = "how can a script see how far the proxy queue is?"
+sources = ["proxies.progress"]
+must = ["media.proxyStatus: counts of queued, building, failed and ready, overall progress, one row per clip"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-failed-proxy"
+kind = "tweak"
+q = "one clip shows a red P with an exclamation mark"
+sources = ["proxies.progress"]
+must = ["the proxy could not be made: hover the badge for the reason"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-auto-mode"
+kind = "pro-practice"
+q = "why does the picture get sharper when I pause?"
+sources = ["proxies.mode"]
+must = ["the default Auto mode uses the proxy while playing and the original when paused (sharp for focus and grading)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-judge-focus"
+kind = "approach"
+q = "I need to check focus on the original while playing"
+sources = ["proxies.mode"]
+must = ["set Proxies to Never use proxies (or click Toggle Proxies off) to play the originals", "Auto shows the original only when paused"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-toggle-button"
+kind = "tool"
+q = "the Toggle Proxies button, how does it work with Auto?"
+sources = ["proxies.mode"]
+must = ["it switches between Always use proxies (lit) and Never use proxies", "Auto comes back from the Preferences window"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-p1-prores-proxy"
+kind = "tool"
+q = "make ProRes quarter-size proxies for a few clips"
+sources = ["proxies.manual"]
+must = ["select the clips, Clip ▸ Proxy ▸ Create Proxies… with a ProRes preset (foreground job)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-cancel"
+kind = "tool"
+q = "stop the proxies that are being made right now"
+sources = ["proxies.manual"]
+must = ["media.cancelProxies (all, or items for some clips); half-written files are deleted"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-p1-relink-proxy"
+kind = "pro-practice"
+q = "I relinked a clip to a different take, will it show the old take's proxy?"
+sources = ["proxies.relink"]
+must = ["no: the fingerprint no longer matches, so the old proxy is detached and a new one made", "proxies you attached yourself are never touched"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-cache-what"
+kind = "approach"
+q = "do I need to render my timeline before playing it?"
+sources = ["render-cache.why", "render-cache.when"]
+must = ["no: the render cache (on by default, Smart) renders heavy parts in the background while you're idle", "rendering by hand still works"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-cache-stops"
+kind = "pro-practice"
+q = "the render cache stops every time I touch the timeline, is that a bug?"
+sources = ["render-cache.when"]
+must = ["no: it renders only after about a second idle and stops as soon as you play, scrub or export", "rendering while playing made the picture stutter"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-cache-order"
+kind = "pro-practice"
+q = "what does the render cache do first?"
+sources = ["render-cache.when"]
+must = ["stretches within 30 s of the playhead, nearest first", "then red, then yellow, then the rest", "proxies come before cache files"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-bar-colours"
+kind = "tool"
+q = "what do yellow and green mean on the line under the ruler?"
+sources = ["render-cache.bar"]
+must = ["yellow: should play in real time without rendering", "green: rendered (dim green: rendering now); red: will probably drop frames"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-undo-green"
+kind = "pro-practice"
+q = "after undo, why is the stretch green straight away?"
+sources = ["render-cache.correct"]
+must = ["cached files are named after everything in their picture, so the old version's files are still there"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-proxy-cache"
+kind = "pro-practice"
+q = "does switching proxies on and off throw away my render cache?"
+sources = ["render-cache.correct"]
+must = ["no: the cache always renders from the original media, so proxies don't count"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-cache-format"
+kind = "pro-practice"
+q = "what are the render cache files, quality-wise?"
+sources = ["render-cache.files"]
+must = ["2-second H.265 10-bit 4:2:0 pieces at the sequence size, each starting with a complete picture", "ProRes 422 HQ where the video encoder isn't available"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-delete-previews"
+kind = "tweak"
+q = "can I delete the FilmCraft Previews folder to free space?"
+sources = ["render-cache.files", "render-cache.settings"]
+must = ["yes, always safe: Revolution renders them again", "or Delete Unused in Settings ▸ Media Cache"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-cache-all"
+kind = "tool"
+q = "make the cache render everything, even simple clips"
+sources = ["render-cache.settings"]
+must = ["Settings ▸ Media Cache ▸ Render cache: All (cache.setMode)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-p1-cache-limit"
+kind = "tweak"
+q = "status line says the render cache size limit is reached"
+sources = ["render-cache.settings"]
+must = ["raise Render cache size limit (20 GB by default) or press Delete Unused", "Revolution deletes unused and least-recently-played files first, never the open sequence's"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-p1-claim"
+kind = "pro-practice"
+q = "the cache status shows unknownFiles piling up in my preview folder"
+sources = ["render-cache.notes"]
+must = ["files of no known project are never deleted", "if they're yours: Claim Files of No Known Project, then Delete Unused"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-p1-captions-cache"
+kind = "pro-practice"
+q = "if I change a caption do I have to re-render the cache?"
+sources = ["render-cache.notes"]
+must = ["no: captions are never part of the cached pictures; they're drawn live on top"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-p1k-auto"
+q = "automatic proxies for 6.2k"
+kind = "how"
+origin = "agent"
+page = "proxies.md"
+heading = "Automatic proxies"
+status = "covered"
+facts = ["4K or larger long-GOP clips"]
+
+[[coach]]
+id = "pool-p1k-badge"
+q = "proxy badges in the project panel"
+kind = "what-for"
+origin = "agent"
+page = "proxies.md"
+heading = "Watching the progress"
+status = "covered"
+facts = ["P …, P 42%, P, P !"]
+
+[[coach]]
+id = "pool-p1k-toggle"
+q = "toggle proxies button"
+kind = "premiere-word"
+origin = "agent"
+page = "proxies.md"
+heading = "Choosing when proxies are used"
+status = "covered"
+facts = ["Always / Never use proxies"]
+
+[[coach]]
+id = "pool-p1k-cancel"
+q = "cancel proxy creation"
+kind = "how"
+origin = "agent"
+page = "proxies.md"
+heading = "Making or stopping proxies yourself"
+status = "covered"
+facts = ["media.cancelProxies"]
+
+[[coach]]
+id = "pool-p1k-bar"
+q = "render bar colours"
+kind = "what-for"
+origin = "agent"
+page = "render-cache.md"
+heading = "What the render bar shows"
+status = "covered"
+facts = ["yellow, red, dim green, green"]
+
+[[coach]]
+id = "pool-p1k-limit"
+q = "render cache size limit"
+kind = "how"
+origin = "agent"
+page = "render-cache.md"
+heading = "Settings and commands"
+status = "covered"
+facts = ["20 GB"]
+
+[[coach]]
+id = "pool-p1k-files"
+q = "where are render cache files stored"
+kind = "where"
+origin = "agent"
+page = "render-cache.md"
+heading = "How the files are made"
+status = "covered"
+facts = ["FilmCraft Previews/<project name>/"]

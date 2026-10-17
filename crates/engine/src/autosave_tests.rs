@@ -245,3 +245,26 @@ fn dialog_folders_are_remembered_per_kind_and_hostile_entries_are_ignored() {
     let back: autosave::Preferences = serde_json::from_value(serde_json::to_value(&p).unwrap()).unwrap();
     assert_eq!(back.dialogs.last_folder("project"), Some("/home/me/Projects"));
 }
+
+/// STORAGE-PLAN S1 item 4: a project on a network share auto-saves on this computer (the data
+/// directory's Auto-Save folder), not next to the project on the share.
+#[test]
+fn a_project_on_a_share_auto_saves_locally() {
+    let d = temp_dir("share-autosave");
+    let share = d.join("share");
+    let data = d.join("data");
+    std::fs::create_dir_all(&share).unwrap();
+    crate::netfs::test_mounts::add_share(&share);
+    let proj = share.join("onshare.fcproj").to_string_lossy().to_string();
+    let mut s = demo();
+    start(&mut s, &data);
+    let saved = s.execute("file.saveAs", json!({"path": proj})).unwrap();
+    assert!(saved["localCopy"].as_str().is_some_and(|c| c.starts_with(&*data.to_string_lossy())), "{saved}");
+    s.execute("sequence.addEdit", json!({"seconds": 1.0})).unwrap();
+    let r = s.execute("file.autoSaveNow", json!({})).unwrap();
+    let path = r["path"].as_str().unwrap().to_string();
+    assert!(path.starts_with(&*data.join("Auto-Save").to_string_lossy()), "{path}");
+    assert!(!share.join("Auto-Save").exists());
+    s.shutdown();
+    let _ = std::fs::remove_dir_all(&d);
+}

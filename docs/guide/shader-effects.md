@@ -9,7 +9,7 @@
 **[Fork]**
 
 A **shader effect** is a small program that runs on the graphics card for every pixel of a clip.
-FilmCraft ships four examples and loads your own from a folder; they appear in the **Effects** panel
+Revolution ships four examples and loads your own from a folder; they appear in the **Effects** panel
 under **Video Effects ▸ User**, with the examples in its **Stylize** group:
 
 - **Chromatic Aberration**: coloured fringes that grow towards the corners, like a cheap lens.
@@ -34,7 +34,7 @@ says so. Exports in this fork use the GPU too.
 **[Fork]**
 
 An effect is one text file ending in `.wgsl` (WebGPU's shading language) in the **Effects** folder
-of FilmCraft's data folder. Click **Open Effects Folder** at the bottom of **Video Effects ▸ User**
+of Revolution's data folder. Click **Open Effects Folder** at the bottom of **Video Effects ▸ User**
 to open it (it is created when missing), add or edit a file, then click **Reload** (command
 `effects.reloadUser`). The file name becomes the effect's id: `My Look.wgsl` is `user.my-look`.
 
@@ -61,7 +61,7 @@ fn effect(px: vec2<f32>) -> vec4<f32> {
   `time` (seconds since the clip started), `load(vec2<i32>)` (one pixel) and `sample(vec2<f32>)`
   (smoothly between pixels; outside the picture the nearest edge pixel).
 - **Colours** are display colours (sRGB, 0 to 1) with the transparency separate, the way a paint
-  program shows them; FilmCraft converts to and from its working colours around your code and keeps
+  program shows them; Revolution converts to and from its working colours around your code and keeps
   the result between 0 and 1.
 - Not allowed (the app owns them): your own bindings, entry points, storage or workgroup memory,
   and names starting with `fx_`. A file can be at most 256 KB.
@@ -135,7 +135,7 @@ fn effect(px: vec2<f32>) -> vec4<f32> {
 
 ## When an effect doesn't work
 
-> id: shader-effects.trouble | does: explains broken files, slow effects turned off, quarantine and missing effects | cmd: effects.listUser, effects.reloadUser, effects.unquarantine | resolve: — | premiere: — | when: an effect shows a warning sign, is missing, or stopped working | see: shader-effects.write
+> id: shader-effects.trouble | does: explains broken files, slow effects turned off, quarantine and missing effects | cmd: effects.listUser, effects.reloadUser, effects.unquarantine | resolve: — | premiere: — | when: an effect shows a warning sign, is missing, or stopped working; a custom effect switched itself off during playback (too slow) | see: shader-effects.write
 
 **[Fork]**
 
@@ -143,10 +143,10 @@ fn effect(px: vec2<f32>) -> vec4<f32> {
   to read the message, which names the line in your file. Fix it and click **Reload**. Command
   `effects.listUser` gives every file's outcome.
 - **Too slow**: an effect that needs more than 50 ms per picture at 1080p (more for bigger pictures)
-  three times in a row is turned off until FilmCraft restarts, with a message in the status line.
+  three times in a row is turned off until Revolution restarts, with a message in the status line.
   The picture then shows without it.
 - **The graphics card stopped** while an effect ran (a shader that never finishes can hang the
-  card until the driver resets it): FilmCraft remembers that effect and loads it as broken next
+  card until the driver resets it): Revolution remembers that effect and loads it as broken next
   time ("the GPU stopped while this effect was running"). Change the file, which turns it into a new
   version, or run `effects.unquarantine` (with `id` for one effect, without for all) to try it
   again.

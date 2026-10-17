@@ -49,7 +49,7 @@ pub fn add_bookmark(existing: &str, uri: &str, now: &str) -> Option<String> {
     }
     let count = count.saturating_add(1);
     let entry = format!(
-        "  <bookmark href=\"{uri}\" added=\"{added}\" modified=\"{now}\" visited=\"{now}\">\n    <info>\n      <metadata owner=\"http://freedesktop.org\">\n        <mime:mime-type type=\"application/x-filmcraft-project\"/>\n        <bookmark:applications>\n          <bookmark:application name=\"FilmCraft\" exec=\"&apos;filmcraft %u&apos;\" modified=\"{now}\" count=\"{count}\"/>\n        </bookmark:applications>\n      </metadata>\n    </info>\n  </bookmark>\n"
+        "  <bookmark href=\"{uri}\" added=\"{added}\" modified=\"{now}\" visited=\"{now}\">\n    <info>\n      <metadata owner=\"http://freedesktop.org\">\n        <mime:mime-type type=\"application/x-filmcraft-project\"/>\n        <bookmark:applications>\n          <bookmark:application name=\"Revolution\" exec=\"&apos;filmcraft %u&apos;\" modified=\"{now}\" count=\"{count}\"/>\n        </bookmark:applications>\n      </metadata>\n    </info>\n  </bookmark>\n"
     );
     if !body.ends_with('\n') {
         body.push('\n');
@@ -122,7 +122,7 @@ pub fn add_at(file: &Path, project: &Path, now: &str) -> Result<(), String> {
         Err(_) => (String::new(), 0o600),
     };
     let uri = crate::desktop::file_uri(project);
-    let text = add_bookmark(&existing, &uri, now).ok_or_else(|| format!("{} isn't a bookmark file FilmCraft can edit", file.display()))?;
+    let text = add_bookmark(&existing, &uri, now).ok_or_else(|| format!("{} isn't a bookmark file Revolution can edit", file.display()))?;
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }

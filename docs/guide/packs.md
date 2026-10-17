@@ -18,7 +18,7 @@ another computer or give them to someone else in one file:
 - your installed **graphics templates** (`.fcgt`: lower thirds, titles).
 
 Neither Premiere nor Resolve has one file for all three: Premiere exports presets (`.prfpset`) and
-Motion Graphics templates separately; Resolve exports PowerGrades and LUTs separately. A FilmCraft
+Motion Graphics templates separately; Resolve exports PowerGrades and LUTs separately. A Revolution
 pack is a plain zip archive with a small `pack.json` list inside, so you can also look into it with
 any zip tool.
 
@@ -50,7 +50,7 @@ library, so open the project you want them in first.
 Importing never overwrites anything: a preset or template whose name you already have arrives as
 "Name (2)", and a LUT that is exactly one you already have is reused instead of added twice.
 
-Packs come from other people, so FilmCraft checks them before taking anything: only the three
+Packs come from other people, so Revolution checks them before taking anything: only the three
 kinds of files above are accepted, with plain names (no folders or paths that could reach outside
 the library), at most 2048 files and 512 MB unpacked, and every LUT and template must read
 correctly. Adobe `.mogrt` files inside a pack are refused. If anything is wrong, nothing from that

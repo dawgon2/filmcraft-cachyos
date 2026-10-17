@@ -73,7 +73,10 @@ def load_examples(path: Path, tok: Tokenizer, max_len: int):
             continue
         ex = json.loads(line)
         msgs = {m["role"]: m["content"] for m in ex["messages"]}
-        p = tok.encode(chat_prompt(msgs["system"], msgs["user"]), add_special_tokens=False).ids
+        # `prompt`: the exact prompt text the app sends (assist_traindata: SmolLM3's template, which
+        # isn't plain ChatML); otherwise the explainer's ChatML
+        text = ex.get("prompt") or chat_prompt(msgs["system"], msgs["user"])
+        p = tok.encode(text, add_special_tokens=False).ids
         a = tok.encode(msgs["assistant"] + IM_END, add_special_tokens=False).ids
         if len(p) + len(a) > max_len:
             skipped += 1
@@ -190,7 +193,12 @@ def main():
     mean_len = sum(len(p) + len(q) for p, q in train) / max(len(train), 1)
 
     m = tinylm.load(a.base, device, dtype)
-    original_keys = list(safe_open(str(a.base / "model.safetensors"), "pt").keys())
+    index = a.base / "model.safetensors.index.json"
+    if index.exists():
+        # sharded base (SmolLM3-3B): the names in the index's order; the merged output is one file
+        original_keys = list(json.loads(index.read_text())["weight_map"].keys())
+    else:
+        original_keys = list(safe_open(str(a.base / "model.safetensors"), "pt").keys())
     params = tinylm.add_lora(m, a.rank, a.alpha, a.dropout)
     m.checkpoint = not a.no_checkpoint
     n_lora = sum(p.numel() for p in params)
@@ -242,6 +250,8 @@ def main():
                 print(f"step {step}/{total} epoch {step / steps_per_epoch:.2f} train {tr:.4f} val {v:.4f} ({el / 60:.1f} min)", flush=True)
                 if v < best - 1e-4:
                     best, best_step, best_state, bad = v, step, tinylm.lora_state(m), 0
+                    # on disk too, so a run that dies (a crash, the time limit, a reboot) keeps it
+                    torch.save(best_state, a.run_dir / "best-lora.pt")
                 else:
                     bad += 1
                     if bad >= a.patience:

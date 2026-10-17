@@ -1,11 +1,15 @@
 # RAW-PLAN.md: CinemaDNG and ProRes RAW
 
-Written 2026-10-12 (live session, with the owner). Order: FORK-PLAN §1a.6 (R1 → R2 after
-AUDIO-PLAN A3, before D). Every FORK-PLAN rule applies (never crash, `Tick` time, everything is a
+Written 2026-10-12 (live session, with the owner). Order: FORK-PLAN §1a.6 (R2 after G4, before D;
+R1 is on the maybe list, §1a.81). Every FORK-PLAN rule applies (never crash, `Tick` time, everything is a
 command, layering, `cargo xtask ci` per phase, a build and a `cachyos` publish per phase).
 BRAW, R3D and ARRIRAW are **not** in this plan (closed SDKs only; FORK-PLAN §1a.35 f).
 
 ## Phase R1: CinemaDNG, pure Rust (≈ 15–25 h; upstream-contributable)
+
+**Not scheduled: on the maybe list (owner, 2026-10-15, FORK-PLAN §1a.81).** Upstream now has its own clean-room
+DNG / CinemaDNG decoder (`crates/dng`, #1065). Reconsider only on the owner's word, after checking upstream's crate
+against his files. R2 stays in the plan.
 
 Clean-room from Adobe's published DNG specification (1.4+) and the TIFF / EP specs only; never
 from GPL decoders (dcraw, LibRaw, RawTherapee, darktable).

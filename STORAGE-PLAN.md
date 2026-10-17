@@ -7,7 +7,7 @@ layering: network code stays below the UI and never in L0, `cargo xtask ci` per 
 and a `cachyos` publish per phase). Generic, not fork-only: written to be upstream-contributable.
 Not in scope: multi-user collaboration (several people editing one project at once, ≈ 100+ h).
 
-## Phase S1: network shares done right (≈ 10–20 h)
+## Phase S1: network shares done right, and project packages (≈ 18–35 h)
 
 SMB / NFS shares mounted by Plasma (kio-fuse), fstab or autofs already look like local folders;
 this phase makes FilmCraft safe and smooth on them.
@@ -23,12 +23,37 @@ this phase makes FilmCraft safe and smooth on them.
    always keep a local backup copy of the last good save (and autosaves locally), because rename
    over SMB isn't always atomic. A save that fails says so and keeps the local copy.
 
+5. **Send a whole project (owner, 2026-10-15, FORK-PLAN §1a.82): a project package.** Today
+   `projects.export` writes `<name> archive` (the `.fcproj` plus copies of its media) and Import takes
+   only the `.fcproj` (clips then need Link Media). Make it one complete, checked package:
+   - **Everything the edit needs:** the `.fcproj` (timeline, audio mix and effects, grade nodes,
+     compositions; LUTs are already embedded), all media it uses incl. nested-sequence and comp
+     sources, voice-over takes, stills gallery images, title fonts that aren't bundled, user WGSL
+     effects from the Effects folder, and subtitles / caption files. Optional: proxies; never the
+     render cache (rebuilt on the other side) or downloaded models (named in the manifest instead).
+   - **Options:** full media, or **trimmed to the used ranges + handles** (default 1 s; long-GOP
+     camera files are cut at keyframes without re-encoding where the container allows, else copied
+     whole: never a silent re-encode); one folder or one `.fcpackage` file (zip, stored, so 6.2K
+     media isn't recompressed); a size estimate before it starts.
+   - **A manifest** (relative paths, sizes, SHA-256 per file, FilmCraft version, what was left out
+     and why) so the receiver can verify it; a damaged or partial package says what's missing.
+   - **Import a package:** open the `.fcpackage` / folder, verify, unpack to a chosen place, and
+     **relink everything automatically** (no Link Media step); a newer project version than the
+     app warns instead of failing.
+   - Commands `projects.package` (with `trim`, `handles`, `proxies`, `format`, `wait`) and
+     `projects.importPackage`; a background job with progress and Stop; never crash on a full
+     disk or a vanished source (clean error, partial output removed).
+   - Works to any destination folder, so a mounted share (items 1–4) is already a way to send it.
+
 **Accept:** with a local Samba / NFS server in a container or VM (or the Dell as the server): play
 and edit a project stored on the share; pull the network mid-playback and mid-save — UI stays
 responsive, clips go offline, no data lost (the local backup opens), reconnect relinks; 6.2K
 playback from the cache matches local playback (synthetic). Tag `storage-1`.
 
-## Phase S2: built-in remote locations (≈ 30–60 h)
+## Phase S2: built-in remote locations, and sending projects (≈ 35–70 h)
+
+**Owner, 2026-10-17 (FORK-PLAN §1a.104):** S2 runs right after `xps-1`, and it renames the one-file package from
+`.fcpackage` to **`.revolution`** (both open; new packages are `.revolution`).
 
 Connect without mounting anything.
 1. **Backends** behind one `RemoteStore` trait (list, stat, read range, write, rename, lock):
@@ -46,6 +71,11 @@ Connect without mounting anything.
    over, with a warning); conflict copies instead of overwrites; the last N versions kept on the
    server; local backup always (S1.4).
 5. Commands `remote.*` (add, test, list, import, open, save, unlock) for CLI / MCP.
+6. **Send / receive a project package (FORK-PLAN §1a.82):** "Send Project…" packages (S1.5) and
+   uploads to a remote location with progress and resume (large files in chunks; S3 multipart);
+   "Receive Project…" downloads, verifies the manifest and opens it relinked. Optional upload
+   without a local copy (stream the package) when disk space is short. `remote.sendProject` /
+   `remote.receiveProject`.
 
 **Accept:** against local test servers (Nextcloud or another WebDAV server, OpenSSH, MinIO, in
 containers): browse, import, open and save on each; a second "machine" (another process) sees the

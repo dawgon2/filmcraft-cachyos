@@ -4,7 +4,7 @@ Status: **written** (install, workflow, X-M5 import, hardware path).
 
 ## Install
 
-> id: getting-started.install | does: gets FilmCraft running: a ready-made Linux build or a build from source, then the first launch | resolve: installer from Blackmagic's site | premiere: Creative Cloud app | when: "how do I install FilmCraft?" | see: projects.opening, getting-started.workflow
+> id: getting-started.install | does: gets Revolution running: a ready-made Linux build or a build from source, then the first launch | resolve: installer from Blackmagic's site | premiere: Creative Cloud app | when: "how do I install Revolution?"; what graphics card it needs | see: projects.opening, getting-started.workflow
 
 **[Fork]**
 
@@ -16,41 +16,41 @@ release with a `.tar.gz` file and notes saying what is new.
 
 1. Download the `filmcraft-fork-<phase>-linux-x86_64.tar.gz` file of the newest release.
 2. Unpack it into a folder of your own (no administrator rights needed).
-3. Start the FilmCraft program in that folder. Nothing is installed system-wide; to remove
-   FilmCraft, delete the folder.
+3. Start the Revolution program in that folder. Nothing is installed system-wide; to remove
+   Revolution, delete the folder.
 
-**From source.** FilmCraft is pure Rust, so the Rust toolchain is all you need.
+**From source.** Revolution is pure Rust, so the Rust toolchain is all you need.
 
 1. Install Rust with `rustup` (the stable toolchain).
 2. Get the source and, in its folder, run `cargo run --release -p filmcraft`. The first build
    takes a while; later ones only rebuild what changed.
 3. Optional: Japanese text in the interface and in titles needs the fonts of the separate
-   craft-fonts repository. Clone it next to FilmCraft and build with `CRAFT_FONTS_DIR` set to its
+   craft-fonts repository. Clone it next to Revolution and build with `CRAFT_FONTS_DIR` set to its
    folder. Without it everything else works the same.
 
 **What your computer needs.** A graphics card that supports Vulkan (most AMD, Intel and NVIDIA
 cards from the last ten years): playback, grading and effects run on it. For smooth playback of
 H.265 (HEVC) and H.264 camera files, the card's video engine is used through VA-API when it is
-there (AMD and Intel on Linux); otherwise FilmCraft decodes in software, which is slower, and
+there (AMD and Intel on Linux); otherwise Revolution decodes in software, which is slower, and
 proxies help ([proxies](proxies.md)).
 
-**The first launch.** In this fork FilmCraft opens on the **Project Manager**, where you pick or
+**The first launch.** In this fork Revolution opens on the **Project Manager**, where you pick or
 make a project ([projects](projects.md#opening-the-project-manager)). The workflow (Resolve
 or Premiere: page layout, names and keyboard) is chosen in the next section; you can change it at
 any time.
 
-Where this differs: Resolve and Premiere come with installers and accounts; FilmCraft has no
+Where this differs: Resolve and Premiere come with installers and accounts; Revolution has no
 installer, no sign-in and no licence key.
 
 ## Choose your workflow: Premiere or Resolve
 
-> id: getting-started.workflow | does: one setting switches between the Premiere and Resolve layouts, names and keys | ui: page.* | cmd: settings.setWorkflow, settings.getWorkflow, app.settings.general | resolve: Resolve's pages and names | premiere: Premiere's workspaces and names | when: first launch; your hands know the other app | see: pages.what
+> id: getting-started.workflow | does: one setting switches between the Premiere and Resolve layouts, names and keys | ui: page.* | cmd: settings.setWorkflow, settings.getWorkflow, app.settings.general | resolve: Resolve's pages and names | premiere: Premiere's workspaces and names | when: first launch; your hands know the other app; Sequence vs Timeline names | see: pages.what
 
-**[Resolve-style] [Fork]** on top of **[FilmCraft]**'s Premiere-style layout
+**[Resolve-style] [Fork]** on top of **[Revolution]**'s Premiere-style layout
 
 ### Why
 
-FilmCraft is laid out like Premiere Pro. If your hands know DaVinci Resolve, one setting switches
+Revolution is laid out like Premiere Pro. If your hands know DaVinci Resolve, one setting switches
 the keyboard and the window furniture to Resolve's habits, and switching back puts everything as
 it was.
 
@@ -87,7 +87,7 @@ starts in Resolve. Preferences written before RS1 are switched to Resolve **once
 the new build starts, through the same switch as above, so your previous keyboard preset and dark
 theme are remembered and come back when you choose **Premiere Pro**. After that, your choice is
 final: a Premiere workflow you picked yourself is never switched again. An unreadable preferences
-file starts over in Resolve. Upstream FilmCraft builds (without the fork feature) keep Premiere as
+file starts over in Resolve. Upstream Revolution builds (without the fork feature) keep Premiere as
 the default and never migrate. A session without a data directory (the headless `filmcraft-cli`,
 its MCP server, or the app when it has no data folder) also starts in Resolve, with the DaVinci
 Resolve Compatible keys and the Resolve theme, so `settings.getWorkflow` and the keyboard agree.
@@ -125,7 +125,7 @@ normal translation.
 | Render Cache (Render Cache In to Out) | Render In to Out, render previews |
 | Working Folders | Scratch Disks |
 
-If you know Premiere, read "Timeline" as "Sequence" everywhere in this guide; where a page names a
+A timeline and a sequence are the same thing. If you know Premiere, read "Timeline" as "Sequence" everywhere in this guide; where a page names a
 renamed thing it gives both terms, for example "Timeline (Premiere: Sequence)". The Export mode
 is the Deliver page in this workflow ([pages.md](pages.md)), and the collect / consolidate
 "Project Manager…" item is relabelled by the Project Manager home screen (RS2), not by this
@@ -141,7 +141,7 @@ overlay.
 
 ### The Resolve keymap
 
-Only keys that Blackmagic documents publicly are assigned; everything else keeps its FilmCraft
+Only keys that Blackmagic documents publicly are assigned; everything else keeps its Revolution
 default. Ctrl takes the place of Cmd on Linux and Windows. For the colour work:
 
 | Keys | Command |
@@ -160,22 +160,22 @@ full list.
 
 ### If you know Resolve
 
-The pages are FilmCraft workspaces, not separate programs, so edits, colour and export share one
+The pages are Revolution workspaces, not separate programs, so edits, colour and export share one
 project and one undo history; each page's layout can be rearranged and saved ([pages.md](pages.md)). The keymap is a convenience, not a copy of Resolve.
 
-### Window frame: FilmCraft's or your desktop's
+### Window frame: Revolution's or your desktop's
 
 **[Fork]** On Linux and Windows, Settings ▸ General, just below Workflow (`general.titleBar`),
 chooses who draws the top edge of the window:
 
-- **FilmCraft (like DaVinci Resolve)**, the default: no desktop frame. Minimise, maximise and close
+- **Revolution (like DaVinci Resolve)**, the default: no desktop frame. Minimise, maximise and close
   sit at the right end of the top row; drag the top row to move the window, double-click it to
   maximise, and drag the window's outer edge or corners to resize it. Dragging to a screen edge
   still tiles the window, and Plasma's keyboard shortcuts (Meta+Up and so on) still work.
 - **System**: your desktop's own frame (Plasma's decoration theme, for example Breeze or Klassy),
   with its window menu (Keep Above, window rules), shadow and rounded corners.
 
-Which to pick is taste: FilmCraft's gives the picture a few more pixels and looks like Resolve;
+Which to pick is taste: Revolution's gives the picture a few more pixels and looks like Resolve;
 the desktop's matches your other windows and keeps the decoration's extras. On a tiling window
 manager the System choice usually fits better. The change applies when you press OK. macOS
 always keeps its own window buttons.
@@ -184,7 +184,7 @@ always keeps its own window buttons.
 
 > id: getting-started.import-xm5 | does: from a Fujifilm X-M5 card to a graded sequence: copy, import, colour, proxies, sequence | cmd: card.offload, file.import, clip.interpretFootage, sequence.colorSettings, media.createProxies | resolve: Clone tool, Media Pool import, colour-managed project | premiere: Media Browser ingest, Interpret Footage, proxies | when: every X-M5 shoot | see: cards.insert, color.color-management.input, proxies.auto
 
-**[FilmCraft]** **[Fork]**
+**[Revolution]** **[Fork]**
 
 1. **Copy the card.** Put the SD card in: the card bar offers a verified copy (`card.offload`,
    see [cards.md](cards.md)). Format the card in the camera only after the copy says it is
@@ -192,7 +192,7 @@ always keeps its own window buttons.
 2. **Import the copy** (File ▸ Import, `file.import`): the clips are H.265 (HEVC) `.MOV` files,
    10-bit.
 3. **Check the colour.** F-Log2 clips are meant to look flat and grey before you grade them.
-   FilmCraft reads the colour space from the file; if a clip looks wrong after grading starts,
+   Revolution reads the colour space from the file; if a clip looks wrong after grading starts,
    set it by hand with Interpret Footage ▸ **Fujifilm F-Log2 / F-Gamut** (`clip.interpretFootage`,
    see [color/color-management.md](color/color-management.md)).
 4. **Let the proxies build.** Heavy clips such as 6.2K get a smaller proxy in the background while

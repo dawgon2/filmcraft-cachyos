@@ -1,0 +1,478 @@
+# AI-POOL batch color-1: color/README.md, color/color-management.md, color/curves.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c1-flat-why"
+kind = "approach"
+q = "why does my fuji footage look so washed out and grey straight out of the camera"
+sources = ["color.readme.idea", "color.color-management.why"]
+must = ["F-Log2 is flat on purpose: it keeps as much of what the sensor saw as possible", "colour management translates it into the working space"]
+must_not = ["says the footage is broken or badly exposed"]
+style = "beginner"
+
+[[question]]
+id = "pool-c1-three-jobs"
+kind = "approach"
+q = "what are the big stages of colour work, in order?"
+sources = ["color.readme.idea"]
+must = ["translate into a working space", "grade: balance, exposure, contrast, saturation, look", "deliver: convert to Rec. 709"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-pipeline-lumetri"
+kind = "node-role"
+q = "Does Lumetri get applied before or after my grade nodes?"
+sources = ["color.readme.idea", "color.lumetri.order"]
+must = ["after the grade nodes: nodes first to last, then the clip's effects (Lumetri is one of them)", "the output transform comes last"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-where-gallery"
+kind = "tool"
+q = "where do I find the gallery and the stills?"
+sources = ["color.readme.where", "color.readme.layout"]
+must = ["Color Grading workspace (the Color page in the Resolve workflow)", "Gallery panel on the left"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-split-adjacent"
+kind = "tool"
+q = "can I see the shot before and after the one I'm grading side by side?"
+sources = ["color.readme.layout"]
+must = ["split screen: Adjacent Clips (previous, current, next)", "Ctrl+Alt+W or View ▸ Split Screen"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-split-selected"
+kind = "multi-step"
+q = "I want to compare 8 interview shots at once while I match them"
+sources = ["color.readme.layout"]
+must = ["select the clips in the timeline first", "split screen Selected Clips (up to 16)", "click a tile to grade that clip"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-viewer-zoom"
+kind = "tweak"
+q = "how do i zoom into the picture on the color page and get back to fit"
+sources = ["color.readme.layout"]
+must = ["scroll the mouse wheel over the picture to zoom in", "scrolling back out stops at Fit", "the zoom menu under the picture has fixed sizes"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c1-reset-layout"
+kind = "tool"
+q = "I dragged the panels around on the Color page and messed it up, how do I put it back?"
+sources = ["color.readme.layout"]
+must = ["Window ▸ Workspaces ▸ Reset to Saved Layout"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-first-grade"
+kind = "multi-step"
+q = "never graded anything before, walk me through a first grade on a log clip"
+sources = ["color.readme.first-grade", "color.primaries.flog2-steps"]
+must = ["Add Node in the Primaries panel", "set colour management first if the picture is flat", "Gain up until the brightest part looks right, then a little Contrast and Saturation", "Bypass to compare"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-before-after"
+kind = "tool"
+q = "quick way to flip between graded and ungraded?"
+sources = ["color.readme.first-grade"]
+must = ["Bypass in the Primaries panel, press again to restore"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c1-undo-drag"
+kind = "tweak"
+q = "if I drag a wheel for a long time does undo take it all back in one go?"
+sources = ["color.readme.first-grade"]
+must = ["dragging a control counts as one undo step however long you drag"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-gap-layer-node"
+kind = "gap"
+q = "Is there a layer mixer node like in Resolve?"
+sources = ["color.readme.not-yet", "color.nodes.later"]
+must = ["parallel and layer nodes are not here yet (they arrive with C2)"]
+must_not = ["invents a layer-mixer node or command"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c1-cm-why"
+kind = "pro-practice"
+q = "why bother with a working colour space at all instead of grading the log directly?"
+sources = ["color.color-management.why"]
+must = ["grading numbers only mean the same from clip to clip when every clip is translated into one working space", "log squeezes the range and F-Gamut is wider than the screen"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-pivot-default"
+kind = "pro-practice"
+q = "why does the pivot default to 0.336 and not 0.5?"
+sources = ["color.color-management.why"]
+must = ["mid grey in DaVinci Intermediate sits at about 0.336"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-same-numbers"
+kind = "pro-practice"
+q = "I copied a grade from a Rec. 709 sequence into a DaVinci Wide Gamut one and it looks completely different"
+sources = ["color.color-management.why", "color.color-management.working"]
+must = ["nodes work on the working space's signal, so the same numbers look different in each working space", "change a sequence's working space only deliberately"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-interpret-flog2"
+kind = "multi-step"
+q = "my F-Log2 clip still looks grey after import, how do I tell Revolution what it is?"
+sources = ["color.color-management.input"]
+must = ["select the clip in the Project panel", "Clip ▸ Modify ▸ Interpret Footage", "Override media colour space: Fujifilm F-Log2 / F-Gamut", "OK"]
+must_not = ["tells the user to add a CST node or a LUT by hand"]
+style = "beginner"
+
+[[question]]
+id = "pool-c1-flog-vs-flog2"
+kind = "tweak"
+q = "I shot plain F-Log on an older body, which input should I pick?"
+sources = ["color.color-management.input"]
+must = ["Fujifilm F-Log / F-Gamut (flog-fgamut), not the F-Log2 entry"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-input-auto"
+kind = "tweak"
+q = "I set the wrong colour space on a clip, how do I undo the override?"
+sources = ["color.color-management.input"]
+must = ["Interpret Footage, choose Use file metadata to go back to automatic"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-input-resolve"
+kind = "tool"
+q = "where's the per-clip Input Color Space setting?"
+sources = ["color.color-management.input", "color.color-management.resolve"]
+must = ["Interpret Footage on the clip (Clip ▸ Modify)", "there is no input transform node: it is applied before the first node"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-c1-working-dwg"
+kind = "multi-step"
+q = "how do I set my sequence to DaVinci Wide Gamut before grading?"
+sources = ["color.color-management.working"]
+must = ["Sequence ▸ Color Management", "Working Color Space: DaVinci Wide Gamut / Intermediate", "OK"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-working-choices"
+kind = "tool"
+q = "what working spaces can a sequence use?"
+sources = ["color.color-management.working"]
+must = ["Rec. 709 (the default), Rec. 2100 PQ, Rec. 2100 HLG, DaVinci Wide Gamut / Intermediate"]
+must_not = ["invents ACES or another working space"]
+style = "pro"
+
+[[question]]
+id = "pool-c1-autotonemap"
+kind = "tool"
+q = "my HDR iPhone clips clip in a normal Rec. 709 timeline, can it fold them in?"
+sources = ["color.color-management.working", "color.color-management.output"]
+must = ["Auto tone map media (HDR and log into SDR) in Sequence Color Management", "it folds HDR clips into Rec. 709 instead of clipping"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-output-rolloff"
+kind = "pro-practice"
+q = "what happens to highlights brighter than Rec. 709 when I grade in Wide Gamut?"
+sources = ["color.color-management.output"]
+must = ["converted to Rec. 709 at the end with a highlight roll-off (BT.2390 tone mapping)", "colours outside Rec. 709 are desaturated into it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-gap-output-knob"
+kind = "gap"
+q = "can I control how hard the highlight roll-off is on output?"
+sources = ["color.color-management.output"]
+must = ["no separate control yet: a per-grade highlight knob is planned"]
+must_not = ["invents a roll-off slider"]
+style = "gap"
+
+[[question]]
+id = "pool-c1-rcm"
+kind = "tool"
+q = "is there something like DaVinci YRGB Color Managed in project settings?"
+sources = ["color.color-management.resolve"]
+must = ["the same idea, but set per sequence and in Interpret Footage, not in a project-wide settings page"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-c1-curve-s"
+kind = "approach"
+q = "how do I add contrast with a curve?"
+sources = ["color.curves.steps", "color.curves.why"]
+must = ["Curves tab of the Primaries panel, Y channel", "a gentle S: shadows slightly down, highlights slightly up"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-curve-channel-tint"
+kind = "approach"
+q = "push just the shadows a bit blue with curves"
+sources = ["color.curves.why", "color.curves.steps"]
+must = ["the B curve", "raise a point in the shadows of the blue channel only"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-c1-curve-reset"
+kind = "tweak"
+q = "my red curve is a mess, how do I start that one over?"
+sources = ["color.curves.steps"]
+must = ["Reset curve straightens the current channel"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c1-curve-hue"
+kind = "gap"
+q = "where are hue vs sat curves on a node?"
+sources = ["color.curves.limits", "color.curves.resolve"]
+must = ["not in the node grader yet", "they are in Lumetri Color's curves section"]
+must_not = ["invents a hue curve on the node panel"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c1-curve-points"
+kind = "pro-practice"
+q = "is there a limit on curve points?"
+sources = ["color.curves.limits"]
+must = ["at most 64 points per curve when applied", "four curves per node: master Y, red, green, blue"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c1-curve-softclip"
+kind = "gap"
+q = "does the curves tab have soft clip?"
+sources = ["color.curves.resolve"]
+must = ["soft clip is not on the node panel yet"]
+must_not = ["invents a soft clip control"]
+style = "resolve-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c1k-flat"
+q = "why is my log footage flat"
+kind = "why"
+origin = "agent"
+page = "color/README.md"
+heading = "The idea in one minute"
+alt = [{ page = "color/color-management.md", heading = "Why" }]
+status = "covered"
+facts = ["F-Log2 is flat on purpose", "colour management translates it"]
+
+[[coach]]
+id = "pool-c1k-colorpage"
+q = "where is the color page"
+kind = "where"
+origin = "agent"
+page = "color/README.md"
+heading = "The Color page layout"
+alt = [{ page = "color/README.md", heading = "Where things are" }]
+status = "covered"
+facts = ["Window ▸ Workspaces ▸ Color Grading"]
+
+[[coach]]
+id = "pool-c1k-split"
+q = "how do I turn on split screen"
+kind = "how"
+origin = "agent"
+page = "color/README.md"
+heading = "The Color page layout"
+status = "covered"
+facts = ["Ctrl+Alt+W", "Adjacent Clips or Selected Clips"]
+
+[[coach]]
+id = "pool-c1k-reset-layout"
+q = "reset the color page layout"
+kind = "how"
+origin = "agent"
+page = "color/README.md"
+heading = "The Color page layout"
+alt = [{ page = "pages.md", heading = "Rearrange a page and keep it" }]
+status = "covered"
+facts = ["Window ▸ Workspaces ▸ Reset to Saved Layout"]
+
+[[coach]]
+id = "pool-c1k-first"
+q = "how do I do my first grade"
+kind = "how"
+origin = "agent"
+page = "color/README.md"
+heading = "First grade in six steps"
+alt = [{ page = "color/primaries.md", heading = "Steps: fix a flat F-Log2 clip" }]
+status = "covered"
+facts = ["Add Node", "Gain", "Bypass"]
+
+[[coach]]
+id = "pool-c1k-bypass"
+q = "compare before and after grade"
+kind = "how"
+origin = "agent"
+page = "color/README.md"
+heading = "First grade in six steps"
+alt = [{ page = "color/matching.md", heading = "Compare" }]
+status = "covered"
+facts = ["Bypass"]
+
+[[coach]]
+id = "pool-c1k-interpret"
+q = "how do I set a clip to F-Log2"
+kind = "how"
+origin = "agent"
+page = "color/color-management.md"
+heading = "Tell Revolution what the clip is (input)"
+status = "covered"
+facts = ["Interpret Footage", "Fujifilm F-Log2 / F-Gamut"]
+
+[[coach]]
+id = "pool-c1k-interpret-premiere"
+q = "interpret footage color management"
+kind = "premiere-word"
+origin = "agent"
+page = "color/color-management.md"
+heading = "Tell Revolution what the clip is (input)"
+alt = [{ page = "color/color-management.md", heading = "If you know Premiere" }]
+status = "covered"
+facts = ["Clip ▸ Modify ▸ Interpret Footage"]
+
+[[coach]]
+id = "pool-c1k-input-resolve"
+q = "input color space per clip"
+kind = "resolve-word"
+origin = "agent"
+page = "color/color-management.md"
+heading = "Tell Revolution what the clip is (input)"
+alt = [{ page = "color/color-management.md", heading = "If you know Resolve" }]
+status = "covered"
+facts = ["Interpret Footage"]
+
+[[coach]]
+id = "pool-c1k-working"
+q = "how do I change the working color space"
+kind = "how"
+origin = "agent"
+page = "color/color-management.md"
+heading = "Choose the working space (sequence)"
+status = "covered"
+facts = ["Sequence ▸ Color Management", "DaVinci Wide Gamut / Intermediate"]
+
+[[coach]]
+id = "pool-c1k-timeline-cs"
+q = "timeline color space"
+kind = "resolve-word"
+origin = "agent"
+page = "color/color-management.md"
+heading = "Choose the working space (sequence)"
+alt = [{ page = "color/color-management.md", heading = "If you know Resolve" }, { page = "glossary.md", heading = "Working space" }]
+status = "covered"
+facts = ["Sequence ▸ Color Management"]
+
+[[coach]]
+id = "pool-c1k-tonemap"
+q = "tone map hdr clips into sdr"
+kind = "how"
+origin = "agent"
+page = "color/color-management.md"
+heading = "Choose the working space (sequence)"
+alt = [{ page = "color/color-management.md", heading = "Output" }]
+status = "covered"
+facts = ["Auto tone map media"]
+
+[[coach]]
+id = "pool-c1k-rcm"
+q = "davinci yrgb color managed"
+kind = "resolve-word"
+origin = "agent"
+page = "color/color-management.md"
+heading = "If you know Resolve"
+alt = [{ page = "color/color-management.md", heading = "Why" }]
+status = "covered"
+facts = ["per sequence and in Interpret Footage"]
+
+[[coach]]
+id = "pool-c1k-curves"
+q = "how do I use curves"
+kind = "how"
+origin = "agent"
+page = "color/curves.md"
+heading = "Steps"
+status = "covered"
+facts = ["Curves tab", "Y / R / G / B", "Reset curve"]
+
+[[coach]]
+id = "pool-c1k-scurve"
+q = "make an s curve"
+kind = "how"
+origin = "agent"
+page = "color/curves.md"
+heading = "Steps"
+alt = [{ page = "color/curves.md", heading = "Why" }, { page = "glossary.md", heading = "Curve" }]
+status = "covered"
+facts = ["shadows slightly down, highlights slightly up"]
+
+[[coach]]
+id = "pool-c1k-custom-curves"
+q = "custom curves"
+kind = "resolve-word"
+origin = "agent"
+page = "color/curves.md"
+heading = "If you know Resolve"
+alt = [{ page = "color/curves.md", heading = "Steps" }, { page = "color/curves.md", heading = "Why" }, { page = "glossary.md", heading = "Curve" }]
+status = "covered"
+facts = ["Y / R / G / B"]
+
+[[coach]]
+id = "pool-c1k-curve-typo"
+q = "how do i reset a curv"
+kind = "typo"
+origin = "agent"
+page = "color/curves.md"
+heading = "Steps"
+status = "covered"
+facts = ["Reset curve"]
+
+[[coach]]
+id = "pool-c1k-curve-limits"
+q = "how many points can a curve have"
+kind = "how"
+origin = "agent"
+page = "color/curves.md"
+heading = "Limits"
+status = "covered"
+facts = ["64 points"]

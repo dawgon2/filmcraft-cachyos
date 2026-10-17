@@ -402,7 +402,7 @@ fn offload(s: &mut Session, p: &Value) -> Result<Value> {
             status.push_str(&format!("; {conflicts} left alone (a different file of the same name was already there)"));
         }
         if truncated {
-            status.push_str("; the card has more files than FilmCraft lists, copy the rest by hand");
+            status.push_str("; the card has more files than Revolution lists, copy the rest by hand");
         }
         let r = match err {
             Some(e) => {

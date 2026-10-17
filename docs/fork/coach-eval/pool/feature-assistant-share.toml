@@ -1,0 +1,108 @@
+# FEATURE-POOL batch feature-assistant-share (FEATURE-QUEUE row AI5: rate an Assistant answer, share an
+# example / feedback; Send to my training inbox, fork-only). Sources: color/coach.md
+# (color.coach.assistant-share). Held-out test questions, written from the guide's text (README.md
+# beside this file). No creative family.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-as-wrong-answer"
+kind = "tool"
+q = "The Assistant gave me a wrong answer. How do I tell it what it should have said?"
+sources = ["color.coach.assistant-share"]
+must = ["click 👎 under the answer (Assistant panel or Ask the coach box)", "write the better answer in What should it have said? (optional)", "both stay with the answer on your computer (coach.feedback)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-as-sends-anything"
+kind = "tool"
+q = "Does a thumbs up or thumbs down on an answer get sent to anyone?"
+sources = ["color.coach.assistant-share"]
+must = ["no: a rating stays on your computer with the answer", "Revolution never sends anything by itself and has no server"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-as-whats-shared"
+kind = "tool"
+q = "What exactly goes into a shared Assistant example, and do my clip names end up in it?"
+sources = ["color.coach.assistant-share"]
+must = ["the question, the answer, the guide sections used, your rating and note, the Revolution version and the page", "project, bin, clip and file names, user / computer names, paths, network and e-mail addresses are replaced by stand-ins such as <clip> and <path>", "the preview shows exactly what is shared"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-as-github-or-save"
+kind = "approach"
+q = "Should I post my Assistant example on GitHub or just save it to a file?"
+sources = ["color.coach.assistant-share"]
+must = ["three options, each fine: share on GitHub (public, helps everyone's Assistant, needs I agree), save to a file (no agreement), or neither"]
+must_not = ["claims one way is always right"]
+style = "beginner"
+
+[[question]]
+id = "feat-as-frame"
+kind = "tool"
+q = "Can I attach a still of my footage to the example?"
+sources = ["color.coach.assistant-share"]
+must = ["tick Include a small frame from my footage (off by default)", "a frame can't go in the GitHub link: save the example and drag the image into the issue"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-as-agree-first"
+kind = "tweak"
+q = "open on github does nothing for me in the help improve dialog"
+sources = ["color.coach.assistant-share"]
+must = ["tick I agree first (it will be public on GitHub and used to train the Assistant)", "then Open on GitHub opens a pre-filled New issue page in your browser that you submit with your own account"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-as-script-save"
+kind = "tool"
+q = "From a script, how do I save an Assistant example to a folder instead of sharing it?"
+sources = ["color.coach.assistant-share"]
+must = ["coach.shareExample with route file and a folder", "the id is the answer's, from coach.assist"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-as-overwrite"
+kind = "tool"
+q = "If I save the same example twice, will the second file replace the first?"
+sources = ["color.coach.assistant-share"]
+must = ["no: a second save never overwrites the first", "it writes assistant-example-<id>.md, with the frame as a .png beside it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-as-too-long"
+kind = "tool"
+q = "My example is too long to fit in the GitHub link. What happens?"
+sources = ["color.coach.assistant-share"]
+must = ["it becomes a short note asking you to paste the saved file", "save the example first (Save example…)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-as-inbox"
+kind = "tool"
+q = "What is Send to my training inbox in the share dialog?"
+sources = ["color.coach.assistant-share"]
+must = ["only in the owner's (fork) build", "the whole conversation, unstripped, goes to the assistant-inbox folder in Revolution's data folder on this computer; nothing goes over the network", "for the fork's own training runs (route inbox)"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-as-c-rate"
+q = "how do I rate an assistant answer"
+kind = "how"
+origin = "agent"
+page = "color/coach.md"
+heading = "Rate an answer and help improve the Assistant"
+status = "covered"
+facts = ["👍 / 👎 under the answer", "What should it have said? (optional)"]

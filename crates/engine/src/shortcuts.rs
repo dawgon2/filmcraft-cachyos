@@ -56,11 +56,20 @@ pub const PANELS: &[&str] = &[
     "Lumetri Color",
 ];
 
-pub const DEFAULT_PRESET: &str = "FilmCraft Default";
+pub const DEFAULT_PRESET: &str = "Revolution Default";
 pub const PREMIERE_PRESET: &str = "Premiere Pro Compatible";
 pub const FCP_PRESET: &str = "Final Cut Pro Compatible";
 pub const AVID_PRESET: &str = "Avid Media Composer Compatible";
 pub const RESOLVE_PRESET: &str = "DaVinci Resolve Compatible";
+/// The default preset's name before the fork rebrand (FORK-PLAN §1a.103); saved settings may still
+/// name it.
+pub const OLD_DEFAULT_PRESET: &str = "FilmCraft Default";
+
+/// `name`, with the pre-rebrand default preset name read as today's.
+pub fn canonical_preset(name: &str) -> &str {
+    if name == OLD_DEFAULT_PRESET { DEFAULT_PRESET } else { name }
+}
+
 pub const BUILTIN_PRESETS: [&str; 5] = [DEFAULT_PRESET, PREMIERE_PRESET, FCP_PRESET, AVID_PRESET, RESOLVE_PRESET];
 
 const FILE_FORMAT: &str = "filmcraft-keyboard-shortcuts";
@@ -628,7 +637,7 @@ impl Shortcuts {
     pub(crate) fn builtin_for(&self, name: &str, p: Platform) -> Option<Vec<Binding>> {
         let mut b = self.base_defaults();
         b.extend(self.audit_for(p));
-        let table: Vec<Entry> = match name {
+        let table: Vec<Entry> = match canonical_preset(name) {
             DEFAULT_PRESET => Vec::new(),
             PREMIERE_PRESET => presets::premiere(),
             FCP_PRESET => presets::FINAL_CUT.to_vec(),
@@ -697,7 +706,7 @@ impl Shortcuts {
         let Ok(bytes) = std::fs::read(&path) else { return };
         match serde_json::from_slice::<PresetFile>(&bytes) {
             Ok(f) => {
-                self.preset = f.name.clone();
+                self.preset = canonical_preset(&f.name).to_string();
                 if !f.modified
                     && let Some(b) = self.builtin(&f.name)
                 {
@@ -855,6 +864,7 @@ impl Shortcuts {
     }
 
     pub fn load_preset(&mut self, name: &str) -> std::result::Result<(), String> {
+        let name = canonical_preset(name);
         let bindings = match self.builtin(name) {
             Some(b) => b,
             None => {
@@ -1062,7 +1072,7 @@ fn read_file(path: &Path) -> std::result::Result<PresetFile, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let f: PresetFile = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     if f.format != FILE_FORMAT {
-        return Err(format!("{}: not a FilmCraft keyboard shortcuts file", path.display()));
+        return Err(format!("{}: not a Revolution keyboard shortcuts file", path.display()));
     }
     Ok(f)
 }

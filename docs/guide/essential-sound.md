@@ -1,14 +1,14 @@
 # Essential Sound
 
-**[FilmCraft]** · the Essential Sound panel: audio types, presets, loudness matching, repair /
+**[Revolution]** · the Essential Sound panel: audio types, presets, loudness matching, repair /
 clarity / creative controls, ducking, and fitting music to a length with Remix; modelled on
 Premiere Pro's Essential Sound; written for AI-PLAN AI3-PREP (feature pages)
 
 ## Audio types
 
-> id: essential-sound.types | does: tags clips as Dialogue, Music, SFX or Ambience, each with the controls that suit it | cmd: essentialSound.setType, essentialSound.clearType, essentialSound.inspect, essentialSound.set | resolve: — (Fairlight FX by hand) | premiere: Essential Sound ▸ audio types | when: starting a mix: tell FilmCraft what each clip is | see: essential-sound.presets, audio.manual-voice-cleanup
+> id: essential-sound.types | does: tags clips as Dialogue, Music, SFX or Ambience, each with the controls that suit it | cmd: essentialSound.setType, essentialSound.clearType, essentialSound.inspect, essentialSound.set | resolve: — (Fairlight FX by hand) | premiere: Essential Sound ▸ audio types | when: starting a mix: tell Revolution what each clip is; undoing all Essential Sound settings on a clip | see: essential-sound.presets, audio.manual-voice-cleanup
 
-**[FilmCraft]**
+**[Revolution]**
 
 Select audio clips and pick a type in Window ▸ **Essential Sound** (`essentialSound.setType`):
 
@@ -29,7 +29,7 @@ removes the type and those effects. `essentialSound.set` changes one setting by 
 
 > id: essential-sound.presets | does: applies, saves and deletes named sets of Essential Sound settings per type | cmd: essentialSound.applyPreset, essentialSound.savePreset, essentialSound.deletePreset | resolve: — | premiere: Essential Sound presets | when: a starting point for a voice, a music bed, a room | see: essential-sound.types
 
-**[FilmCraft]**
+**[Revolution]**
 
 Each type has built-in presets, for example **Podcast Voice**, **Clean Up Noisy Dialogue**,
 **Phone Call** and **Radio Announcer** for dialogue, **Duck Under Dialogue** for music, **In a
@@ -42,7 +42,7 @@ volume.
 
 > id: essential-sound.loudness | does: measures each clip's loudness and sets its gain to the type's target | ui: essentialSound.autoMatch, essentialSound.loudness.limit | cmd: essentialSound.autoMatch | resolve: Normalize Audio Levels | premiere: Essential Sound ▸ Loudness ▸ Auto-Match | when: clips recorded at different levels should sound equally loud | see: audio.cleanup-voice
 
-**[FilmCraft]**
+**[Revolution]**
 
 **Auto-Match** (`essentialSound.autoMatch`) measures each selected clip's integrated loudness
 (EBU R128) and sets a match gain so it lands on its type's target: by default Dialogue −23,
@@ -54,9 +54,9 @@ holds peaks under a ceiling.
 
 ## Repair, Clarity and Creative
 
-> id: essential-sound.controls | does: what each Dialogue, SFX and Ambience control does and which effect it drives | ui: essentialSound.repair.*, essentialSound.clarity.* | resolve: Fairlight EQ, Dynamics, Noise Reduction, De-Esser, Reverb | premiere: Essential Sound ▸ Repair / Clarity / Creative | when: shaping a voice or a sound quickly | see: audio.manual-voice-cleanup
+> id: essential-sound.controls | does: what each Dialogue, SFX and Ambience control does and which effect it drives | ui: essentialSound.repair.*, essentialSound.clarity.* | resolve: Fairlight EQ, Dynamics, Noise Reduction, De-Esser, Reverb | premiere: Essential Sound ▸ Repair / Clarity / Creative | when: shaping a voice or a sound quickly; an echoey voice recorded in a big empty room; a fan hum or wind rumble behind a voice; a voice that should sound like a phone call or a bigger room | see: audio.manual-voice-cleanup
 
-**[FilmCraft]**
+**[Revolution]**
 
 | Control | Drives | What the amount does |
 |---|---|---|
@@ -79,7 +79,7 @@ in, and why, is in [audio.md](audio.md) ("Cleaning up a voice by hand").
 
 > id: essential-sound.ducking | does: writes Volume keyframes that lower music or ambience while dialogue plays | cmd: essentialSound.generateDucking | resolve: Fairlight sidechain ducking | premiere: Essential Sound ▸ Ducking ▸ Generate Keyframes | when: a music bed under narration or an interview | see: mixing.automation
 
-**[FilmCraft]**
+**[Revolution]**
 
 On a Music or Ambience clip, turn **Ducking** on, choose what to duck against (Dialogue, Music,
 SFX, Ambience, or untyped clips), the sensitivity, how far to reduce (−15 dB by default, −10 for
@@ -95,7 +95,7 @@ result is ordinary Volume keyframes on the clip, so you can move any of them by 
 
 > id: essential-sound.remix | does: retimes a music clip to a target length by cutting at musically similar beats | cmd: clip.remix, clip.remix.enable, clip.remix.properties, clip.remix.revert | resolve: — (manual music edits) | premiere: Remix (Essential Sound ▸ Duration) | when: a song must end exactly with the video | see: essential-sound.ducking
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Select the music clip and choose Clip ▸ Remix ▸ **Enable Remix** (`clip.remix.enable`): the
    clip is analysed for its beats.

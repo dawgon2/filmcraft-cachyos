@@ -442,7 +442,8 @@ fn offline_badges_proxy_toggle_and_dialogs() {
     d.snapshot("media-create-proxies");
     d.click("proxies.preset.prores_proxy_quarter");
     d.click("proxies.ok");
-    for _ in 0..400 {
+    // up to 30 s: the proxy encode is slow when the other UI tests run alongside
+    for _ in 0..1500 {
         d.frames(1);
         let attached = d.app().session.project.items.values().filter(|i| i.as_media().is_some_and(|m| m.proxy.is_some())).count();
         if attached == 2 {
@@ -514,6 +515,65 @@ fn locate_relinks_instead_of_importing() {
     assert_eq!(d.app().session.project.items.len(), items, "no new project item");
     let st = d.exec("media.status", json!({}));
     assert!(st.as_array().unwrap().iter().all(|m| m["status"] == "online"), "item {item}: {st}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// (fork S1.1) A clip on a network share gets a "NET" badge with the share in its hover text;
+/// a local clip doesn't. The mount table is a fixture (no real share needed).
+#[test]
+fn network_clips_get_a_badge() {
+    let root = tmp_dir("net-badge");
+    let share = root.join("share");
+    let local = root.join("local");
+    std::fs::create_dir_all(&share).unwrap();
+    std::fs::create_dir_all(&local).unwrap();
+    filmcraft_ui_egui::panels::project_views::use_mount_table(&format!(
+        "1 0 0:1 / / rw - ext4 /dev/a rw\n2 1 0:2 / {} rw shared:1 - cifs //nas/media rw\n",
+        share.display()
+    ));
+    let mut s = Session::default();
+    s.background.pause();
+    let mut items = Vec::new();
+    for dir in [&share, &local] {
+        let file = dir.join("clip.mov");
+        make_movie(&file, DemoScene::OceanSunset, 160, 90, 4);
+        let r = s.execute("file.import", json!({"paths": [file.to_string_lossy()]})).unwrap();
+        items.push(r["items"][0].as_u64().unwrap());
+    }
+    let mut d = Driver::new(s);
+    d.frames(4);
+    let v = d.ok("ui.elements", json!({"prefix": "project.item."}));
+    let net = |item: u64| -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["id"].as_str().is_some_and(|id| id.starts_with(&format!("project.item.{item}.")) && id.ends_with(".net")))
+            .map(|e| e["label"].as_str().unwrap_or("").to_string())
+            .collect()
+    };
+    let shared = net(items[0]);
+    assert!(!shared.is_empty() && shared.iter().all(|l| l == "On a network share: //nas/media (cifs)"), "{v}");
+    assert!(net(items[1]).is_empty(), "{v}");
+    // with a complete local copy of the version the media look saw: "NET ✓"
+    let clip = share.join("clip.mov");
+    let path = clip.to_string_lossy().into_owned();
+    let meta = std::fs::metadata(&clip).unwrap();
+    let mtime = meta.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let mut cache = filmcraft_engine::net_cache::NetCache::open(&root.join("copies"));
+    let reader = filmcraft_media::reader::FileReader::open(&clip).unwrap();
+    cache.copy(&path, meta.len(), mtime, &reader, &|| false).unwrap();
+    d.app().session.media.set_net_copies(Some(Arc::new(std::sync::Mutex::new(cache))));
+    d.app().session.media_stamps.insert(path, (meta.len(), mtime));
+    d.frames(4);
+    let v = d.ok("ui.elements", json!({"prefix": "project.item."}));
+    let with_copy: Vec<String> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["id"].as_str().is_some_and(|id| id.starts_with(&format!("project.item.{}.", items[0])) && id.ends_with(".net")))
+        .map(|e| e["label"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(!with_copy.is_empty() && with_copy.iter().all(|l| l.ends_with("plays from its local copy")), "{v}");
     let _ = std::fs::remove_dir_all(&root);
 }
 

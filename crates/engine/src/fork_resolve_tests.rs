@@ -177,7 +177,7 @@ fn upstream_build_never_migrates() {
     std::fs::write(dir.join("preferences.json"), serde_json::to_vec(&json!({"version": 2, "workflow": "premiere"})).unwrap()).unwrap();
     let s = start(&dir);
     assert_eq!(s.prefs.workflow, Workflow::Premiere);
-    assert_eq!(s.shortcuts.preset, "FilmCraft Default");
+    assert_eq!(s.shortcuts.preset, "Revolution Default");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -195,7 +195,7 @@ mod fork {
     #[test]
     fn a_session_without_a_data_dir_is_consistently_resolve() {
         let mut s = Session::default();
-        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Resolve, "FilmCraft Default"), "the old state");
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Resolve, "Revolution Default"), "the old state");
         crate::fork_resolve::without_data_dir(&mut s);
         assert_eq!(s.shortcuts.preset, "DaVinci Resolve Compatible");
         assert!(!s.shortcuts.modified);
@@ -209,13 +209,13 @@ mod fork {
         assert_eq!((s.shortcuts.bindings.clone(), s.prefs.clone()), before);
         // the way back works without a data directory, and forth again
         s.set_workflow(Workflow::Premiere).unwrap();
-        assert_eq!((s.shortcuts.preset.as_str(), s.prefs.appearance.dark_theme.as_str()), ("FilmCraft Default", "darkest"));
+        assert_eq!((s.shortcuts.preset.as_str(), s.prefs.appearance.dark_theme.as_str()), ("Revolution Default", "darkest"));
         s.set_workflow(Workflow::Resolve).unwrap();
         assert_eq!((s.shortcuts.preset.as_str(), s.prefs.appearance.dark_theme.as_str()), ("DaVinci Resolve Compatible", "resolve"));
         // Premiere chosen explicitly: left alone
         s.set_workflow(Workflow::Premiere).unwrap();
         crate::fork_resolve::without_data_dir(&mut s);
-        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "FilmCraft Default"));
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "Revolution Default"));
         // an edited keyboard is never thrown away
         let mut s = Session::default();
         s.execute("shortcuts.set", json!({"command": "edit.undo", "keys": "F12"})).unwrap();
@@ -232,7 +232,7 @@ mod fork {
         std::fs::write(dir.join("preferences.json"), serde_json::to_vec(&json!({"version": 3, "workflow": "premiere"})).unwrap()).unwrap();
         let mut s = start(&dir);
         crate::fork_resolve::without_data_dir(&mut s);
-        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "FilmCraft Default"));
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "Revolution Default"));
         let _ = std::fs::remove_dir_all(&dir);
         let dir = tmp_dir("rs1-nodir-resolve");
         let mut s = start(&dir);
@@ -253,7 +253,7 @@ mod fork {
         let mut s = start(&dir);
         assert_eq!(s.prefs.workflow, Workflow::Resolve);
         assert_eq!(s.shortcuts.preset, "DaVinci Resolve Compatible");
-        assert_eq!(s.prefs.workflow_return_preset, "FilmCraft Default", "the previous keymap is remembered");
+        assert_eq!(s.prefs.workflow_return_preset, "Revolution Default", "the previous keymap is remembered");
         assert_eq!(s.prefs.appearance.dark_theme, "resolve");
         assert_eq!(s.prefs.workflow_return_theme, "darkest");
         assert_eq!(s.prefs.timeline.still_image_duration, 7.0, "other preferences are kept");
@@ -263,13 +263,13 @@ mod fork {
         assert!(f.get("pendingResolveMigration").is_none());
         // an explicit switch back is respected on every later launch
         s.set_workflow(Workflow::Premiere).unwrap();
-        assert_eq!(s.shortcuts.preset, "FilmCraft Default");
+        assert_eq!(s.shortcuts.preset, "Revolution Default");
         assert_eq!(s.prefs.appearance.dark_theme, "darkest");
         drop(s);
         for _ in 0..2 {
             let s = start(&dir);
             assert_eq!(s.prefs.workflow, Workflow::Premiere);
-            assert_eq!(s.shortcuts.preset, "FilmCraft Default");
+            assert_eq!(s.shortcuts.preset, "Revolution Default");
             assert_eq!(file(&dir)["workflow"], "premiere");
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -293,7 +293,7 @@ mod fork {
         std::fs::write(dir.join("preferences.json"), serde_json::to_vec(&f).unwrap()).unwrap();
         let s = start(&dir);
         assert_eq!(s.prefs.workflow, Workflow::Premiere);
-        assert_eq!(s.shortcuts.preset, "FilmCraft Default");
+        assert_eq!(s.shortcuts.preset, "Revolution Default");
         drop(s);
         std::fs::remove_file(dir.join("preferences.json")).unwrap();
         assert_eq!(start(&dir).prefs.workflow, Workflow::Resolve, "a fresh start is Resolve");
@@ -343,7 +343,7 @@ mod fork {
         let dir = tmp_dir("rs1-v3");
         std::fs::write(dir.join("preferences.json"), serde_json::to_vec(&json!({"version": 3, "workflow": "premiere"})).unwrap()).unwrap();
         let s = start(&dir);
-        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "FilmCraft Default"));
+        assert_eq!((s.prefs.workflow, s.shortcuts.preset.as_str()), (Workflow::Premiere, "Revolution Default"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

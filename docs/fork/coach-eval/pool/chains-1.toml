@@ -1,0 +1,47 @@
+# AI-POOL batch chains-1 (FORK-PLAN §1a.87): follow-up chains; `context` holds the earlier turns,
+# oldest first, as the Assistant sends its history. Held-out slice: chains that differ from the
+# ones in chains-1.jsonl.
+
+[[question]]
+id = "pool-ch1-chapters-missing"
+kind = "chain"
+context = [{ q = "put chapters in my tutorial", a = "Add a named marker at each chapter start (markers.addChapter), Export Markers as CSV (markers.exportCsv) and paste the times and names into the description." }]
+q = "the chapter list doesn't show up on YouTube at all"
+sources = ["practice.youtube.chapters"]
+must = ["the first chapter must be at 0:00", "chapters shorter than ten seconds are ignored"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-ch1-log-too-bright"
+kind = "chain"
+context = [{ q = "how should I expose F-Log2 outdoors?", a = "Somewhat brighter than a standard profile, about +1 stop is common, with zebras or the histogram keeping highlights from clipping." }]
+q = "ok but now in the edit everything looks too bright"
+sources = ["practice.delivery.expose-log"]
+must = ["bring it back down in the grade: normalise with colour management, then set exposure on the balance node"]
+must_not = []
+style = "follow-up"
+needs_clip = true
+
+[[question]]
+id = "pool-ch1-screen-export"
+kind = "chain"
+context = [{ q = "my screen recording is 1440p at 60 fps, which sequence settings?", a = "Make the sequence from the clip (file.newSequenceFromClip) so it matches the recording's size and frame rate." }]
+q = "and the export settings so the text is readable?"
+sources = ["practice.youtube.screen-recordings"]
+must = ["a constant-quality export so text stays sharp"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-ch1-too-early"
+kind = "chain"
+context = [
+  { q = "I'm sending the timeline to a colourist who uses Resolve", a = "Export FCPXML or OTIO (file.exportFcpxml) and include a reference export to check against." },
+  { q = "and the audio to a mixer?", a = "AAF / OMF for sound (file.exportAaf), again with the reference export." },
+]
+q = "is that too early, we're still trimming a few scenes"
+sources = ["practice.editing.assembly", "practice.workflow.handoff"]
+must = ["yes: lock the picture first; grading or mixing before lock means redoing it when timing changes"]
+must_not = []
+style = "follow-up"

@@ -48,6 +48,7 @@ pub mod remix;
 pub mod scopes;
 pub mod sequence_settings;
 pub mod settings;
+pub mod share_example;
 pub mod shortcuts_dialog;
 pub mod stills;
 pub mod text;
@@ -62,6 +63,7 @@ pub mod tools;
 pub mod transition_controls;
 pub mod trim_monitor;
 pub mod tts;
+pub mod update_prompt;
 pub mod voiceover;
 pub mod workspaces;
 

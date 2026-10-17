@@ -102,6 +102,32 @@ fn consolidate_trims_to_used_ranges_with_handles() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// S1 item 5d: collect with `trim` cuts MOV / MP4 media to the used range plus handles by
+/// stream copy: the frames are the same pixels (nothing re-encoded), every edit stays in place.
+#[test]
+fn collect_with_trim_cuts_media_without_re_encoding() {
+    let root = tmp_dir("pm-trim");
+    let (mut s, items, _) = project(&root);
+    let frames = [0i64, 5, 11, 12, 20, 35];
+    let before: Vec<Vec<u8>> = frames.iter().map(|f| frame_rgba(&mut s, *f, 1.0).2).collect();
+    let dest = root.join("Trimmed");
+    let r = s.execute("file.projectManager", json!({"destination": dest.to_string_lossy(), "trim": true, "handles": 4, "wait": true})).unwrap();
+    let jobs = s.execute("jobs.list", json!({})).unwrap();
+    assert!(jobs[0]["result"].get("error").is_none(), "{jobs}");
+    let full = std::fs::metadata(root.join("Media").join("a.mov")).unwrap().len();
+    let mut t = opened(r["project"].as_str().unwrap());
+    let a = t.project.item(items[0]).unwrap().as_media().unwrap().clone();
+    let rate = filmcraft_time::FrameRate::FPS_24;
+    assert!(a.info.duration >= rate.tick_of(19) && a.info.duration < rate.tick_of(48), "a.mov now holds about the used range: {:?}", a.info.duration);
+    let MediaRef::File { path } = &a.media else { panic!() };
+    assert!(std::fs::metadata(path).unwrap().len() < full, "the cut copy is smaller");
+    assert!(a.proxy.is_none());
+    for (k, f) in frames.iter().enumerate() {
+        assert_eq!(frame_rgba(&mut t, *f, 1.0).2, before[k], "frame {f}: same pixels (stream copy)");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn nested_subclip_keeps_its_whole_parent_chain_used() {
     use filmcraft_project::{ItemKind, Label};

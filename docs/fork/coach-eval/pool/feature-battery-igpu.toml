@@ -1,0 +1,95 @@
+# FEATURE-POOL batch feature-battery-igpu (FEATURE-QUEUE row "XPS d: Settings ▸ Playback ▸ Lower playback
+# resolution on battery; decoded-frame memory on an integrated GPU sized from shared RAM (⅛, ≤ 4 GB); exports
+# keep the computer awake (existing)").
+# Source: linux.md (linux.gpu, its "On battery" paragraph), hardware.md (hardware.switches, Preferences table).
+# Held-out test questions, written from the guide's text (README.md beside this file). A small setting:
+# few honest questions. "Exports keep the computer awake" is already asked in `linux-1`; only the lid
+# caveat the XPS text adds is asked here.
+# No creative family: a battery setting is not a creative goal.
+# No recipe spot check: the Dell is a desktop without a battery (the setting only acts on battery power).
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-bat-what"
+kind = "tool"
+q = "What does the Lower playback resolution on battery option do?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["while the computer runs on battery, playback renders one Playback Resolution step lower (Full becomes 1/2)", "off by default"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-bat-export"
+kind = "tool"
+q = "If I enable the battery playback option on my laptop, will my exports or paused frames come out at lower resolution?"
+sources = ["linux.gpu"]
+must = ["no: when stopped, and in every export, full resolution is kept", "only playback is one step lower"]
+must_not = ["exports are rendered at 1/2"]
+style = "pro"
+
+[[question]]
+id = "feat-bat-replug"
+kind = "tool"
+q = "unplugged my laptop and the preview went soft, plugged it back in, does it go back by itself"
+sources = ["linux.gpu"]
+must = ["yes: plugged in again, playback returns to your Playback Resolution setting within about ten seconds"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-bat-premiere-words"
+kind = "tool"
+q = "In Premiere I drop Playback Resolution to 1/2 by hand when I'm off the charger. Can Revolution do that automatically?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["Edit ▸ Preferences ▸ Playback ▸ Lower playback resolution on battery (settings.playback.batteryPreview)", "one Playback Resolution step lower while on battery; trade-off: less detail while playing for less heat and a longer battery"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "feat-igpu-mem-auto"
+kind = "tool"
+q = "My laptop only has integrated graphics. How much memory does Revolution keep for decoded frames on it?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["on Auto it is sized from the RAM the integrated GPU shares: an eighth, at most 4 GB", "Preferences ▸ Memory ▸ Decoded frames in GPU memory overrides it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-igpu-mem-override"
+kind = "tool"
+q = "Resolve lets me cap GPU memory. Where do I set how much graphics memory Revolution uses for decoded frames, and what does 0 mean?"
+sources = ["hardware.switches", "linux.gpu"]
+must = ["Edit ▸ Preferences ▸ Memory ▸ Decoded frames in GPU memory (settings.memory.vramCacheMb)", "0 = Auto (on an integrated GPU: an eighth of the shared RAM, at most 4 GB)"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-bat-lid"
+kind = "tool"
+q = "I start a long export on my laptop and close the lid. Will it keep going?"
+sources = ["linux.gpu"]
+must = ["Revolution asks the desktop not to suspend while an export runs", "the lid setting may still suspend it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-bat-task-train"
+kind = "task"
+q = "I edit on a hybrid laptop on the train, unplugged, and want the battery to last. What should I set in Revolution?"
+sources = ["linux.gpu", "hardware.switches"]
+must = ["Graphics device: Power saving (integrated GPU), then restart Revolution", "turn on Lower playback resolution on battery (playback one step lower, exports stay full)", "trade-off: less detail and possibly dropped frames with heavy grades, for less heat and longer battery"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-bat-c-what"
+q = "lower playback resolution on battery what is it"
+kind = "what-for"
+origin = "agent"
+page = "linux.md"
+heading = "Which GPU draws Revolution"
+status = "covered"
+facts = ["Lower playback resolution on battery", "one Playback Resolution step lower"]

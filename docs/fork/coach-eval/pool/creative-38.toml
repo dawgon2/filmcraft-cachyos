@@ -1,0 +1,165 @@
+# AI-POOL batch creative-38 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: grey, flat log footage made normal, a layered shot kept as one comp
+# clip, watching a cut on a phone via KDE Connect, an accurate transcript of a noisy interview, two
+# colour changes that must not affect each other's key. `must` = plan sub-goals from the guide's
+# own text. Partial-gap family: independent-secondaries (no parallel nodes yet). Held-out only.
+
+# --- log-footage-normal ---
+
+[[question]]
+id = "pool-cr38-log"
+kind = "creative"
+family = "log-footage-normal"
+q = "my fuji video looks grey and washed out, how do I make it look normal"
+sources = ["practice.grading.normalise-log", "color.recipes.flog2-normal", "color.color-management.input"]
+must = ["it's F-Log2, flat on purpose: set the clip's input to Fujifilm F-Log2 / F-Gamut if it isn't detected (Interpret Footage, clip.interpretFootage)", "sequence working space DaVinci Wide Gamut / Intermediate (sequence.colorSettings), then a fixed set of nodes: balance, exposure, contrast, saturation"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr38-log-lut"
+kind = "creative"
+family = "log-footage-normal"
+q = "put the fuji LUT on and now its way too contrasty and orange"
+sources = ["practice.grading.normalise-log", "color.color-management.input"]
+must = ["a camera LUT and colour management together double the transform: use one or the other", "a LUT made for another log curve (F-Log vs F-Log2) looks almost right but shifts skin"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr38-log-cst"
+kind = "creative"
+family = "log-footage-normal"
+q = "where's the color space transform node, I want F-Log2 to my timeline space before grading"
+sources = ["practice.grading.normalise-log", "color.color-management.resolve", "color.color-management.working"]
+must = ["colour management does it: the clip's input space (clip.interpretFootage) and the sequence's working space (sequence.colorSettings), the transform happens before the first node", "like Resolve's colour-managed project; Rec. 709 output at the end with highlight roll-off"]
+must_not = []
+style = "resolve-words"
+
+# --- layered-shot-as-one ---
+
+[[question]]
+id = "pool-cr38-onecomp"
+kind = "creative"
+family = "layered-shot-as-one"
+q = "I stacked a background, a picture in picture and a logo on three tracks, can I turn them into one clip to move around"
+sources = ["compositor.convert", "compositor.make"]
+must = ["select the clips (one per track, same start and end) and Convert to Comp Clip (comp.convertToCompClip)", "one comp clip replaces them on the lowest track and looks the same; Undo brings the clips back"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr38-onecomp-refuse"
+kind = "creative"
+family = "layered-shot-as-one"
+q = "convert to comp clip refuses my clips"
+sources = ["compositor.convert", "compositor.make"]
+must = ["it takes plain clips only and says why: effects, a grade, speed changes, transitions, linked sound, keyframed or masked Motion / Opacity, clips not lined up in time, two clips on one track", "remove or flatten those first, or keep the clips as they are"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr38-onecomp-nest"
+kind = "creative"
+family = "layered-shot-as-one"
+q = "nest a layered shot like in Premiere so I can reuse it and keep it playing smoothly"
+sources = ["compositor.convert", "compositor.speed"]
+must = ["Convert to Comp Clip (comp.convertToCompClip): each clip becomes a Media In with a Transform, layered by Merge nodes", "comps are drawn on the graphics card; effects or a grade on the comp clip itself push it to the processor, so move them into the comp as nodes"]
+must_not = []
+style = "premiere-words"
+
+# --- phone-preview-cut ---
+
+[[question]]
+id = "pool-cr38-phone"
+kind = "creative"
+family = "phone-preview-cut"
+q = "I want to watch my vertical cut on my phone the way people will see it, without uploading it"
+sources = ["linux.kdeconnect-send", "practice.delivery.check-export"]
+must = ["export, then right-click the export in the Project panel ▸ Send via KDE Connect ▸ your phone (kdeconnect.send); it lands in the phone's Downloads", "watch the exported file, not the timeline"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr38-phone-missing"
+kind = "creative"
+family = "phone-preview-cut"
+q = "no send via kde connect in the menu"
+sources = ["linux.kdeconnect-send", "linux.kdeconnect-remote"]
+must = ["the entry only appears while a paired device is reachable: KDE Connect running and the phone paired and in reach", "Revolution never starts KDE Connect itself"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr38-phone-agent"
+kind = "creative"
+family = "phone-preview-cut"
+q = "send each new export to the client's tablet in the room automatically from a script"
+sources = ["linux.kdeconnect-send", "export-queue.quick"]
+must = ["export (Quick Export, export.quick), then kdeconnect.send with path (or a project item) and device; kdeconnect.devices lists reachable devices", "the device may be left out when only one is in reach"]
+must_not = []
+style = "pro"
+
+# --- accurate-transcript-noisy ---
+
+[[question]]
+id = "pool-cr38-transcript"
+kind = "creative"
+family = "accurate-transcript-noisy"
+q = "the transcript of my street interview is full of wrong words"
+sources = ["text.speech-models", "audio.voice-isolation"]
+must = ["clean the voice first (Voice Isolation): a model hears clean speech better", "a larger model (whisper-small) for hard audio, names and other languages, about four times slower than base (transcript.downloadModel)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr38-transcript-lang"
+kind = "creative"
+family = "accurate-transcript-noisy"
+q = "transcribe a german interview with lots of names, offline"
+sources = ["text.speech-models", "text.transcripts"]
+must = ["transcription runs locally with Whisper, nothing uploaded; all three models understand many languages", "whisper-small for names and other languages (one-time download, transcript.downloadModel), then generate the transcript (transcript.generate)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr38-transcript-tiny"
+kind = "creative"
+family = "accurate-transcript-noisy"
+q = "is whisper tiny good enough for subtitles of a noisy vlog"
+sources = ["text.speech-models", "audio.voice-isolation"]
+must = ["tiny is for quick drafts of clear speech and makes the most mistakes on noisy audio and accents", "base (default) for most work, small for hard audio; clean the voice first"]
+must_not = []
+style = "beginner"
+
+# --- independent-secondaries ---
+
+[[question]]
+id = "pool-cr38-indep"
+kind = "creative"
+family = "independent-secondaries"
+q = "I changed the jacket to blue and now my skin qualifier on the next node picks up the wrong colours"
+sources = ["practice.node-trees.parallel", "color.secondaries.qualifier"]
+must = ["each serial node keys from the picture after the earlier nodes; put the qualifier you want to protect (the skin) earlier in the chain", "parallel nodes (each keying the same untouched picture) aren't in Revolution yet"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr38-indep-parallel"
+kind = "creative"
+family = "independent-secondaries"
+q = "parallel node with two secondaries keyed off the same source, like Resolve's parallel mixer"
+sources = ["practice.node-trees.parallel", "practice.node-trees.layer"]
+must = ["not yet in Revolution (planned); meanwhile order the chain so each key comes before the changes that would disturb it", "with parallel nodes, two changing the same area add up and overshoot"]
+must_not = []
+style = "gap"
+
+[[question]]
+id = "pool-cr38-indep-order"
+kind = "creative"
+family = "independent-secondaries"
+q = "two qualifiers fighting each other in my node tree, sky and grass"
+sources = ["practice.node-trees.parallel", "color.nodes.reorder", "color.secondaries.qualifier"]
+must = ["reorder the nodes so each qualifier keys before the other's change (grade.moveNode)", "or limit each with a window so the keys don't overlap"]
+must_not = []
+style = "sloppy"

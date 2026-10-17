@@ -167,6 +167,20 @@ pub fn register() -> Availability {
                 log::info!("hardware decoding through VA-API (ffmpeg pipe) available");
             }
         });
+        // NVDEC (fork XPS a / c): on a laptop with an Intel iGPU next to an NVIDIA GPU (the XPS
+        // 16), VA-API on the iGPU decodes first and NVDEC only takes what it declines; NVDEC goes
+        // in front only when there is no VA-API of another GPU, or with FILMCRAFT_NVDEC_FIRST=1.
+        // (Factories registered later are tried first.)
+        #[cfg(target_pointer_width = "64")]
+        let nvdec = nvdec::cuvid::probe();
+        #[cfg(target_pointer_width = "64")]
+        let nvdec_front = nvdec_in_front(native.is_ok() || pipe, std::env::var_os("FILMCRAFT_NVDEC_FIRST").is_some_and(|v| v == "1"));
+        #[cfg(target_pointer_width = "64")]
+        if !nvdec_front && let Ok(driver) = &nvdec {
+            static NVDEC_BEHIND: std::sync::Once = std::sync::Once::new();
+            NVDEC_BEHIND.call_once(|| log::info!("NVDEC ({driver}) decodes what VA-API declines"));
+            filmcraft_codecs::register_video_decoder(nvdec_factory);
+        }
         let mut available = if native.is_ok() || pipe {
             filmcraft_codecs::register_video_decoder(vaapi_factory);
             filmcraft_codecs::hw::set_hw_backend("VA-API");
@@ -181,7 +195,8 @@ pub fn register() -> Availability {
         // NVIDIA's proprietary driver has no VA-API of its own: NVDEC goes in front, and what it
         // declines still reaches VA-API (a second GPU) and then the software decoders
         #[cfg(target_pointer_width = "64")]
-        match nvdec::cuvid::probe() {
+        match nvdec {
+            Ok(_) if !nvdec_front => {}
             Ok(driver) => {
                 static NVDEC: std::sync::Once = std::sync::Once::new();
                 NVDEC.call_once(|| log::info!("hardware decoding through NVDEC: {driver}"));
@@ -197,6 +212,13 @@ pub fn register() -> Availability {
     {
         Availability::Unavailable("no hardware video decoder for this system yet")
     }
+}
+
+/// Fork XPS a / c: whether NVDEC is tried before VA-API: only when no other GPU decodes
+/// through VA-API (`va_display`), or when asked (`FILMCRAFT_NVDEC_FIRST=1`).
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+fn nvdec_in_front(va_display: bool, asked: bool) -> bool {
+    !va_display || asked
 }
 
 /// Whether [`register`] has put a hardware decoder factory in front of our decoders.
@@ -438,5 +460,17 @@ mod chain_tests {
         assert!(!vaapi_chain(NalCodec::H264).contains(&VaStep::FfmpegPipe));
         assert_eq!(vaapi_chain(NalCodec::Hevc).last(), Some(&VaStep::FfmpegPipe));
         assert_eq!(vaapi_chain(NalCodec::Hevc).first(), Some(&VaStep::ZeroCopy));
+    }
+}
+
+#[cfg(all(test, target_os = "linux", target_pointer_width = "64"))]
+mod xps_tests {
+    /// Fork XPS a / c: on the XPS 16 (Intel VA-API + NVIDIA) VA-API decodes first; NVIDIA alone,
+    /// or FILMCRAFT_NVDEC_FIRST=1, puts NVDEC in front.
+    #[test]
+    fn nvdec_goes_behind_another_gpus_va_api() {
+        assert!(!super::nvdec_in_front(true, false));
+        assert!(super::nvdec_in_front(false, false));
+        assert!(super::nvdec_in_front(true, true));
     }
 }

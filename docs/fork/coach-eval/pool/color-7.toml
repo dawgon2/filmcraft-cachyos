@@ -1,0 +1,325 @@
+# AI-POOL batch color-7: color/recipes.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c7-four-node-start"
+kind = "multi-step"
+q = "give me a repeatable node setup I can start every X-M5 clip from"
+sources = ["color.recipes.flog2-normal", "color.nodes.starter-tree"]
+must = ["check Interpret Footage (F-Log2) and the DaVinci Wide Gamut sequence first", "four nodes: Balance, Exposure, Contrast, Saturation", "grab a still to reuse the starting tree (double-click applies it)"]
+must_not = ["claims it is the only right setup"]
+style = "beginner"
+
+[[question]]
+id = "pool-c7-reuse-tree"
+kind = "tweak"
+q = "how do I give my starter tree to the next clip without rebuilding it?"
+sources = ["color.recipes.flog2-normal", "color.recipes.resolve"]
+must = ["Grab Still of the graded clip, then double-click the still on the next clip (stills.apply)", "no saved node-tree preset yet"]
+must_not = ["invents a node-tree preset command"]
+style = "beginner"
+
+[[question]]
+id = "pool-c7-warm-filter-look"
+kind = "approach"
+q = "when I warm my shot it looks like a cheap orange filter"
+sources = ["color.recipes.warm"]
+must = ["warm the highlights and mids (Gain, then less on Gamma), keep the shadows neutral", "warming everything looks like a filter; nudge Lift slightly to blue if the shadows go muddy"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-warm-quick"
+kind = "tweak"
+q = "fastest way to warm a clip, I don't care about finesse"
+sources = ["color.recipes.warm"]
+must = ["raise Temperature on a node: quicker but blunter"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c7-cool-skin-purple"
+kind = "tweak"
+q = "I cooled the shot and now faces look purple"
+sources = ["color.recipes.cool", "color.recipes.skin"]
+must = ["the move is too strong: reduce it", "or protect the skin with a qualifier on its own node"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-moonlight"
+kind = "approach"
+q = "I want an early-morning cold feel but still believable"
+sources = ["color.recipes.cool"]
+must = ["Gain a short way to blue, Gamma less", "keep Lift near centre (or slightly orange) so shadows stay neutral", "check skin and whites stay believable"]
+must_not = ["turns the whole picture blue including the shadows"]
+style = "beginner"
+
+[[question]]
+id = "pool-c7-tungsten-blue"
+kind = "multi-step"
+q = "shot under tungsten, I want it properly blue but cooling only makes it less orange"
+sources = ["color.recipes.warm-to-blue"]
+must = ["neutralise first with the WB picker (or Auto) on something white", "then push Offset and Gain towards blue (or Temperature well below 0)", "check the vectorscope sits towards blue"]
+must_not = ["suggests only small cooling moves"]
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-keep-bulb-warm"
+kind = "approach"
+q = "can I turn the room blue but leave the lamp itself warm?"
+sources = ["color.recipes.warm-to-blue", "color.recipes.one-light"]
+must = ["put the cooling on a node with a window or qualifier that leaves the bulb out"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c7-blown-sky"
+kind = "tweak"
+q = "the qualifier won't pick my sky, it's basically white"
+sources = ["color.recipes.sky"]
+must = ["a sky blown to white has no colour left to select", "darken what detail is left with a gradient (Linear) window instead"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-sky-water"
+kind = "tweak"
+q = "making the sky bluer also changed the blue water at the bottom of the frame"
+sources = ["color.recipes.sky"]
+must = ["add a Linear window that covers only the top of the frame", "the node acts only where the qualifier and the window agree"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-lamp-hard-edge"
+kind = "tweak"
+q = "the blue around my lamp looks like a pasted-on patch"
+sources = ["color.recipes.one-light"]
+must = ["raise the window's Softness a lot so the change fades with distance", "optionally add a qualifier on the glow with softness for a cleaner edge"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-lamp-core"
+kind = "pro-practice"
+q = "the recoloured bulb looks flat and fake in the middle"
+sources = ["color.recipes.one-light"]
+must = ["leave the brightest core a little lighter than the colour: a bulb looks white at its centre"]
+must_not = []
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-lamp-spill"
+kind = "pro-practice"
+q = "should the wall next to the lamp change colour too when I make the lamp blue?"
+sources = ["color.recipes.one-light"]
+must = ["its spill on the nearest wall is part of its light: a wider, softer window tinting it a little looks more believable", "keeping the room exactly as it was is the stylised choice"]
+must_not = ["claims one choice is the only right one"]
+style = "pro"
+
+[[question]]
+id = "pool-c7-face-light"
+kind = "multi-step"
+q = "the presenter's face is in shadow, lift it without brightening the wall behind"
+sources = ["color.recipes.face"]
+must = ["a node at the end with a Circle window a bit larger than the face", "raise Softness until the edge disappears", "raise the Gamma ring slightly; track if the person moves"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-match-what-first"
+kind = "pro-practice"
+q = "when matching a close-up to the wide, what should I line the wipe up on?"
+sources = ["color.recipes.match"]
+must = ["a part both shots share: a face if there is one (match skin first), otherwise a wall or the sky"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c7-match-finetune"
+kind = "tweak"
+q = "after shot match, what should I adjust by hand first?"
+sources = ["color.recipes.match"]
+must = ["levels first (Lift, Gamma, Gain), then colour (usually Temperature)", "Compare shots says what still differs"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c7-scene-odd"
+kind = "multi-step"
+q = "same location, same light, 15 clips: what's the quickest way to grade them all?"
+sources = ["color.recipes.scene"]
+must = ["grade one, Copy Grade, select the others, Paste (or Append) Grade", "Check scene names the clip that stands out; fix it by hand"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c7-grain-match"
+kind = "pro-practice"
+q = "how do I get the same grain on every clip without copying the whole grade?"
+sources = ["color.recipes.grain"]
+must = ["use the same three numbers (strength, size, softness) on the other clips", "copying the grade would bring the other nodes too"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c7-grain-how-much"
+kind = "tweak"
+q = "how strong should the grain be"
+sources = ["color.recipes.grain", "color.finishing.grain"]
+must = ["raise Grain strength until you can just see it at full size, then back off a little"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c7-skin-spill"
+kind = "tweak"
+q = "my skin qualifier also grabs the wooden table and an orange shirt"
+sources = ["color.recipes.skin"]
+must = ["they share skin's hue: narrow Hue width until most turn black", "accept a little spill rather than holes in the face"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c7-skin-judge"
+kind = "pro-practice"
+q = "how do I know if my skin fix is too strong?"
+sources = ["color.recipes.skin"]
+must = ["toggle the node: the face should look healthier, not obviously different", "if you notice it at once, halve it", "the face's trace should lie along the skin-tone line"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c7-skin-pick-where"
+kind = "tweak"
+q = "where on the face should I click with the qualifier picker?"
+sources = ["color.recipes.skin"]
+must = ["the cheek or forehead, avoiding shiny highlights and deep shadow", "Add a lighter and a darker part (and hands) for the whole range"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c7-judge-in-matte"
+kind = "pro-practice"
+q = "can I judge the skin colour while the view is on Matte?"
+sources = ["color.recipes.skin", "color.secondaries.qualifier"]
+must = ["no: always judge the colour in Normal; the matte only shows where the node acts"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c7-resolve-habits"
+kind = "node-role"
+q = "do these recipes follow how Resolve colourists usually work?"
+sources = ["color.recipes.resolve"]
+must = ["yes: technical nodes first, secondaries and look after, grain last", "no node graph, parallel nodes or saved node-tree presets yet"]
+must_not = []
+style = "resolve-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c7k-normal"
+q = "turn flat log into a normal picture"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "1. Turn a flat F-Log2 clip into a normal picture"
+alt = [{ page = "color/primaries.md", heading = "Steps: fix a flat F-Log2 clip" }]
+status = "covered"
+facts = ["four nodes", "Balance, Exposure, Contrast, Saturation"]
+
+[[coach]]
+id = "pool-c7k-warm"
+q = "warm up a cold shot"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "2. Warm a shot up"
+status = "covered"
+facts = ["Gain puck towards orange"]
+
+[[coach]]
+id = "pool-c7k-tungsten"
+q = "turn tungsten light blue"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "2c. Still too orange? Push a warm shot all the way to blue"
+alt = [{ page = "color/recipes.md", heading = "2b. Cool a shot down, or make the light bluer" }]
+status = "covered"
+facts = ["WB picker first", "Offset and Gain to blue"]
+
+[[coach]]
+id = "pool-c7k-lamp"
+q = "recolour one lamp"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "3b. Change the colour of one light (a lamp), leave the room natural"
+status = "covered"
+facts = ["Circle window with lots of Softness"]
+
+[[coach]]
+id = "pool-c7k-face"
+q = "brighten a face in shadow"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "4. Brighten a face"
+status = "covered"
+facts = ["Circle window", "Gamma"]
+
+[[coach]]
+id = "pool-c7k-match"
+q = "wide and close up dont cut together colour wise"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "5. Match a wide shot and a close-up"
+status = "covered"
+facts = ["Grab Still", "Shot Match", "Compare shots"]
+
+[[coach]]
+id = "pool-c7k-scene"
+q = "one grade for the whole scene"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "6. Give one grade to a whole scene"
+alt = [{ page = "color/matching.md", heading = "Copy, paste and append grades" }]
+status = "covered"
+facts = ["Copy Grade, Paste Grade", "Check scene"]
+
+[[coach]]
+id = "pool-c7k-grain-finish"
+q = "finish with film grain"
+kind = "how"
+origin = "agent"
+page = "color/recipes.md"
+heading = "7. Finish with film grain"
+alt = [{ page = "color/finishing.md", heading = "Film grain" }]
+status = "covered"
+facts = ["last node"]
+
+[[coach]]
+id = "pool-c7k-skin-typo"
+q = "fix grey skn"
+kind = "typo"
+origin = "agent"
+page = "color/recipes.md"
+heading = "8. Fix grey or lifeless skin"
+status = "covered"
+facts = ["skin qualifier", "small Saturation lift"]

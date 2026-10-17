@@ -1,11 +1,14 @@
-//! Settings ▸ Playback ▸ Graphics device (LINUX-PLAN L2.6): which GPU draws the interface and the
-//! monitors on a computer with more than one (a laptop's integrated and discrete GPUs, a desktop's
-//! iGPU next to a card). Auto keeps wgpu's high-performance choice and the drivers' own overrides
-//! (`DRI_PRIME`, `MESA_VK_DEVICE_SELECT`, `WGPU_POWER_PREF`); a chosen GPU is matched by its PCI
-//! ids, so a driver update that renames it doesn't lose it. Applied when the window's GPU device
-//! is made, at start ([`crate::wgpu_configuration_on`]). Exports choose their GPUs themselves.
+//! Settings ▸ Playback ▸ Graphics device (LINUX-PLAN L2.6, fork XPS a): which GPU draws the
+//! interface and the monitors, and renders exports, on a computer with more than one (a laptop's
+//! integrated and discrete GPUs, a desktop's iGPU next to a card). Auto, Power saving (integrated
+//! first), Performance (discrete first) or one GPU, matched by its PCI ids so a driver update that
+//! renames it doesn't lose it. Auto keeps the drivers' own overrides (`DRI_PRIME`,
+//! `__NV_PRIME_RENDER_OFFLOAD`, `MESA_VK_DEVICE_SELECT`, `WGPU_POWER_PREF`). The rule itself is
+//! [`filmcraft_gpu::adapter_pick`], shared with the export devices. Applied when the window's GPU
+//! device is made, at start ([`crate::wgpu_configuration_on`]).
 
 use eframe::wgpu;
+use filmcraft_gpu::adapter_pick::{AdapterDesc, GpuPref, driver_override, pick_adapter};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -27,31 +30,28 @@ pub fn id(vendor: u32, device: u32) -> String {
     format!("{vendor:04x}:{device:04x}")
 }
 
-/// The `(vendor, device)` a preference names; `None`: Auto (empty, or not two hex ids).
+/// The `(vendor, device)` a preference names; `None`: Auto, Power saving, Performance (or not two
+/// hex ids).
 pub fn parse(pref: &str) -> Option<(u32, u32)> {
-    let (v, d) = pref.trim().split_once(':')?;
-    let hex = |s: &str| (!s.is_empty() && s.len() <= 8).then(|| u32::from_str_radix(s, 16).ok()).flatten();
-    Some((hex(v)?, hex(d)?))
+    filmcraft_gpu::adapter_pick::parse_pci(pref)
 }
 
-/// Which of `adapters` (their `(vendor, device)` ids) the preference picks: `None` for Auto, or
-/// when that GPU isn't there (removed, or another computer's preferences). Two identical cards:
-/// the first.
-pub fn pick(adapters: &[(u32, u32)], pref: &str) -> Option<usize> {
-    let want = parse(pref)?;
-    adapters.iter().position(|a| *a == want)
+/// What a stored preference asks for (fork XPS a: Auto / Power saving / Performance / a GPU).
+pub fn preference(pref: &str) -> GpuPref {
+    GpuPref::parse(pref)
 }
 
-/// Auto among `types` when the preferred GPU is missing: a discrete GPU, else an integrated one,
-/// else the first that isn't a software renderer, else the first.
-pub fn auto_index(types: &[wgpu::DeviceType]) -> Option<usize> {
-    use wgpu::DeviceType as T;
-    types
-        .iter()
-        .position(|t| *t == T::DiscreteGpu)
-        .or_else(|| types.iter().position(|t| *t == T::IntegratedGpu))
-        .or_else(|| types.iter().position(|t| *t != T::Cpu))
-        .or_else(|| (!types.is_empty()).then_some(0))
+/// Which of `infos` (in the driver's order) the preference picks, by the one rule the export
+/// devices use too ([`filmcraft_gpu::adapter_pick::pick_adapter`]); `None` only for no GPUs.
+pub fn pick(infos: &[wgpu::AdapterInfo], pref: &str) -> Option<usize> {
+    let descs: Vec<AdapterDesc> = infos.iter().map(AdapterDesc::from).collect();
+    let p = preference(pref);
+    if let GpuPref::Pci(v, d) = p
+        && !descs.iter().any(|a| a.vendor == v && a.device == d)
+    {
+        log::warn!("graphics device {pref} not found; Auto");
+    }
+    pick_adapter(p, &descs, driver_override())
 }
 
 fn kind(t: wgpu::DeviceType) -> &'static str {
@@ -135,7 +135,11 @@ pub fn list() -> Vec<GpuChoice> {
 /// The Settings options: Auto first, then each GPU; a chosen GPU that isn't there is kept (so
 /// Settings shows what's stored) and marked.
 pub fn options(gpus: &[GpuChoice], current: &str) -> Vec<(String, String)> {
-    let mut v = vec![(String::new(), tl!("Auto").to_string())];
+    let mut v = vec![
+        (String::new(), tl!("Auto").to_string()),
+        (filmcraft_gpu::adapter_pick::POWER_SAVING.to_string(), tl!("Power saving (integrated GPU)").to_string()),
+        (filmcraft_gpu::adapter_pick::PERFORMANCE.to_string(), tl!("Performance (discrete GPU)").to_string()),
+    ];
     v.extend(gpus.iter().map(|g| {
         let kind = match g.kind.as_str() {
             "discrete" => tl!("discrete"),
@@ -146,7 +150,7 @@ pub fn options(gpus: &[GpuChoice], current: &str) -> Vec<(String, String)> {
         };
         (g.id.clone(), format!("{} ({kind})", g.name))
     }));
-    if !current.is_empty() && !gpus.iter().any(|g| g.id == current) {
+    if !current.is_empty() && !v.iter().any(|(id, _)| id == current) && !gpus.iter().any(|g| g.id == current) {
         let gpu: String = current.chars().filter(|c| !c.is_control()).take(40).collect();
         v.push((current.to_string(), tlf!("{gpu} (not found: Auto)", gpu).to_string()));
     }
@@ -178,37 +182,23 @@ mod tests {
     fn hostile_preference_values_mean_auto() {
         assert_eq!(parse("1002:73df"), Some((0x1002, 0x73df)));
         assert_eq!(parse(" 8086:4680 "), Some((0x8086, 0x4680)));
-        for bad in ["", "auto", "1002", ":73df", "1002:", "zz:73df", "1002:73df:1", "123456789:1", "-1:2", "１002:73df"] {
+        for bad in ["", "auto", "power-saving", "performance", "1002", ":73df", "1002:", "zz:73df", "1002:73df:1", "123456789:1", "-1:2", "１002:73df"] {
             assert_eq!(parse(bad), None, "{bad}");
         }
-    }
-
-    #[test]
-    fn the_chosen_gpu_is_picked_by_its_ids_and_a_missing_one_is_auto() {
-        let gpus = [(0x8086, 0x4680), (0x1002, 0x73df)];
-        assert_eq!(pick(&gpus, "1002:73df"), Some(1));
-        assert_eq!(pick(&gpus, "8086:4680"), Some(0));
-        assert_eq!(pick(&gpus, ""), None);
-        assert_eq!(pick(&gpus, "10de:2684"), None);
-        assert_eq!(pick(&[], "1002:73df"), None);
-        use wgpu::DeviceType as T;
-        assert_eq!(auto_index(&[T::Cpu, T::IntegratedGpu, T::DiscreteGpu]), Some(2));
-        assert_eq!(auto_index(&[T::Cpu, T::IntegratedGpu]), Some(1));
-        assert_eq!(auto_index(&[T::Cpu, T::Other]), Some(1));
-        assert_eq!(auto_index(&[T::Cpu]), Some(0));
-        assert_eq!(auto_index(&[]), None);
+        assert_eq!(preference("power-saving"), GpuPref::PowerSaving);
+        assert_eq!(preference("performance"), GpuPref::Performance);
     }
 
     #[test]
     fn settings_options_keep_a_missing_choice_visible() {
         let gpus = vec![GpuChoice { id: "1002:73df".into(), name: "AMD Radeon RX 6700 XT".into(), kind: "discrete".into() }];
         let o = options(&gpus, "");
-        assert_eq!(o.len(), 2);
-        assert_eq!(o[0].0, "");
-        assert_eq!(o[1].0, "1002:73df");
+        assert_eq!(o.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["", "power-saving", "performance", "1002:73df"]);
+        let o = options(&gpus, "power-saving");
+        assert_eq!(o.len(), 4, "a kind of GPU is not a missing GPU");
         let o = options(&gpus, "10de:2684");
-        assert_eq!(o.len(), 3);
-        assert_eq!(o[2].0, "10de:2684");
-        assert!(o[2].1.contains("10de:2684"));
+        assert_eq!(o.len(), 5);
+        assert_eq!(o[4].0, "10de:2684");
+        assert!(o[4].1.contains("10de:2684"));
     }
 }

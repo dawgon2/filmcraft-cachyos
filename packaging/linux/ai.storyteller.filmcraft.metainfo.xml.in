@@ -5,14 +5,14 @@
   <id>ai.storyteller.filmcraft</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT OR Apache-2.0</project_license>
-  <name>FilmCraft</name>
+  <name>Revolution</name>
   <summary>Edit video, color and sound</summary>
   <developer id="ai.storyteller">
     <name>Learning Machines LLC</name>
   </developer>
   <description>
     <p>
-      FilmCraft is a video editor. Edit video, color and sound
+      Revolution is a video editor based on FilmCraft. Edit video, color and sound
     </p>
   </description>
   <launchable type="desktop-id">ai.storyteller.filmcraft.desktop</launchable>

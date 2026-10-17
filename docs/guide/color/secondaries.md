@@ -36,7 +36,9 @@ grain) then apply only inside that matte.
 6. Refine with the sliders: **Hue centre** / **Hue width** {ui:grade.param.qual.hueWidth},
    **Saturation low / high**, **Luminance low / high**, **Qualifier softness**
    {ui:grade.param.qual.soft} (how gradual the matte's edges are) and **Matte blur**
-   {ui:grade.param.qual.blur} (softens a noisy, speckled matte).
+   {ui:grade.param.qual.blur} (softens a noisy, speckled matte). Edges that flicker or chatter
+   on movement need more softness or blur, not a wider range; if the matte still catches other
+   things, limit it with a window ([Windows](#windows-select-by-shape)).
 7. Tick **Invert** {ui:grade.qual.invert} to act on everything *except* the selection.
 8. Go back to the **Primaries** tab and make the correction; it lands only inside the matte.
 
@@ -71,8 +73,8 @@ end, so the full default range selects everything, black and white included.
 
 - Like Resolve's HSL qualifier: hue / saturation / luminance ranges, softness, matte blur,
   invert, a highlight view, and picker / add tools on the viewer.
-- Differences: there is no "subtract" picker and no 3D / RGB / luma-only qualifier mode yet;
-  the softness is one value for every edge; **View ▸ Selection / Matte is saved with the node**
+- **Revolution:** no "subtract" picker and no 3D / RGB / luma-only qualifier mode yet.
+- Differences: the softness is one value for every edge; **View ▸ Selection / Matte is saved with the node**
   and shows on the Program monitor *and in an export* (unlike Resolve's viewer-only highlight),
   and nodes after the one being viewed are skipped while it is on. Turn it off before exporting.
 - The picker doesn't work on a grade on an adjustment layer yet (set the ranges by hand there).
@@ -81,7 +83,7 @@ end, so the full default range selects everything, black and white included.
 
 ### If you know Premiere
 
-**[FilmCraft]**
+**[Revolution]**
 
 Lumetri Color's **HSL Secondary** is the same idea inside one effect. In the node grader every
 node can carry its own qualifier, and a node's whole correction (wheels, curves, grain) is
@@ -89,7 +91,7 @@ limited by it, not only the secondary's own hue / saturation sliders.
 
 ## Windows: select by shape
 
-> id: color.secondaries.windows | does: limits a node's correction to a shape: ellipse, rectangle or linear gradient | ui: grade.window.*, grade.tab.windows | cmd: masks.* | resolve: Power Windows | premiere: Lumetri masks | when: vignettes, a face, a sky gradient; combined with a qualifier | see: color.secondaries.qualifier, color.secondaries.tracking
+> id: color.secondaries.windows | does: limits a node's correction to a shape: ellipse, rectangle or linear gradient | ui: grade.window.*, grade.tab.windows | cmd: masks.* | resolve: Power Windows | premiere: Lumetri masks | when: brightening just a face, vignettes, a sky gradient; combined with a qualifier | see: color.secondaries.qualifier, color.secondaries.tracking
 
 **[Resolve-style]**
 
@@ -129,7 +131,7 @@ Windows are masks: every `masks.*` command takes `"node": <node id>` instead of 
 
 - Like Resolve's Window palette: circle, linear, polygon / curve shapes, softness, invert, and
   the window limiting the node together with its qualifier.
-- Differences: shapes are FilmCraft's mask paths (a circle is a 4-point Bézier ellipse; there is
+- Differences: shapes are Revolution's mask paths (a circle is a 4-point Bézier ellipse; there is
   no separate inside / outside softness), windows are listed per node rather than in a fixed
   palette, and there is no "outside node" yet (COMPOSITOR-PLAN C2).
 
@@ -137,7 +139,7 @@ Windows are masks: every `masks.*` command takes `"node": <node id>` instead of 
 
 > id: color.secondaries.tracking | does: makes a window follow its subject from frame to frame | ui: grade.window.0.track.* | cmd: masks.track | resolve: Tracker (Window) | premiere: mask tracking | when: a window on something that moves | see: color.secondaries.windows, tracking.what
 
-**[Resolve-style]** **[FilmCraft]**
+**[Resolve-style]** **[Revolution]**
 
 ### Why
 
@@ -155,11 +157,11 @@ window from frame to frame and keyframes the window's shape.
 
 ### Notes
 
-- Tracking uses FilmCraft's point tracker (features inside the window, robust fit; method
+- Tracking uses Revolution's point tracker (features inside the window, robust fit; method
   Position / Position + Rotation / Position + Scale + Rotation from `masks.set`'s
   `trackMethod`). It needs some detail inside the window: a window on a flat wall will "lose
   track".
-- Unlike Resolve there is no planar / 3D tracker and no separate tracker graph yet.
+- **Revolution:** no planar / 3D tracker and no separate tracker graph yet (unlike Resolve).
 - Copying a grade to another clip (`grade.paste`, `grade.append`) copies its windows as they are:
   same position in source pixels and the same tracking keyframes. On a clip of another size or
   with other motion, move or re-track the windows after pasting.

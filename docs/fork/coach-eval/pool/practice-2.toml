@@ -1,0 +1,113 @@
+# AI-POOL batch practice-2: practice/node-trees.md. The original advanced set already asks one
+# question per note here; these ask the pitfalls and the next question a user would have.
+
+[[question]]
+id = "pool-r2-tree-too-big"
+kind = "pro-practice"
+q = "my fixed node tree has 14 nodes, is that too many?"
+sources = ["practice.node-trees.fixed-tree"]
+must = ["empty nodes cost nothing, but a tree too big to read defeats the purpose", "the point is knowing where each correction lives"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r2-parallel-overshoot"
+kind = "pro-practice"
+q = "in Resolve two parallel nodes on the same area overshoot, would the same happen with serial nodes here?"
+sources = ["practice.node-trees.parallel", "glossary.serial-node"]
+must = ["parallel nodes changing the same area add up and overshoot", "serial nodes stack too: each later node works on the earlier one's result"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-r2-layer-workaround"
+kind = "gap"
+q = "I need a secondary that overrides the look like a layer mixer, how?"
+sources = ["practice.node-trees.layer"]
+must = ["no layer node yet", "a late node with a qualifier or window after the look does the same in most cases"]
+must_not = ["invents a layer mixer"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-r2-outside-drift"
+kind = "tweak"
+q = "I drew a second window for the background and the two shapes don't line up"
+sources = ["practice.node-trees.outside"]
+must = ["separately drawn shapes drift apart: copy the node and invert its window instead of redrawing"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r2-adjlayer-order"
+kind = "pro-practice"
+q = "my adjustment layer look behaves differently than the same grade on the clip"
+sources = ["practice.node-trees.groups"]
+must = ["an adjustment layer's grade sits after each clip's own nodes and their output transform"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r2-per-camera"
+kind = "approach"
+q = "same correction for every clip from camera B, how without group grades?"
+sources = ["practice.node-trees.groups"]
+must = ["no grade groups yet: append the same node to those clips (grade.append)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r2-hue-tear"
+kind = "pro-practice"
+q = "a narrow hue curve bump made banding in the sky"
+sources = ["practice.node-trees.hue-curves"]
+must = ["narrow hue-curve bumps tear gradients in compressed footage: widen or soften the change", "a qualifier on that colour is an alternative"]
+must_not = []
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-r2-printer-keys"
+kind = "gap"
+q = "is there a printer lights keypad for Offset steps?"
+sources = ["practice.node-trees.printer-lights"]
+must = ["no printer-light step keys yet: use the Offset wheel on the balance node"]
+must_not = ["invents printer-light keys"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-r2-glow-diy"
+kind = "multi-step"
+q = "build a basic glow without a glow effect"
+sources = ["practice.node-trees.glow"]
+must = ["a duplicate of the clip above it", "a high-luma key, Gaussian Blur, and a lighten / screen blend"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r2-plastic-skin"
+kind = "tweak"
+q = "my skin softening looks plastic"
+sources = ["practice.node-trees.skin-soften"]
+must = ["keep the spatial NR inside the skin key subtle", "keep eyes, lips and hair sharp (outside the key)"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r2-sharpen-order"
+kind = "node-role"
+q = "sharpen before or after grain?"
+sources = ["practice.node-trees.sharpen"]
+must = ["sharpen before grain, not after", "sparingly: halos on edges and noise"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r2-track-texture"
+kind = "tweak"
+q = "my soft window on a plain cheek won't track"
+sources = ["practice.node-trees.track-window", "color.secondaries.tracking"]
+must = ["track something with texture; a featureless area has nothing to follow", "check playback and fix the frames where it slips"]
+must_not = []
+style = "beginner"

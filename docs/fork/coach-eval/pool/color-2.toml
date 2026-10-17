@@ -1,0 +1,453 @@
+# AI-POOL batch color-2: color/primaries.md, color/secondaries.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c2-primaries-first"
+kind = "approach"
+q = "should I do the whole-picture fixes or the skin first?"
+sources = ["color.primaries.why", "practice.grading.balance-first"]
+must = ["primaries (whole picture or whole brightness ranges) first", "secondaries on one colour come after"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c2-lift-vs-offset"
+kind = "tool"
+q = "what's the difference between lift and offset?"
+sources = ["color.primaries.panel"]
+must = ["Lift moves the darkest tones (black level, shadow tint)", "Offset moves everything evenly (overall brightness or cast)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c2-wheel-order"
+kind = "pro-practice"
+q = "Offset first then LGG, or set black and white points first? which is right"
+sources = ["color.primaries.panel"]
+must = ["no single right order", "both are common: balance with Offset first, or set black / white with Lift and Gain first", "try both on the same shot and keep the faster one"]
+must_not = ["claims one order is correct"]
+style = "pro"
+
+[[question]]
+id = "pool-c2-jog-bar"
+kind = "tool"
+q = "how do I change just the brightness of the midtones without tinting them"
+sources = ["color.primaries.panel"]
+must = ["the Gamma wheel's jog bar (master) under the wheel", "drag left or right; double-click returns it to 0"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c2-centre-puck"
+kind = "tweak"
+q = "I pushed the gain puck too far toward orange, how do I centre it again?"
+sources = ["color.primaries.panel"]
+must = ["double-click the wheel to centre the puck", "or the wheel's reset (↺) beside its title"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c2-reset-one"
+kind = "tweak"
+q = "how do I reset only saturation and leave everything else"
+sources = ["color.primaries.panel"]
+must = ["double-click the Saturation label"]
+must_not = ["tells the user to reset the whole node"]
+style = "sloppy"
+
+[[question]]
+id = "pool-c2-reset-node"
+kind = "tool"
+q = "I want to set every control on this node back to neutral in one go"
+sources = ["color.primaries.panel"]
+must = ["the node's Reset returns every control to neutral"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c2-bw"
+kind = "tweak"
+q = "how do I make the shot black and white"
+sources = ["color.primaries.panel", "practice.looks.black-white"]
+must = ["Saturation to 0"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c2-contrast-range"
+kind = "pro-practice"
+q = "what are the ranges of contrast and saturation and where is neutral?"
+sources = ["color.primaries.panel", "color.primaries.commands"]
+must = ["Contrast 0 to 4, neutral 1", "Saturation 0 to 4, neutral 1", "grade.params lists every parameter with its range"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-wb-shade"
+kind = "multi-step"
+q = "shot in the shade and everything's blue, there's a white car in frame"
+sources = ["color.primaries.white-balance"]
+must = ["WB picker on the first node", "click (or drag a box over) the white car", "Temperature and Tint move so it comes out neutral", "warm it back by hand if wanted"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-c2-wb-auto"
+kind = "tool"
+q = "there's nothing grey or white in the shot, can it balance by itself?"
+sources = ["color.primaries.white-balance"]
+must = ["Auto balance (the round A before the picker)", "it averages the near-grey mid-tone parts of the frame, skipping clipped highlights, deep shadows and strongly coloured areas"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c2-wb-partial"
+kind = "tweak"
+q = "the picker stopped at 100 and says the cast is only partly removed"
+sources = ["color.primaries.white-balance"]
+must = ["the cast is stronger than Temperature / Tint reach (±100)", "balance the rest with the Gain or Offset wheel"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-wb-twice"
+kind = "pro-practice"
+q = "if I click the same spot with the picker again will it overcorrect?"
+sources = ["color.primaries.white-balance"]
+must = ["no: it reads the picture as it enters this node, so the same spot gives the same values"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-wb-resolve"
+kind = "pro-practice"
+q = "my WB pick numbers don't match what Resolve gives on the same frame, is something broken?"
+sources = ["color.primaries.white-balance"]
+must = ["Revolution's picker only moves this node's Temperature and Tint (in linear light)", "Resolve may spread the correction differently, so the numbers won't match"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-c2-flog2-steps"
+kind = "multi-step"
+q = "step by step, take a flat F-Log2 interview to a balanced picture"
+sources = ["color.primaries.flog2-steps", "color.readme.first-grade"]
+must = ["confirm the clip is interpreted as F-Log2", "Gain jog bar for highlights, Lift for blacks", "Contrast in small steps, Pivot at 0.336 unless faces get too dark", "Saturation, then WB picker / Auto balance", "check the scopes, Bypass to compare"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c2-pivot-faces"
+kind = "tweak"
+q = "adding contrast makes faces too dark, what should I move?"
+sources = ["color.primaries.flog2-steps", "color.primaries.panel", "practice.grading.contrast-pivot"]
+must = ["move Pivot (from 0.336) so contrast leaves the face's brightness alone"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c2-set-param-script"
+kind = "tool"
+q = "how do I set the contrast of a node from a script?"
+sources = ["color.primaries.commands"]
+must = ["grade.setParam with param and value", "grade.params lists the parameters and ranges", "grade.get returns the whole grade"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-wb-script"
+kind = "tool"
+q = "Can an agent run the white balance picker on a box of the frame?"
+sources = ["color.primaries.commands"]
+must = ["grade.wb.pick with x, y and optionally x2, y2 (0…1 of the frame)", "returns Temperature and Tint with clamped and a message at the limit"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-gap-shadows-slider"
+kind = "gap"
+q = "where's the mid detail and colour boost sliders?"
+sources = ["color.primaries.resolve"]
+must = ["no shadows / highlights / colour-boost / mid-detail sliders yet"]
+must_not = ["invents a mid-detail or colour-boost slider"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c2-lumetri-plus-nodes"
+kind = "approach"
+q = "can I use nodes and Lumetri on the same clip?"
+sources = ["color.primaries.premiere", "color.readme.idea", "color.lumetri.order"]
+must = ["yes: nodes run before the effect stack, Lumetri is an effect", "they combine"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-c2-qual-jacket"
+kind = "multi-step"
+q = "change the colour of a red jacket and nothing else"
+sources = ["color.secondaries.qualifier"]
+must = ["a new node for the secondary", "Qualifier tab, Pick on the jacket, Add to widen", "View Matte or Selection to check, then back to Normal", "correct in Primaries; it lands only inside the matte"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c2-qual-log-node"
+kind = "pro-practice"
+q = "does it matter if my qualifier node is before the node that normalises the log?"
+sources = ["color.secondaries.qualifier"]
+must = ["before it, the qualifier keys the flat log picture (low saturation): narrower ranges", "most people qualify after the image is normalised"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-qual-subtract"
+kind = "gap"
+q = "is there a subtract picker for the qualifier?"
+sources = ["color.secondaries.qualifier"]
+must = ["no subtract picker yet", "narrow the ranges with the sliders instead"]
+must_not = ["invents a subtract button"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c2-qual-3d"
+kind = "gap"
+q = "can I switch the qualifier to 3D or RGB mode?"
+sources = ["color.secondaries.qualifier"]
+must = ["no 3D / RGB / luma-only mode yet: HSL ranges only"]
+must_not = ["invents a qualifier mode switch"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c2-qual-adjlayer"
+kind = "tweak"
+q = "the qualifier pick does nothing on my adjustment layer grade"
+sources = ["color.secondaries.qualifier"]
+must = ["the picker doesn't work on an adjustment layer's grade yet", "set the ranges by hand there"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c2-qual-vs-lumetri-hsl"
+kind = "approach"
+q = "what's better, Lumetri HSL Secondary or a qualifier on a node?"
+sources = ["color.secondaries.qualifier", "color.lumetri.what"]
+must = ["the same idea", "on a node the whole correction (wheels, curves, grain) is limited by the qualifier", "every node can carry its own qualifier"]
+must_not = ["claims one is always right"]
+style = "premiere-words"
+
+[[question]]
+id = "pool-c2-window-face"
+kind = "multi-step"
+q = "brighten just her face a little"
+sources = ["color.secondaries.windows", "color.recipes.face"]
+must = ["a node, Windows tab, Circle", "place and soften the window on the face", "brighten in Primaries; the change stays inside"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-c2-vignette"
+kind = "approach"
+q = "how do I add a vignette with the grader"
+sources = ["color.secondaries.windows"]
+must = ["a Circle window round the subject, Invert to act outside", "Softness for the feather", "darken in Primaries"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c2-window-and-qual"
+kind = "pro-practice"
+q = "if a node has both a window and a qualifier, which one wins?"
+sources = ["color.secondaries.windows"]
+must = ["the node acts only where both select"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-window-max"
+kind = "tool"
+q = "how many windows can one node have and how do they combine?"
+sources = ["color.secondaries.windows"]
+must = ["up to 16 windows per node", "they combine by mask mode (add, subtract, intersect …)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-window-script"
+kind = "tool"
+q = "how do I add a power window to a node from the control channel?"
+sources = ["color.secondaries.windows"]
+must = ["masks.add with \"node\" instead of \"effect\"", "shape ellipse, rectangle, polygon, bezier or linear"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-c2-track-car"
+kind = "multi-step"
+q = "my window has to follow a car driving past"
+sources = ["color.secondaries.tracking"]
+must = ["put the playhead where the window sits well", "Track forward / backward in the Windows tab", "scrub to check; fix drift and track again from there"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c2-track-wall"
+kind = "tweak"
+q = "tracking a window on a plain white wall loses track straight away"
+sources = ["color.secondaries.tracking"]
+must = ["the tracker needs detail inside the window", "a window on a flat wall has nothing to follow"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c2-track-planar"
+kind = "gap"
+q = "is there a planar tracker for windows?"
+sources = ["color.secondaries.tracking"]
+must = ["no planar / 3D tracker yet", "the point tracker: Position, Position + Rotation, Position + Scale + Rotation"]
+must_not = ["invents a planar tracker"]
+style = "resolve-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c2k-lift"
+q = "what does the lift wheel do"
+kind = "what-for"
+origin = "agent"
+page = "color/primaries.md"
+heading = "The panel"
+alt = [{ page = "glossary.md", heading = "Wheel" }]
+status = "covered"
+facts = ["darkest tones", "black level"]
+
+[[coach]]
+id = "pool-c2k-offset"
+q = "offset wheel"
+kind = "resolve-word"
+origin = "agent"
+page = "color/primaries.md"
+heading = "The panel"
+alt = [{ page = "glossary.md", heading = "Wheel" }]
+status = "covered"
+facts = ["everything evenly"]
+
+[[coach]]
+id = "pool-c2k-bw"
+q = "how do I make it black and white"
+kind = "how"
+origin = "agent"
+page = "color/primaries.md"
+heading = "The panel"
+status = "covered"
+facts = ["Saturation 0"]
+
+[[coach]]
+id = "pool-c2k-auto"
+q = "auto white balance"
+kind = "how"
+origin = "agent"
+page = "color/primaries.md"
+heading = "White balance picker and Auto balance"
+status = "covered"
+facts = ["Auto balance"]
+
+[[coach]]
+id = "pool-c2k-wb-selector"
+q = "lumetri wb selector"
+kind = "premiere-word"
+origin = "agent"
+page = "color/primaries.md"
+heading = "White balance picker and Auto balance"
+alt = [{ page = "color/lumetri.md", heading = "Using the Lumetri Color panel" }]
+status = "covered"
+facts = ["WB picker"]
+
+[[coach]]
+id = "pool-c2k-flog2"
+q = "fix a flat flog2 clip"
+kind = "how"
+origin = "agent"
+page = "color/primaries.md"
+heading = "Steps: fix a flat F-Log2 clip"
+alt = [{ page = "color/recipes.md", heading = "1. Turn a flat F-Log2 clip into a normal picture" }]
+status = "covered"
+facts = ["Gain", "Lift", "Contrast", "Pivot 0.336"]
+
+[[coach]]
+id = "pool-c2k-setparam"
+q = "set a grade parameter from a script"
+kind = "how"
+origin = "agent"
+page = "color/primaries.md"
+heading = "Commands"
+status = "covered"
+facts = ["grade.setParam"]
+
+[[coach]]
+id = "pool-c2k-hsl"
+q = "hsl qualifier"
+kind = "resolve-word"
+origin = "agent"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+status = "covered"
+facts = ["Pick", "Hue width", "softness"]
+
+[[coach]]
+id = "pool-c2k-matte-view"
+q = "how do I see the matte of the qualifier"
+kind = "how"
+origin = "agent"
+page = "color/secondaries.md"
+heading = "The qualifier: select by colour"
+status = "covered"
+facts = ["View Matte"]
+
+[[coach]]
+id = "pool-c2k-power-window"
+q = "power window"
+kind = "resolve-word"
+origin = "agent"
+page = "color/secondaries.md"
+heading = "Windows: select by shape"
+status = "covered"
+facts = ["Circle, Rectangle, Linear"]
+
+[[coach]]
+id = "pool-c2k-vignette"
+q = "how do I make a vignette"
+kind = "how"
+origin = "agent"
+page = "color/secondaries.md"
+heading = "Windows: select by shape"
+alt = [{ page = "glossary.md", heading = "Window" }]
+status = "covered"
+facts = ["Circle window", "Invert"]
+
+[[coach]]
+id = "pool-c2k-lumetri-mask"
+q = "lumetri masks"
+kind = "premiere-word"
+origin = "agent"
+page = "color/secondaries.md"
+heading = "Windows: select by shape"
+status = "covered"
+facts = ["Windows tab"]
+
+[[coach]]
+id = "pool-c2k-track-typo"
+q = "how do i trak a window"
+kind = "typo"
+origin = "agent"
+page = "color/secondaries.md"
+heading = "Tracking a window"
+status = "covered"
+facts = ["Track forward"]

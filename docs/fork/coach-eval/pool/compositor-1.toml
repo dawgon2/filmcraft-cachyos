@@ -1,0 +1,465 @@
+# AI-POOL batch compositor-1: compositor.md, keying.md, tracking.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-k1-comp-reuse"
+kind = "approach"
+q = "I use the same lower-third logo treatment in 15 places, if I change it once will all of them update?"
+sources = ["compositor.basics"]
+must = ["yes if it's a comp: a comp is a project item like a nested sequence", "one comp can be on the timeline many times; changing it changes every copy"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-merge-inputs"
+kind = "node-role"
+q = "on a Merge node which input is the foreground?"
+sources = ["compositor.basics"]
+must = ["the second input is the foreground, put over the first (background)", "with opacity and a blend mode"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-node-kinds"
+kind = "tool"
+q = "what kinds of nodes can I add in a comp?"
+sources = ["compositor.basics"]
+must = ["Media In, Merge, Transform, Key, Mask, Blur, Color, Text, Solid / Gradient (Media Out is the output)", "comp.params lists a kind's controls"]
+must_not = ["invents 3D or particle nodes"]
+style = "beginner"
+
+[[question]]
+id = "pool-k1-3d"
+kind = "gap"
+q = "can I do 3D text or particles in the compositor like in Fusion?"
+sources = ["compositor.basics"]
+must = ["no: much smaller than Fusion, no 3D, particles or scripting"]
+must_not = ["invents a 3D or particle node"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-k1-open-panel"
+kind = "tool"
+q = "where's the Fusion page in the Resolve workflow?"
+sources = ["compositor.make"]
+must = ["the Fusion button in the page bar, between Edit and Color (page.fusion)", "or Window ▸ Compositor / the Compositing workspace"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-k1-connect"
+kind = "tool"
+q = "how do I wire two nodes together and how do I unplug them?"
+sources = ["compositor.make"]
+must = ["drag from a node's output dot to another's input dot (comp.connect)", "click a connected input dot to disconnect"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-bypass-node"
+kind = "tool"
+q = "see the comp without one node temporarily"
+sources = ["compositor.make"]
+must = ["select it and Ctrl+B (Bypass in its right-click menu, comp.bypass)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-k1-set-output"
+kind = "pro-practice"
+q = "what's the difference between Set as Output and View on a node?"
+sources = ["compositor.make", "compositor.view"]
+must = ["Set as Output makes that node the comp clip's finished picture", "View only changes what the Program monitor shows while you work"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-k1-animate-param"
+kind = "multi-step"
+q = "animate a Transform node's position over two seconds"
+sources = ["compositor.inspector"]
+must = ["select the node; click the stopwatch on its Position row: a keyframe at the playhead", "move the playhead and change the value: another keyframe (comp.setParam with a time)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-color-node-curves"
+kind = "tool"
+q = "does the comp's Color node have curves?"
+sources = ["compositor.inspector"]
+must = ["yes: a curve editor with Y / R / G / B (drag to add a point, double-click to remove)", "plus Lift / Gamma / Gain / Offset wheels and the numeric grade settings"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-comp-length"
+kind = "gap"
+q = "is there a composition settings dialog to change the comp's frame rate?"
+sources = ["compositor.settings"]
+must = ["no dialog yet: comp.setSize with fps (also width, height, duration) from the command palette, control channel or MCP"]
+must_not = ["invents a settings dialog"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-k1-rename-node"
+kind = "tool"
+q = "how do I give a comp node a readable name?"
+sources = ["compositor.settings"]
+must = ["comp.labelNode with node and label (commands only, no rename field yet)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-graph-error"
+kind = "tweak"
+q = "my comp shows nothing, how can I find out why the graph can't run?"
+sources = ["compositor.settings", "compositor.explain"]
+must = ["comp.get lists the nodes, connections, run order and, if the graph can't run, why", "comp.explain says when a graph can't be evaluated (a loop)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-k1-view-gone"
+kind = "tweak"
+q = "I viewed a node but the Program monitor went back to the normal sequence"
+sources = ["compositor.view"]
+must = ["it shows the node only while the Compositor is open and the playhead is over a clip of that comp"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-unused-node"
+kind = "tweak"
+q = "comp.explain lists a node under unused, what does that mean?"
+sources = ["compositor.explain"]
+must = ["the node doesn't reach Media Out, so it changes nothing", "connect it into the chain that feeds Media Out"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-k1-mask-shapes"
+kind = "multi-step"
+q = "keep only a circle in the middle of the picture in my comp"
+sources = ["compositor.masks"]
+must = ["a Mask node: Add ellipse in its Masks row", "move or reshape it on the Program monitor; Mask Feather softens the edge"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-k1-mask-invert"
+kind = "tweak"
+q = "my comp mask keeps the inside but I want the outside"
+sources = ["compositor.masks"]
+must = ["tick Inverted on that shape"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-mask-points"
+kind = "tool"
+q = "how do I add a point to a mask shape or make a sharp corner?"
+sources = ["compositor.masks"]
+must = ["Ctrl-click an edge to add a point (Ctrl-click a point deletes it)", "Alt-click a point to switch smooth / corner; Alt-drag a handle for a cusp"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-k1-mask-vs-fusion"
+kind = "pro-practice"
+q = "in Fusion each mask is its own node, how is it here?"
+sources = ["compositor.masks"]
+must = ["one Mask node holds a list of up to sixteen shapes, like a Premiere effect's masks"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-k1-convert-refused"
+kind = "tweak"
+q = "Convert to Comp Clip refuses my clips"
+sources = ["compositor.convert"]
+must = ["it takes only plain clips lined up in time, one per track", "it refuses (with the reason) effects, grades, speed changes, transitions, linked sound, keyframed Motion / Opacity …"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-title-comp"
+kind = "multi-step"
+q = "build a title over footage as a comp"
+sources = ["compositor.recipes"]
+must = ["Text → Transform → foreground of a Merge", "Merge background: a Media In of the footage", "→ Media Out"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-comp-fast"
+kind = "pro-practice"
+q = "why does my title-only comp play fast but the one with footage doesn't?"
+sources = ["compositor.speed"]
+must = ["parts that don't change over time are drawn once and remembered", "anything fed by Media In, a Color node or keyframes is redrawn every frame"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-k1-comp-cpu"
+kind = "tweak"
+q = "I added an effect on the comp clip itself and now it's slow"
+sources = ["compositor.speed"]
+must = ["a comp clip with its own effects, grade or opacity masks renders on the processor", "move those into the comp as nodes to keep it on the graphics card"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-key-what"
+kind = "approach"
+q = "what is a matte, in keying terms?"
+sources = ["keying.what"]
+must = ["how see-through each pixel is: white solid, black gone, grey partly see-through (hair, motion blur, glass)", "a good key is mostly about a clean matte"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-which-keyer"
+kind = "approach"
+q = "white logo on a black background, which keyer?"
+sources = ["keying.what", "keying.luma-color"]
+must = ["Luma Key: keys by brightness", "Cutoff ≈ 10, Threshold ≈ 30 as a start"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-key-color-pick"
+kind = "tweak"
+q = "where on the green screen should I click with the key colour eyedropper?"
+sources = ["keying.ultra-key"]
+must = ["a mid-green part of the backdrop, not a shadow or a bright spot"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-key-setting"
+kind = "tweak"
+q = "Ultra Key edges look chewed up"
+sources = ["keying.ultra-key"]
+must = ["try Setting: Relaxed (Aggressive if green is left in the background)"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-k1-alpha-view"
+kind = "multi-step"
+q = "how do I check the key properly before cleaning it up?"
+sources = ["keying.check"]
+must = ["set Ultra Key's Output to Alpha Channel: the matte in black and white", "look for speckles, holes, hard edges", "set Output back to Composite (it also changes the render)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-holes"
+kind = "tweak"
+q = "there are grey holes in the person in the alpha view"
+sources = ["keying.check"]
+must = ["lower Tolerance, or raise Pedestal a little"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-k1-spill"
+kind = "tweak"
+q = "green fringe on her hair after keying"
+sources = ["keying.cleanup"]
+must = ["Spill Suppression ▸ Spill removes the green cast", "a small Choke (5–20) trims a thin green outline; large values eat into hair"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-k1-edge-thin"
+kind = "gap"
+q = "Color Key's Edge Thin slider doesn't do anything"
+sources = ["keying.luma-color"]
+must = ["right: Edge Thin does nothing yet in Revolution's Color Key", "use Ultra Key's Choke to trim an edge"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-k1-key-gpu"
+kind = "pro-practice"
+q = "will keying 4K footage play in real time?"
+sources = ["keying.gpu"]
+must = ["all three keyers run on the graphics card (GPU accelerated badge)", "same result as the processor path"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-k1-track-flat"
+kind = "tweak"
+q = "tracking a dark phone screen says lost track"
+sources = ["tracking.what", "tracking.screen"]
+must = ["flat areas have nothing to follow", "pin the corners to the bezel / frame around the screen instead"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-k1-arrow-follow"
+kind = "multi-step"
+q = "make an arrow follow a car across the frame"
+sources = ["tracking.follow"]
+must = ["arrow on V2 over the shot on V1, placed on the car on a clear frame", "Motion ▸ Attach to Track: pick Position, then ▶▶", "each run is one undo step and writes Motion keyframes"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-track-method"
+kind = "pro-practice"
+q = "Position only, or Position, Scale & Rotation for a tracked label?"
+sources = ["tracking.follow"]
+must = ["Position is steadiest: the label stays upright and the same size", "the others turn and grow it with the object but shake more when detail is weak"]
+must_not = ["claims one is always right"]
+style = "pro"
+
+[[question]]
+id = "pool-k1-plate-blur"
+kind = "approach"
+q = "blur a moving number plate"
+sources = ["tracking.follow", "tracking.what"]
+must = ["a Gaussian Blur or Mosaic with a mask, then track the mask (Mask Path's track buttons)", "tracking.blurRegion does all three in one go for scripts"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-k1-screen-replace"
+kind = "multi-step"
+q = "put my own video onto a laptop screen in the shot"
+sources = ["tracking.screen"]
+must = ["your picture on V2 over the shot, Corner Pin on it", "set the four corners to the screen on a clear frame", "Track Surface ▶▶ / ◀◀; each run is one undo step"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-k1-screen-drift"
+kind = "tweak"
+q = "my corner pin track drifts halfway through"
+sources = ["tracking.screen"]
+must = ["stop, fix the four points at the frame where it drifted, track again from there"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-k1k-merge"
+q = "merge node"
+kind = "what-for"
+origin = "agent"
+page = "compositor.md"
+heading = "Comps, nodes and connections"
+status = "covered"
+facts = ["foreground over background"]
+
+[[coach]]
+id = "pool-k1k-stopwatch"
+q = "keyframe a comp node setting"
+kind = "how"
+origin = "agent"
+page = "compositor.md"
+heading = "Changing a node's settings"
+status = "covered"
+facts = ["stopwatch"]
+
+[[coach]]
+id = "pool-k1k-mask"
+q = "mask node shapes"
+kind = "how"
+origin = "agent"
+page = "compositor.md"
+heading = "A Mask node's masks [Fork]"
+status = "covered"
+facts = ["Add ellipse", "Add rectangle"]
+
+[[coach]]
+id = "pool-k1k-fusion-clip"
+q = "new fusion clip"
+kind = "resolve-word"
+origin = "agent"
+page = "compositor.md"
+heading = "Making a comp"
+alt = [{ page = "compositor.md", heading = "Turning stacked clips into a comp" }]
+status = "covered"
+facts = ["New Comp Clip"]
+
+[[coach]]
+id = "pool-k1k-ultra"
+q = "ultra key green screen"
+kind = "how"
+origin = "agent"
+page = "keying.md"
+heading = "Keying a green screen with Ultra Key"
+status = "covered"
+facts = ["Key Color eyedropper", "Setting"]
+
+[[coach]]
+id = "pool-k1k-alpha"
+q = "show the alpha channel of a key"
+kind = "how"
+origin = "agent"
+page = "keying.md"
+heading = "Checking the key: Output ▸ Alpha Channel"
+status = "covered"
+facts = ["Output ▸ Alpha Channel"]
+
+[[coach]]
+id = "pool-k1k-spill"
+q = "remove green spill"
+kind = "how"
+origin = "agent"
+page = "keying.md"
+heading = "Cleaning up edges and green spill"
+status = "covered"
+facts = ["Spill Suppression"]
+
+[[coach]]
+id = "pool-k1k-luma"
+q = "luma key a logo on black"
+kind = "how"
+origin = "agent"
+page = "keying.md"
+heading = "Luma Key and Color Key"
+status = "covered"
+facts = ["Cutoff", "Threshold"]
+
+[[coach]]
+id = "pool-k1k-attach"
+q = "attach to track"
+kind = "how"
+origin = "agent"
+page = "tracking.md"
+heading = "Making a title or sticker follow something"
+alt = [{ page = "tracking.md", heading = "What tracking does" }]
+status = "covered"
+facts = ["Motion ▸ Attach to Track"]
+
+[[coach]]
+id = "pool-k1k-corner-pin"
+q = "pin a picture onto a tv screen in the shot"
+kind = "how"
+origin = "agent"
+page = "tracking.md"
+heading = "Screen replacement with Corner Pin"
+status = "covered"
+facts = ["Track Surface"]
+
+[[coach]]
+id = "pool-k1k-planar"
+q = "planar tracker"
+kind = "resolve-word"
+origin = "agent"
+page = "tracking.md"
+heading = "Screen replacement with Corner Pin"
+alt = [{ page = "color/secondaries.md", heading = "Tracking a window" }]
+status = "covered"
+facts = ["Corner Pin Track Surface"]

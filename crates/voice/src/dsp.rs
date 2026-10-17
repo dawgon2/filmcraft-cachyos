@@ -268,11 +268,22 @@ pub struct Features {
 
 impl Features {
     pub fn new(nb_erb: usize, nb_df: usize, alpha: f32) -> Features {
-        let ramp = |n: usize, a: f32, b: f32| -> Vec<f32> {
+        let mut f = Features { alpha, mean_norm: vec![0.0; nb_erb], unit_norm: vec![0.0; nb_df] };
+        f.reset();
+        f
+    }
+
+    /// Back to the starting norm states, in place: no allocation, so it may run on the audio thread.
+    pub fn reset(&mut self) {
+        fn ramp(v: &mut [f32], a: f32, b: f32) {
+            let n = v.len();
             let step = if n > 1 { (b - a) / (n - 1) as f32 } else { 0.0 };
-            (0..n).map(|i| a + i as f32 * step).collect()
-        };
-        Features { alpha, mean_norm: ramp(nb_erb, -60.0, -90.0), unit_norm: ramp(nb_df, 0.001, 0.0001) }
+            for (i, x) in v.iter_mut().enumerate() {
+                *x = a + i as f32 * step;
+            }
+        }
+        ramp(&mut self.mean_norm, -60.0, -90.0);
+        ramp(&mut self.unit_norm, 0.001, 0.0001);
     }
 
     /// ERB feature: band power in dB, minus its running mean, / 40. `false` on wrong lengths.
@@ -364,6 +375,25 @@ mod tests {
     use super::*;
 
     const P: DfParams = DfParams::DFN3;
+
+    #[test]
+    fn features_reset_restores_the_start_in_place() {
+        let alpha = norm_alpha(P.sample_rate, P.hop_size, P.norm_tau);
+        let fresh = Features::new(4, 3, alpha);
+        let mut f = Features::new(4, 3, alpha);
+        let spec = vec![C32 { re: 3.0, im: -1.0 }; 8];
+        let mut out = vec![0.0; 4];
+        assert!(f.erb(&spec, &[2, 2, 2, 2], &mut out));
+        assert_ne!(f.mean_norm, fresh.mean_norm, "the running mean moved");
+        let (m, u) = (f.mean_norm.as_ptr(), f.unit_norm.as_ptr());
+        f.reset();
+        assert_eq!((f.mean_norm.clone(), f.unit_norm.clone()), (fresh.mean_norm.clone(), fresh.unit_norm.clone()));
+        assert_eq!((f.mean_norm.as_ptr(), f.unit_norm.as_ptr()), (m, u), "no new buffers (audio thread)");
+        // one band / empty: no division by zero
+        let mut one = Features::new(1, 0, alpha);
+        one.reset();
+        assert_eq!(one.mean_norm, vec![-60.0]);
+    }
 
     #[test]
     fn dfn3_erb_layout() {

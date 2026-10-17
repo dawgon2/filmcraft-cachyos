@@ -324,7 +324,7 @@ fn ask(app: &mut FilmcraftApp) {
 /// stopped first (one answer at a time on this PC).
 fn start_assist(app: &mut FilmcraftApp, q: &str) {
     stop_assist(app);
-    let mut p = json!({ "question": q, "page": app.ui.workspace });
+    let mut p = json!({ "question": q, "page": app.ui.workspace, "context": "auto" });
     // a follow-up: the last checked exchange goes with it
     if let Some((pq, pa)) = &app.ui.coach_ask.last_exchange {
         p["previousQuestion"] = json!(pq);
@@ -364,6 +364,9 @@ fn poll_assist(app: &mut FilmcraftApp, ctx: &egui::Context) {
                 app.ui.coach_ask.last_exchange = Some((app.ui.coach_ask.assist_question.clone(), lines.join("\n")));
             }
             if v["state"] != "unknown" {
+                // the id goes with the answer: rating and sharing name it (AI5)
+                let mut v = v;
+                v["id"] = json!(id);
                 app.ui.coach_ask.assist = Some(v);
             }
         }
@@ -422,16 +425,20 @@ fn assistant_view(app: &mut FilmcraftApp, ui: &mut egui::Ui, action: &mut Option
         }
         return;
     }
+    seen_lines(app, ui, &a, "coach.ask.assistSeen");
     if a["source"] != "model" {
         let why = match a["fallback"]["kind"].as_str() {
             Some("notReady") => {
                 tl!("The assistant can't run here yet (its model isn't installed or this build has none), so the guide's answer above is all there is.")
             }
-            Some("ungrounded") => tl!("The assistant's answer named things FilmCraft doesn't have, so it was left out; the guide's answer above is checked."),
+            Some("ungrounded") => tl!("The assistant's answer named things Revolution doesn't have, so it was left out; the guide's answer above is checked."),
             Some("nothingFound") => tl!("The guide has nothing on this, so the assistant didn't guess."),
             _ => tl!("The assistant couldn't answer this time; the guide's answer above still stands."),
         };
         ui.label(RichText::new(why).small().color(t.text_dim));
+        if let Some(id) = a["id"].as_u64() {
+            super::share_example::rate_row(app, ui, id, &super::share_example::ASK_BOX_IDS);
+        }
         return;
     }
     if a["dontKnow"].as_bool() == Some(true) {
@@ -473,6 +480,9 @@ fn assistant_view(app: &mut FilmcraftApp, ui: &mut egui::Ui, action: &mut Option
                 .italics()
                 .color(t.text_faint),
         );
+    }
+    if let Some(id) = a["id"].as_u64() {
+        super::share_example::rate_row(app, ui, id, &super::share_example::ASK_BOX_IDS);
     }
 }
 
@@ -542,7 +552,7 @@ fn ask_box(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) {
             });
             // the preference `color.coach.assistant` (also in Settings ▸ Color ▸ Grading Coach)
             let mut on = app.session.prefs.color.coach.assistant;
-            let r = ui.checkbox(&mut on, RichText::new(tl!("Also ask the assistant (slow: runs on this computer)")).small());
+            let r = ui.checkbox(&mut on, RichText::new(tl!("Also ask the assistant (runs on this computer)")).small());
             app.auto.add_response("coach.ask.assistant", &r, "Also ask the assistant");
             if r.changed() {
                 action = Some(AskAction::Assistant(on));
@@ -778,4 +788,23 @@ fn hint_card(app: &mut FilmcraftApp, ctx: &egui::Context, above: f32) -> Option<
         app.ui.status = e.to_string();
     }
     Some(rect)
+}
+
+/// AI4.1d: "On this frame (measured)": the frame's measured facts that fit the question
+/// (`coach.assist` `seen`; FilmCraft's own measurements, not the model's words).
+pub(crate) fn seen_lines(app: &mut FilmcraftApp, ui: &mut egui::Ui, a: &Value, auto_id: &str) {
+    let seen: Vec<&str> = a["seen"].as_array().map(|l| l.iter().filter_map(Value::as_str).take(3).collect()).unwrap_or_default();
+    if seen.is_empty() {
+        return;
+    }
+    let t = app.tokens;
+    let r = ui
+        .vertical(|ui| {
+            ui.label(RichText::new(tl!("On this frame (measured):")).small().strong().color(t.text_dim));
+            for l in &seen {
+                ui.label(RichText::new(*l).small().color(t.text_dim));
+            }
+        })
+        .response;
+    app.auto.add_response(auto_id, &r, "On this frame (measured)");
 }

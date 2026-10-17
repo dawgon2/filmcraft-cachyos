@@ -10,7 +10,7 @@
 
 The **Project Manager** is a full-window screen that shows your projects as picture tiles. You
 pick one to work on, or make a new one, instead of starting in an empty project. In the Resolve
-workflow it is the first thing you see when FilmCraft starts.
+workflow it is the first thing you see when Revolution starts.
 
 If you know Resolve: this is its Project Manager, with the same layout (projects as tiles, New
 Project as the first tile, Open / Close at the bottom right). Differences are listed at the end
@@ -19,11 +19,11 @@ projects list.
 
 ## Where projects live
 
-> id: projects.where | does: each project is a .fcproj file in a projects folder, not a database | ui: settings.general.projectsFolder | cmd: app.settings.general | resolve: project database | premiere: .prproj files | when: backing up, syncing or moving projects | see: projects.what
+> id: projects.where | does: each project is a .fcproj file in a projects folder, not a database | ui: settings.general.projectsFolder | cmd: app.settings.general | resolve: project database | premiere: .prproj files | when: where projects are saved by default; backing up, syncing or moving projects | see: projects.what
 
 **[Fork]**
 
-Resolve keeps projects inside a database. FilmCraft keeps each project in its own `.fcproj`
+Resolve keeps projects inside a database. Revolution keeps each project in its own `.fcproj`
 file, so the Project Manager shows a **projects folder**:
 
 - By default it is `~/Videos/FilmCraft Projects`. It is made the first time you create a project.
@@ -36,7 +36,7 @@ To use another folder: Edit ▸ Preferences ▸ **General…** (`app.settings.ge
 
 ## Opening the Project Manager
 
-> id: projects.opening | does: when the Project Manager appears and how to open it | ui: pageBar.home, settings.general.startupShow | cmd: file.projectManager | resolve: Project Manager at launch | premiere: Home screen at launch | when: choosing what shows at startup | see: projects.what
+> id: projects.opening | does: when the Project Manager appears and how to open it | ui: pageBar.home, settings.general.startupShow | cmd: file.projectManager | resolve: Project Manager at launch | premiere: Home screen at launch | when: choosing what shows at startup; getting back to the project list from inside a project | see: projects.what
 
 **[Resolve-style]**
 
@@ -47,7 +47,7 @@ To use another folder: Edit ▸ Preferences ▸ **General…** (`app.settings.ge
 - **Shift+1** with the DaVinci Resolve Compatible keyboard.
 - The **Home** button at the right end of the page bar ({ui:pageBar.home}).
 
-What FilmCraft shows at launch is set in Edit ▸ Preferences ▸ General ▸ **At startup show**
+What Revolution shows at launch is set in Edit ▸ Preferences ▸ General ▸ **At startup show**
 ({ui:settings.general.startupShow}): **Project Manager**, **Last project** or **New empty
 project**. **Workflow default** means the Project Manager in the Resolve workflow, and Premiere's
 own **At Startup** setting in the Premiere workflow.
@@ -66,7 +66,7 @@ own **At Startup** setting in the Premiere workflow.
 
 The project is saved as `<name>.fcproj` in the folder you are looking at, opened, and you land
 on the **Edit** page. A name that is already used in that folder is refused; nothing is
-overwritten. If the project you had open has unsaved changes, FilmCraft asks first: **Save**,
+overwritten. If the project you had open has unsaved changes, Revolution asks first: **Save**,
 **Don't Save** or **Cancel**.
 
 ## Open a project
@@ -128,7 +128,7 @@ Right-click a tile for its menu:
   it without touching the file. A missing project offers **Locate…** (`projects.locate`).
 
 **Move to Trash…** (`projects.trash`) asks first, then moves the file (or a folder inside the
-projects folder) to the system trash, where you can restore it. FilmCraft never deletes a
+projects folder) to the system trash, where you can restore it. Revolution never deletes a
 project permanently. The project that is open can't be moved to the trash.
 
 ## Export and import
@@ -139,9 +139,13 @@ project permanently. The project that is open can't be moved to the trash.
 
 1. Select a project and click **Export** ({ui:projects.export}), then choose a folder
    (command `projects.export`, parameters `path` and `destination`).
-2. FilmCraft writes `<name> archive` there: the project plus copies of all its media, using the
+2. Revolution writes `<name> archive` there: the project plus copies of all its media, using the
    same copier as Media Management (Premiere: Project Manager ▸ Collect Files). It runs in the
    background; the status bar shows its progress.
+3. Copy the archive folder to the other computer, click **Import** ({ui:projects.import}) there
+   and choose the `.fcproj` file inside it: a project is one `.fcproj` file, not an entry in a
+   database. Import copies only that file into your projects folder, so if clips show as offline,
+   use **Link Media…** (`media.linkMedia`) and point it at the archive's media.
 
 **Import** ({ui:projects.import}, command `projects.import`) copies a `.fcproj` file into the
 folder you are looking at (a second copy gets a number, nothing is overwritten). Agents can also
@@ -154,7 +158,7 @@ import a whole exported archive folder by passing its path.
 **[Resolve-style]**
 
 - Projects are files in a folder, not entries in a database: you can copy, back up or sync them
-  like any other file, and FilmCraft lists what it finds there.
+  like any other file, and Revolution lists what it finds there.
 - Only the **Local** tab: Resolve's Network and Cloud project libraries are not planned.
 - Export / Import use folders (a project plus its media), not Resolve's `.drp` / `.dra` files;
   `.zip` archives are not made yet.

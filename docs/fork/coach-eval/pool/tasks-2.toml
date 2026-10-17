@@ -1,0 +1,38 @@
+# AI-POOL batch tasks-2 (FORK-PLAN §1a.87): jobs across feature pages (import, edit, text, colour
+# management, export). Held-out slice: jobs that differ from the ones in tasks-2.jsonl.
+
+[[question]]
+id = "pool-t2-podcast-subs"
+kind = "task"
+q = "transcribe a two-person podcast video, name who's talking and hand YouTube a subtitle file"
+sources = ["text.transcripts", "text.captions"]
+must = ["Transcribe… (transcript.generate) with speaker detection on; rename Speaker 1 / 2 with transcript.renameSpeaker", "Create Captions from Transcript (transcript.createCaptions), then Export ▸ Captions… (captions.export)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-t2-recut-handoff"
+kind = "task"
+q = "I got a finished film as one file, need it split into shots and sent to a colourist"
+sources = ["media.scene-detect", "media.interchange"]
+must = ["Scene Edit Detection (clip.sceneEditDetection) with Apply cuts splits it at each shot", "export FCPXML or OpenTimelineIO (file.exportFcpxml, file.exportOtio) for the colourist"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-t2-masters-overnight"
+kind = "task"
+q = "export a 4:2:2 grading master and the smallest high-quality archive file overnight"
+sources = ["export.presets", "export-queue.queue"]
+must = ["HEVC 4:2:2 10-bit master preset and Archive HEVC (x265, quality: constant quality 18)", "Send to Queue for each, then Start Queue (export.queue.start): they encode one after another in the background"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-t2-check-then-cut"
+kind = "task"
+q = "edit smoothly on proxies but check that a 6.2K shot is actually in focus before I use it"
+sources = ["proxies.mode", "proxies.what"]
+must = ["in Auto (the default) playback uses the proxy and the paused frame is the original: pause to judge focus", "Toggle Proxies (media.toggleProxies) switches to Never use proxies to check"]
+must_not = []
+style = "beginner"

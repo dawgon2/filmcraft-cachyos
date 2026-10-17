@@ -151,6 +151,9 @@ pub struct MediaPool {
     /// Hand-off scales of an export's lane copy ([`MediaPool::lane_copy_scaled`]; empty: full
     /// size), given to each source when it is opened.
     handoff: Vec<(ItemId, f32)>,
+    /// Local copies of share clips (STORAGE-PLAN S1 item 2; `None`: off). A complete copy is
+    /// opened instead of the share.
+    net_copies: Arc<RwLock<Option<Arc<std::sync::Mutex<crate::net_cache::NetCache>>>>>,
 }
 
 impl Default for MediaPool {
@@ -164,6 +167,7 @@ impl Default for MediaPool {
             motion: AtomicBool::new(false),
             openers: RwLock::new(filmcraft_codecs::openers()),
             handoff: Vec::new(),
+            net_copies: Arc::default(),
         }
     }
 }
@@ -210,7 +214,11 @@ pub fn image_sequence_frames(first: &str, services: &dyn Services) -> Result<Vec
     use filmcraft_media::sequence::{Numbered, sequence_frames};
     let n = Numbered::parse(first).ok_or_else(|| MediaError::Unsupported(format!("{first}: not a numbered still image")))?;
     let io = |e: std::io::Error| {
-        if e.kind() == std::io::ErrorKind::NotFound { MediaError::Offline(format!("{first}: {e}")) } else { MediaError::Io(format!("{first}: {e}")) }
+        if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::TimedOut) {
+            MediaError::Offline(format!("{first}: {e}"))
+        } else {
+            MediaError::Io(format!("{first}: {e}"))
+        }
     };
     services.file_size(first).map_err(io)?;
     match services.list_dir(n.dir.trim_end_matches(['/', '\\'])) {
@@ -333,10 +341,53 @@ impl MediaPool {
         filmcraft_media::open_bytes(name, bytes, &openers)
     }
 
+    /// Turns local copies of share clips on (`Some`) or off (STORAGE-PLAN S1 item 2).
+    pub fn set_net_copies(&self, cache: Option<Arc<std::sync::Mutex<crate::net_cache::NetCache>>>) {
+        *self.net_copies.write().unwrap_or_else(|e| e.into_inner()) = cache;
+    }
+
+    /// The local copies, when they are on.
+    pub fn net_copies(&self) -> Option<Arc<std::sync::Mutex<crate::net_cache::NetCache>>> {
+        self.net_copies.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The complete local copy to read instead of `path` (a file on a share): the copy of the
+    /// file's current version, or, when the share doesn't answer, of the last version copied.
+    fn local_copy(&self, path: &str, services: &dyn Services) -> Option<String> {
+        let cache = self.net_copies()?;
+        // no copy of this file at all: nothing to ask the share
+        if !cache.lock().unwrap_or_else(|e| e.into_inner()).has_source(path) || !crate::netfs::classify(std::path::Path::new(path)).is_network() {
+            return None;
+        }
+        // asked without the cache lock held (the share may take its time limit to answer)
+        let stamp = services.file_stamp(path);
+        let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let found = match stamp {
+            Some((size, mtime)) => c.lookup(path, size, mtime).inspect(|_| {
+                c.touch(path, size, mtime);
+                c.save();
+            }),
+            // only a share that isn't answering falls back to the last copy; a file that is gone
+            // from a working share is offline like any missing file
+            None if crate::netfs::share_unreachable(path) => c.latest_for(path),
+            None => None,
+        };
+        found.map(|p| p.to_string_lossy().into_owned())
+    }
+
     /// Read and open a file through `services` (through its random-access reader when the host
-    /// has one: containers then read only their index now and samples on demand).
+    /// has one: containers then read only their index now and samples on demand). A clip on a
+    /// share with a complete local copy is read from the copy.
     pub fn open_file(&self, path: &str, services: &dyn Services) -> Result<SharedSource, MediaError> {
-        let io = |e: std::io::Error| if e.kind() == std::io::ErrorKind::NotFound { MediaError::Offline(e.to_string()) } else { MediaError::Io(e.to_string()) };
+        let copy = self.local_copy(path, services);
+        let path = copy.as_deref().unwrap_or(path);
+        let io = |e: std::io::Error| {
+            if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::TimedOut) {
+                MediaError::Offline(e.to_string())
+            } else {
+                MediaError::Io(e.to_string())
+            }
+        };
         if let Some(r) = services.reader(path) {
             let openers = self.openers.read().unwrap_or_else(|e| e.into_inner()).clone();
             return filmcraft_media::reader::open_reader(&file_name(path), r.map_err(io)?, &filmcraft_codecs::reader_openers(), &openers);
@@ -350,7 +401,13 @@ impl MediaPool {
     /// (#157). Hosts without random-access readers open the file as [`Self::open_file`] does.
     pub fn probe_file(&self, path: &str, services: &dyn Services) -> Result<SharedSource, MediaError> {
         let Some(r) = services.reader(path) else { return self.open_file(path, services) };
-        let r = r.map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { MediaError::Offline(e.to_string()) } else { MediaError::Io(e.to_string()) })?;
+        let r = r.map_err(|e| {
+            if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::TimedOut) {
+                MediaError::Offline(e.to_string())
+            } else {
+                MediaError::Io(e.to_string())
+            }
+        })?;
         let openers = self.openers.read().unwrap_or_else(|e| e.into_inner()).clone();
         filmcraft_media::reader::open_reader_within(&file_name(path), r, &filmcraft_codecs::reader_openers(), &openers, PROBE_WHOLE_FILE_MAX)
     }
@@ -484,6 +541,7 @@ impl MediaPool {
             motion: AtomicBool::new(false),
             openers: RwLock::new(openers),
             handoff: Vec::new(),
+            net_copies: self.net_copies.clone(),
         }
     }
 

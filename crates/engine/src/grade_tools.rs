@@ -377,3 +377,155 @@ fn write_png(img: &Image, path: &str) -> std::result::Result<(), String> {
     let im = image::RgbaImage::from_raw(w, h, rgba).ok_or("bad image size")?;
     im.save(path).map_err(|e| e.to_string())
 }
+
+/// AI4.1a: the current grade's facts as text for the assistant (`coach.assist` with
+/// `context: "auto"`): the current node of the selected video clip (or its only node), measured
+/// at the playhead. None when nothing is selected, the clip has no grade, or the frame can't be
+/// rendered (the question is still answered, just without them).
+pub(crate) fn current_grade_facts(s: &Session) -> Option<String> {
+    const CMD: &str = "coach.assist";
+    let (clip, current) = current_for(s, &json!({}), CMD).ok()?;
+    let q = s.active_sequence()?;
+    let (_, it) = q.find_item(clip)?;
+    let g = it.grade.as_ref()?;
+    let id = pick(g, None, current, CMD).ok()?;
+    let pos = g.nodes.iter().position(|n| n.id == id)?;
+    let node = g.nodes.get(pos)?.clone();
+    let t = clip_time(s, &json!({}), "", clip, CMD).ok()?;
+    let mt = media_time(s, &json!({"time": t.0}), clip);
+    let (facts, _, _) = node_facts(s, clip, t, mt, pos, &node, CMD).ok()?;
+    let label = node_label(&node, pos);
+    Some(format!("{} ({} of {} nodes): {}", label, pos + 1, g.nodes.len(), facts.sentence(&label)))
+}
+
+/// AI4.1a: what is selected, as text for the assistant: the selected clips' names (at most
+/// three, then a count) and the current grade node's label. None when nothing is selected.
+pub(crate) fn selection_text(s: &Session) -> Option<String> {
+    const SHOWN: usize = 3;
+    let q = s.active_sequence()?;
+    let names: Vec<&str> = s.state.selection.iter().filter_map(|c| q.find_item(*c)).map(|(_, it)| it.name.as_str()).collect();
+    let first = names.first()?;
+    let mut out = if names.len() == 1 { format!("clip \"{first}\"") } else { format!("{} clips: ", names.len()) };
+    if names.len() > 1 {
+        let shown: Vec<String> = names.iter().take(SHOWN).map(|n| format!("\"{n}\"")).collect();
+        out.push_str(&shown.join(", "));
+        if names.len() > SHOWN {
+            out.push_str(&format!(" and {} more", names.len() - SHOWN));
+        }
+    }
+    if let Some(sel) = s.state.grade_node
+        && let Some((_, it)) = q.find_item(sel.clip)
+        && let Some(g) = &it.grade
+        && let Some(pos) = g.nodes.iter().position(|n| n.id == sel.node)
+        && let Some(n) = g.nodes.get(pos)
+    {
+        out.push_str(&format!("; grade node \"{}\"", node_label(n, pos)));
+    }
+    Some(out)
+}
+
+/// AI4.1b: the frame under the playhead, measured for the assistant
+/// ([`filmcraft_render::picture_facts`]): the selected video clip (else the topmost video clip at
+/// the playhead) before its grade (after the input transform) and, when it has one, after it.
+/// None when there is no clip or nothing to measure.
+pub(crate) fn current_picture_facts(s: &Session) -> Option<String> {
+    const CMD: &str = "coach.assist";
+    let q = s.active_sequence()?;
+    let clip = target(s, &json!({}), CMD).ok().or_else(|| q.video_tracks.iter().rev().find_map(|t| t.item_at(s.playhead())).map(|i| i.id))?;
+    let (_, it) = q.find_item(clip)?;
+    let graded = it.grade.as_ref().is_some_and(|g| !g.nodes.is_empty());
+    let t = clip_time(s, &json!({}), "", clip, CMD).ok()?;
+    // (cached per frame: the key covers what the measured frames depend on)
+    let key = shot_key(s, q, clip, it, Some(t.0));
+    let cache = &s.assist.picture_cache;
+    if let Some((k, v)) = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+        && *k == key
+    {
+        return Some(v.clone());
+    }
+    let out = picture_sheet(s, clip, it, t, graded)?;
+    *cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((key, out.clone()));
+    Some(out)
+}
+
+/// The cache key of a clip's picture: the clip, its state (grade, effects, source), the
+/// sequence's colour settings and the media, plus the frame time when given.
+fn shot_key(s: &Session, q: &filmcraft_project::Sequence, clip: ClipId, it: &filmcraft_project::TrackItem, t: Option<i64>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (clip.0, t, format!("{it:?}"), format!("{:?}", q.settings.color)).hash(&mut h);
+    if let Some((_, m, _)) = s.project.resolve_media(it.item) {
+        format!("{m:?}").hash(&mut h);
+    }
+    h.finish()
+}
+
+/// AI4.2b: the shot under the playhead (the selected video clip, else the topmost one) as a
+/// key: the same clip in the same state is the same shot, wherever the playhead is in it.
+pub(crate) fn current_shot_key(s: &Session) -> Option<u64> {
+    let q = s.active_sequence()?;
+    let clip = target(s, &json!({}), "coach.assist").ok().or_else(|| q.video_tracks.iter().rev().find_map(|t| t.item_at(s.playhead())).map(|i| i.id))?;
+    let (_, it) = q.find_item(clip)?;
+    Some(shot_key(s, q, clip, it, None))
+}
+
+/// AI4.2: the Program frame under the playhead as the vision model takes it: display RGB in
+/// 0..=1, row by row, rendered small (at most about `max_pixels`, aspect kept; proxies allowed,
+/// captions left out). None without a sequence, or while a frame is still loading.
+pub(crate) fn program_frame_rgb(s: &Session, max_pixels: u64) -> Option<(Vec<f32>, usize, usize)> {
+    let seq = s.state.active_sequence?;
+    let q = s.project.sequence(seq)?;
+    let (w, h) = (f64::from(q.settings.width), f64::from(q.settings.height));
+    if w < 1.0 || h < 1.0 || max_pixels == 0 {
+        return None;
+    }
+    let scale = (max_pixels as f64 / (w * h)).sqrt().min(1.0) as f32;
+    let provider = s.media.provider(s.project.clone(), s.services.clone());
+    let _ = filmcraft_media::pending::take();
+    let opts = filmcraft_render::RenderOptions { scale, captions: false, ..Default::default() };
+    let img = filmcraft_render::render_sequence(&s.project, seq, s.playhead(), opts, &provider);
+    if filmcraft_media::pending::take() || img.w == 0 || img.h == 0 {
+        return None;
+    }
+    let rgba = img.to_rgba8();
+    let rgb = rgba.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]].map(|v| f32::from(v) / 255.0)).collect();
+    Some((rgb, img.w, img.h))
+}
+
+/// The fact sheet text of [`current_picture_facts`] (rendered and measured now).
+fn picture_sheet(s: &Session, clip: ClipId, it: &filmcraft_project::TrackItem, t: Tick, graded: bool) -> Option<String> {
+    use filmcraft_render::picture_facts::PictureFacts;
+    const CMD: &str = "coach.assist";
+    let w = working(s).ok()?;
+    let sheet = |nodes: Option<usize>| {
+        let img = clip_frame(s, clip, t, Probe { nodes, effects: false }, CMD).ok()?;
+        Some(PictureFacts::measure(&img, w)?.sheet())
+    };
+    let source = source_line(s, it.item);
+    let body = if graded {
+        match (sheet(Some(0)), sheet(None)) {
+            (Some(b), Some(a)) => format!("before the grade:\n{b}\nafter the grade:\n{a}"),
+            (b, a) => a.or(b)?,
+        }
+    } else {
+        format!("ungraded:\n{}", sheet(None)?)
+    };
+    Some(format!("clip \"{}\"{source}, {body}", it.name))
+}
+
+/// AI4.1c: the clip's source colour space for the fact sheet: log footage is converted by the
+/// input transform before it is measured (so "dark" means after that conversion), and a
+/// display-referred source is measured as it is. Empty when the media isn't known.
+fn source_line(s: &Session, item: ItemId) -> String {
+    let Some((_, media, _)) = s.project.resolve_media(item) else { return String::new() };
+    let Some(v) = media.info.video.as_ref() else { return String::new() };
+    let cs = media.interpret.color_space.unwrap_or_else(|| filmcraft_color::ColorSpace::from_info(&v.color));
+    let kind = if cs.is_log() {
+        "log footage, measured after the input transform"
+    } else if cs.is_hdr() {
+        "HDR, measured after the input transform"
+    } else {
+        "display-referred (not log)"
+    };
+    format!(" (source {}: {kind})", cs.label())
+}

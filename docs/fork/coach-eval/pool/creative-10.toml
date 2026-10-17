@@ -1,0 +1,326 @@
+# AI-POOL batch creative-10 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: overlays, text effects and edit tricks. Ten new families: a new sky by
+# keying, fire / sparks overlays, snow or rain (gap: no particles), flying 3-D text (gap: no 3-D), a
+# lyric video, a before / after wipe, a zoom transition, Ken Burns on photos, bleeping a swear word,
+# a news ticker. `must` = plan sub-goals from the guide's own text. Families with a gap: new-sky-key
+# (no automatic sky replacement), snow-rain-overlay, flying-3d-text. Held-out only.
+
+# --- new-sky-key ---
+
+[[question]]
+id = "pool-cr10-sky"
+kind = "creative"
+family = "new-sky-key"
+q = "replace the boring grey sky with a sunset sky I have"
+sources = ["keying.luma-color", "effects.opacity", "keying.check"]
+must = ["no automatic sky replacement: key it by hand", "the shot on V2 with Color Key (a plain sky) or Luma Key (a bright sky) so the sky turns see-through, the sunset clip on V1 below", "soften the edge (Edge Feather) and match the foreground's grade to the new light"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-sky-moving"
+kind = "creative"
+family = "new-sky-key"
+q = "sky replacement on a shot where the camera pans"
+sources = ["keying.luma-color", "tracking.follow", "tracking.what"]
+must = ["the key itself follows the colour, but the new sky must move with the pan: attach the sky layer to a track (tracking.attach) or keyframe its Position", "flat sky has nothing to track: track a detail on the horizon"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr10-sky-trees"
+kind = "creative"
+family = "new-sky-key"
+q = "sky swap but the tree branches go see-through too"
+sources = ["keying.luma-color", "effects.opacity", "keying.ultra-key"]
+must = ["lower Color Tolerance so only the sky goes; or limit the key with a mask on Opacity", "Ultra Key's matte controls (Choke, Soften) give finer edges than Color Key"]
+must_not = []
+style = "sloppy"
+
+# --- fire-sparks-overlay ---
+
+[[question]]
+id = "pool-cr10-fire"
+kind = "creative"
+family = "fire-sparks-overlay"
+q = "add sparks flying in front of the welder, I have spark footage on black"
+sources = ["effects.opacity", "practice.looks.double-exposure"]
+must = ["the spark clip on a track above with Opacity Blend Mode Screen or Linear Dodge (Add): black disappears, only the sparks stay", "Motion Position / Scale to place them; a mask limits where they show"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-fire-glow"
+kind = "creative"
+family = "fire-sparks-overlay"
+q = "campfire overlay should also light up the face a bit"
+sources = ["effects.opacity", "color.recipes.face", "effects.stylize"]
+must = ["the fire overlay on Screen above the shot", "a soft window on the face with a warm Gain push (keyframed flicker if wanted); Wonder Glow on the flames"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr10-fire-muzzle"
+kind = "creative"
+family = "fire-sparks-overlay"
+q = "muzzle flash on a toy gun for a short film"
+sources = ["effects.opacity", "tracking.follow", "effects.stylize"]
+must = ["a flash overlay clip (on black) two or three frames long on Screen, positioned at the barrel (attach to track if the gun moves)", "a one-frame exposure bump (a Lumetri Exposure keyframe) on the shot; a sound effect on the same frame"]
+must_not = []
+style = "sloppy"
+
+# --- snow-rain-overlay (gap: no particles) ---
+
+[[question]]
+id = "pool-cr10-snow"
+kind = "creative"
+family = "snow-rain-overlay"
+q = "add falling snow to my winter shot"
+sources = ["compositor.basics", "effects.opacity"]
+must = ["no particle generator (the compositor has no particles)", "workaround: snow footage shot against black on a track above with a Screen blend", "a cool, slightly desaturated grade sells the cold"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-rain"
+kind = "creative"
+family = "snow-rain-overlay"
+q = "fake rain on a window shot"
+sources = ["effects.opacity", "compositor.basics", "effects.stylize"]
+must = ["rain overlay footage on Screen above the shot; no particles built in", "Turbulent Displace at a low amount can fake water on glass; darker, cooler grade"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr10-snow-resolve"
+kind = "creative"
+family = "snow-rain-overlay"
+q = "in fusion I'd use pEmitter for snow, what's the equivalent"
+sources = ["compositor.basics", "effects.opacity"]
+must = ["none yet: the compositor is a much smaller graph with no 3D, particles or scripting", "use stock snow / rain clips with a Screen or Add blend (a Merge node in a comp)"]
+must_not = []
+style = "resolve-words"
+
+# --- flying-3d-text (gap: no 3-D) ---
+
+[[question]]
+id = "pool-cr10-3d"
+kind = "creative"
+family = "flying-3d-text"
+q = "3D title that flies towards the camera"
+sources = ["effects.shape-move", "graphics.text", "effects.keyframes"]
+must = ["no extruded 3-D text or 3-D camera; 3D Rotate (Video Effects ▸ Transform: X / Y / Z Rotation, Perspective, Z Position) moves a flat title in perspective", "keyframe Z Position (or Scale) towards the camera with eased keyframes, Opacity and a little blur as it passes"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-3d-extrude"
+kind = "creative"
+family = "flying-3d-text"
+q = "extruded metallic 3d logo spin intro"
+sources = ["compositor.basics", "effects.shape-move", "media.import"]
+must = ["no 3-D extrusion; the compositor has no 3D", "make the logo animation in a 3-D app and import it as a clip (with transparency), or spin the flat logo with 3D Rotate (Y Rotation, Hide Back Face)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr10-3d-perspective"
+kind = "creative"
+family = "flying-3d-text"
+q = "star wars style crawl text tilting back into space"
+sources = ["graphics.responsive", "effects.shape-move", "tracking.screen"]
+must = ["a text roll (graphics.setRoll) for the crawl", "the tilt: 3D Rotate's X Rotation with Perspective on the rolled title (or Corner Pin with the top corners closer together)"]
+must_not = []
+style = "sloppy"
+
+# --- lyric-video ---
+
+[[question]]
+id = "pool-cr10-lyrics"
+kind = "creative"
+family = "lyric-video"
+q = "make a lyric video where each line appears in time with the song"
+sources = ["timeline.markers", "graphics.templates", "practice.titles.in-out"]
+must = ["drop markers on each line while playing (M, markers.add)", "one graphic per line from a template (graphics.template.apply), snapped to the markers, with matching in / out animation"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-lyrics-captions"
+kind = "creative"
+family = "lyric-video"
+q = "can the transcribe feature time the lyrics for me"
+sources = ["text.transcripts", "text.captions", "graphics.source"]
+must = ["transcription is made for speech, so sung words come out less reliably: check every line", "captions from the transcript can be upgraded to graphics (graphics.upgradeCaption) for styling"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr10-lyrics-style"
+kind = "creative"
+family = "lyric-video"
+q = "lyric lines with the key word bigger and coloured"
+sources = ["graphics.text", "practice.titles.type-system"]
+must = ["per-character styles in the text layer (size, colour) for the key word", "one or two typefaces and a few fixed sizes throughout"]
+must_not = []
+style = "pro"
+
+# --- before-after-wipe ---
+
+[[question]]
+id = "pool-cr10-before-after"
+kind = "creative"
+family = "before-after-wipe"
+q = "a before and after of my colour grade with a line sweeping across"
+sources = ["effects.opacity", "effects.keyframes", "color.matching.compare"]
+must = ["the ungraded copy on V1 and the graded clip on V2 (or the other way)", "a rectangle mask on V2's Opacity whose position is keyframed across the frame", "the Color page's wipe compares while grading, but isn't rendered"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-before-after-split"
+kind = "creative"
+family = "before-after-wipe"
+q = "side by side before after for my reel, same clip"
+sources = ["effects.opacity", "effects.apply", "compositor.basics"]
+must = ["two copies of the clip, one with the grade turned off, each masked to its half (or moved with Motion Position)", "a title on each side: before / after"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr10-before-after-bypass"
+kind = "creative"
+family = "before-after-wipe"
+q = "quick before/after toggle to show a client while grading, not exported"
+sources = ["color.matching.compare", "color.nodes.panel"]
+must = ["switch the nodes off and on (the node's on / off) or compare with a still by wipe or split", "nothing is changed in the export"]
+must_not = []
+style = "pro"
+
+# --- zoom-transition ---
+
+[[question]]
+id = "pool-cr10-zoom"
+kind = "creative"
+family = "zoom-transition"
+q = "zoom transition where it zooms into one clip and out of the next"
+sources = ["effects.stylize", "effects.transitions"]
+must = ["the Cross Zoom transition (Video Transitions ▸ Lights & Blurs) on the edit", "it needs handles; its settings are in Effect Controls"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-zoom-hand"
+kind = "creative"
+family = "zoom-transition"
+q = "smooth zoom-in transition I control myself, with motion blur"
+sources = ["effects.keyframes", "practice.titles.shake", "practice.titles.easing"]
+must = ["add the Transform effect, keyframe Scale up quickly into the cut on the first clip and down from large on the second", "Use Effect Shutter Angle for motion blur; eased keyframes"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr10-zoom-sound"
+kind = "creative"
+family = "zoom-transition"
+q = "zoom transitions need a whoosh"
+sources = ["effects.stylize", "essential-sound.types"]
+must = ["Cross Zoom on the edits", "a whoosh sound effect on an SFX track lined up with each one"]
+must_not = []
+style = "sloppy"
+
+# --- ken-burns-photos ---
+
+[[question]]
+id = "pool-cr10-kenburns"
+kind = "creative"
+family = "ken-burns-photos"
+q = "slowly zoom and pan across old family photos for a slideshow"
+sources = ["effects.keyframes", "media.import", "practice.titles.easing"]
+must = ["import the photos; keyframe each clip's Motion Scale and Position from start to end", "eased keyframes so moves don't start and stop mechanically", "dissolves between photos"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-kenburns-preset"
+kind = "creative"
+family = "ken-burns-photos"
+q = "same slow push on 80 photos without keyframing each one"
+sources = ["effects.presets", "effects.keyframes"]
+must = ["keyframe one, save the Motion as a preset with Scale keyframes (they stretch to each clip's length), apply it to the rest", "vary it on some so it isn't monotonous"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr10-kenburns-res"
+kind = "creative"
+family = "ken-burns-photos"
+q = "photos look soft when zoomed in the slideshow"
+sources = ["practice.youtube.punch-in", "media.clips"]
+must = ["zooming past the photo's own resolution softens it: use larger originals or zoom less", "Scale to Frame Size fits a photo to the sequence first"]
+must_not = []
+style = "sloppy"
+
+# --- bleep-swear-word ---
+
+[[question]]
+id = "pool-cr10-bleep"
+kind = "creative"
+family = "bleep-swear-word"
+q = "bleep out a swear word in my interview"
+sources = ["text.transcripts", "media.generated", "effects.keyframes"]
+must = ["find the word in the transcript and razor the audio around it (or keyframe Volume down for that word)", "a tone over the gap: the audio of a Bars and Tone clip, trimmed to the word"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-bleep-mouth"
+kind = "creative"
+family = "bleep-swear-word"
+q = "also blur the mouth while bleeping"
+sources = ["tracking.follow", "text.transcripts"]
+must = ["a tracked blur or Mosaic mask on the mouth for those frames (tracking.blurRegion)", "the bleep on the audio at the same frames"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr10-bleep-many"
+kind = "creative"
+family = "bleep-swear-word"
+q = "censor every swear word in an hour-long stream"
+sources = ["text.transcripts", "text.cleanup"]
+must = ["search the transcript for each word to find every occurrence", "Remove Filler Words takes your own word list (fillers) to cut them all; a bleep needs placing by hand"]
+must_not = []
+style = "pro"
+
+# --- news-ticker ---
+
+[[question]]
+id = "pool-cr10-ticker"
+kind = "creative"
+family = "news-ticker"
+q = "news style ticker text running along the bottom"
+sources = ["graphics.responsive", "graphics.layers", "practice.titles.safe-margins"]
+must = ["a text layer with Crawl (graphics.setRoll), starting and ending off screen", "a box shape behind it; keep it inside the safe margin"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr10-ticker-l3"
+kind = "creative"
+family = "news-ticker"
+q = "breaking news lower third plus ticker as a reusable template"
+sources = ["practice.titles.lower-third", "graphics.responsive", "graphics.templates"]
+must = ["a lower third with the box pinned to the headline text, and a crawl layer", "export as a template with the headline and ticker text editable"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr10-ticker-speed"
+kind = "creative"
+family = "news-ticker"
+q = "the crawl is way too fast to read"
+sources = ["graphics.responsive", "practice.titles.reading-time"]
+must = ["the clip's length sets the speed: make the graphic clip longer", "keep text on screen long enough to read"]
+must_not = []
+style = "sloppy"

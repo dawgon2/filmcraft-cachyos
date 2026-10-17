@@ -1,7 +1,7 @@
 # Practice notes: node trees and advanced grading
 
 **[Standard]** · techniques that rely on node structure and the more specialised grading tools,
-one per note, with the Resolve way, the Premiere way where there is one, and what FilmCraft offers
+one per note, with the Resolve way, the Premiere way where there is one, and what Revolution offers
 (several are "not yet": said in place). Written in our own words from common practice (AI-PLAN
 AI3 item 0a, 0c).
 
@@ -13,7 +13,7 @@ AI3 item 0a, 0c).
 
 - **Common practice:** the same labelled nodes in the same order on every clip (for example
   Balance → Contrast → Skin → Sky → Look → Grain), many of them empty on simple shots.
-- **FilmCraft:** build it once, label nodes (`grade.labelNode`), save a still of it and apply it
+- **Revolution:** build it once, label nodes (`grade.labelNode`), save a still of it and apply it
   to other clips (`stills.apply`) or copy / append (`grade.copy`, `grade.paste`).
 - **Why:** you always know where a correction lives; matching and revisions are faster.
 - **Pitfalls:** empty nodes cost nothing, but a tree too big to read defeats the purpose.
@@ -26,7 +26,7 @@ AI3 item 0a, 0c).
 
 - **Resolve:** the parallel mixer adds the nodes' changes together; each node keys from the same
   untouched picture.
-- **FilmCraft:** not yet (planned: [color/nodes.md](../color/nodes.md) ▸ Later). Meanwhile, put the
+- **Revolution:** not yet (planned: [color/nodes.md](../color/nodes.md) ▸ Later). Meanwhile, put the
   qualifier you want to protect earlier in the chain.
 - **Pitfalls:** two parallel nodes changing the same area add up and overshoot.
 
@@ -36,7 +36,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** not yet (planned with parallel nodes). A late node with a qualifier or window
+- **Revolution:** not yet (planned with parallel nodes). A late node with a qualifier or window
   does the same job in most cases.
 
 ## The outside node: everything but the selection
@@ -45,7 +45,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** no outside node yet; invert the window or qualifier on a second node
+- **Revolution:** no outside node yet; invert the window or qualifier on a second node
   (`grade.window.0.invert`, `grade.qual.invert`) with the same shape.
 - **Pitfalls:** two separately drawn shapes drift apart; copy the node and invert it instead of
   redrawing.
@@ -56,7 +56,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** no grade groups yet; for a look over a scene, an **Adjustment Layer** above the
+- **Revolution:** no grade groups yet; for a look over a scene, an **Adjustment Layer** above the
   clips (`file.newAdjustmentLayer`) with Lumetri on it; for per-camera fixes, append the same node
   (`grade.append`).
 - **Pitfalls:** an adjustment layer's grade sits after each clip's own nodes and their output
@@ -68,7 +68,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** not yet; re-apply with `grade.append` after changing the source node.
+- **Revolution:** not yet; re-apply with `grade.append` after changing the source node.
 
 ## Hue curves for single-colour tweaks
 
@@ -76,7 +76,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** the node grader's hue curves are not yet built; Lumetri's **Hue Saturation
+- **Revolution:** the node grader's hue curves are not yet built; Lumetri's **Hue Saturation
   Curves** do it ([color/lumetri.md](../color/lumetri.md)), or a qualifier on that colour.
 - **Pitfalls:** narrow hue-curve bumps tear gradients in compressed footage.
 
@@ -86,7 +86,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** Lumetri's Luma vs Sat curve, or a qualifier on luma only with saturation down on
+- **Revolution:** Lumetri's Luma vs Sat curve, or a qualifier on luma only with saturation down on
   that node.
 
 ## Printer-light style balancing with Offset
@@ -95,19 +95,21 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** the Offset wheel on the balance node (`grade.wheel.offset`); no printer-light
+- **Common practice:** printer lights move red, green and blue (or all three) in fixed small steps
+  of Offset, one channel at a time, like a film lab's printer.
+- **Revolution:** the Offset wheel on the balance node (`grade.wheel.offset`); no printer-light
   step keys yet.
 - **Why:** in a log working space Offset moves everything evenly, like changing exposure.
 
 ## Gamut compression for neon and LED colours
 
-> id: practice.node-trees.gamut-compress | does: pulls colours that fall outside the delivery gamut back in smoothly instead of clipping | resolve: Gamut Compression / Gamut Mapping OFX | premiere: — | when: LED stage lights, neon signs, saturated sunsets | see: color.color-management.output
+> id: practice.node-trees.gamut-compress | does: pulls colours that fall outside the delivery gamut back in smoothly instead of clipping | resolve: Gamut Compression / Gamut Mapping OFX | premiere: — | when: LED stage lights, neon signs, saturated sunsets; blue or red lights that look clipped, flat or turn purple | see: color.color-management.output
 
 **[Standard]**
 
-- **FilmCraft:** the output transform and highlight roll-off handle brightness; a dedicated gamut
+- **Revolution:** the output transform and highlight roll-off handle brightness; a dedicated gamut
   compressor isn't offered yet. Lower saturation on a qualifier for the offending colour.
-- **Pitfalls:** clipped blues turning purple, reds going flat.
+- **Pitfalls:** colours outside the delivery gamut: clipped blues turning purple, reds going flat.
 
 ## Glow and halation
 
@@ -115,8 +117,13 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** no glow or halation effect yet; a duplicate of the clip above, with a high-luma
-  key, Gaussian Blur and a lighten / screen blend gives a basic glow ([effects.md](../effects.md)).
+- **Glow:** a clip effect, not a node: **Wonder Glow** (Effects ▸ Video Effects ▸ Lights &
+  Glows; Threshold, Radius, Intensity, an optional Glow Color, Add or Screen) blooms everything
+  above the threshold; **Edge Glow** and **Echo Glow** are in the same folder
+  ([effects.md](../effects.md) ▸ stylised effects).
+- **Revolution:** no halation effect yet; for a film-style red halo use Wonder Glow with a
+  red-orange Glow Color, a high Threshold and a small Radius, or a duplicate of the clip above
+  with a high-luma key, Gaussian Blur and a Screen blend. Glows are clip effects, not nodes.
 
 ## Skin softening
 
@@ -124,9 +131,10 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** a skin qualifier node with Spatial noise reduction at a low strength
+- **Revolution:** a skin qualifier node with Spatial noise reduction at a low strength
   ([color/noise.md](../color/noise.md)) softens texture inside the key; no dedicated beauty tool yet.
-- **Pitfalls:** plastic-looking skin; keep it subtle and check eyes, lips and hair.
+- **Pitfalls:** plastic-looking skin; keep it subtle and keep eyes, lips and hair sharp (outside
+  the key).
 
 ## Sharpening at the end, sparingly
 
@@ -134,7 +142,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** the Unsharp Mask or Sharpen effects on the clip ([effects.md](../effects.md)).
+- **Revolution:** the Unsharp Mask or Sharpen effects on the clip ([effects.md](../effects.md)).
 - **Pitfalls:** halos on edges and noise; sharpen before grain, not after.
 
 ## Window tracking on moving subjects
@@ -143,7 +151,7 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** the window's track buttons (`grade.window.0.track.forward`); check the track in
+- **Revolution:** the window's track buttons (`grade.window.0.track.forward`); check the track in
   playback and fix the few frames where it slips.
 - **Pitfalls:** tracking a soft window on a featureless area; track something with texture.
 
@@ -153,5 +161,5 @@ AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** no grade versions yet; save each alternative as a still (`stills.grab`) and apply
+- **Revolution:** no grade versions yet; save each alternative as a still (`stills.grab`) and apply
   the chosen one (`stills.apply`).

@@ -720,6 +720,17 @@ fn walked() -> (Driver, BTreeSet<String>) {
 /// Guide ids the walk doesn't reach, each with the reason. Each must still be known to the app's
 /// check (a dynamic id) or a literal automation id in the UI source.
 const NOT_WALKED: &[(&str, &str)] = &[
+    ("update.notes", "only when an update check found a newer release (updates_ui covers it)"),
+    ("update.install", "only when an update check found a newer release (updates_ui covers it)"),
+    ("update.later", "only when an update check found a newer release (updates_ui covers it)"),
+    ("update.optOut", "only when an update check found a newer release (updates_ui covers it)"),
+    ("update.restart", "only when an update check found a newer release (updates_ui covers it)"),
+    ("update.releasePage", "only when an update check found a newer release (updates_ui covers it)"),
+    ("update.close", "only when an update check found a newer release (updates_ui covers it)"),
+    ("settings.update.check", "only when an update check found a newer release (updates_ui covers it)"),
+    ("settings.update.checkNow", "only when an update check found a newer release (updates_ui covers it)"),
+    ("settings.update.rollback", "only when an update check found a newer release (updates_ui covers it)"),
+    ("settings.color.ai.vision.cancel", "Settings ▸ Color ▸ Picture model: only while its download runs (grade_ui's AI settings test covers the row)"),
     (
         "export.video.hevcMain10Note",
         "Export page: only for an 8-bit HEVC export of an HDR sequence when this PC's H.265 encoder can write HDR (a hardware probe)",
@@ -737,6 +748,39 @@ const NOT_WALKED: &[(&str, &str)] = &[
         "Ask the coach box: only when the assistant's lesson differs from the guide answer's (coach_ask_box_shows_the_assistant_answer_or_why_not clicks it)",
     ),
     ("coach.ask.newTopic", "Ask the coach box: only after the assistant model has answered (coach_ask_box_shows_the_assistant_answer_or_why_not clicks it)"),
+    (
+        "coach.ask.rate.up",
+        "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)",
+    ),
+    (
+        "coach.ask.rate.down",
+        "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)",
+    ),
+    (
+        "coach.ask.rate.correction",
+        "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)",
+    ),
+    (
+        "coach.ask.rate.share",
+        "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)",
+    ),
+    (
+        "share.preview",
+        "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)",
+    ),
+    ("share.grade", "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)"),
+    (
+        "share.picture",
+        "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)",
+    ),
+    ("share.frame", "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)"),
+    (
+        "share.consent",
+        "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)",
+    ),
+    ("share.github", "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)"),
+    ("share.save", "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)"),
+    ("share.close", "only under a finished assistant answer / in its Help improve the Assistant dialog (assistant_answers_can_be_rated_and_shared covers it)"),
     ("project.card.copy", "Project panel card bar: only while the desktop has a camera card mounted (L2.4)"),
     ("project.card.eject", "Project panel card bar: only after a card's copy is verified (L2.4)"),
     ("project.card.dismiss", "Project panel card bar: only while the desktop has a camera card mounted (L2.4)"),
@@ -907,7 +951,20 @@ fn ask_assistant(d: &mut Driver, question: &str) {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    d.frames(2);
+    // the box is anchored at its bottom: a longer answer (a completed recipe, AI3.6 lane E) moves
+    // its top controls until the layout settles; wait for two frames with the same layout
+    let mut last = None;
+    let mut settled = false;
+    for i in 0..20 {
+        d.frames(1);
+        let now = d.element("coach.ask.assistLine.1");
+        if i > 0 && now == last {
+            settled = true;
+            break;
+        }
+        last = now;
+    }
+    assert!(settled, "the ask box's layout never settled");
 }
 
 /// Fork AI3.5c: "Also ask the assistant" adds the model's checked lines and their sources below
@@ -968,7 +1025,11 @@ fn coach_ask_box_shows_the_assistant_answer_or_why_not() {
     d.click("coach.ask.assistLesson");
     assert!(d.harness.state().session.coach.active.is_some(), "the lesson started");
     d.exec("coach.exit", json!({}));
+    // the box lays out again once the lesson ends: a click at the old place would miss New topic,
+    // and the skin question would then lead the next one (the clear-winner rule gives its recipe)
+    d.frames(3);
     d.click("coach.ask.newTopic");
+    assert!(d.harness.state().ui.coach_ask.last_exchange.is_none(), "New topic forgot the skin question");
     // the model says the guide doesn't cover it: its lines stay, with a pointer to the guide's answer
     let reply = "NONE";
     d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply }));
@@ -1156,4 +1217,122 @@ fn assistant_panel_floats_answers_docks_and_closes() {
     d.click("assistant.open");
     d.frames(2);
     assert!(d.element("panel.Assistant").is_none());
+}
+
+/// Without a model the Assistant's fallback answer links to Settings ▸ Color, where the model is
+/// downloaded; a model answer has no such link.
+#[test]
+fn assistant_without_a_model_links_to_its_settings() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    d.click("assistant.open");
+    d.frames(2);
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply: "A1 B1" }));
+    d.harness.state_mut().ui.assistant.input = "why use several nodes?".into();
+    d.frames(1);
+    d.click("assistant.send");
+    wait_for_chat(&mut d);
+    assert!(d.element("assistant.setup.1").is_none(), "no link under a model answer");
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: false, reply: "" }));
+    d.harness.state_mut().ui.assistant.input = "why use several nodes?".into();
+    d.frames(1);
+    d.click("assistant.send");
+    wait_for_chat(&mut d);
+    d.click("assistant.setup.2");
+    d.frames(2);
+    assert_eq!(d.harness.state().ui.settings.as_ref().map(|s| s.page.clone()).as_deref(), Some("color"));
+    assert!(d.element("settings.color.ai.download").is_some(), "the model row is on screen");
+}
+
+/// AI5: under an answer, 👎 is stored with it; Help improve the Assistant… shows the preview, Open
+/// on GitHub waits for the consent tick and then opens the fork's New-issue page, and Save
+/// example… writes the previewed text to the chosen folder without consent.
+#[test]
+fn assistant_answers_can_be_rated_and_shared() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    d.click("assistant.open");
+    d.frames(2);
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply: "A1 B1" }));
+    d.harness.state_mut().ui.assistant.input = "why use several nodes?".into();
+    d.frames(1);
+    d.click("assistant.send");
+    wait_for_chat(&mut d);
+    let id = d.harness.state().ui.assistant.turns.last().and_then(|t| t.result.clone()).and_then(|r| r["id"].as_u64()).expect("the answer keeps its id");
+    d.click("assistant.rate.1.down");
+    assert_eq!(d.harness.state().session.assist.records.get(id).and_then(|r| r.rating), Some(filmcraft_engine::coach_share::Rating::Down));
+    assert!(d.element("assistant.rate.1.correction").is_some(), "the correction box shows once rated");
+    let opened = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = opened.clone();
+    d.harness.state_mut().hooks.open_url = Some(Box::new(move |u: &str| {
+        seen.lock().unwrap().push(u.to_string());
+        Ok(())
+    }));
+    let dir = std::env::temp_dir().join(format!("filmcraft-share-ui-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let folder = dir.display().to_string();
+    d.harness.state_mut().hooks.pick_folder = Some(Box::new(move || Some(folder.clone())));
+    d.click("assistant.rate.1.share");
+    d.frames(2);
+    let preview = d.harness.state().share.dialog.as_ref().map(|x| x.preview.clone()).expect("dialog open");
+    assert!(preview.contains("## Question") && preview.contains("why use several nodes?") && preview.contains("👎"), "{preview}");
+    for el in ["share.preview", "share.grade", "share.picture", "share.frame", "share.consent", "share.github", "share.save", "share.close"] {
+        assert!(d.element(el).is_some(), "{el} on screen");
+    }
+    // no consent: nothing opens
+    d.click("share.github");
+    assert!(opened.lock().unwrap().is_empty(), "opened without consent");
+    // saving needs no consent and writes exactly the preview
+    d.click("share.save");
+    d.frames(3);
+    let saved = std::fs::read_to_string(dir.join(format!("assistant-example-{id}.md"))).expect("saved");
+    assert_eq!(saved, preview);
+    d.click("share.consent");
+    d.click("share.github");
+    let urls = opened.lock().unwrap().clone();
+    assert!(urls.len() == 1 && urls[0].starts_with("https://github.com/dawgon2/revolution/issues/new?labels=assistant-example"), "{urls:?}");
+    d.click("share.close");
+    assert!(d.harness.state().share.dialog.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+    // the Ask box's assistant answer has the same row
+    d.click("coach.ask.open");
+    if !d.harness.state().session.prefs.color.coach.assistant {
+        d.click("coach.ask.assistant");
+    }
+    ask_assistant(&mut d, "why use several nodes?");
+    let ask_id = d.harness.state().ui.coach_ask.assist.as_ref().and_then(|a| a["id"].as_u64()).expect("the answer keeps its id");
+    d.click("coach.ask.rate.up");
+    assert_eq!(d.harness.state().session.assist.records.get(ask_id).and_then(|r| r.rating), Some(filmcraft_engine::coach_share::Rating::Up));
+    for el in ["coach.ask.rate.down", "coach.ask.rate.correction"] {
+        assert!(d.element(el).is_some(), "{el} on screen");
+    }
+    d.click("coach.ask.rate.share");
+    assert_eq!(d.harness.state().share.dialog.as_ref().map(|x| x.id), Some(ask_id));
+}
+
+/// AI4.1d: the Ask box sends the selection and the frame's measured facts (`context: "auto"`) and
+/// shows the facts that fit the question under "On this frame (measured)".
+#[test]
+fn coach_ask_box_shows_the_measured_facts_of_the_frame() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Color Grading"}));
+    d.frames(3);
+    let clip = {
+        let s = &d.harness.state().session;
+        s.active_sequence().and_then(|q| q.video_tracks.first()).and_then(|t| t.item_at(s.playhead())).map(|i| i.id).expect("a clip")
+    };
+    d.harness.state_mut().session.state.selection = vec![clip];
+    d.click("coach.ask.open");
+    d.click("coach.ask.assistant");
+    d.harness.state_mut().session.assist.backend = Some(std::sync::Arc::new(ScriptedAssistant { ready: true, reply: "x" }));
+    ask_assistant(&mut d, "why does my shot look so dark?");
+    let a = d.harness.state().ui.coach_ask.assist.clone().expect("an assistant result");
+    assert!(a["seen"][0].as_str().is_some_and(|l| l.starts_with("Exposure: mids about")), "{a}");
+    assert!(d.element("coach.ask.assistSeen").is_some(), "{a}");
+    // a question that isn't about the picture shows none
+    d.click("coach.ask.newTopic");
+    ask_assistant(&mut d, "how do I add a node?");
+    assert!(d.element("coach.ask.assistSeen").is_none());
 }

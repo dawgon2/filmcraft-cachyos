@@ -973,5 +973,7 @@ mod tests {
         v.paused_res = PlaybackRes::Quarter;
         assert_eq!(v.effective_res(true), PlaybackRes::Half);
         assert_eq!(v.effective_res(false), PlaybackRes::Quarter);
+        let steps: Vec<_> = PlaybackRes::ALL.iter().map(|r| r.lower()).collect();
+        assert_eq!(steps, [PlaybackRes::Half, PlaybackRes::Quarter, PlaybackRes::Eighth, PlaybackRes::Sixteenth, PlaybackRes::Sixteenth]);
     }
 }

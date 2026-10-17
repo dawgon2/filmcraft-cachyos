@@ -88,8 +88,8 @@ impl Denoiser {
 
     /// Forget the past (a new clip, a seek): silence in, silence out again.
     pub fn reset(&mut self) {
-        let alpha = dsp::norm_alpha(P.sample_rate, P.hop_size, P.norm_tau);
-        self.feats = Features::new(P.nb_erb, P.nb_df, alpha);
+        // in place: `AudioEffect::reset` may run on the audio thread
+        self.feats.reset();
         self.net.reset();
         for c in &mut self.chans {
             c.stft.reset();

@@ -1,0 +1,198 @@
+# AI-POOL batch creative-36 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: a postcard landscape (bluer sky, warmer land), a mix that survives
+# phone speakers, re-cutting a finished file that has no project, vertical Japanese / Chinese
+# titles, filmic saturation (clean highlights and shadows), trimming a cut to the beat while it
+# plays. `must` = plan sub-goals from the guide's own text. No gap family in this batch (the node
+# grader's missing Luma vs Sat curve is answered with Lumetri's or a luma qualifier). Held-out only.
+
+# --- postcard-landscape-look ---
+
+[[question]]
+id = "pool-cr36-postcard"
+kind = "creative"
+family = "postcard-landscape-look"
+q = "make the sky bluer and the fields warmer in my landscape shot, like a postcard"
+sources = ["practice.looks.exterior", "color.secondaries.windows"]
+must = ["a Linear window (grade.window.add.linear) on the sky: Gain down, a little blue", "the same window inverted (Invert) on another node for the ground, a touch warmer"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr36-postcard-edge"
+kind = "creative"
+family = "postcard-landscape-look"
+q = "my sky gradient darkens the top of the mountain too, looks fake"
+sources = ["practice.looks.exterior", "color.secondaries.windows", "color.secondaries.qualifier"]
+must = ["soften (Softness) and angle the linear window so its edge doesn't cross the mountain or building edge", "or add a qualifier on the sky's blue on the same node so only the sky inside the window changes"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr36-postcard-nd"
+kind = "creative"
+family = "postcard-landscape-look"
+q = "graduated ND filter look on a drone landscape, done the Resolve way with power windows"
+sources = ["practice.looks.exterior", "color.secondaries.windows", "color.secondaries.tracking"]
+must = ["Linear window on a sky node (Gain down, cooler), inverted window on a ground node (warmer)", "on a moving drone shot track the window (masks.track) so the gradient stays on the horizon"]
+must_not = []
+style = "resolve-words"
+
+# --- phone-speaker-mix ---
+
+[[question]]
+id = "pool-cr36-phonemix"
+kind = "creative"
+family = "phone-speaker-mix"
+q = "on my phone you can't hear what I'm saying over the music"
+sources = ["practice.audio.small-speakers", "practice.audio.dialogue-first", "practice.audio.music-under-dialogue"]
+must = ["set the voice level first (Clean Up Voice audio.cleanupVoice, or type dialogue and Auto-Match essentialSound.autoMatch), then bring the music up underneath", "do a last listening pass on a phone as well as headphones and speakers"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr36-phonemix-thin"
+kind = "creative"
+family = "phone-speaker-mix"
+q = "mixed it all on headphones, on a laptop the reverb and the wide stereo stuff just sounds off"
+sources = ["practice.audio.small-speakers", "practice.audio.pan-dialogue"]
+must = ["mixing only on headphones makes reverb and stereo too wide: check on speakers and a phone", "keep dialogue in the centre: phones and many TVs fold to mono"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr36-phonemix-pro"
+kind = "creative"
+family = "phone-speaker-mix"
+q = "how should I check a mix translates to phones and TVs before delivery"
+sources = ["practice.audio.small-speakers", "practice.audio.loudness-targets", "practice.audio.pan-dialogue"]
+must = ["final pass on headphones, studio speakers and a phone: small speakers lose bass and mask quiet voices", "voices centred so a mono fold-down keeps them; check the whole mix on the loudness meter against the platform's target (about −14 LUFS for YouTube)"]
+must_not = []
+style = "pro"
+
+# --- recut-finished-file ---
+
+[[question]]
+id = "pool-cr36-recut"
+kind = "creative"
+family = "recut-finished-file"
+q = "lost the project, I only have the exported mp4 and want to make a short teaser from it"
+sources = ["media.scene-detect", "editing.cutting"]
+must = ["put the file on a timeline and run Scene Edit Detection (clip.sceneEditDetection) with Apply cuts: every shot becomes its own clip", "then rearrange, delete and trim the shots into the teaser"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr36-recut-grade"
+kind = "creative"
+family = "recut-finished-file"
+q = "client sent the finished film as one file, I need to regrade it shot by shot like Resolve's scene cut detector"
+sources = ["media.scene-detect", "color.readme.where"]
+must = ["Scene Edit Detection (clip.sceneEditDetection) with Apply cuts splits the file at each change of shot, so each shot gets its own grade", "fades and dissolves may be found as several cuts or none: run Markers only first to check, raise or lower Sensitivity"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-cr36-recut-library"
+kind = "creative"
+family = "recut-finished-file"
+q = "turn a long compilation video into a library of separate shots I can reuse"
+sources = ["media.scene-detect", "media.clips"]
+must = ["Scene Edit Detection with Create subclips: one subclip per shot in the project", "many new items: put them in a bin; shots shorter than six frames are ignored"]
+must_not = []
+style = "pro"
+
+# --- vertical-cjk-title ---
+
+[[question]]
+id = "pool-cr36-vtitle"
+kind = "creative"
+family = "vertical-cjk-title"
+q = "japanese title running top to bottom like a movie poster"
+sources = ["practice.titles.vertical-text", "graphics.layers"]
+must = ["a vertical text layer (graphics.newVerticalText) instead of a normal text layer", "characters a Latin font lacks fall back to a CJK font automatically"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr36-vtitle-font"
+kind = "creative"
+family = "vertical-cjk-title"
+q = "my kanji show up in a different font than the english letters in the same title"
+sources = ["graphics.fonts", "practice.titles.vertical-text", "graphics.text"]
+must = ["characters a font doesn't have are drawn with a fallback font, character by character", "pick a font that has both (builds with the craft-fonts set include Japanese fonts) and set it on the layer (graphics.set)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr36-vtitle-credits"
+kind = "creative"
+family = "vertical-cjk-title"
+q = "vertical chinese chapter cards in Premiere-style essential graphics"
+sources = ["practice.titles.vertical-text", "graphics.layers", "graphics.templates"]
+must = ["one graphic clip per card with a vertical text layer (graphics.newVerticalText)", "style one, then reuse it for every chapter (copy the clip, or Export As Motion Graphics Template graphics.template.export with the text editable) and change only the text"]
+must_not = []
+style = "premiere-words"
+
+# --- filmic-clean-saturation ---
+
+[[question]]
+id = "pool-cr36-satluma"
+kind = "creative"
+family = "filmic-clean-saturation"
+q = "after boosting saturation the bright sky looks neon and the dark corners have coloured noise"
+sources = ["practice.node-trees.sat-by-luma", "color.lumetri.panel"]
+must = ["lower saturation only in the very bright and very dark parts: Lumetri's Luma vs Sat curve", "or a qualifier on luma only with saturation down on that node"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr36-satluma-film"
+kind = "creative"
+family = "filmic-clean-saturation"
+q = "rich colour in the mids but cleaner highlights, the way film rolls colour off"
+sources = ["practice.node-trees.sat-by-luma", "practice.grading.saturation-order", "practice.looks.film-curve"]
+must = ["saturation up in the midtones, then pull it down at the top and bottom of the range (Luma vs Sat, or luma-qualified nodes)", "a film-like contrast curve with a soft shoulder before the look"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr36-satluma-resolve"
+kind = "creative"
+family = "filmic-clean-saturation"
+q = "where's lum vs sat? I can't find it in the node curves"
+sources = ["practice.node-trees.sat-by-luma", "color.curves.limits", "color.lumetri.panel"]
+must = ["the node grader has master / R / G / B curves only; luma vs sat is in Lumetri Color's Curves section", "in the node grader: a qualifier on luma only with saturation down on that node"]
+must_not = []
+style = "resolve-words"
+
+# --- trim-cut-to-beat ---
+
+[[question]]
+id = "pool-cr36-beattrim"
+kind = "creative"
+family = "trim-cut-to-beat"
+q = "my cut is just slightly off the beat, can I fix it while the song plays"
+sources = ["trimming.dynamic", "practice.editing.music-beat"]
+must = ["select the edit point, then J / K / L move the edit while playing (trim.shuttle); it stops where you stop", "Play Around Edit (trim.playAround) to judge it; trim.cancelDynamic throws the change away"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr36-beattrim-markers"
+kind = "creative"
+family = "trim-cut-to-beat"
+q = "music video, want every cut to land on the downbeat"
+sources = ["practice.editing.music-beat", "timeline.markers", "trimming.dynamic"]
+must = ["press M while the music plays to drop markers on the beats (markers.add), turn on Snap (sequence.snap) and cut to them", "cut on phrases and accents, not on every beat; fine-tune by ear with dynamic trimming"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr36-beattrim-premiere"
+kind = "creative"
+family = "trim-cut-to-beat"
+q = "is there a trim monitor with JKL dynamic trimming like Premiere for timing cuts to music"
+sources = ["trimming.dynamic", "practice.editing.music-beat"]
+must = ["yes: with an edit point selected J, K, L shuttle the edit (trim.shuttle, trim.shuttleStop), Play Around Edit (trim.playAround)", "the Trim monitor shows the outgoing and incoming frame"]
+must_not = []
+style = "premiere-words"

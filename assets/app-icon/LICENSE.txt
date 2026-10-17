@@ -1,3 +1,8 @@
+Revolution (fork, FORK-PLAN §1a.103): the PNG / ICO / hicolor files and favicon.png are now the
+Revolution icon, made from revolution-photo.png (a public-domain photograph; see each file's
+.attribution) by tools/fork/revolution-icon.sh. filmcraft.svg, filmcraft-small.svg and filmcraft.icns
+below are still FilmCraft's owl, under the licence that follows.
+
 FilmCraft app icon (filmcraft.svg and every file derived from it in this directory:
 filmcraft-small.svg, filmcraft-1024.png, filmcraft-macos-512.png, filmcraft.icns, filmcraft.ico,
 hicolor/, and apps/filmcraft-web/web/favicon.png).

@@ -1032,8 +1032,6 @@ pub(crate) fn request_peaks(app: &mut FilmcraftApp, item: ItemId, stream: usize)
     if let Some(p) = app.tl.peaks.lock().unwrap_or_else(|e| e.into_inner()).get(&pkey) {
         return Some(p.clone());
     }
-    // No source: try again on a later frame instead of leaving the item pending forever.
-    let src = app.session.source(item)?;
     {
         let mut pend = app.tl.peaks_pending.lock().unwrap_or_else(|e| e.into_inner());
         if pend.contains(&pkey) {
@@ -1043,9 +1041,16 @@ pub(crate) fn request_peaks(app: &mut FilmcraftApp, item: ItemId, stream: usize)
     }
     let peaks = app.tl.peaks.clone();
     let pending = app.tl.peaks_pending.clone();
-    let dur = src.info().duration;
+    // The file is opened on the worker, never here: on a network share that stopped answering an
+    // open can take seconds (STORAGE-PLAN S1 item 3c).
+    let (media, project, services) = (app.session.media.clone(), app.session.project.clone(), app.session.services.clone());
     let run = move || {
-        let out = source_peaks(&*src, stream, dur);
+        // No source: try again on a later frame instead of leaving the item pending forever.
+        let Some(src) = media.cached(item).or_else(|| media.source_for(&project, item, &*services)) else {
+            pending.lock().unwrap_or_else(|e| e.into_inner()).retain(|i| *i != pkey);
+            return;
+        };
+        let out = source_peaks(&*src, stream, src.info().duration);
         peaks.lock().unwrap_or_else(|e| e.into_inner()).insert(pkey, Arc::new(out));
         pending.lock().unwrap_or_else(|e| e.into_inner()).retain(|i| *i != pkey);
     };

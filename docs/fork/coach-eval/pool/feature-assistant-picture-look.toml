@@ -1,0 +1,136 @@
+# FEATURE-POOL batch feature-assistant-picture-look (FEATURE-QUEUE row AI4: the Assistant looks at your
+# footage: picture look, per-shot look reuse, Picture model setting). Sources: color/coach.md
+# (color.coach.assistant "Looking at the picture", color.coach.assistant-panel "What it knows about your
+# shot"). Held-out test questions, written from the guide's text (README.md beside this file). No
+# creative family; picture-dependent answers with a fact sheet are AI-POOL's `picture` kind, not this row.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-pl-can-it-see"
+kind = "tool"
+q = "Can the Assistant actually look at my footage, or does it only read numbers?"
+sources = ["color.coach.assistant"]
+must = ["with the picture model installed, a question about the picture (exposure, colour, skin, sky, light) also gets a look", "Revolution renders the Program frame small and the vision model writes one or two sentences about what bears on the question", "without it the assistant gets measured numbers only"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pl-install"
+kind = "tool"
+q = "How do I install the picture model for the Assistant?"
+sources = ["color.coach.assistant"]
+must = ["Settings ▸ Color ▸ AI explanations ▸ Picture model (Qwen3-VL 4B Instruct, about 8.9 GB)", "Download (ai.vision.download); every file is checked against its checksum", "the row says installed when done (ai.vision.status)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pl-memory"
+kind = "tool"
+q = "how much memory does the picture looking thing need"
+sources = ["color.coach.assistant"]
+must = ["about 10 GB of free memory while it looks", "the first look prepares the model: about 25 seconds and a 4.3 GB file"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-pl-howto-skip"
+kind = "tool"
+q = "Why didn't the Assistant look at the frame when I asked how to add a node?"
+sources = ["color.coach.assistant"]
+must = ["how-to questions skip the look", "only questions about the picture itself (exposure, colour, skin, sky, light) get one"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pl-igpu-speed"
+kind = "tool"
+q = "On a laptop with only Intel built-in graphics, how long does a picture look take?"
+sources = ["color.coach.assistant"]
+must = ["it runs on the processor: about 8–30 seconds a look", "the answer starts that much later"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pl-follow-up-same-shot"
+kind = "tool"
+q = "If I ask another question about the same shot, does the Assistant look at it again?"
+sources = ["color.coach.assistant"]
+must = ["the same question about the same frame reuses the look", "a later question about the shot that isn't about exposure, colour or skin gets the shot's last look instead of a new one", "the model stays loaded for two minutes after a look"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pl-grade-changed"
+kind = "tool"
+q = "I changed the grade on the clip. Will the Assistant still use its old look at it?"
+sources = ["color.coach.assistant"]
+must = ["no: changing the clip's grade or effects counts as a new shot"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pl-look-fails"
+kind = "tool"
+q = "What happens if the picture look fails?"
+sources = ["color.coach.assistant"]
+must = ["the assistant answers without it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pl-upload"
+kind = "tool"
+q = "Is my frame uploaded somewhere when the Assistant looks at it?"
+sources = ["color.coach.assistant"]
+must = ["no: nothing leaves the computer", "the vision model runs locally"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pl-remove"
+kind = "tool"
+q = "How do I get rid of the picture model to free disk space?"
+sources = ["color.coach.assistant"]
+must = ["Settings ▸ Color ▸ Picture model ▸ Remove (ai.vision.remove)", "deletes it with the text model prepared from it; other files you put in its folder stay"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pl-script"
+kind = "tool"
+q = "From a script, how does coach.assist get the picture look?"
+sources = ["color.coach.assistant"]
+must = ["it happens with context: \"auto\"", "the line reaches the model as Picture (seen):"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pl-gpu-speed"
+kind = "tool"
+q = "With a Radeon card, how quick is the Assistant's look at the frame?"
+sources = ["color.coach.assistant"]
+must = ["the model runs on the graphics card: loading takes several seconds, then each look about 1–2 seconds"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pl-selection"
+kind = "approach"
+q = "What should I select before asking the Assistant about a shot's colour?"
+sources = ["color.coach.assistant-panel"]
+must = ["select the clip and node you're asking about first so the answer fits it", "with nothing selected the top clip under the playhead is measured"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-pl-c-picture-model"
+q = "picture model download for the assistant"
+kind = "where"
+origin = "agent"
+page = "color/coach.md"
+heading = "Also ask the assistant"
+status = "covered"
+facts = ["Settings ▸ Color ▸ Picture model", "Download"]

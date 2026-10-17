@@ -1,13 +1,13 @@
 # Lumetri Color and the node grader
 
-**[FilmCraft] [Fork]** · the Premiere-style Lumetri Color panel, how it relates to the
+**[Revolution] [Fork]** · the Premiere-style Lumetri Color panel, how it relates to the
 Resolve-style node grader, and which one to reach for
 
 ## Why there are two
 
-> id: color.lumetri.what | does: why FilmCraft has both Lumetri Color (Premiere-style) and the node grader (Resolve-style) | resolve: node grader on the Color page | premiere: Lumetri Color | when: deciding which colour tool to learn | see: color.lumetri.which
+> id: color.lumetri.what | does: why Revolution has both Lumetri Color (Premiere-style) and the node grader (Resolve-style) | resolve: node grader on the Color page | premiere: Lumetri Color | when: deciding which colour tool to learn | see: color.lumetri.which
 
-**[FilmCraft] [Fork]**
+**[Revolution] [Fork]**
 
 FilmCraft (upstream) is modelled on Premiere Pro, so its colour tool is **Lumetri Color**: one
 panel of sliders, wheels and curves in fixed sections, stored as an effect on the clip. This fork
@@ -21,7 +21,7 @@ the same picture in either; no grading maths is written twice.
 
 ## Where Lumetri sits in the picture
 
-> id: color.lumetri.order | does: the processing order: input transform, grade nodes, clip effects including Lumetri, output | resolve: node tree then output transform | premiere: effect stack order | when: a look changes when you move it between tools | see: color.lumetri.what
+> id: color.lumetri.order | does: the processing order: input transform, grade nodes, clip effects including Lumetri, output | resolve: node tree then output transform | premiere: effect stack order | when: a look changes when you move it between tools; Bypass pressed but the clip still looks graded | see: color.lumetri.what
 
 **[Fork]**
 
@@ -38,7 +38,7 @@ The order for every clip is: input transform → **your grade nodes** → the cl
 
 > id: color.lumetri.panel | does: Lumetri's sections: Basic Correction, Creative, Curves, Color Wheels & Match, HSL Secondary, Vignette | ui: lumetri.* | cmd: effects.apply, lumetri.applyPreset, lumetri.setLook, lumetri.setInputLut, lumetri.applyMatch | premiere: Lumetri Color panel | when: grading the Premiere way | see: color.lumetri.which
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Select a clip and open Window ▸ **Lumetri Color**. (In the Color Grading workspace it is a tab
    beside **Primaries**.)
@@ -77,7 +77,7 @@ node ([matching.md](matching.md)).
 
 ## Which one to use
 
-> id: color.lumetri.which | does: when to reach for Lumetri and when for the node grader | resolve: Color page nodes | premiere: Lumetri Color | when: choosing a tool for a task | see: color.lumetri.no-carry-over
+> id: color.lumetri.which | does: when to reach for Lumetri and when for the node grader | resolve: Color page nodes | premiere: Lumetri Color | when: choosing a tool for a task; should I use Lumetri or the node grader | see: color.lumetri.no-carry-over
 
 **[Fork]**
 
@@ -100,10 +100,11 @@ for something nodes don't have yet (a vignette, vibrance).
 
 **[Fork]**
 
-- **No conversion.** Lumetri settings don't turn into nodes, or the reverse. To move a look
+- **Revolution:** no conversion between Lumetri and nodes yet: Lumetri settings don't turn into
+  nodes, or the reverse. To move a look
   from one to the other, rebuild it by eye with a still and the wipe ([matching.md](matching.md)).
 - **Copying.** Clip ▸ Grade ▸ **Copy Grade** (`grade.copy`) / **Paste Grade** (`grade.paste`)
-  copy only the nodes. Lumetri travels with the clip's effects: Edit ▸ **Copy** (`edit.copy`) and
+  copy only the nodes. Lumetri travels with the clip's effects; to copy Lumetri to another clip use Edit ▸ **Copy** (`edit.copy`) and
   **Paste Attributes…** (`edit.pasteAttributes`).
 - **Measuring tools.** "Same grade?" and the node explainer look only at the nodes. **Compare
   shots** measures the finished picture, Lumetri included. Shot Match solves on the picture
@@ -117,7 +118,7 @@ for something nodes don't have yet (a vignette, vibrance).
 
 > id: color.lumetri.premiere | does: what matches Premiere's Lumetri and what differs | premiere: Lumetri Color | when: you come from Premiere | see: color.lumetri.panel
 
-**[FilmCraft]**
+**[Revolution]**
 
 The Lumetri Color panel follows Premiere's sections and names, so Premiere habits carry over.
 The one difference to keep in mind: the fork's node grader runs *before* Lumetri on each clip.

@@ -74,7 +74,9 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("getting-started.md", include_str!("../../../docs/guide/getting-started.md")),
     ("audio.md", include_str!("../../../docs/guide/audio.md")),
     ("cards.md", include_str!("../../../docs/guide/cards.md")),
+    ("command-reference.md", include_str!("../../../docs/guide/command-reference.md")),
     ("edit-menu.md", include_str!("../../../docs/guide/edit-menu.md")),
+    ("effect-reference.md", include_str!("../../../docs/guide/effect-reference.md")),
     ("compositor.md", include_str!("../../../docs/guide/compositor.md")),
     ("editing.md", include_str!("../../../docs/guide/editing.md")),
     ("essential-sound.md", include_str!("../../../docs/guide/essential-sound.md")),
@@ -95,11 +97,13 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
     ("projects.md", include_str!("../../../docs/guide/projects.md")),
     ("proxies.md", include_str!("../../../docs/guide/proxies.md")),
     ("render-cache.md", include_str!("../../../docs/guide/render-cache.md")),
+    ("network-storage.md", include_str!("../../../docs/guide/network-storage.md")),
     ("shortcuts.md", include_str!("../../../docs/guide/shortcuts.md")),
     ("text.md", include_str!("../../../docs/guide/text.md")),
     ("timeline.md", include_str!("../../../docs/guide/timeline.md")),
     ("tracking.md", include_str!("../../../docs/guide/tracking.md")),
     ("trimming.md", include_str!("../../../docs/guide/trimming.md")),
+    ("updates.md", include_str!("../../../docs/guide/updates.md")),
     ("color/README.md", include_str!("../../../docs/guide/color/README.md")),
     ("color/coach.md", include_str!("../../../docs/guide/color/coach.md")),
     ("color/color-management.md", include_str!("../../../docs/guide/color/color-management.md")),
@@ -134,6 +138,8 @@ pub const GUIDE_PAGES: &[(&str, &str)] = &[
 /// pass with it.)
 const NOT_INDEXED: &[&str] = &[
     "README.md",
+    "command-reference.md",
+    "effect-reference.md",
     "linux.md",
     "timeline.md",
     "effects.md",
@@ -153,6 +159,8 @@ const NOT_INDEXED: &[&str] = &[
     "practice/titles.md",
     "practice/workflow.md",
     "practice/mixed-cameras.md",
+    // fork UPD: about the app's own updates, not editing (its words pushed the pool floors)
+    "updates.md",
 ];
 
 /// Sections that are never an answer (page, heading): the glossary's table of Resolve / Premiere
@@ -163,7 +171,7 @@ const NOT_ANSWERS: &[(&str, &str)] = &[("glossary.md", "At a glance")];
 const STUB: &str = "To write.";
 
 /// The provenance tags the guide uses.
-pub const TAGS: &[&str] = &["[Resolve-style]", "[FilmCraft]", "[Fork]", "[Standard]"];
+pub const TAGS: &[&str] = &["[Resolve-style]", "[Revolution]", "[Fork]", "[Standard]"];
 
 /// Checks automation ids against what the frontend has on screen (or has shown this session).
 /// The egui UI installs one in [`Session::coach_ids`]; without it, automation ids are passed
@@ -443,6 +451,11 @@ const SYNONYMS: &[(&str, &str)] = &[
     ("quickest", "fast quick"),
     // adv-edit-tighten-cut: "the cut is a few frames late" is a trim
     ("late", "trim roll ripple"),
+    // AI3.6 lane E: adv-audio-voice-fast ("twenty clips": the guide says "many clips"),
+    // adv-qualifier-chatter (a flickering matte edge is "chatter", fixed with softness / blur)
+    ("twenty", "many"),
+    ("dozens", "many"),
+    ("flicker", "chatter softness blur"),
     // typos and cut-off words from real questions
     ("qualifer", "qualifier"),
     ("stil", "still"),
@@ -1083,7 +1096,8 @@ struct Assist {
 fn assist() -> &'static Assist {
     static A: OnceLock<Assist> = OnceLock::new();
     A.get_or_init(|| {
-        let sections: Vec<Section> = GUIDE_PAGES.iter().filter(|(p, _)| *p != "README.md").flat_map(|(p, src)| split_page(p, src)).collect();
+        let sections: Vec<Section> =
+            GUIDE_PAGES.iter().filter(|(p, _)| *p != "README.md" && !NOT_RETRIEVED.contains(p)).flat_map(|(p, src)| split_page(p, src)).collect();
         let headers: Vec<Option<Header>> = sections.iter().map(|s| s.header.as_deref().and_then(|h| parse_header(h).ok())).collect();
         let index = Index::build(sections.iter().zip(&headers).map(|(s, h)| {
             let does = h.as_ref().map(|h| [h.does.as_str()].repeat(HEADER_WEIGHT).join(". ")).unwrap_or_default();
@@ -1112,11 +1126,104 @@ pub struct Retrieved {
     pub score: f64,
 }
 
+/// Pages written for readers and agents that look things up, not sent to the assistant's model:
+/// `effect-reference.md` is a long name list that crowded the sections explaining how to do
+/// something out of the top results (AI4.5c, measured: creative coverage@6 354 → 350 / 806).
+const NOT_RETRIEVED: &[&str] = &["effect-reference.md"];
+
 /// The `k` (at most [`MAX_RETRIEVE`]) guide sections best matching a question, best first, from
 /// every page: what the assistant's model is given. BM25 with the coach's synonyms; a "how …"
-/// question favours sections with numbered steps.
+/// question favours sections with numbered steps; [`NOT_RETRIEVED`] pages aren't in its index.
 pub fn retrieve(question: &str, k: usize) -> Vec<Retrieved> {
+    retrieve_in(crate::coach_meaning::default_mode(), question, k)
+}
+
+/// [`retrieve`] with a chosen ranking (fork §1a.98): words (BM25 as above), meaning (embedding
+/// cosine, [`crate::coach_meaning`]) or both fused by reciprocal rank. Meaning and mixed fall back
+/// to words without the model. Sections are ordered by the fused rank; each one's score is the best
+/// word score times its relevance share: the larger of its word score's share of the best and its
+/// cosine's place between [`crate::coach_meaning::COS_FLOOR`] and the best cosine (0 below the
+/// floor). So the pick prompt's relevance filters (a share of the best score) still drop unrelated
+/// sections, which a rank-based share would not (rank r of a fused list keeps ~61 / (61 + r)).
+pub fn retrieve_in(mode: crate::coach_meaning::SearchMode, question: &str, k: usize) -> Vec<Retrieved> {
+    use crate::coach_meaning::{RRF_K, SearchMode};
     let a = assist();
+    let k = k.min(MAX_RETRIEVE);
+    let words = words_ranked(a, question);
+    let ranked = match mode {
+        SearchMode::Words => words,
+        SearchMode::Meaning | SearchMode::Mixed => {
+            // a deep enough meaning list that fusion sees the word list's top sections too
+            let depth = k.saturating_mul(8).max(64);
+            match crate::coach_meaning::rank(question, depth) {
+                None => words,
+                Some(meant) => {
+                    let best_word = words.first().map_or(1.0, |w| w.1).max(f64::MIN_POSITIVE);
+                    let best_cos = meant.first().map_or(1.0, |m| m.1);
+                    let floor = crate::coach_meaning::COS_FLOOR;
+                    let cos_of: HashMap<usize, f64> = meant.iter().copied().collect();
+                    let word_of: HashMap<usize, f64> = words.iter().copied().collect();
+                    let share = |i: usize| {
+                        let by_cos = cos_of.get(&i).map_or(0.0, |c| if best_cos > floor { ((c - floor) / (best_cos - floor)).clamp(0.0, 1.0) } else { 0.0 });
+                        let by_word = if mode == SearchMode::Mixed { word_of.get(&i).map_or(0.0, |w| (w / best_word).clamp(0.0, 1.0)) } else { 0.0 };
+                        by_cos.max(by_word)
+                    };
+                    let mut fused: HashMap<usize, f64> = HashMap::new();
+                    let w = if mode == SearchMode::Mixed { crate::coach_meaning::meaning_weight() } else { 1.0 };
+                    for (r, (i, _)) in meant.iter().enumerate() {
+                        *fused.entry(*i).or_default() += w / (RRF_K + r as f64 + 1.0);
+                    }
+                    if mode == SearchMode::Mixed {
+                        for (r, (i, _)) in words.iter().take(depth).enumerate() {
+                            *fused.entry(*i).or_default() += 1.0 / (RRF_K + r as f64 + 1.0);
+                        }
+                    }
+                    let mut v: Vec<(usize, f64)> = fused.into_iter().collect();
+                    v.sort_by(|x, y| y.1.total_cmp(&x.1).then(x.0.cmp(&y.0)));
+                    // Mixed: the word search's first sections stay first
+                    let keep: Vec<usize> = if mode == SearchMode::Mixed {
+                        let (k, share_min) = (crate::coach_meaning::word_keep(), crate::coach_meaning::word_keep_share());
+                        words
+                            .iter()
+                            .take(k.max(crate::coach_assist::SECTIONS))
+                            .enumerate()
+                            .filter(|(r, w)| *r < k || w.1 >= share_min * best_word)
+                            .map(|(_, w)| w.0)
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    keep.iter().copied().chain(v.into_iter().map(|(i, _)| i).filter(|i| !keep.contains(i))).map(|i| (i, best_word * share(i))).collect()
+                }
+            }
+        }
+    };
+    ranked
+        .into_iter()
+        .take(k)
+        .filter_map(|(i, score)| Some(Retrieved { section: a.sections.get(i)?, header: a.headers.get(i).and_then(Option::as_ref), score }))
+        .collect()
+}
+
+/// Each assistant section's text for the embedding model, in the index's order: heading, the
+/// header's `does:` / `when:`, then the body, cut to `max_chars`.
+#[cfg(feature = "llm")]
+pub(crate) fn assist_embed_texts(max_chars: usize) -> Vec<String> {
+    let a = assist();
+    a.sections
+        .iter()
+        .zip(&a.headers)
+        .map(|(s, h)| {
+            let does = h.as_ref().map(|h| h.does.as_str()).unwrap_or_default();
+            let when = h.as_ref().and_then(|h| h.when.as_deref()).unwrap_or_default();
+            let body = plain(&s.body, &|_| true).text;
+            format!("{}: {}. {does} {when}\n{body}", s.page_title, s.heading).chars().take(max_chars).collect()
+        })
+        .collect()
+}
+
+/// The word ranking of [`retrieve`]: (section index, score), best first.
+fn words_ranked(a: &Assist, question: &str) -> Vec<(usize, f64)> {
     let terms = query_terms(question);
     let how = question.chars().take(MAX_QUESTION_CHARS).collect::<String>().to_lowercase().split(|c: char| !c.is_alphanumeric()).any(|w| w == "how");
     let mut ranked = a.index.rank(&terms);
@@ -1136,10 +1243,6 @@ pub fn retrieve(question: &str, k: usize) -> Vec<Retrieved> {
     }
     ranked.sort_by(|x, y| y.1.total_cmp(&x.1).then(x.0.cmp(&y.0)));
     ranked
-        .into_iter()
-        .take(k.min(MAX_RETRIEVE))
-        .filter_map(|(i, score)| Some(Retrieved { section: a.sections.get(i)?, header: a.headers.get(i).and_then(Option::as_ref), score }))
-        .collect()
 }
 
 // ---------- steps ----------

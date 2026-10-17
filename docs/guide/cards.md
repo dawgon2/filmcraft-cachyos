@@ -4,7 +4,7 @@
 
 Why: a memory card is the only copy of a shoot until it is backed up. Editing straight from the
 card is risky (it gets formatted for the next shoot, or pulled out mid-playback), and a plain
-file-manager copy doesn't tell you whether every byte arrived. FilmCraft copies the whole card
+file-manager copy doesn't tell you whether every byte arrived. Revolution copies the whole card
 to a folder on your media drive, checks every file, and only then imports the clips.
 
 ## When you put a card in
@@ -13,7 +13,7 @@ to a folder on your media drive, checks every file, and only then imports the cl
 
 1. Insert the card (or connect the camera as a drive). When the desktop mounts it, a bar at the
    top of the Project panel says **Camera card <name>**.
-2. Click **Copy** {ui:project.card.copy}. The first time, FilmCraft asks for the folder cards are
+2. Click **Copy** {ui:project.card.copy}. The first time, Revolution asks for the folder cards are
    copied to and remembers it (**Settings ▸ Media ▸ Copy camera cards to**, `media.cardDestination`;
    change it there). Each card gets its own folder inside it, named after the card and the date
    (`FUJI 2026-10-13`).
@@ -22,7 +22,7 @@ to a folder on your media drive, checks every file, and only then imports the cl
    Click **Eject** {ui:project.card.eject} and take the card out when the status line says it can
    be removed. **Dismiss** {ui:project.card.dismiss} hides the bar without copying.
 
-FilmCraft notices cards the desktop mounts under `/run/media` or `/media` (Plasma, GNOME and most
+Revolution notices cards the desktop mounts under `/run/media` or `/media` (Plasma, GNOME and most
 others, X11 or Wayland), with a `DCIM`, `PRIVATE`, `XDROOT`, `CONTENTS` or `CLIP` folder. Other
 drives (a USB stick, a backup disk) get no bar. Eject goes through UDisks2, the service file
 managers use; without it, eject the card from the file manager.
@@ -52,7 +52,7 @@ managers use; without it, eject the card from the file manager.
 - **A card pulled out mid-copy** (or a failing card) stops the copy with a message saying how many
   files are already copied and verified. Put the card back and run the copy again.
 - **Then the media is imported** into a top-level bin named after the copy's folder (only files
-  FilmCraft can import; sidecars stay on disk).
+  Revolution can import; sidecars stay on disk).
 
 Which cards are recognised: any folder with `DCIM` (Fujifilm, Canon, Nikon, Panasonic stills and
 most phones), `PRIVATE` (Sony XAVC / AVCHD), `XDROOT` (XDCAM), `CONTENTS` (P2) or `CLIP` at the
@@ -77,7 +77,7 @@ it, or cancel it, like an export.
 
 ## Options, and when to pick which
 
-> id: cards.options | does: copy first, import from the card, or copy outside FilmCraft: the trade-offs | cmd: card.offload, file.import | resolve: Clone tool vs importing from the card | premiere: Ingest vs importing from the card | when: choosing how footage comes in | see: cards.copy-details
+> id: cards.options | does: copy first, import from the card, or copy outside Revolution: the trade-offs | cmd: card.offload, file.import | resolve: Clone tool vs importing from the card | premiere: Ingest vs importing from the card | when: choosing how footage comes in | see: cards.copy-details
 
 - **Copy, then edit from the copy (this feature):** the safe default. The card can be formatted
   as soon as the copy is verified and you have a second backup. Costs the time of one full copy
@@ -87,7 +87,7 @@ it, or cancel it, like an export.
   backup tool (the checksum list lets you verify that copy too).
 - **Import straight from the card** (File ▸ Import, `file.import`): quickest for a look at a few clips, but the
   project then points at the card. Use Project Settings ▸ Ingest Settings (`project.ingestSettings`) ▸ Copy if you want
-  FilmCraft to copy the clips you import (only those clips, not the whole card).
+  Revolution to copy the clips you import (only those clips, not the whole card).
 - **A dedicated offload tool** (one that writes MHL checksum files): if your workflow hands cards
-  to a DIT or a post house that expects MHL, use their tool; FilmCraft's checksum list is a plain
+  to a DIT or a post house that expects MHL, use their tool; Revolution's checksum list is a plain
   text file, not MHL.

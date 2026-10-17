@@ -1,0 +1,107 @@
+# FEATURE-POOL batch feature-network-storage-drops (FEATURE-QUEUE row S1.3: share time limits; clips
+# go offline / online by themselves). Sources: network-storage.md (network-storage.drops). Held-out
+# test questions, written from the guide's text (README.md beside this file). No creative family.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-ns3-freeze"
+kind = "tool"
+q = "Will Revolution freeze if my NAS disappears in the middle of an edit?"
+sources = ["network-storage.drops"]
+must = ["no: every read, open and size check on a network share gets 8 seconds", "if the share hasn't answered by then the clip is treated as offline instead of the app freezing"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns3-timeout-length"
+kind = "tool"
+q = "What's the timeout on network file reads, and what does a clip look like when it hits it?"
+sources = ["network-storage.drops"]
+must = ["8 seconds", "the clip goes offline: the same red offline mark and Media Offline picture as a missing file"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns3-whole-share"
+kind = "tool"
+q = "project with 200 clips on a sleeping nas, do i wait 8 seconds per clip??"
+sources = ["network-storage.drops"]
+must = ["no: once one file on a share has timed out the whole share is treated as down for 30 seconds", "its other clips go offline at once, so opening the project stays quick"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-ns3-back-online"
+kind = "tool"
+q = "When the server comes back, do I have to relink everything?"
+sources = ["network-storage.drops"]
+must = ["no: clips come back online by themselves", "Revolution looks at the project's files every few seconds and when its window comes back to the front", "nothing needs relinking and there is no undo step"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns3-setting-off"
+kind = "tweak"
+q = "My clips stayed offline after the share came back. What setting controls the automatic check?"
+sources = ["network-storage.drops"]
+must = ["Settings ▸ Media ▸ Automatically refresh growing files (on by default)", "with it off use Link Media or reopen the project"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns3-resolve-offline"
+kind = "tool"
+q = "In Resolve a vanished share just gives me media offline; does Revolution behave the same?"
+sources = ["network-storage.drops"]
+must = ["it also shows offline media", "but it never stalls waiting for the server: its own 8-second time limit", "the clips come back online by themselves"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-ns3-local-files"
+kind = "tool"
+q = "Does the network time limit change how files on my internal SSD are read?"
+sources = ["network-storage.drops"]
+must = ["no: files on local disks are read exactly as before"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns3-message"
+kind = "tool"
+q = "how do I know which clips dropped when the wifi cut out"
+sources = ["network-storage.drops"]
+must = ["a message says how many clips went offline (and later how many are back online)", "offline clips have the red offline mark and show Media Offline"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-ns3-waveforms-gap"
+kind = "gap"
+q = "Can audio waveforms or the Link Media preview still hang on a dead share?"
+sources = ["network-storage.drops"]
+must = ["still being built: those last few file checks the interface does itself are being moved to background threads"]
+must_not = ["claims every file check already runs in the background"]
+style = "gap"
+
+[[question]]
+id = "feat-ns3-premiere-offline"
+kind = "tool"
+q = "Premiere sometimes hangs when my NAS goes to sleep. Does Revolution?"
+sources = ["network-storage.drops"]
+must = ["Revolution gives reads on a share 8 seconds, then shows the clip offline instead of hanging", "the share counts as down for 30 seconds so other clips don't each wait"]
+must_not = []
+style = "premiere-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-ns3-c-server-stops"
+q = "what happens when the server stops answering"
+kind = "what-for"
+origin = "agent"
+page = "network-storage.md"
+heading = "When the server stops answering"
+status = "covered"
+facts = ["8 seconds then offline", "back online by themselves"]

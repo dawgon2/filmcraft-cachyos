@@ -591,7 +591,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
     match id {
         "graphics.template.install" if params.get("path").is_none() => {
             let (id, ctx) = (id.to_string(), ctx.clone());
-            Some(app.pick(FileDialog::open_file(tl!("FilmCraft Graphics Template"), &["fcgt"]), move |app, paths| {
+            Some(app.pick(FileDialog::open_file(tl!("Revolution Graphics Template"), &["fcgt"]), move |app, paths| {
                 let Some(path) = paths.into_iter().next() else { return Ok(Value::Null) };
                 let r = app.session.execute(&id, json!({"path": path})).map_err(|e| e.to_string());
                 invalidate(&ctx);
@@ -673,7 +673,7 @@ fn export_dialog(app: &mut FilmcraftApp, ctx: &egui::Context) {
                     });
                 }
             });
-            ui.label(egui::RichText::new(tl!("Saved as a FilmCraft graphics template (.fcgt) in your templates folder.")).weak().size(11.0));
+            ui.label(egui::RichText::new(tl!("Saved as a Revolution graphics template (.fcgt) in your templates folder.")).weak().size(11.0));
             if !d.error.is_empty() {
                 ui.colored_label(Color32::from_rgb(0xff, 0x80, 0x80), &d.error);
             }

@@ -1,0 +1,314 @@
+# AI-POOL batch creative-4 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families, weighted to audio tricks, repair jobs and social pacing. Ten new
+# families: phone-call voice, big-room reverb, podcast voice clean-up, removing ums, fitting a song,
+# punch-in emphasis, a windy interview, a rewind effect, a timelapse, two microphones on one clip.
+# `must` = plan sub-goals from the guide's own text. Admitted-gap family: none fully; the windy
+# interview admits distorted gusts can't be repaired. Held-out only.
+
+# --- phone-call-voice ---
+
+[[question]]
+id = "pool-cr4-phone-voice"
+kind = "creative"
+family = "phone-call-voice"
+q = "make the voice sound like it's coming through a phone call"
+sources = ["essential-sound.controls", "essential-sound.types"]
+must = ["tag the clip Dialogue (essentialSound.setType)", "in Clarity, the EQ control with the Telephone preset (a Parametric EQ), its amount = how much of the preset"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-phone-radio"
+kind = "creative"
+family = "phone-call-voice"
+q = "old radio broadcast voice for a flashback"
+sources = ["essential-sound.controls", "essential-sound.types"]
+must = ["Dialogue type, Clarity ▸ EQ with the Radio Voice preset", "the control drives an ordinary Parametric EQ, visible and keyframable in Effect Controls"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr4-phone-both-sides"
+kind = "creative"
+family = "phone-call-voice"
+q = "phone conversation scene: the person on screen sounds normal, the other side sounds like a phone, and it swaps when we cut"
+sources = ["essential-sound.controls", "mixing.clip-or-track", "essential-sound.presets"]
+must = ["the far side's clips get the EQ Telephone preset; the on-screen voice stays clean", "put each side on its own track or save the setting as an Essential Sound preset and apply it to every far-side clip"]
+must_not = []
+style = "pro"
+
+# --- big-room-reverb ---
+
+[[question]]
+id = "pool-cr4-reverb-cave"
+kind = "creative"
+family = "big-room-reverb"
+q = "make my narration sound like it's in a huge cave or church"
+sources = ["essential-sound.controls", "essential-sound.types"]
+must = ["Dialogue type, Creative ▸ Reverb (a Studio Reverb with a room preset such as Stone Church)", "the amount is the wet level: raise it until the space is clear, not muddy"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-reverb-dream"
+kind = "creative"
+family = "big-room-reverb"
+q = "dream sequence, voices should get echoey as it starts and dry again after"
+sources = ["essential-sound.controls", "effects.keyframes"]
+must = ["Reverb on the clips (Creative ▸ Reverb, Studio Reverb)", "keyframe its wet level up at the start of the dream and back down after (the effect's parameters keyframe like any effect)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr4-reverb-match"
+kind = "creative"
+family = "big-room-reverb"
+q = "ADR recorded in a closet doesn't match the big hall it's supposed to be in"
+sources = ["essential-sound.controls", "audio.manual-voice-cleanup"]
+must = ["add room: Creative ▸ Reverb with a larger room preset at a low wet level", "clean the recording first (rumble, noise), then reverb, so the reverb doesn't spread the noise"]
+must_not = []
+style = "pro"
+
+# --- podcast-voice-cleanup ---
+
+[[question]]
+id = "pool-cr4-pod-oneclick"
+kind = "creative"
+family = "podcast-voice-cleanup"
+q = "make my podcast voice sound professional fast"
+sources = ["audio.cleanup-voice", "practice.audio.loudness-targets"]
+must = ["select the clips and Clean Up Voice (audio.cleanupVoice): it measures and sets Reduce Rumble, Voice Isolation or Reduce Noise, DeEss, Dynamics and loudness", "it matches −14 LUFS under −1 dBTP; podcasts usually aim about −16 LUFS, so check the mix on the loudness meter", "then tune the one or two sliders that need it by ear"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-pod-manual"
+kind = "creative"
+family = "podcast-voice-cleanup"
+q = "I'd rather do the voice chain by hand, what order"
+sources = ["audio.manual-voice-cleanup", "essential-sound.controls"]
+must = ["listen first; rumble (Reduce Rumble about 3), then noise (Reduce Noise for quiet steady noise, Voice Isolation for loud or changing noise), then hum, esses, level, tone, loudness", "stop raising noise reduction where the voice starts to sound processed"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr4-pod-fan"
+kind = "creative"
+family = "podcast-voice-cleanup"
+q = "theres a fan humming behind my voice the whole recording"
+sources = ["audio.manual-voice-cleanup", "audio.voice-isolation", "essential-sound.controls"]
+must = ["steady noise: Reduce Noise at 3–5 (a DeNoise); loud or changing noise: Voice Isolation", "a steady low tone at the mains frequency is hum: DeHum at 50 or 60 Hz"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr4-pod-resolve"
+kind = "creative"
+family = "podcast-voice-cleanup"
+q = "is there a voice isolation like Resolve's here for a noisy café recording"
+sources = ["audio.voice-isolation", "audio.cleanup-voice"]
+must = ["Voice Isolation (DeepFilterNet3 model, runs on the CPU) keeps speech and removes the noise around it; DeNoise without the model", "Clean Up Voice can set it for you as a start"]
+must_not = []
+style = "resolve-words"
+
+# --- remove-ums-tighten ---
+
+[[question]]
+id = "pool-cr4-ums"
+kind = "creative"
+family = "remove-ums-tighten"
+q = "cut out all my ums and long pauses automatically"
+sources = ["text.cleanup", "text.transcripts"]
+must = ["transcribe first (transcript.generate)", "Remove Pauses (transcript.removePauses, silences over one second, keeps 0.15 s) and Remove Filler Words (transcript.removeFillers)", "play it through and put back pauses where a thought ends; every pause gone feels breathless"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-ums-jumps"
+kind = "creative"
+family = "remove-ums-tighten"
+q = "after removing the pauses the jump cuts look jarring"
+sources = ["practice.editing.jump-cuts", "practice.youtube.pattern-interrupt", "practice.editing.b-roll"]
+must = ["punch in (Motion Scale 110–120 %) on every other cut to soften the jump", "cover some cuts with B-roll while the voice continues; vary the device"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr4-ums-custom"
+kind = "creative"
+family = "remove-ums-tighten"
+q = "I say 'like' and 'you know' constantly, can the filler removal catch those"
+sources = ["text.cleanup", "text.transcripts"]
+must = ["Remove Filler Words takes your own list as `fillers`", "or select those words in the transcript and cut them by hand"]
+must_not = []
+style = "pro"
+
+# --- song-fit-length ---
+
+[[question]]
+id = "pool-cr4-song-length"
+kind = "creative"
+family = "song-fit-length"
+q = "my song is 3 minutes but my video is 1 minute, how do I make it fit and still end properly"
+sources = ["essential-sound.remix", "practice.editing.music-beat"]
+must = ["Remix: Enable Remix (clip.remix.enable), set the length in Remix Properties (clip.remix.properties)", "the intro plays from the start and the song ends on its real ending; only the middle is rearranged", "Revert Remix brings it back"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-song-montage"
+kind = "creative"
+family = "song-fit-length"
+q = "montage cut to the music, shortening the track and hitting the beats"
+sources = ["essential-sound.remix", "practice.editing.music-beat", "timeline.markers"]
+must = ["fit the track with Remix", "press M while playing to drop markers on beats (markers.add), turn on Snap (sequence.snap) and cut to them", "cut on phrases and accents, not every beat"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr4-song-refuse"
+kind = "creative"
+family = "song-fit-length"
+q = "remix wont make my music longer, says it refuses"
+sources = ["essential-sound.remix", "editing.trimming"]
+must = ["a remix never pushes or trims the next clip: if the longer version would run into it, it refuses; make room after the clip first (trim or move the next clip)", "speed changes don't apply to a remixed clip"]
+must_not = []
+style = "sloppy"
+
+# --- punch-in-emphasis ---
+
+[[question]]
+id = "pool-cr4-punch-joke"
+kind = "creative"
+family = "punch-in-emphasis"
+q = "zoom in on my face for the punchline like youtubers do"
+sources = ["practice.youtube.punch-in", "practice.youtube.pattern-interrupt"]
+must = ["cut at the punchline and set Motion Scale up (e.g. 115 %) on the second part, Position to recentre the face", "6.2K or 4K footage in a smaller sequence can be scaled up without loss"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-punch-slow"
+kind = "creative"
+family = "punch-in-emphasis"
+q = "slow push-in during an emotional line instead of a hard punch"
+sources = ["effects.keyframes", "practice.youtube.punch-in", "practice.titles.easing"]
+must = ["keyframe Motion Scale from 100 % up over the line (and Position to keep the face centred)", "eased keyframes so the move starts and stops gently"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr4-wind"
+kind = "creative"
+family = "windy-interview-rescue"
+q = "outdoor interview ruined by wind noise, can I save it"
+sources = ["practice.audio.wind", "audio.voice-isolation", "essential-sound.controls"]
+must = ["Reduce Rumble at 4 plus Voice Isolation at 10", "gusts that distort the microphone can't be repaired; a furry windscreen at the shoot beats any plugin"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-wind-plosive"
+kind = "creative"
+family = "windy-interview-rescue"
+q = "wind bumps plus p-pops on a lav, what's the chain"
+sources = ["practice.audio.wind", "practice.audio.plosives", "practice.audio.high-pass"]
+must = ["high-pass around 70–100 Hz (Reduce Rumble) for rumble and bumps", "short fades on individual pops; Voice Isolation for the wind between words"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr4-wind-cover"
+kind = "creative"
+family = "windy-interview-rescue"
+q = "the wind wrecked half a sentence, nothing fixes it"
+sources = ["practice.audio.wind", "text.transcripts", "practice.editing.b-roll"]
+must = ["distorted gusts can't be repaired: cut around them", "use the transcript to find the same words said elsewhere, and cover the edit with B-roll"]
+must_not = []
+style = "sloppy"
+
+# --- rewind-effect ---
+
+[[question]]
+id = "pool-cr4-rewind"
+kind = "creative"
+family = "rewind-effect"
+q = "rewind effect where the clip plays backwards fast, like rewinding a tape"
+sources = ["media.clips", "practice.looks.vhs", "shader-effects.use"]
+must = ["duplicate or copy the section and set Speed / Duration (clip.speedDuration) reversed and faster", "optionally the VHS shader effect over the rewind for the tape look"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-rewind-ripple"
+kind = "creative"
+family = "rewind-effect"
+q = "when I speed up the reversed clip the gap after it stays, can it close up"
+sources = ["media.clips", "editing.trimming"]
+must = ["tick Ripple in Speed / Duration so the following clips move and no gap is left"]
+must_not = []
+style = "pro"
+
+# --- photo-timelapse ---
+
+[[question]]
+id = "pool-cr4-timelapse-photos"
+kind = "creative"
+family = "photo-timelapse"
+q = "I have 600 photos from my camera's interval timer, make a timelapse"
+sources = ["media.import", "media.clips"]
+must = ["import the numbered stills as one image sequence (a preference) with File ▸ Import", "change its speed with Speed / Duration if it runs too fast or slow; frame blending smooths it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-timelapse-video"
+kind = "creative"
+family = "photo-timelapse"
+q = "turn a 20 minute sunset clip into a 20 second timelapse and fit a song under it"
+sources = ["media.clips", "essential-sound.remix"]
+must = ["Speed / Duration (clip.speedDuration) to the new duration (60× faster)", "frame sampling keeps it crisp; frame blending gives motion trails", "fit the song to 20 seconds with Remix (clip.remix.enable, Remix Properties)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr4-timelapse-grade"
+kind = "creative"
+family = "photo-timelapse"
+q = "timelapse flickers in brightness from photo to photo and I want one grade over it"
+sources = ["media.import", "practice.editing.flicker", "color.lumetri.panel"]
+must = ["an image sequence is one clip, so one grade covers it", "no deflicker effect yet: keyframe Exposure (Lumetri) or Offset for the bad frames; temporal NR smooths only fine changes; Frame Blending at a slightly changed speed mixes neighbours"]
+must_not = []
+style = "pro"
+
+# --- two-mics-one-clip ---
+
+[[question]]
+id = "pool-cr4-two-mics"
+kind = "creative"
+family = "two-mics-one-clip"
+q = "my two guests' mics are on left and right of one stereo clip, one is much louder"
+sources = ["media.audio-channels", "mixing.clip-or-track"]
+must = ["Breakout to Mono (clip.breakoutToMono) makes a mono clip per channel", "then level each separately (Audio Gain, clip.audioGain, or its own track's fader)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr4-two-mics-centre"
+kind = "creative"
+family = "two-mics-one-clip"
+q = "interview: host on the left channel only, sounds lopsided in headphones"
+sources = ["media.audio-channels", "practice.audio.pan-dialogue"]
+must = ["map the channels (clip.audioChannels, Shift+G) to mono or break out to mono clips", "keep voices centred; pan only effects and ambience"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr4-two-mics-recorder"
+kind = "creative"
+family = "two-mics-one-clip"
+q = "separate recorder with two lavs plus camera audio, sync and split the voices"
+sources = ["practice.editing.sync-sound", "media.audio-channels", "media.clips"]
+must = ["line up the recorder with the camera clip by waveform (clip.synchronize by audio, or Merge Clips)", "Breakout to Mono so each lav is its own clip to level"]
+must_not = []
+style = "pro"

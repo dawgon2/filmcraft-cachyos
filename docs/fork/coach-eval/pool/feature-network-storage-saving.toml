@@ -1,0 +1,98 @@
+# FEATURE-POOL batch feature-network-storage-saving (FEATURE-QUEUE row S1.4: safe saves on network
+# shares, local copy first, local auto-saves). Sources: network-storage.md (network-storage.saving).
+# Held-out test questions, written from the guide's text (README.md beside this file). No creative family.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-ns4-safe-on-nas"
+kind = "tool"
+q = "Is it safe to save my project directly onto the NAS?"
+sources = ["network-storage.saving"]
+must = ["every save writes a temporary file, flushes it and swaps it in", "for a project on a share Revolution first writes a copy on this computer, then reads the saved file back and compares it", "if anything goes wrong the error names the local copy to open"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns4-backup-where"
+kind = "tool"
+q = "Where does Revolution keep the local backup when I save a project that lives on an SMB share?"
+sources = ["network-storage.saving"]
+must = ["<data folder>/network-backups/<name>-<number>.fcproj", "only the latest save is kept there"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns4-kept-on-computer"
+kind = "tweak"
+q = "save failed and it says this save is kept on this computer, now what"
+sources = ["network-storage.saving"]
+must = ["open the local copy at the path in the message with File ▸ Open and carry on", "save it back to the share once the share works again"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-ns4-autosave-where"
+kind = "tool"
+q = "Where do auto-saves go when the project file is on a network share?"
+sources = ["network-storage.saving"]
+must = ["to the data folder's Auto-Save folder on this computer, not next to the project", "unless you chose a folder in Project Settings ▸ Scratch Disks ▸ Project Auto Save"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns4-read-back"
+kind = "tool"
+q = "After writing to the share, does Revolution verify what actually landed on the server?"
+sources = ["network-storage.saving"]
+must = ["yes: it reads the file on the share back and compares it with what it saved", "a difference makes the save report an error that names the local copy"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns4-save-a-copy"
+kind = "tool"
+q = "Do Save As and Save a Copy get the same protection as a plain Save on a share?"
+sources = ["network-storage.saving"]
+must = ["yes: File ▸ Save, Save As and Save a Copy all write the local copy first"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns4-script-result"
+kind = "tool"
+q = "For a script, how can I tell from the save result where the network backup went?"
+sources = ["network-storage.saving"]
+must = ["the save's result includes localCopy: the path of the local copy", "null for a project on a local disk"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns4-resolve-database"
+kind = "tool"
+q = "Resolve keeps projects in its database, so shared storage never bit me there. How does Revolution protect a project file saved on shared storage?"
+sources = ["network-storage.saving"]
+must = ["a copy on this computer first (network-backups)", "read back and compare after the save", "on failure an error ending with This save is kept on this computer: and the path", "auto-saves stay local"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-ns4-same-name"
+kind = "tool"
+q = "Two projects called Wedding on different shares: will their local backups overwrite each other?"
+sources = ["network-storage.saving"]
+must = ["no: the number in <name>-<number>.fcproj tells apart projects with the same name in different places"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-ns4-c-backups-where"
+q = "where are network backups saved"
+kind = "where"
+origin = "agent"
+page = "network-storage.md"
+heading = "Saving a project that lives on a share"
+status = "covered"
+facts = ["network-backups in the data folder", "only the latest save"]

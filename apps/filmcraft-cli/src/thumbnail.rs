@@ -52,7 +52,7 @@ pub fn render(input: &Path, size: u32) -> Result<Vec<u8>, String> {
         std::sync::Arc::make_mut(&mut s.project).settings.ingest.enabled = false;
         s.auto_proxies.enabled = false;
         let r = s.execute("file.import", json!({"paths": [path]})).map_err(|e| e.to_string())?;
-        let item = first_item(&r).ok_or_else(|| format!("{path}: nothing FilmCraft can show"))?;
+        let item = first_item(&r).ok_or_else(|| format!("{path}: nothing Revolution can show"))?;
         s.execute("file.newSequenceFromClip", json!({"items": [item]})).map_err(|e| e.to_string())?;
     }
     let seq = s.active_sequence().ok_or_else(|| format!("{path}: the project has no sequence"))?;

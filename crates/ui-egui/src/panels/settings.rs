@@ -589,6 +589,50 @@ fn mb(bytes: u64) -> String {
 /// Settings ▸ Media Cache ▸ Render Cache (fork 6.3): what the render cache holds and is doing,
 /// with Pause / Resume and Delete Unused (commands `cache.pause`, `cache.resume`,
 /// `cache.clearUnused`; Claim, `cache.claimFolder`, while files of no known project are there).
+/// Settings ▸ Updates (fork UPD): where the check stands, Check Now, Roll Back.
+fn update_rows(app: &mut FilmcraftApp, ui: &mut Ui) {
+    let t = app.tokens;
+    if app.session.updater.channel.is_none() {
+        note(ui, &t, tl!("This build doesn't check for updates."));
+        return;
+    }
+    let v = app.session.execute("app.update.status", json!({})).unwrap_or_default();
+    let cur = v["current"]["tag"].as_str().unwrap_or("").trim_start_matches("fork-").to_string();
+    let new = v["latest"]["tag"].as_str().unwrap_or("").trim_start_matches("fork-").to_string();
+    let line = match v["state"].as_str().unwrap_or("") {
+        _ if v["install"] == "installed" => tlf!("Installed {new}: restart Revolution to use it.", new = new),
+        "checking" => tl!("Checking…").to_string(),
+        "upToDate" => tlf!("Up to date ({current}).", current = cur),
+        "available" => tlf!("Update available: {current} → {new}", current = cur, new = new),
+        "error" => tlf!("The last check didn't get an answer: {error}", error = v["message"].as_str().unwrap_or("")),
+        _ => tlf!("This build: {current}. Not checked yet in this session.", current = cur),
+    };
+    note(ui, &t, &line);
+    let manual = v["manual"].as_str().unwrap_or("");
+    if !manual.is_empty() {
+        note(ui, &t, manual);
+    }
+    ui.horizontal(|ui| {
+        if button(app, ui, "settings.update.checkNow", tl!("Check Now"), false) {
+            let _ = app.session.execute("app.update.check", json!({}));
+            app.update_closed = false;
+        }
+        let prev = v["previous"].as_str().unwrap_or("").to_string();
+        if !prev.is_empty() {
+            let name = std::path::Path::new(&prev).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if button(app, ui, "settings.update.rollback", &tlf!("Roll Back to {build}", build = name), false) {
+                app.ui.status = match app.session.execute("app.update.rollback", json!({})) {
+                    Ok(_) => tlf!("The launcher starts {build} again from the next start.", build = name),
+                    Err(e) => e.to_string(),
+                };
+            }
+        }
+    });
+    if v["state"] == "checking" {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+    }
+}
+
 fn render_cache_rows(app: &mut FilmcraftApp, ui: &mut Ui) {
     let t = app.tokens;
     // `cache.status` reads the whole index: at most twice a second (a button press refreshes it)
@@ -687,7 +731,7 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
                     decoders
                 ),
             );
-            note(ui, &t, tl!("FilmCraft keeps the rest of the RAM free for other applications."));
+            note(ui, &t, tl!("Revolution keeps the rest of the RAM free for other applications."));
         }
         "mediaCacheInfo" => {
             if d.cache_info.is_null() {
@@ -699,6 +743,7 @@ fn custom(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, name: &str
             note(ui, &t, &tlf!("Currently: {loc} — {files} file(s), {size}", loc, files, size));
         }
         "renderCacheInfo" => render_cache_rows(app, ui),
+        "updateInfo" => update_rows(app, ui),
         "outputMapping" => {
             let ch = d.devices.as_ref().map(|x| x.output_channels).unwrap_or(0);
             let l = get(&d.values, "audioHardware.mapLeft").as_u64().unwrap_or(0) + 1;
@@ -842,7 +887,7 @@ fn ai_explanations(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
                 ui,
                 &t,
                 &tlf!(
-                    "{name}: {size}, licence {licence}. Built on this computer (FilmCraft fine-tune of {base}); not downloadable yet.",
+                    "{name}: {size}, licence {licence}. Built on this computer (Revolution fine-tune of {base}); not downloadable yet.",
                     name,
                     size,
                     licence,
@@ -858,7 +903,9 @@ fn ai_explanations(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
     let local = current.is_some_and(|m| m["local"] == true);
     let can_download = info["canDownload"] == true;
     let job = app.session.ai.download.as_ref().and_then(|(_, id)| app.session.jobs.iter().find(|j| j.id == *id)).map(|j| j.to_json());
-    let running = info["downloading"].is_object();
+    let vision = app.session.execute("ai.vision.status", json!({})).unwrap_or_default();
+    // (the picture model's download shares the one download slot; it shows in its own row)
+    let running = info["downloading"]["model"].as_str().is_some_and(|m| m != vision["id"].as_str().unwrap_or_default());
     ui.horizontal(|ui| {
         field_label(ui, "");
         if running {
@@ -906,14 +953,78 @@ fn ai_explanations(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
         ui,
         &t,
         tl!(
-            "Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead."
+            "Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with Revolution and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead."
         ),
     );
     note(
         ui,
         &t,
         tl!(
-            "Most stock models fail the strict check. The FilmCraft-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used."
+            "Most stock models fail the strict check. The Revolution-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used."
+        ),
+    );
+    picture_model(app, ui, d, &vision);
+}
+
+/// Settings ▸ Color ▸ AI explanations ▸ Picture model (fork AI-PLAN AI4 item 2): Qwen3-VL, which
+/// lets the Assistant look at the frame under the playhead. Download / Remove with progress, acting
+/// at once (`ai.vision.download`, `ai.vision.remove`, `ai.cancelDownload`). Ids:
+/// `settings.color.ai.vision.download|remove|cancel|progress`.
+fn picture_model(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft, info: &Value) {
+    let t = app.tokens;
+    ui.add_space(6.0);
+    let (name, size, licence, source) = (
+        info["name"].as_str().unwrap_or_default(),
+        mb(info["size"].as_u64().unwrap_or(0)),
+        info["license"].as_str().unwrap_or_default(),
+        info["source"].as_str().unwrap_or_default(),
+    );
+    let installed = info["installed"] == true;
+    let state = if installed { tl!("installed") } else { tl!("not installed") };
+    ui.horizontal(|ui| {
+        field_label(ui, tl!("Picture model"));
+        ui.label(format!("{name} · {size} · {licence} · {state}"));
+    });
+    let job_id = info["downloadJob"].as_u64();
+    let job = job_id.and_then(|id| app.session.jobs.iter().find(|j| j.id == id)).map(|j| j.to_json());
+    ui.horizontal(|ui| {
+        field_label(ui, "");
+        if job_id.is_some() {
+            let frac = job.as_ref().and_then(|j| j["progress"].as_f64()).unwrap_or(0.0) as f32;
+            let status = job.as_ref().and_then(|j| j["status"].as_str()).unwrap_or_default().to_string();
+            let r = ui.add(egui::ProgressBar::new(frac.clamp(0.0, 1.0)).desired_width(260.0).show_percentage().text(status));
+            app.auto.add("settings.color.ai.vision.progress", r.rect, tl!("Download progress"));
+            let c = ui.button(tl!("Cancel download"));
+            app.auto.add("settings.color.ai.vision.cancel", c.rect, tl!("Cancel download"));
+            if c.clicked() {
+                let _ = app.session.execute("ai.cancelDownload", json!({}));
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        } else {
+            let b = ui.add_enabled(info["canDownload"] == true && !installed, egui::Button::new(tl!("Download")));
+            app.auto.add("settings.color.ai.vision.download", b.rect, tl!("Download picture model"));
+            if b.clicked() {
+                d.message = match app.session.execute("ai.vision.download", json!({})) {
+                    Ok(_) => String::new(),
+                    Err(e) => e.to_string(),
+                };
+            }
+            let r = ui.add_enabled(installed, egui::Button::new(tl!("Remove")));
+            app.auto.add("settings.color.ai.vision.remove", r.rect, tl!("Remove picture model"));
+            if r.clicked() {
+                d.message = match app.session.execute("ai.vision.remove", json!({})) {
+                    Ok(v) => tlf!("Removed the model ({size} freed).", size = mb(v["freed"].as_u64().unwrap_or(0))),
+                    Err(e) => e.to_string(),
+                };
+            }
+        }
+    });
+    note(ui, &t, &tlf!("{name}: {size}, licence {licence}, downloaded from {source}", name, size, licence, source));
+    note(
+        ui,
+        &t,
+        tl!(
+            "Optional and offline: lets the Assistant look at the frame under the playhead when you ask about the picture (\"is the sky too blue?\"). It runs on this computer and needs about 10 GB of free memory while it looks; nothing is sent anywhere. The first look after the download prepares the model once (about half a minute)."
         ),
     );
 }
@@ -990,7 +1101,7 @@ fn voice_isolation(app: &mut FilmcraftApp, ui: &mut Ui, d: &mut SettingsDraft) {
         ui,
         &t,
         tl!(
-            "Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download."
+            "Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with Revolution and is downloaded from its publisher only when you click Download."
         ),
     );
 }
@@ -1272,7 +1383,7 @@ mod tests {
         app.apply_prefs(&ctx);
         assert_eq!(app.tokens.kind, ThemeKind::Light);
         assert!(!app.ui.dark);
-        assert_eq!(ctx.theme(), egui::Theme::Light, "egui's style follows FilmCraft's choice");
+        assert_eq!(ctx.theme(), egui::Theme::Light, "egui's style follows Revolution's choice");
         system.store(1, Ordering::Relaxed);
         app.apply_prefs(&ctx);
         assert_eq!(app.tokens.kind, ThemeKind::Dark);

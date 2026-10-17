@@ -18,12 +18,12 @@ process, not just a node-sentence rewriter." Concretely:
    it names is checked (the same `UiIdCheck` / command registry as today's coach), every claim
    about the clip comes from a measurement the engine made (the node explainer's facts, the
    shot-comparison facts, the WB solver, the proxy / cache status), and the guide is the only
-   source for "how FilmCraft works".
+   source for "how Revolution works".
 3. It **runs offline on the owner's machine** with G2.11's local model infrastructure (`ai.*`
    commands, pinned downloads, CPU inference), is **optional** (the keyword coach of C1 stays the
    answerer on installs without a model), and is **agent-drivable** (one command, JSON in and out).
 4. Its failures are **logged into the training / evaluation set** (COACH-QUESTIONS.md →
-   `coach-eval/questions.toml`), the same loop as the FilmCraft-tuned explainer
+   `coach-eval/questions.toml`), the same loop as the Revolution-tuned explainer
    (docs/fork/TRAINING.md).
 
 Out of scope for the first version: doing the grade for the user (it suggests, the user acts, or
@@ -77,7 +77,7 @@ assistant the grammar is wider, so the check is a **whitelist** rather than a gr
   sections (and, for ids, exist in this build). This alone removes "invented controls".
 - **Clip facts**: numbers, "warmer / cooler / darker / brighter / clipped / noisy" and tonal
   ranges must match the fact sheet (the explainer's checker, reused).
-- **Feature claims**: a sentence saying FilmCraft *has / can / does* something must contain a
+- **Feature claims**: a sentence saying Revolution *has / can / does* something must contain a
   noun phrase from the sections. The guide's own "not yet" lines ("no parallel nodes yet", "no
   albums") are in the sections, so "not yet" answers are allowed and grounded.
 - **Order claims** ("do X before Y"): X and Y must both be in a numbered list or an order

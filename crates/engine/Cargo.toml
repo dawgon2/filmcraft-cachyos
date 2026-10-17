@@ -17,17 +17,22 @@ whisper = ["filmcraft-speech/whisper"]
 speech-download = ["filmcraft-speech/download"]
 # Natural voices for Text to Speech: Kokoro-82M on candle (CPU) and their download.
 neural-voices = ["filmcraft-tts/kokoro", "speech-download"]
-# Local AI explanations of grade nodes (fork G2.11): a small language model on our own CPU
-# forward pass (crates/llm, AI-PLAN AI1).
-llm = ["filmcraft-llm/infer"]
+# Local AI explanations of grade nodes (fork G2.11): a small language model on our own forward
+# pass (crates/llm, AI-PLAN AI1), on a discrete GPU when there is one (AI3.3b; the wgpu backends
+# come from the app), else the CPU.
+llm = ["filmcraft-llm/infer", "filmcraft-llm/gpu"]
 # AI model downloads over HTTPS (only when the user starts one in Settings ▸ Color).
 llm-download = ["filmcraft-llm/download"]
 # Voice isolation (fork AUDIO-PLAN A2): DeepFilterNet3 on the CPU (crates/voice) and its download.
-voice-isolation = ["filmcraft-voice/dfn", "speech-download", "dep:sha2"]
+voice-isolation = ["filmcraft-voice/dfn", "speech-download"]
 
 # Fork RS1 (FORK-ONLY): Resolve is the default workflow, with a one-time preferences migration.
 # Enabled by apps/filmcraft; upstream builds leave it off and keep Premiere.
 fork-resolve-default = []
+# FORK-ONLY (AI-PLAN AI5 item 8): Send to my training inbox (`coach.shareExample` `route: inbox`).
+fork-inbox = []
+# FORK-ONLY (UPD, FORK-PLAN §1a.77): check the fork's public releases for updates.
+fork-update = []
 
 [dependencies]
 filmcraft-time = { workspace = true }
@@ -50,9 +55,10 @@ filmcraft-captions = { workspace = true }
 filmcraft-speech = { workspace = true }
 filmcraft-tts = { workspace = true }
 filmcraft-llm = { workspace = true }
+filmcraft-isobmff = { workspace = true }
 filmcraft-voice = { workspace = true }
 filmcraft-usershader = { workspace = true }
-sha2 = { version = "0.10", optional = true }
+sha2 = "0.10"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -62,9 +68,21 @@ web-time = "1"
 crc32fast = "1"
 # Grading Coach lesson files (assets/lessons/*.toml), embedded and parsed at run time.
 toml = "1"
+aho-corasick = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Look packs (fork Y3.5): zip containers; Deflate through zlib-rs (pure Rust, already in the tree).
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# Update install (fork UPD): the release tarball is gzip; zlib-rs is pure Rust (already used via zip).
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 
 [dev-dependencies]
 filmcraft-testkit = { workspace = true }
+
+# The real-model tests (`--features llm`, ignored) run the assistant as the app does: the app gets
+# wgpu's Vulkan backend through filmcraft-gpu on Linux, which the engine doesn't depend on.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan"] }
+
+[[example]]
+name = "vision_traindump"
+required-features = ["llm"]

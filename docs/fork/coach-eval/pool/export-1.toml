@@ -1,0 +1,318 @@
+# AI-POOL batch export-1: export.md, export-queue.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+# export-queue.md isn't in the keyword coach's index (NOT_INDEXED), so it has no [[coach]] questions.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-x1-two-choices"
+kind = "approach"
+q = "first time exporting, which settings actually matter?"
+sources = ["export.why", "export.presets"]
+must = ["which preset you start from (format, size and quality in one go)", "how file size is decided: a target bitrate or a constant quality", "everything else has sensible defaults"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-open-export"
+kind = "tool"
+q = "how do I get to the export settings?"
+sources = ["export.open"]
+must = ["Export in the header, or File ▸ Export ▸ Media… (Ctrl+M)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-deliver-page"
+kind = "tool"
+q = "where is the Deliver page?"
+sources = ["export.open"]
+must = ["the Export page (Export in the header / File ▸ Export ▸ Media…)"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-x1-master-preset"
+kind = "approach"
+q = "which preset to keep a full-quality master of my 6.2K edit?"
+sources = ["export.presets"]
+must = ["6.2K Master HEVC (6240×4160, Main 10, about 200 Mbps)", "or HEVC 4:2:2 10-bit master to keep full vertical colour detail for grading later"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-vertical"
+kind = "tool"
+q = "export a vertical version for phones"
+sources = ["export.presets"]
+must = ["Vertical 2160×3840 HEVC preset (9:16, picture scaled to fill)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-x1-save-preset"
+kind = "multi-step"
+q = "save my export settings so I can reuse them next time"
+sources = ["export.presets", "export-queue.presets"]
+must = ["More presets…, type a name in Save current settings as, Save (export.presets.save)", "favourite it to keep it at the top"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-encoder-auto"
+kind = "pro-practice"
+q = "what does the H.265 Encoder Auto setting actually do?"
+sources = ["export.hevc"]
+must = ["the graphics card's video engine inside Revolution first", "if it refuses or fails, the system ffmpeg's VA-API encoder, then software x265", "the export doesn't fail"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-no-silent-software"
+kind = "tweak"
+q = "I'd rather the export fail than silently go slow in software"
+sources = ["export.hevc"]
+must = ["pick Encoder: Hardware (VA-API): the export stops with a message instead of falling back"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-which-encoder"
+kind = "tool"
+q = "how can I check which encoder my export actually used?"
+sources = ["export.hevc"]
+must = ["perf.stats names the encoder actually used"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-422-why"
+kind = "pro-practice"
+q = "should my master be 4:2:0 or 4:2:2?"
+sources = ["export.hevc"]
+must = ["4:2:0 for anything uploaded or watched", "4:2:2 (always 10-bit) for a master you'll grade, key or cut again", "many players and phones can't play 4:2:2 HEVC"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-422-slow"
+kind = "tweak"
+q = "my 4:2:2 export is incredibly slow"
+sources = ["export.hevc"]
+must = ["4:2:2 needs a video engine that encodes it (here the Intel graphics; the AMD card has none)", "without one it falls back to software x265, which is slow at 6.2K"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-encoder-speed"
+kind = "tweak"
+q = "the export is blocky at my bitrate, anything to try before raising it?"
+sources = ["export.hevc"]
+must = ["Encoder speed: Quality (more effort per picture)", "Driver default is the old behaviour; Speed is fastest"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-two-gpus"
+kind = "approach"
+q = "can Revolution use both my AMD card and the Intel iGPU to export faster?"
+sources = ["export.hevc"]
+must = ["Export engines: each chip exports a different part and Revolution joins them", "Auto uses the second chip when it makes the export faster (plain H.265 4:2:0 exports)", "All GPUs / Primary GPU only are the other choices"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-graded-one-chip"
+kind = "pro-practice"
+q = "why does Auto keep my graded export on one GPU?"
+sources = ["export.hevc"]
+must = ["with effects, a grade or log interpretation the Intel graphics render only a few frames per second", "the second chip may still decode for the first when the export is smaller than the footage"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-apple-hvc1"
+kind = "tweak"
+q = "my export won't play on the client's Mac"
+sources = ["export.hevc"]
+must = ["a two-GPU export may carry headers inside the video (hev1); some Apple software prefers hvc1", "export with Primary GPU only for Apple devices"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-gaming"
+kind = "approach"
+q = "I want to play a game while it exports, any setting I should change?"
+sources = ["export.hevc"]
+must = ["Export engines: Primary GPU only, so the other chip stays free"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-vbr-upload"
+kind = "approach"
+q = "CBR, VBR or CRF for a YouTube upload?"
+sources = ["export.bitrate-crf"]
+must = ["VBR 1 pass is the right choice for uploads (average target with a ceiling)", "CBR rarely needed; CRF gives even quality and an unknown size"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-crf-value"
+kind = "tweak"
+q = "what CRF number should I use?"
+sources = ["export.bitrate-crf"]
+must = ["lower is better and larger (0–51)", "18 looks the same as the source to most eyes; 22–23 a good everyday value"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-two-pass"
+kind = "tweak"
+q = "VBR 2 pass is greyed out for my H.265 export"
+sources = ["export.bitrate-crf"]
+must = ["2 pass is H.264 only: a hardware H.265 encoder makes one pass"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-x1-crf-hw"
+kind = "pro-practice"
+q = "does CRF 20 mean the same on the hardware encoder as on x265?"
+sources = ["export.bitrate-crf"]
+must = ["no: x265 reads it as CRF, the video engine as a fixed quantiser (QP): similar look, different sizes"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-hdr-main10"
+kind = "pro-practice"
+q = "I picked Main (8-bit) but my HDR export came out 10-bit"
+sources = ["export.hdr-main10"]
+must = ["HDR sequences (Rec. 2100 PQ / HLG) always export as Main 10 to avoid banding", "the dialog notes HDR export: written as Main 10"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-hdr-sdr-copy"
+kind = "gap"
+q = "is there a switch to export an SDR version of my HDR timeline?"
+sources = ["export.hdr-main10"]
+must = ["no dialog switch yet: the sdr setting of file.exportMedia does it"]
+must_not = ["invents an SDR checkbox"]
+style = "gap"
+
+[[question]]
+id = "pool-x1-queue"
+kind = "multi-step"
+q = "I need a 4K YouTube file, a vertical cut and a small review copy of the same edit"
+sources = ["export-queue.queue", "export.open"]
+must = ["set each up and Send to Queue instead of Export", "Start the queue: they encode one after another in the background"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-queue-edits"
+kind = "pro-practice"
+q = "if I keep editing after sending to the queue, will my changes be in the export?"
+sources = ["export-queue.queue"]
+must = ["no: the queue keeps a snapshot of the project as it was when added"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-queue-saved"
+kind = "tweak"
+q = "I closed Revolution and my export queue is gone"
+sources = ["export-queue.queue"]
+must = ["the queue lives in the session: it isn't saved with the project"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-queue-retry"
+kind = "tool"
+q = "one export in the queue failed, can I retry just that one?"
+sources = ["export-queue.queue"]
+must = ["export.queue.retry", "reorder, cancel, remove or clear finished items too"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-x1-preset-team"
+kind = "tool"
+q = "share my export presets with my team"
+sources = ["export-queue.presets"]
+must = ["export.presets.export / export.presets.import move preset files between computers"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-x1-preset-override"
+kind = "pro-practice"
+q = "I saved a preset with the same name as a built-in one, which wins?"
+sources = ["export-queue.presets"]
+must = ["yours takes the built-in one's place"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-x1-quick"
+kind = "tool"
+q = "fastest way to send the director a draft"
+sources = ["export-queue.quick"]
+must = ["Quick Export (export.quick): the active sequence, the last preset used, a file next to the project"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format (export.md only) ----------
+
+[[coach]]
+id = "pool-x1k-export-media"
+q = "export media"
+kind = "how"
+origin = "agent"
+page = "export.md"
+heading = "Open the Export page"
+status = "covered"
+facts = ["Ctrl+M", "Export"]
+
+[[coach]]
+id = "pool-x1k-preset"
+q = "6.2k master preset"
+kind = "how"
+origin = "agent"
+page = "export.md"
+heading = "Choose a preset"
+status = "covered"
+facts = ["6.2K Master HEVC"]
+
+[[coach]]
+id = "pool-x1k-hw-encoder"
+q = "hardware encoding hevc"
+kind = "premiere-word"
+origin = "agent"
+page = "export.md"
+heading = "How H.265 is encoded, and when it falls back"
+status = "covered"
+facts = ["Encoder: Auto / Hardware / Software"]
+
+[[coach]]
+id = "pool-x1k-crf"
+q = "constant quality crf"
+kind = "what-for"
+origin = "agent"
+page = "export.md"
+heading = "Bitrate or constant quality"
+status = "covered"
+facts = ["18", "22–23"]
+
+[[coach]]
+id = "pool-x1k-main10"
+q = "main 10 hdr export"
+kind = "why"
+origin = "agent"
+page = "export.md"
+heading = "HDR sequences export as Main 10"
+status = "covered"
+facts = ["HDR is always 10-bit"]

@@ -1,0 +1,29 @@
+# AI-POOL batch tasks-3 (FORK-PLAN §1a.87): jobs across the compositor, keying, tracking, effects and
+# audio feature pages. Held-out slice: jobs no pair in tasks-3.jsonl uses.
+
+[[question]]
+id = "pool-t3-screen-and-label"
+kind = "task"
+q = "put my app's screenshot on the phone screen in the shot, then add a label that follows the phone"
+sources = ["tracking.screen", "tracking.follow"]
+must = ["Corner Pin on the picture (Video 2), set its four corners to the screen, then Track Surface (▶▶)", "the label on a track above, placed on the phone, then Attach to Track on Motion (Position is the steadiest)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-t3-takes-punch"
+kind = "task"
+q = "record narration, redo just one sentence a few times and pick the best one"
+sources = ["audio.voiceover-record", "audio.voiceover-takes"]
+must = ["set In and Out around the sentence to punch in, then record (audio.voiceover.start)", "each recording at the same point is kept as a take: pick it in Essential Sound ▸ Takes with Use (audio.voiceover.pickTake); the clip's processing moves to the take"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-t3-clean-then-limit"
+kind = "task"
+q = "one-click clean the interview voices, then make sure the final mix never clips"
+sources = ["audio.cleanup-voice", "practice.audio.master-limiter"]
+must = ["Clean Up Voice (audio.cleanupVoice) on the voice clips sets the clean-up controls and loudness (−14 LUFS, −1 dBTP), then tune by ear", "a Hard Limiter insert on the Mix strip (mixer.addInsert) at −1 dB, after levels are set"]
+must_not = []
+style = "sloppy"

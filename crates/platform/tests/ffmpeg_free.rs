@@ -109,7 +109,7 @@ fn child_decodes_the_set() {
         if hardware && hw == "true" {
             assert!(name.starts_with("VA-API"), "{setup}: {file}: expected the hardware, got {name}");
         } else if !hardware {
-            assert!(name.starts_with("FilmCraft"), "{setup}: {file}: expected FilmCraft's decoder, got {name}");
+            assert!(name.starts_with("Revolution"), "{setup}: {file}: expected Revolution's decoder, got {name}");
         }
         let got = decode_all(d.as_mut(), &s.samples);
         assert_eq!(got.len(), s.samples.len(), "{setup}: {file}: every picture");

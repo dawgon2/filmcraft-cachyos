@@ -1,0 +1,438 @@
+# AI-POOL batch media-1: media.md, projects.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+# media.md isn't in the keyword coach's index (NOT_INDEXED), so only projects.md has [[coach]] questions.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-m1-import-folder"
+kind = "approach"
+q = "should I import the whole card folder or just the clips I want?"
+sources = ["media.import"]
+must = ["a folder brings everything as on disk (including unused takes)", "chosen files suit music, a logo, a few selects", "for camera originals: verified card copy first, then import from the copy"]
+must_not = ["claims one way is always right"]
+style = "beginner"
+
+[[question]]
+id = "pool-m1-import-srt"
+kind = "tool"
+q = "what happens if I import an .srt file?"
+sources = ["media.import"]
+must = ["caption files (.srt, .vtt, .scc) become caption tracks"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-bars"
+kind = "tool"
+q = "add bars and tone at the head of my master"
+sources = ["media.generated"]
+must = ["File ▸ New ▸ Bars and Tone (file.newBarsAndTone)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-color-bg"
+kind = "tool"
+q = "I need a plain coloured background behind my text"
+sources = ["media.generated"]
+must = ["File ▸ New ▸ Color Matte (project.matteColor changes it later)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-countdown"
+kind = "tool"
+q = "is there a countdown leader?"
+sources = ["media.generated"]
+must = ["File ▸ New ▸ Universal Counting Leader (file.newCountingLeader)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-bins"
+kind = "tool"
+q = "organise my clips into folders in the project panel"
+sources = ["media.bins"]
+must = ["New ▸ Bin (file.newBin), then drag items in (project.moveToBin)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-clear-item"
+kind = "pro-practice"
+q = "if I clear an item from the project, does the file get deleted?"
+sources = ["media.bins"]
+must = ["no: Clear removes it from the project; the files stay on disk"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-save-as-copy"
+kind = "tool"
+q = "Save As vs Save a Copy?"
+sources = ["media.saving"]
+must = ["Save As: the project continues under the new name", "Save a Copy: the copy is written, you keep working in the original"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-crash-recover"
+kind = "approach"
+q = "the power went out and I hadn't saved for an hour"
+sources = ["media.saving"]
+must = ["Revolution keeps a journal of unsaved changes and auto-saves on a timer", "the next launch offers Recover Unsaved Changes…"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-autosave-interval"
+kind = "tool"
+q = "how often does it auto-save and can I change it?"
+sources = ["media.saving"]
+must = ["Settings ▸ Auto Save sets the timer", "file.autoSaveNow saves one at once"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-relink-check"
+kind = "pro-practice"
+q = "when relinking, could it accidentally link a different file with the same name?"
+sources = ["media.relink"]
+must = ["Revolution checks the candidate is the same file (size and a content fingerprint) before accepting it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-m1-replace-footage"
+kind = "tool"
+q = "the VFX artist sent a new version of the shot, swap it everywhere it's used"
+sources = ["media.relink"]
+must = ["Replace Footage… (media.replaceFootage) swaps the item's file and keeps every clip and its edits"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-m1-make-offline"
+kind = "tool"
+q = "disconnect all the media before I move the project"
+sources = ["media.relink"]
+must = ["Offline All (media.offlineAll), or Make Offline for chosen items"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-slowmo-interp"
+kind = "approach"
+q = "my 50% slow motion looks steppy"
+sources = ["media.clips"]
+must = ["change time interpolation (clip.setTimeInterpolation): frame blending (smoother, soft) or optical flow (smoothest, can warp fast movement)", "frame sampling repeats frames"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-m1-reverse"
+kind = "tool"
+q = "play a clip backwards"
+sources = ["media.clips"]
+must = ["Speed / Duration… (clip.speedDuration) with reverse"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-ripple-speed"
+kind = "tweak"
+q = "when I slow a clip down it overlaps the next one"
+sources = ["media.clips"]
+must = ["tick Ripple in Speed / Duration so the following clips move"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-nest"
+kind = "tool"
+q = "turn several clips into one clip I can treat as a unit"
+sources = ["media.clips"]
+must = ["Nest… (clip.nest): a nested sequence", "or Group to select them together"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-subclip"
+kind = "tool"
+q = "make a separate item for just the good bit of a long clip"
+sources = ["media.clips"]
+must = ["Make Subclip (clip.makeSubclip)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-disable-clip"
+kind = "tool"
+q = "hide a clip without deleting it"
+sources = ["media.clips"]
+must = ["Enable (clip.enable) switches it off"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-merge-clips"
+kind = "pro-practice"
+q = "after syncing my recorder audio, can I make it one item with the picture?"
+sources = ["media.clips"]
+must = ["Merge Clips (clip.mergeClips) joins picture and separately recorded sound into one item"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-m1-scene-detect"
+kind = "multi-step"
+q = "the client sent the finished film as one file and I need to grade it shot by shot"
+sources = ["media.scene-detect"]
+must = ["put it on the timeline, Clip ▸ Scene Edit Detection…", "apply cuts (default), subclips and / or markers; Sensitivity 0–100"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-m1-scene-dissolves"
+kind = "tweak"
+q = "scene detection put three cuts in one dissolve"
+sources = ["media.scene-detect"]
+must = ["fades and dissolves may be found as several cuts or none", "try Markers only first, or adjust Sensitivity"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-two-mics"
+kind = "multi-step"
+q = "lav on the left channel, camera mic on the right, I want to level them separately"
+sources = ["media.audio-channels"]
+must = ["Breakout to Mono (clip.breakoutToMono): one mono clip per channel", "or Modify ▸ Audio Channels… (Shift+G) to pick channels"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-m1-one-side"
+kind = "tweak"
+q = "my mono recording only plays in the left ear"
+sources = ["media.audio-channels"]
+must = ["Modify ▸ Audio Channels… (clip.audioChannels) and map it as mono"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-normalize-clips"
+kind = "tool"
+q = "normalize the peak of all my selected clips"
+sources = ["media.audio-channels"]
+must = ["Audio Gain… (clip.audioGain): normalize each clip on its own or all together"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-edl"
+kind = "approach"
+q = "the online editor wants an EDL, what will I lose?"
+sources = ["media.interchange"]
+must = ["EDL is a simple conform: one video track of cuts", "it loses effects, most tracks and long names"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-m1-aaf-import"
+kind = "tool"
+q = "can I open a Premiere edit sent as AAF?"
+sources = ["media.interchange"]
+must = ["AAF import (file.importAaf): only what AAF describes (cuts, clips, levels)"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-m1-pm-what"
+kind = "tool"
+q = "what's the screen with all the project thumbnails?"
+sources = ["projects.what"]
+must = ["the Project Manager: projects as tiles, New Project first, Open / Close at the bottom right"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-projects-folder"
+kind = "tool"
+q = "where are my projects saved by default?"
+sources = ["projects.where"]
+must = ["each project is a .fcproj file in ~/Videos/FilmCraft Projects", "change it in Preferences ▸ General ▸ Projects folder"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-database"
+kind = "pro-practice"
+q = "is there a project database like Resolve that I need to back up?"
+sources = ["projects.where", "projects.resolve"]
+must = ["no database: each project is its own .fcproj file", "back up, copy or sync them like any file"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-m1-missing-project"
+kind = "tweak"
+q = "one of my projects shows greyed out as Missing"
+sources = ["projects.where", "projects.manage"]
+must = ["it was moved or deleted", "its menu offers Locate… (projects.locate), or Remove from List"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-startup"
+kind = "tool"
+q = "open my last project at startup instead of the project manager"
+sources = ["projects.opening"]
+must = ["Preferences ▸ General ▸ At startup show: Last project"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-home-button"
+kind = "tool"
+q = "how do I get back to the project list from inside a project?"
+sources = ["projects.opening"]
+must = ["the Home button at the right end of the page bar", "File ▸ Project Manager (Resolve) / File ▸ Projects… (Premiere), Shift+1 with Resolve keys"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-name-taken"
+kind = "tweak"
+q = "new project says the name is already used"
+sources = ["projects.new"]
+must = ["a name already used in that folder is refused: nothing is overwritten", "pick another name or another folder"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-tile-thumb"
+kind = "tweak"
+q = "some project tiles show a film icon instead of a picture"
+sources = ["projects.open"]
+must = ["projects saved before this feature or by another build show the icon until saved once here", "the tile shows the frame under the playhead at the last save"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-sort"
+kind = "tool"
+q = "sort projects by most recently changed"
+sources = ["projects.find"]
+must = ["Sort: date modified (newest first)", "list view shows dates, resolution, frame rate, timelines"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-m1-rename-open"
+kind = "tweak"
+q = "I can't rename the project I have open from the project manager"
+sources = ["projects.manage"]
+must = ["the open project can't be renamed there: use File ▸ Save As"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-trash"
+kind = "pro-practice"
+q = "if I delete a project from the project manager is it gone forever?"
+sources = ["projects.manage"]
+must = ["Move to Trash… moves it to the system trash where it can be restored", "Revolution never deletes a project permanently"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-archive"
+kind = "multi-step"
+q = "archive a finished project with all its media"
+sources = ["projects.export-import"]
+must = ["select it and Export, choose a folder: <name> archive with the project and copies of all its media", "runs in the background"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-m1-drp"
+kind = "gap"
+q = "can I export a .drp like Resolve?"
+sources = ["projects.resolve", "projects.export-import"]
+must = ["no: export / import use folders (a project plus its media), not .drp / .dra", ".zip archives aren't made yet"]
+must_not = ["claims .drp export works"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-m1-cloud"
+kind = "gap"
+q = "is there a cloud or network project library?"
+sources = ["projects.resolve"]
+must = ["only Local: Resolve's Network and Cloud libraries are not planned"]
+must_not = ["invents a cloud library"]
+style = "gap"
+
+# ---------- keyword-coach format (projects.md only) ----------
+
+[[coach]]
+id = "pool-m1k-pm"
+q = "project manager"
+kind = "where"
+origin = "agent"
+page = "projects.md"
+heading = "What the Project Manager is"
+alt = [{ page = "projects.md", heading = "Opening the Project Manager" }]
+status = "covered"
+facts = ["tiles"]
+
+[[coach]]
+id = "pool-m1k-folder"
+q = "change the projects folder"
+kind = "how"
+origin = "agent"
+page = "projects.md"
+heading = "Where projects live"
+status = "covered"
+facts = ["Preferences ▸ General ▸ Projects folder"]
+
+[[coach]]
+id = "pool-m1k-new"
+q = "create a new project"
+kind = "how"
+origin = "agent"
+page = "projects.md"
+heading = "Make a new project"
+status = "covered"
+facts = ["New Project tile", "Create"]
+
+[[coach]]
+id = "pool-m1k-search"
+q = "search my projects"
+kind = "how"
+origin = "agent"
+page = "projects.md"
+heading = "Find, sort and view"
+status = "covered"
+facts = ["Search"]
+
+[[coach]]
+id = "pool-m1k-duplicate"
+q = "duplicate a project"
+kind = "how"
+origin = "agent"
+page = "projects.md"
+heading = "Rename, duplicate, move to the trash"
+status = "covered"
+facts = ["Duplicate"]
+
+[[coach]]
+id = "pool-m1k-export"
+q = "export a project with its media"
+kind = "how"
+origin = "agent"
+page = "projects.md"
+heading = "Export and import"
+status = "covered"
+facts = ["Export", "<name> archive"]

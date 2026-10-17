@@ -2687,7 +2687,7 @@ fn build() -> Vec<CommandSpec> {
                 }
                 let keyframes = s.edit_sequence_as("Change Effect Parameter", merge.as_deref(), |q, _, _| {
                     let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
-                    let mt = it.source_time_at(tl.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+                    let mt = it.effect_time_at(tl.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
                     let e = match &eff {
                         Value::Number(n) => it.effects.get_mut(n.as_u64().unwrap_or(0) as usize),
                         Value::String(sid) => it.effects.iter_mut().find(|e| &e.effect == sid),
@@ -2759,7 +2759,7 @@ fn build() -> Vec<CommandSpec> {
             let ph = s.playhead();
             s.edit_sequence("Toggle Animation", |q, _, _| {
                 let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
-                let mt = it.source_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+                let mt = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
                 let e = match &eff {
                     Value::Number(n) => it.effects.get_mut(n.as_u64().unwrap_or(0) as usize),
                     Value::String(sid) => it.effects.iter_mut().find(|e| &e.effect == sid),
@@ -2809,7 +2809,7 @@ fn build() -> Vec<CommandSpec> {
             let ph = s.playhead();
             s.edit_sequence("Reset Effect", |q, _, _| {
                 let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
-                let mt = it.source_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+                let mt = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
                 if let Some(e) = it.effects.get_mut(idx) {
                     reset_params(e, None, frame, mt);
                 }
@@ -2825,7 +2825,7 @@ fn build() -> Vec<CommandSpec> {
             let ph = s.playhead();
             s.edit_sequence("Reset Parameter", |q, _, _| {
                 let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
-                let mt = it.source_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+                let mt = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
                 let e = match &eff {
                     Value::Number(n) => it.effects.get_mut(n.as_u64().unwrap_or(0) as usize),
                     Value::String(sid) => it.effects.iter_mut().find(|e| &e.effect == sid),
@@ -3031,11 +3031,14 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::coach::commands());
     v.extend(crate::coach_ask::commands());
     v.extend(crate::coach_assist::commands());
+    v.extend(crate::coach_share::commands());
+    v.extend(crate::update::commands());
     v.extend(crate::coach_hints::commands());
     v.extend(crate::graphics::commands());
     v.extend(crate::graphic_templates::commands());
     v.extend(crate::shortcuts::commands());
     v.extend(crate::relink::commands());
+    v.extend(crate::netfs::commands());
     v.extend(crate::proxies::commands());
     v.extend(crate::card_offload::commands());
     v.extend(crate::render_cache::commands());
@@ -3117,7 +3120,7 @@ fn keyframe_op(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     }
     s.edit_sequence_as(label, merge.as_deref(), |q, _, _| {
         let (_, it) = q.find_item_mut(c).ok_or(filmcraft_edit::EditError::NoItem(c))?;
-        let mt_now = it.source_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
+        let mt_now = it.effect_time_at(ph.clamp(it.start, (it.end() - Tick(1)).max(it.start)));
         let e = match &eff {
             Value::Number(n) => it.effects.get_mut(n.as_u64().unwrap_or(0) as usize),
             Value::String(sid) => it.effects.iter_mut().find(|e| &e.effect == sid),
@@ -3942,7 +3945,27 @@ fn write_project(s: &mut Session, path: &str, adopt: bool) -> Result<Value> {
             backup = Some(b);
         }
     }
-    s.services.write_file(path, &bytes).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    // On a network share (STORAGE-PLAN S1 item 4) a local copy is written first, so a save that
+    // fails or comes back different on the share loses nothing; the share's file is read back.
+    let on_share = crate::netfs::classify(std::path::Path::new(path)).is_network();
+    let local_copy = if on_share {
+        let dir = s.prefs_path.as_deref().and_then(std::path::Path::parent).map(std::path::Path::to_path_buf).or_else(crate::autosave::data_dir);
+        dir.and_then(|d| {
+            let b = crate::netfs::backup_path(&d, path);
+            let made = b.parent().is_some_and(|p| std::fs::create_dir_all(p).is_ok());
+            (made && filmcraft_format::atomic_write(&b, &bytes).is_ok()).then(|| b.to_string_lossy().into_owned())
+        })
+    } else {
+        None
+    };
+    let kept = |e: String| match &local_copy {
+        Some(b) => EngineError::Other(format!("{path}: {e}. This save is kept on this computer: {b}")),
+        None => EngineError::Other(format!("{path}: {e}")),
+    };
+    s.services.write_file(path, &bytes).map_err(|e| kept(e.to_string()))?;
+    if on_share && s.services.read_file(path).ok().as_deref() != Some(&bytes[..]) {
+        return Err(kept("the file on the share reads back different from what was saved".into()));
+    }
     if adopt {
         s.path = Some(path.to_string());
         s.previews_follow_path();
@@ -3953,7 +3976,7 @@ fn write_project(s: &mut Session, path: &str, adopt: bool) -> Result<Value> {
     }
     // the Project Manager home screen's summary and poster (fork RS2)
     crate::projects::note_saved(s, path);
-    Ok(json!({"path": path, "bytes": bytes.len(), "ms": t0.elapsed().as_secs_f64() * 1000.0, "backup": backup}))
+    Ok(json!({"path": path, "bytes": bytes.len(), "ms": t0.elapsed().as_secs_f64() * 1000.0, "backup": backup, "localCopy": local_copy}))
 }
 
 fn schema_backup_path(path: &str, schema: u32) -> String {
@@ -4010,6 +4033,10 @@ fn open_project(s: &mut Session, path: &str) -> Result<Value> {
     }
     for note in notes {
         s.toast(note);
+    }
+    // a project from a package may use user effects its import just installed (S1 item 5d)
+    if crate::project_manager::used_user_effects(&s.project).iter().any(|id| filmcraft_project::effect::find_effect(id).is_none()) {
+        crate::user_effects::reload(s);
     }
     let missing = crate::relink::on_open(s);
     Ok(json!({"path": path, "schemaVersion": from, "migrated": migrated, "missingMedia": missing}))

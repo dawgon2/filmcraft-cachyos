@@ -118,7 +118,7 @@ impl Root {
     }
     #[zbus(property)]
     fn identity(&self) -> &str {
-        "FilmCraft"
+        "Revolution"
     }
     #[zbus(property)]
     fn desktop_entry(&self) -> &str {
@@ -473,7 +473,7 @@ mod tests {
         player.call::<_, _, ()>("Seek", &(1_000_000i64,)).unwrap();
         let root = zbus::blocking::Proxy::new(&client, name.as_str(), PATH, "org.mpris.MediaPlayer2").unwrap();
         let identity: String = root.get_property("Identity").unwrap();
-        assert_eq!(identity, "FilmCraft");
+        assert_eq!(identity, "Revolution");
         let got = shared.take();
         assert_eq!(got.len(), 2, "{got:?}");
         assert!(matches!(&got[0], DesktopRequest::Command(id, _) if id == "playback.toggle"));

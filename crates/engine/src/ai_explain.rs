@@ -198,11 +198,13 @@ pub struct LlmBackend {
     loaded: Mutex<Option<filmcraft_llm::Model>>,
     /// A release asked for while a generation held the model: it drops the model when done.
     release_pending: AtomicBool,
+    /// The last generation's numbers (its text cleared), for timing reports.
+    last: Mutex<Option<filmcraft_llm::Generation>>,
 }
 
 impl LlmBackend {
     fn new(dir: Option<PathBuf>) -> Self {
-        LlmBackend { dir, loaded: Mutex::new(None), release_pending: AtomicBool::new(false) }
+        LlmBackend { dir, loaded: Mutex::new(None), release_pending: AtomicBool::new(false), last: Mutex::new(None) }
     }
 
     /// A backend reading models from `dir` (`<dir>/<model id>/`) instead of the data folder.
@@ -220,6 +222,18 @@ impl LlmBackend {
                 g
             }
         }
+    }
+
+    /// The last generation's token counts and times (its text left out).
+    pub fn last_generation(&self) -> Option<filmcraft_llm::Generation> {
+        self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// The GPU adapter the loaded model runs on (`None`: the CPU, or nothing loaded). Never
+    /// waits: `None` while a generation holds the model.
+    pub fn gpu_adapter(&self) -> Option<String> {
+        let g = self.loaded.try_lock().ok()?;
+        g.as_ref().and_then(|m| m.gpu_adapter().map(str::to_string))
     }
 
     /// Drop the loaded model if it is `id` (or any with `None`). Never waits: false while a
@@ -329,7 +343,14 @@ impl ExplainBackend for LlmBackend {
             *g = Some(filmcraft_llm::Model::load(&dir, m).map_err(|e| e.to_string())?);
         }
         let model = g.as_mut().ok_or("the model could not be loaded")?;
-        let r = model.generate_streaming(system, user, opts, on_text).map(|g| g.text).map_err(|e| e.to_string());
+        let r = model
+            .generate_streaming(system, user, opts, on_text)
+            .map(|mut g| {
+                let text = std::mem::take(&mut g.text);
+                *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(g);
+                text
+            })
+            .map_err(|e| e.to_string());
         self.finish(&mut g);
         r
     }
@@ -342,6 +363,148 @@ pub fn real_backend() -> Option<Arc<LlmBackend>> {
         return None;
     }
     Some(REAL.get_or_init(|| Arc::new(LlmBackend::new(models_dir()))).clone())
+}
+
+/// AI4.2: folder of the Qwen3-VL 4B release inside [`models_dir`] (the Hugging Face files as
+/// downloaded; the text model's GGUF is written next to them on first use).
+pub const VISION_MODEL_DIR: &str = "qwen3-vl-4b-instruct";
+/// The text model converted by [`filmcraft_llm::convert`] (Q8_0; provisional, HANDOFF AI4.2).
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+const VISION_TEXT_GGUF: &str = "text-own-q8_0.gguf";
+
+/// AI4.2: the installed vision model as a [`crate::coach_assist::PictureLooker`], when this build
+/// can run it and its files are there. Cheap (file-size checks): the model loads on the first look.
+pub fn real_looker() -> Option<Arc<dyn crate::coach_assist::PictureLooker>> {
+    #[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+    {
+        let dir = models_dir()?.join(VISION_MODEL_DIR);
+        let models = dir.parent()?;
+        if filmcraft_llm::models::VISION_MODEL.installed(models) {
+            return Some(Arc::new(VisionLooker { dir }));
+        }
+    }
+    None
+}
+
+/// AI4 item 3 (tune evaluation): a looker for the Qwen3-VL release in `dir` (e.g. a tuned copy),
+/// without the install check [`real_looker`] makes. Not used by the app.
+pub fn looker_at(dir: PathBuf) -> Option<Arc<dyn crate::coach_assist::PictureLooker>> {
+    #[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+    {
+        Some(Arc::new(VisionLooker { dir }))
+    }
+    #[cfg(not(all(feature = "llm", not(target_arch = "wasm32"))))]
+    {
+        let _ = dir;
+        None
+    }
+}
+
+/// Qwen3-VL on FilmCraft's own runtime (text half on a discrete GPU when there is one): loaded on
+/// the first look and kept for [`VISION_KEEP`] after the last one, so a follow-up question doesn't
+/// load it again, then dropped so editing gets the memory back (AI-PLAN AI4 item 2).
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+struct VisionLooker {
+    dir: PathBuf,
+}
+
+/// How long the picture model stays loaded after a look.
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+const VISION_KEEP: std::time::Duration = std::time::Duration::from_secs(120);
+/// Free memory a load needs (the Q8_0 text model ≈ 4.3 GB + the encoder ≈ 1.7 GB + work buffers).
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+const VISION_LOAD_MEMORY: u64 = 7 << 30;
+
+/// The loaded picture model and the look count when it was put back (the idle drop only drops
+/// it when no look came after).
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+struct KeptVision {
+    vl: filmcraft_llm::vl::VisionLanguage,
+    dir: PathBuf,
+    looks: u64,
+}
+
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+static KEPT_VISION: std::sync::Mutex<Option<KeptVision>> = std::sync::Mutex::new(None);
+/// One look at a time (two loads at once would need twice the memory).
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+static LOOKING: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
+
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+impl crate::coach_assist::PictureLooker for VisionLooker {
+    fn look(&self, picture: &crate::coach_assist::PictureInput, question: &str) -> std::result::Result<String, String> {
+        let mut count = LOOKING.lock().unwrap_or_else(PoisonError::into_inner);
+        *count = count.wrapping_add(1);
+        let looks = *count;
+        // taken out while it works: a look that panics doesn't put a half-used model back (one that
+        // returns an error does: every ask starts from a reset cache)
+        let kept = KEPT_VISION.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let mut vl = match kept {
+            Some(k) if k.dir == self.dir => k.vl,
+            other => {
+                // (a model kept for another folder: dropped here, outside the lock)
+                if let Some(k) = other {
+                    k.vl.drop_detached();
+                }
+                // the first look converts the release's text model (~25 s, one time)
+                if !self.dir.join(VISION_TEXT_GGUF).is_file() {
+                    filmcraft_llm::convert::qwen3vl_text_to_gguf(&self.dir, &self.dir.join(VISION_TEXT_GGUF), filmcraft_llm::convert::Quant::Q8_0, None)
+                        .map_err(|e| e.to_string())?;
+                }
+                if let Some(free) = available_memory()
+                    && free < VISION_LOAD_MEMORY
+                {
+                    return Err(format!(
+                        "not enough free memory for the picture model ({:.1} GB free, about {:.0} GB needed)",
+                        free as f64 / f64::from(1u32 << 30),
+                        VISION_LOAD_MEMORY as f64 / f64::from(1u32 << 30)
+                    ));
+                }
+                filmcraft_llm::vl::VisionLanguage::load(&self.dir, VISION_TEXT_GGUF).map_err(|e| e.to_string())?
+            }
+        };
+        let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            vl.ask(&picture.rgb, picture.w, picture.h, crate::coach_assist::LOOK_PIXELS, &crate::coach_assist::look_prompt(question), 120, None)
+        }));
+        let r = match asked {
+            Ok(r) => r.map_err(|e| e.to_string()),
+            Err(_) => {
+                // never drop a GPU that may have failed on this (the assistant's) thread
+                vl.drop_detached();
+                return Err("the picture model stopped unexpectedly".into());
+            }
+        };
+        *KEPT_VISION.lock().unwrap_or_else(PoisonError::into_inner) = Some(KeptVision { vl, dir: self.dir.clone(), looks });
+        drop(count);
+        drop_vision_when_idle(looks);
+        r
+    }
+}
+
+/// After [`VISION_KEEP`], drops the kept picture model unless another look used it since (a
+/// detached thread; when none can be spawned it is dropped now).
+#[cfg(all(feature = "llm", not(target_arch = "wasm32")))]
+fn drop_vision_when_idle(looks: u64) {
+    let idle_drop = move || {
+        let stale = {
+            let mut g = KEPT_VISION.lock().unwrap_or_else(PoisonError::into_inner);
+            if g.as_ref().is_some_and(|k| k.looks == looks) { g.take() } else { None }
+        };
+        // (dropped outside the lock: freeing the GPU can wait on the device)
+        if let Some(k) = stale {
+            k.vl.drop_detached();
+        }
+    };
+    let spawned = std::thread::Builder::new().name("filmcraft-vision-idle".into()).spawn(move || {
+        std::thread::sleep(VISION_KEEP);
+        let _ = std::panic::catch_unwind(idle_drop);
+    });
+    if spawned.is_err() {
+        let kept = KEPT_VISION.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(k) = kept {
+            k.vl.drop_detached();
+        }
+    }
 }
 
 /// Where AI models live: `<data dir>/models/<id>/` (the speech models' folder; ids differ).
@@ -989,6 +1152,116 @@ fn cancel_download(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(json!({"cancelled": true, "model": model, "job": job}))
 }
 
+/// The picture model ([`filmcraft_llm::models::VISION_MODEL`]): installed or not, its size, a running
+/// download (AI4 item 2's install path, Settings ▸ Color ▸ AI explanations).
+fn vision_status(s: &mut Session, _: &Value) -> Result<Value> {
+    let m = &filmcraft_llm::models::VISION_MODEL;
+    let dir = models_dir();
+    let downloading = running_download(s).filter(|(id, _)| *id == m.id).map(|(_, job)| job);
+    Ok(json!({
+        "id": m.id,
+        "name": m.name,
+        "description": m.description,
+        "license": m.license,
+        "licenseUrl": m.license_url,
+        "author": m.author,
+        "source": m.source,
+        "size": m.size(),
+        "installed": dir.as_deref().is_some_and(|d| m.installed(d)),
+        "missingBytes": dir.as_deref().map_or(m.size(), |d| m.missing_bytes(d)),
+        "downloadJob": downloading,
+        "canDownload": can_download(s).is_ok(),
+    }))
+}
+
+/// Download the picture model in the background (only on this explicit command). Shares the one
+/// download slot with `ai.download`.
+fn vision_download(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "ai.vision.download";
+    can_download(s).map_err(|e| bad(CMD, e))?;
+    let m = &filmcraft_llm::models::VISION_MODEL;
+    let dir = models_dir().ok_or_else(|| bad(CMD, "no data directory for models"))?;
+    if m.installed(&dir) {
+        return Ok(json!({"job": null, "installed": true}));
+    }
+    if let Some((id, job)) = running_download(s) {
+        return Err(bad(CMD, format!("{id} is already downloading (job {job})")));
+    }
+    let wait = bool_p(p, "wait").unwrap_or(false);
+    let job = crate::narration::new_job(s, format!("Downloading {}", m.name));
+    job.progress.total.store(m.missing_bytes(&dir), std::sync::atomic::Ordering::Relaxed);
+    let (prog, res) = (job.progress.clone(), job.result.clone());
+    let id = crate::narration::spawn(s, job, wait, "filmcraft-ai-download", move || {
+        let t0 = web_time::Instant::now();
+        let r = fetch_vision(&dir, &prog).map(|()| format!("{} installed", m.name));
+        crate::narration::finish(&prog, &res, r, t0);
+    })?;
+    s.ai.download = Some((m.id.to_string(), id));
+    Ok(json!({"job": id, "installed": false}))
+}
+
+#[cfg(feature = "llm-download")]
+fn fetch_vision(dir: &Path, prog: &filmcraft_export::Progress) -> std::result::Result<(), String> {
+    use std::sync::atomic::Ordering;
+    let mut progress = |done: u64, total: u64, file: &str| {
+        prog.done.store(done, Ordering::Relaxed);
+        prog.total.store(total, Ordering::Relaxed);
+        *prog.status.lock().unwrap_or_else(PoisonError::into_inner) = format!("Downloading {file}");
+        !prog.cancel.load(Ordering::Relaxed)
+    };
+    filmcraft_llm::download_vision(dir, &mut progress).map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "llm-download"))]
+fn fetch_vision(_: &Path, _: &filmcraft_export::Progress) -> std::result::Result<(), String> {
+    Err("AI model downloads are not available in this build".into())
+}
+
+/// Remove the picture model: its pinned files, partial downloads and the text model converted
+/// from it on this computer (`*.gguf` in its folder).
+fn vision_remove(s: &mut Session, _: &Value) -> Result<Value> {
+    const CMD: &str = "ai.vision.remove";
+    let m = &filmcraft_llm::models::VISION_MODEL;
+    if running_download(s).is_some_and(|(id, _)| id == m.id) {
+        return Err(bad(CMD, "the picture model is downloading; cancel the download first"));
+    }
+    let dir = models_dir().ok_or_else(|| bad(CMD, "no data directory for models"))?;
+    let freed = remove_vision_files(&dir.join(m.id), m.files).map_err(|e| bad(CMD, e))?;
+    Ok(json!({"model": m.id, "freed": freed}))
+}
+
+fn remove_vision_files(d: &Path, files: &[filmcraft_llm::ModelFile]) -> std::result::Result<u64, String> {
+    let mut freed = 0u64;
+    let mut gone = |path: &Path| -> std::result::Result<(), String> {
+        match std::fs::metadata(path) {
+            Ok(md) => {
+                std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+                freed = freed.saturating_add(md.len());
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    };
+    for f in files {
+        gone(&d.join(f.name))?;
+        gone(&d.join(format!("{}.part", f.name)))?;
+    }
+    // the converted text model(s) and their partial files
+    if let Ok(rd) = std::fs::read_dir(d) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            if name.ends_with(".gguf") || name.ends_with(".gguf.part") {
+                gone(&p)?;
+            }
+        }
+    }
+    // only removed when nothing else is left in it (files the user put there stay)
+    let _ = std::fs::remove_dir(d);
+    Ok(freed)
+}
+
 type Run = fn(&mut Session, &Value) -> Result<Value>;
 type Enabled = fn(&Session) -> std::result::Result<(), String>;
 
@@ -1004,6 +1277,9 @@ pub fn commands() -> Vec<CommandSpec> {
         spec("ai.remove", "Remove AI Model", r#"{"model":str}"#, always, remove),
         spec("ai.select", "Select AI Model", r#"{"model":str}"#, always, select),
         spec("ai.setEnabled", "AI Explanations On/Off", r#"{"on":bool}"#, always, set_enabled),
+        spec("ai.vision.status", "Picture Model Status", "{}", always, vision_status),
+        spec("ai.vision.download", "Download Picture Model", r#"{"wait":bool?}"#, can_download, vision_download),
+        spec("ai.vision.remove", "Remove Picture Model", "{}", always, vision_remove),
         spec("ai.explanation", "Get AI Explanation", r#"{"key":str,"wait":bool? (blocks at most 20 s)}"#, always, explanation),
     ]
 }
@@ -1040,5 +1316,43 @@ mod release_tests {
         drop(g);
         b.release();
         assert!(!b.release_pending.load(Ordering::SeqCst));
+    }
+}
+
+#[cfg(test)]
+mod vision_install_tests {
+    use super::*;
+
+    #[test]
+    fn the_looker_folder_is_the_pinned_models_folder() {
+        assert_eq!(VISION_MODEL_DIR, filmcraft_llm::models::VISION_MODEL.id);
+    }
+
+    #[test]
+    fn removing_the_picture_model_takes_its_files_and_converted_text_model_only() {
+        let d = std::env::temp_dir().join(format!("fc-vision-remove-{}", std::process::id()));
+        std::fs::create_dir_all(&d).expect("dir");
+        let files = filmcraft_llm::models::VISION_MODEL.files;
+        for (name, n) in [("config.json", 3usize), ("tokenizer.json.part", 2), ("text-own-q8_0.gguf", 5), ("notes.txt", 7)] {
+            std::fs::write(d.join(name), vec![0u8; n]).expect("write");
+        }
+        let freed = remove_vision_files(&d, files).expect("removed");
+        assert_eq!(freed, 3 + 2 + 5);
+        assert!(!d.join("config.json").exists() && !d.join("text-own-q8_0.gguf").exists() && !d.join("tokenizer.json.part").exists());
+        assert!(d.join("notes.txt").exists(), "a file the user put there stays");
+        // nothing there: nothing freed, no error
+        std::fs::remove_file(d.join("notes.txt")).expect("cleanup");
+        assert_eq!(remove_vision_files(&d, files), Ok(0));
+        let _ = std::fs::remove_dir(&d);
+    }
+
+    #[test]
+    fn the_status_says_what_is_installed_and_what_a_download_costs() {
+        let mut s = Session::new(std::sync::Arc::new(crate::FsServices));
+        let v = vision_status(&mut s, &json!({})).expect("status");
+        assert_eq!(v["id"], "qwen3-vl-4b-instruct");
+        assert_eq!(v["size"].as_u64(), Some(filmcraft_llm::models::VISION_MODEL.size()));
+        assert!(v["installed"].is_boolean() && v["missingBytes"].is_u64() && v["downloadJob"].is_null());
+        assert!(commands().iter().any(|c| c.id == "ai.vision.download"));
     }
 }

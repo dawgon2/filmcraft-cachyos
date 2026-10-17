@@ -2,7 +2,7 @@
 
 **[Standard]** · how log footage is commonly shot and handled, and how finished films are
 delivered (SDR, HDR, YouTube, vertical, masters), one technique per note, with the Resolve and
-Premiere way and the FilmCraft way side by side. Written in our own words from common practice
+Premiere way and the Revolution way side by side. Written in our own words from common practice
 (AI-PLAN AI3 item 0a, 0c).
 
 ## Expose log a little bright
@@ -15,7 +15,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
   standard profile (about +1 stop is common for F-Log2), and use zebras / the histogram to keep
   highlights from clipping; bring it back down in the grade.
 - **Why:** log's shadows are noisy; more light means less noise after normalising.
-- **FilmCraft:** normalise with colour management, then set exposure on the balance node
+- **Revolution:** normalise with colour management, then set exposure on the balance node
   ([practice/grading.md](grading.md)); noise reduction if shadows still crawl
   ([color/noise.md](../color/noise.md)).
 - **Pitfalls:** clipped highlights can't be brought back; bright is fine, clipped isn't.
@@ -26,10 +26,10 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** keep the files in F-Log2; FilmCraft reads the colour space and converts in its
+- **Revolution:** record log (F-Log2) and use the camera LUT only to monitor on set; Revolution reads the colour space and converts in its
   working space, so no LUT is needed in the edit. A LUT on a node is for looks
   ([color/finishing.md](../color/finishing.md)).
-- **Pitfalls:** baking the viewing LUT into the recording throws the extra range away.
+- **Pitfalls:** baking the viewing LUT into the recording throws the extra range away for good.
 
 ## Grade in a wide working space
 
@@ -37,18 +37,18 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** DaVinci Wide Gamut / Intermediate per sequence (`sequence.colorSettings`); output
+- **Revolution:** DaVinci Wide Gamut / Intermediate per sequence (`sequence.colorSettings`); output
   to Rec. 709 with highlight roll-off. ACES isn't offered (not yet).
 - **Why:** wheels and curves behave the same on every camera, and highlights survive grading.
 - **Pitfalls:** grading in the delivery space (Rec. 709) clips bright colours early.
 
 ## ACES
 
-> id: practice.delivery.aces | does: says what to use instead of an ACES pipeline, which FilmCraft doesn't offer | resolve: ACEScct / ACEScc colour science in the project settings | premiere: no ACES working space | when: "can I use ACES?" | see: practice.delivery.working-space
+> id: practice.delivery.aces | does: says what to use instead of an ACES pipeline, which Revolution doesn't offer | resolve: ACEScct / ACEScc colour science in the project settings | premiere: no ACES working space | when: "can I use ACES?" | see: practice.delivery.working-space
 
 **[Standard]**
 
-- **FilmCraft:** no ACES yet: there is no ACES working space and no ACES input or output
+- **Revolution:** no ACES yet: there is no ACES working space and no ACES input or output
   transforms. Use DaVinci Wide Gamut / Intermediate per sequence (`sequence.colorSettings`)
   instead: like ACEScct it is a wide-gamut, log-like space every camera is converted into.
 - **Why:** ACES (the Academy Color Encoding System, a published standard) gives every camera and
@@ -63,7 +63,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** **Auto tone mapping** in Sequence Color Management folds HDR into Rec. 709; Highlight
+- **Revolution:** **Auto tone mapping** in Sequence Color Management folds HDR into Rec. 709; Highlight
   soft clip on a node for the rest.
 - **Pitfalls:** tone mapping plus a strong highlight curve flattens whites twice.
 
@@ -73,7 +73,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** H.265 export with the Main 10 profile; HDR sequences use it automatically
+- **Revolution:** H.265 export with the Main 10 profile; HDR sequences use it automatically
   ([export.md](../export.md)).
 - **Why:** 8-bit has 256 steps per channel; soft gradients show them after compression.
 - **Pitfalls:** some old players can't play 10-bit; keep an 8-bit H.264 copy for them.
@@ -86,7 +86,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 - **Common practice:** upload 4K at a high bitrate (or constant quality); YouTube gives higher
   resolutions a better codec and more bits, so even 1080p viewers see a cleaner picture.
-- **FilmCraft:** a 4K H.265 preset with constant quality (CRF) or a high bitrate
+- **Revolution:** a 4K H.265 preset with constant quality (CRF) or a high bitrate
   ([export.md](../export.md)).
 - **Pitfalls:** uploading a heavily compressed file makes YouTube compress compression.
 
@@ -96,10 +96,13 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** duplicate the sequence (`edit.duplicate`), set it to 1080 × 1920 or 2160 × 3840
+- **Revolution:** duplicate the sequence (`edit.duplicate`), set it to 1080 × 1920 or 2160 × 3840
   (`sequence.settings`), and reposition each clip with Motion ▸ Position; the 6240 × 4160 frame
-  leaves room. Automatic reframing isn't offered (not yet); tracking can make a crop follow a
-  subject ([tracking.md](../tracking.md)).
+  leaves room. **Auto Reframe** (Effects ▸ Video Effects ▸ Transform) does it per clip: it follows
+  the main subject (the most eye-catching area, smoothed over time by **Motion Preset**: Slower /
+  Default / Faster Motion) and zooms to fill the sequence or a **Target Aspect** (Vertical 9:16,
+  Square 1:1, Vertical 4:5); **Reframe Offset** and **Reframe Zoom** correct it by hand. Tracking
+  can make a crop follow one chosen subject instead ([tracking.md](../tracking.md)).
 - **Pitfalls:** titles and lower thirds placed for 16:9 fall outside the vertical frame.
 
 ## Keep a master, then make deliveries from it
@@ -108,7 +111,8 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** a high-quality master (H.265 4:2:2 10-bit or ProRes) plus the web versions in
+- **Revolution:** the file to keep long-term, besides the YouTube or web file, is a high-quality
+  master (H.265 4:2:2 10-bit or ProRes), made together with the web versions in
   the export queue (`export.queue.add`) from the same timeline.
 - **Why:** re-exporting from the project later needs every file in place; a master doesn't.
 - **Pitfalls:** making deliveries by re-compressing a web file.
@@ -119,7 +123,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** the export's video limiter for broadcast specs; web deliveries don't need it.
+- **Revolution:** the export's video limiter for broadcast specs; web deliveries don't need it.
 - **Pitfalls:** limiting twice (limiter plus a curve) dulls whites.
 
 ## Gamma 2.4 or 2.2: grade for where it is watched
@@ -131,7 +135,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 - **Common practice:** Rec. 709 with gamma 2.4 for a dim grading room and TV delivery; many web
   viewers watch on gamma-2.2-like screens in brighter rooms, so web grades are sometimes checked on
   a typical laptop too.
-- **FilmCraft:** output is Rec. 709; check the export on the screens your audience uses.
+- **Revolution:** output is Rec. 709; check the export on the screens your audience uses.
 - **Pitfalls:** "it looked darker on YouTube" is often a monitor or viewing-room difference, not
   the export.
 
@@ -141,7 +145,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** park on the frame and **Export Frame** (`file.exportFrame`) as PNG, 16-bit if it
+- **Revolution:** park on the frame and **Export Frame** (`file.exportFrame`) as PNG, 16-bit if it
   will be edited further; the 6.2K original gives a large still.
 - **Pitfalls:** exporting a frame while proxies are shown; pause first (Auto mode shows the
   original when paused).
@@ -152,7 +156,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** **Export ▸ Captions…** (`captions.export`) as SRT or WebVTT; burn in only for
+- **Revolution:** **Export ▸ Captions…** (`captions.export`) as SRT or WebVTT; burn in only for
   autoplaying social clips.
 - **Pitfalls:** burned-in captions can't be translated or turned off.
 
@@ -163,7 +167,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 **[Standard]**
 
 - **Why:** compression, levels, captions and audio sync can all change on export.
-- **FilmCraft:** import the exported file back (File ▸ Import) or open it in your usual player;
+- **Revolution:** import the exported file back (File ▸ Import) or open it in your usual player;
   check loudness on the meter.
 - **Pitfalls:** checking only the first minute.
 
@@ -173,7 +177,7 @@ Premiere way and the FilmCraft way side by side. Written in our own words from c
 
 **[Standard]**
 
-- **FilmCraft:** export the project (`projects.export`), keep the card copies with their checksum
+- **Revolution:** export the project (`projects.export`), keep the card copies with their checksum
   lists ([cards.md](../cards.md)) and the master in one folder; Make Offline / Link Media
   reconnect it later ([media.md](../media.md)).
 - **Pitfalls:** archiving the project without the original camera files, or only the proxies.

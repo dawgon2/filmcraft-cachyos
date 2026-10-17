@@ -81,6 +81,7 @@ mod ui_control_input;
 mod ui_dock_resize;
 mod ui_keyboard_focus;
 mod unlink_ui;
+mod updates_ui;
 mod user_effects_ui;
 mod va_interop;
 mod view_ui;

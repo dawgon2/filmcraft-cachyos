@@ -1,0 +1,318 @@
+[
+ {
+  "tag_name": "fork-h264-3",
+  "name": "FilmCraft fork: h264-3",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-15T12:39:56Z",
+  "body": "# FilmCraft fork: h264-3 (H.264 everywhere, without ffmpeg) + audio-2\n\nBuilt from tag `h264-3` on branch `hevc-vaapi` (tags `h264-1`, `h264-2` and `audio-2` are",
+  "assets": [
+   {
+    "name": "filmcraft-fork-h264-3-linux-x86_64.tar.gz",
+    "size": 54175216,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-h264-3/filmcraft-fork-h264-3-linux-x86_64.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-yt-3",
+  "name": "FilmCraft fork: yt-3",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-14T14:09:45Z",
+  "body": "# FilmCraft fork: yt-3 (YouTube toolkit 3: keys, tracking, screen replacement, shader effects, look packs)\n\nBuilt from tag `yt-3` on branch `hevc-vaapi`. All me",
+  "assets": [
+   {
+    "name": "filmcraft-fork-yt-3-linux-x86_64.tar.gz",
+    "size": 52387513,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-yt-3/filmcraft-fork-yt-3-linux-x86_64.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-x422",
+  "name": "FilmCraft fork: x422",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-14T10:48:00Z",
+  "body": "# FilmCraft fork: X422 build (2026-10-14, tag `x422`)\n\nX422 is about exporting graded 6.2K 4:2:2 footage (the X-M5's open-gate F-Log2 files) and about\nmaking gr",
+  "assets": [
+   {
+    "name": "filmcraft-fork-x422-linux-x86_64.tar.gz",
+    "size": 51688386,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-x422/filmcraft-fork-x422-linux-x86_64.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-upstream-sync-2",
+  "name": "FilmCraft fork: upstream-sync-2 (one VA-API stack, faster exports)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-14T00:47:34Z",
+  "body": "# FilmCraft fork: Upstream sync 2 build (2026-10-13, tag `upstream-sync-2`)\n\nThis build finishes U0.2 (\"one VA-API stack\") and the export speed floor (U0.2.3b).",
+  "assets": [
+   {
+    "name": "filmcraft-upstream-sync-2-linux-x86_64-v3.tar.gz",
+    "size": 52818821,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-upstream-sync-2/filmcraft-upstream-sync-2-linux-x86_64-v3.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-comp-1",
+  "name": "FilmCraft fork: comp-1",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-14T20:18:35Z",
+  "body": "# FilmCraft fork: comp-1 (a simple node compositor, Fusion-style)\n\nBuilt from tag `comp-1` on branch `hevc-vaapi`. All measurements below are synthetic (generat",
+  "assets": [
+   {
+    "name": "filmcraft-fork-comp-1-linux-x86_64.tar.gz",
+    "size": 53377773,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-comp-1/filmcraft-fork-comp-1-linux-x86_64.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-ai-1",
+  "name": "FilmCraft fork: AI1 (fast local AI on every CPU)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-14T05:51:35Z",
+  "body": "# FilmCraft fork: AI1 build (2026-10-14, tag `ai-1`)\n\nAI1 makes the local AI node explainer fast on every PC, without a special build. FilmCraft now runs\nthe ex",
+  "assets": [
+   {
+    "name": "filmcraft-fork-ai-1-linux-x86_64.tar.gz",
+    "size": 51068876,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-ai-1/filmcraft-fork-ai-1-linux-x86_64.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-yt-1",
+  "name": "FilmCraft fork: yt-1 group (resolve-ui-1, resolve-ui-2, 6.7b, coach-1, yt-1)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-13T04:47:13Z",
+  "body": "# FilmCraft fork — yt-1 group (2026-10-13)\n\nOne build for a group of small phases (FORK-PLAN §1a.41): tags `resolve-ui-1`, `resolve-ui-2`,\n`phase-6-7b`, `coach-",
+  "assets": [
+   {
+    "name": "filmcraft-yt-1-linux-x86_64-v3.tar.gz",
+    "size": 51390995,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-yt-1/filmcraft-yt-1-linux-x86_64-v3.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-phase-6e",
+  "name": "FilmCraft fork: phase-6e (two-GPU export, Linux desktop part 1)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-13T14:52:51Z",
+  "body": "# FilmCraft fork — phase-6e group (2026-10-13)\n\nOne build for the 6E group (FORK-PLAN §1a.41): tags `phase-6e` (faster export), `linux-1a` and\n`linux-2a` (Linux",
+  "assets": [
+   {
+    "name": "filmcraft-phase-6e-linux-x86_64-v3.tar.gz",
+    "size": 52726256,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-phase-6e/filmcraft-phase-6e-linux-x86_64-v3.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-phase-6",
+  "name": "FilmCraft fork — phase-6 (2026-10-12)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T11:18:28Z",
+  "body": "# FilmCraft fork — phase-6 (2026-10-12)\n\nPhase 6 of FORK-PLAN.md: smooth editing of 6.2K and 4:2:2 media. Tag `phase-6` on `hevc-vaapi`.\nStart it from the \"Film",
+  "assets": [
+   {
+    "name": "filmcraft-phase-6-linux-x86_64-v3.tar.gz",
+    "size": 50668704,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-phase-6/filmcraft-phase-6-linux-x86_64-v3.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-grade-2c",
+  "name": "FilmCraft fork: grade-2c",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T13:47:27Z",
+  "body": "# FilmCraft fork — grade-2c (2026-10-12)\n\nGRADE-PLAN Phase G2c: a white-balance picker. Tag `grade-2c` on `hevc-vaapi`. Also in this build:\nRESOLVE-UI-PLAN RS1 ",
+  "assets": [
+   {
+    "name": "filmcraft-grade-2c-linux-x86_64-v3.tar.gz",
+    "size": 50714875,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-grade-2c/filmcraft-grade-2c-linux-x86_64-v3.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-grade-2b",
+  "name": "FilmCraft fork — grade-2b (2026-10-11)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:52:41Z",
+  "body": "> **Linux build:** `filmcraft-grade-2b-linux-x86_64-v3.tar.gz` (x86-64, needs a CPU with AVX2: Intel Haswell / AMD Zen or newer). Unpack it and run `./filmcraft",
+  "assets": [
+   {
+    "name": "filmcraft-grade-2b-linux-x86_64-v3.tar.gz",
+    "size": 50026025,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/fork-grade-2b/filmcraft-grade-2b-linux-x86_64-v3.tar.gz"
+   }
+  ]
+ },
+ {
+  "tag_name": "explainer-smol360-v1",
+  "name": "FilmCraft explainer smol360-v1",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:43:48Z",
+  "body": "FilmCraft node explainer smol360-v1\nA fine-tune of HuggingFaceTB/SmolLM2-360M-Instruct (revision a10cc1512eabd3dde888204e902eca88bddb4951), licensed under the\nA",
+  "assets": [
+   {
+    "name": "LICENSE",
+    "size": 10174,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-smol360-v1/LICENSE"
+   },
+   {
+    "name": "manifest.json",
+    "size": 4395,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-smol360-v1/manifest.json"
+   },
+   {
+    "name": "NOTICE",
+    "size": 611,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-smol360-v1/NOTICE"
+   },
+   {
+    "name": "smol360-v1-q8_0.gguf",
+    "size": 384636128,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-smol360-v1/smol360-v1-q8_0.gguf"
+   },
+   {
+    "name": "tokenizer.json",
+    "size": 2104556,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-smol360-v1/tokenizer.json"
+   }
+  ]
+ },
+ {
+  "tag_name": "explainer-qwen05-v1",
+  "name": "FilmCraft explainer qwen05-v1",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:44:09Z",
+  "body": "FilmCraft node explainer qwen05-v1\nA fine-tune of Qwen/Qwen2.5-0.5B-Instruct (revision 7ae557604adf67be50417f59c2c2f167def9a775), licensed under the\nApache Lice",
+  "assets": [
+   {
+    "name": "LICENSE",
+    "size": 11343,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-qwen05-v1/LICENSE"
+   },
+   {
+    "name": "manifest.json",
+    "size": 4449,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-qwen05-v1/manifest.json"
+   },
+   {
+    "name": "NOTICE",
+    "size": 601,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-qwen05-v1/NOTICE"
+   },
+   {
+    "name": "qwen05-v1-q8_0.gguf",
+    "size": 525137152,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-qwen05-v1/qwen05-v1-q8_0.gguf"
+   },
+   {
+    "name": "tokenizer.json",
+    "size": 7031645,
+    "browser_download_url": "https://github.com/dawgon2/filmcraft-cachyos/releases/download/explainer-qwen05-v1/tokenizer.json"
+   }
+  ]
+ },
+ {
+  "tag_name": "fork-upstream-sync-1",
+  "name": "FilmCraft fork — Upstream sync 1 build (2026-10-11, tag `upstream-sync-1`)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:29:02Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-grade-2",
+  "name": "FilmCraft fork — grade-2 (2026-10-11)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:29:02Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-grade-1",
+  "name": "FilmCraft fork — Grade 1 build (2026-10-11, tag `grade-1`)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:29:01Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-grade-0",
+  "name": "FilmCraft fork — Grade 0 build (2026-10-11, tag `grade-0`)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:29:00Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-phase-5",
+  "name": "FilmCraft fork — Phase 5 build (2026-10-10, tag `phase-5`)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:29:00Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-phase-4",
+  "name": "FilmCraft fork — Phase 4 build (2026-10-09, tag `phase-4`)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:28:59Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-phase-3",
+  "name": "FilmCraft fork: Phase 3 build",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:28:59Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-phase-2",
+  "name": "FilmCraft fork: Phase 2 build",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:28:58Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ },
+ {
+  "tag_name": "fork-phase-1",
+  "name": "FilmCraft fork: Phase 1 build",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-10-12T07:28:57Z",
+  "body": "> Source snapshot of this milestone. No prebuilt binary is attached (prebuilt Linux builds start at `fork-grade-2b`); build with `cargo build --release -p filmc",
+  "assets": []
+ }
+]

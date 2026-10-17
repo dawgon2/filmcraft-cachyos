@@ -1,18 +1,18 @@
 # Practice notes: workflow and organisation
 
 **[Standard]** · how editors commonly organise media, projects and backups so work stays fast and
-safe, one technique per note, with the FilmCraft way. Written in our own words from common
+safe, one technique per note, with the Revolution way. Written in our own words from common
 practice (AI-PLAN AI3 item 0a, 0c).
 
 ## One folder per project
 
-> id: practice.workflow.project-folder | does: keeps footage, audio, graphics, exports and the project file under one folder | resolve: project media folders | premiere: project folder with media | when: every project | see: projects.where
+> id: practice.workflow.project-folder | does: keeps footage, audio, graphics, exports and the project file under one folder | resolve: project media folders | premiere: project folder with media | when: every project; how to lay out the folders for a new project on disk | see: projects.where
 
 **[Standard]**
 
 - **Common practice:** `Project/Footage/<date or card>`, `Audio`, `Music`, `Graphics`, `Exports`,
   `Project`.
-- **FilmCraft:** projects are files you can keep in that folder (Settings ▸ General ▸ projects
+- **Revolution:** projects are files you can keep in that folder (Settings ▸ General ▸ projects
   folder for the Project Manager); verified card copies go into `Footage`
   ([cards.md](../cards.md)).
 - **Pitfalls:** media scattered over desktop and downloads breaks links when moving.
@@ -23,7 +23,7 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** the card bar's verified copy (`card.offload`); format the card in the camera only
+- **Revolution:** the card bar's verified copy (`card.offload`); format the card in the camera only
   after the copy is verified **and** backed up.
 
 ## Three copies, two kinds of storage, one elsewhere
@@ -34,7 +34,7 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 - **Common practice:** the working drive, a backup drive, and a copy somewhere else (another
   building or cloud).
-- **FilmCraft:** the checksum list from the card copy lets you verify any copy later.
+- **Revolution:** the checksum list from the card copy lets you verify any copy later.
 - **Pitfalls:** two copies on the same drive count as one.
 
 ## Name things consistently
@@ -44,7 +44,7 @@ practice (AI-PLAN AI3 item 0a, 0c).
 **[Standard]**
 
 - **Common practice:** `Client_Project_v03_2026-10-14`, never `final_final2`.
-- **FilmCraft:** rename sequences and items (`clip.rename`); the export file name defaults to the
+- **Revolution:** rename sequences and items (`clip.rename`); the export file name defaults to the
   sequence name.
 
 ## Bins by type and by scene
@@ -53,7 +53,7 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** bins (`file.newBin`, `project.moveToBin`) and search bins for labels or names
+- **Revolution:** bins (`file.newBin`, `project.moveToBin`) and search bins for labels or names
   (`file.newSearchBin`).
 
 ## Labels mean the same thing every time
@@ -62,7 +62,7 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** **Label** (`edit.label.*`) and **Select Label Group** to act on all of one kind.
+- **Revolution:** **Label** (`edit.label.*`) and **Select Label Group** to act on all of one kind.
 
 ## Save often, and let auto-save cover the rest
 
@@ -70,14 +70,19 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** Save (Cmd+S) at every milestone; the journal recovers unsaved changes after a
+- **Revolution:** Save (Cmd+S) at every milestone; the journal recovers unsaved changes after a
   crash (`file.recover`); Save a Copy before experiments (`file.saveCopy`).
 
 ## Proxies or the render cache for smooth playback
 
 > id: practice.workflow.smooth-playback | does: picks proxies for heavy source files and the render cache for heavy effects | resolve: proxies vs render cache | premiere: proxies vs preview rendering | when: playback stutters | see: proxies.what, render-cache.why
 
-**[Standard]**
+**[Standard]** **[Fork]**
+
+In Revolution, proxies are queued automatically for heavy camera files and make them play
+smoothly, and the render cache is on by default (Smart): it renders heavy graded or effect-laden
+stretches ahead while you are idle. An export still reads the original files, so neither lowers
+the quality of what you deliver.
 
 | Option | Good for | Trade-offs |
 |---|---|---|
@@ -91,16 +96,16 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** full screen by default, the screen stays on while playing, notifications when a
+- **Revolution:** full screen by default, the screen stays on while playing, notifications when a
   long export finishes ([linux.md](../linux.md)).
 
 ## Organise the timeline by track roles
 
-> id: practice.workflow.track-roles | does: keeps fixed roles per track: V1 main, V2 B-roll, V3 graphics; A1–A2 dialogue, A3 music, A4 effects | resolve: track names and colours | premiere: track names | when: every edit | see: mixing.submixes
+> id: practice.workflow.track-roles | does: keeps fixed roles per track: V1 main, V2 B-roll, V3 graphics; A1–A2 dialogue, A3 music, A4 effects | resolve: track names and colours | premiere: track names | when: every edit; which tracks to use for what, a standard track layout | see: mixing.submixes
 
 **[Standard]**
 
-- **FilmCraft:** name tracks and route them to submixes for dialogue, music and effects
+- **Revolution:** name tracks and route them to submixes for dialogue, music and effects
   (`mixer.setStrip`, `mixer.addSubmix`).
 - **Why:** levels and exports stay predictable; another editor finds their way at once.
 
@@ -110,7 +115,7 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** a preset that matches your habits (`shortcuts.loadPreset`), then your own keys
+- **Revolution:** a preset that matches your habits (`shortcuts.loadPreset`), then your own keys
   (`shortcuts.set`).
 
 ## Review copies with burned-in timecode
@@ -119,16 +124,17 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** a review export with the timecode overlay on, at a modest bitrate; collect notes as
+- **Revolution:** a review export with the timecode overlay on, at a modest bitrate; collect notes as
   markers ([timeline.md](../timeline.md)).
 
 ## Archive when finished
 
-> id: practice.workflow.archive | does: archives project, original media and master together, and removes proxies and caches | resolve: Project Archive | premiere: Project Manager | when: the project is delivered | see: practice.delivery.archive
+> id: practice.workflow.archive | does: archives project, original media and master together, and removes proxies and caches | resolve: Project Archive | premiere: Project Manager | when: the project is delivered; freeing up disk space on a finished project without losing what I need | see: practice.delivery.archive
 
 **[Standard]**
 
-- **FilmCraft:** export the project, keep originals and the master, clear unused render files
+- **Revolution:** when the client has approved the film, wrap up the project for good: export the
+  project, keep originals and the master, clear unused render files
   (Settings ▸ Media Cache ▸ Clear unused).
 
 ## Hand-off to a colourist or mixer
@@ -137,7 +143,7 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** FCPXML or OTIO for colour, AAF / OMF for sound (`file.exportFcpxml`,
+- **Revolution:** FCPXML or OTIO for colour, AAF / OMF for sound (`file.exportFcpxml`,
   `file.exportAaf`); include a reference export to check against.
 
 ## Keep notes in the project
@@ -146,4 +152,4 @@ practice (AI-PLAN AI3 item 0a, 0c).
 
 **[Standard]**
 
-- **FilmCraft:** markers with comments on the sequence; project notes (`project.setNotes`).
+- **Revolution:** markers with comments on the sequence; project notes (`project.setNotes`).

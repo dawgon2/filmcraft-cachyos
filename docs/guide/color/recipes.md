@@ -60,6 +60,57 @@ everything looks like a filter.
 
 Quicker but blunter: raise **Temperature** {ui:grade.param.temperature} on this node instead.
 
+## 2b. Cool a shot down, or make the light bluer
+
+> id: color.recipes.cool | does: cools a warm shot or makes its light bluer while it still looks natural | ui: grade.wheel.gain, grade.wheel.gamma, grade.wheel.lift, grade.param.temperature | resolve: Temp / Gain wheel | premiere: Lumetri Temperature | when: a shot feels too warm, or you want the light bluer or colder (daylight, moonlight) while keeping the image natural | see: color.recipes.warm, practice.grading.day-for-night
+
+**[Resolve-style]**
+
+**Why:** light has a colour, and moving it towards blue reads as cooler: overcast daylight, shade,
+early morning, a screen's glow. It looks natural when the light itself turns blue but skin and
+whites stay believable; turning the whole picture blue, shadows included, looks like a tint laid
+over it. So the aim is light that turns blue while the image keeps a natural look.
+
+1. Select the clip and add a node after your technical nodes (**+ Serial** {ui:grade.addNode}).
+2. Drag the puck of the **Gain** wheel {ui:grade.wheel.gain} a short way towards blue: the bright
+   parts carry the colour of the light.
+3. Drag the puck of the **Gamma** wheel {ui:grade.wheel.gamma} even less towards blue.
+4. Keep the **Lift** puck {ui:grade.wheel.lift} near the centre, or nudge it slightly towards
+   orange if the shadows turn heavy blue: neutral shadows keep it looking real.
+5. Look at a face: if skin turns grey or purple, the move is too strong. Reduce it, or protect the
+   skin with a qualifier on its own node (**Fix grey or lifeless skin**, below).
+6. Toggle the node with **Disable / Enable** {ui:grade.toggleNode} to compare.
+
+Options: **Temperature** {ui:grade.param.temperature} lowered on this node is quicker but cools
+everything evenly (more like a filter). For only the light from one source, such as a window,
+isolate it with a window or qualifier (see **Make the sky bluer without touching skin**). For a
+strong night look, see Day for night.
+
+## 2c. Still too orange? Push a warm shot all the way to blue
+
+> id: color.recipes.warm-to-blue | does: turns strongly warm light (a tungsten lamp, a sunset) blue when small cooling moves only make it less orange | ui: grade.wb.pick, grade.wb.auto, grade.wheel.offset, grade.wheel.gain, grade.param.temperature | resolve: WB picker, Offset / Gain wheels | premiere: Lumetri WB Selector, Temperature | when: the shot is still orange, nowhere near blue, after cooling it; very warm light you want blue | see: color.recipes.cool, color.recipes.warm
+
+**[Resolve-style]**
+
+**Why:** a tungsten lamp is far more orange than daylight. Gentle moves towards blue only pull it
+back towards neutral, so it ends up "less orange" but never blue. Neutralise the warm light
+first, then add blue on top: the blue then has room to show.
+
+1. On the cooling node, or a new node before it, click the white-balance picker **WB**
+   {ui:grade.wb.pick} and click or drag a box on something that should be white or grey (a white
+   wall, a lampshade, paper). The orange cast is removed in one step. **Auto** {ui:grade.wb.auto}
+   tries the same on its own.
+2. Now cool it: drag the **Offset** wheel {ui:grade.wheel.offset} towards blue (it moves the
+   whole picture), then the **Gain** wheel {ui:grade.wheel.gain} further towards blue for the
+   light itself. Go further than feels safe, then back off.
+3. Or lower **Temperature** {ui:grade.param.temperature} well below 0 on this node.
+4. Check a vectorscope: the cloud of colours should sit towards blue, not orange. If skin goes grey
+   or purple, protect it with a qualifier on its own node (**Fix grey or lifeless skin**).
+
+Options: a light that is the subject (the lamp itself) can stay warm while the room goes blue: put
+the cooling on a node with a window or qualifier that leaves the bulb out. A blue that still looks
+believable usually keeps a little warmth in the brightest highlight.
+
 ## 3. Make the sky bluer without touching skin
 
 > id: color.recipes.sky | does: deepens the sky with a qualifier and a gradient window, leaving skin alone | ui: grade.qual.pick, grade.window.add.linear | cmd: grade.pickQualifier | resolve: qualifier + linear window | premiere: Lumetri HSL Secondary + mask | when: a pale sky | see: color.secondaries.qualifier
@@ -72,7 +123,9 @@ so faces stay as they are.
 1. Select the clip and add a node at the end (**+ Serial** {ui:grade.addNode}).
 2. Open the **Qualifier** tab {ui:grade.tab.qualifier} and click **Pick**
    {ui:grade.qual.pick}, then click the sky in the Program monitor (`grade.pickQualifier`).
-3. Click **Add** {ui:grade.qual.add} and click a lighter and a darker part of the sky.
+3. Click **Add** {ui:grade.qual.add} and click a lighter and a darker part of the sky. A sky
+   blown out to white has no colour left to select: darken what detail is left with a gradient
+   (Linear) window instead.
 4. Set **View** to **Matte** {ui:grade.qual.show.2}. The sky should be white and everything else,
    especially faces, black. If a face shows grey, narrow **Hue width**
    {ui:grade.param.qual.hueWidth}; if the sky is speckled, raise **Qualifier softness**
@@ -85,6 +138,39 @@ so faces stay as they are.
    {ui:grade.window.add.linear} in the **Windows** tab {ui:grade.tab.windows} and drag it so it
    covers only the top of the frame. The node then acts only where both the qualifier and the
    window agree.
+
+## 3b. Change the colour of one light (a lamp), leave the room natural
+
+> id: color.recipes.one-light | does: turns one light and its glow another colour (a warm lamp blue) while the room keeps its natural light | ui: grade.window.add.ellipse, grade.window.0.softness, grade.qual.pick, grade.wheel.gain, grade.wheel.offset | resolve: qualifier + circle window | premiere: HSL Secondary + mask | when: make the lamp light blue but keep the room natural; recolour one light, bulb or practical | see: color.recipes.sky, color.recipes.warm-to-blue
+
+**[Resolve-style]**
+
+**Why:** a primary change recolours the whole picture. To change only one light, select the lamp
+and the glow right around it on its own node, change that, and leave the room on the other
+nodes alone. The glow must fade out softly, otherwise a blue patch with a hard edge looks pasted on.
+
+1. Select the clip and add a node at the end (**+ Serial** {ui:grade.addNode}).
+2. In the **Windows** tab {ui:grade.tab.windows} add a **Circle** window
+   {ui:grade.window.add.ellipse} and drag it over the lamp and the bright glow around it. Raise
+   **Softness** {ui:grade.window.0.softness} a lot, so the change fades out with distance like
+   real light does.
+3. Optional, for a cleaner edge: in the **Qualifier** tab {ui:grade.tab.qualifier} click **Pick**
+   {ui:grade.qual.pick} on the lampshade's glow, **Add** {ui:grade.qual.add} a brighter and a
+   dimmer part of it, and check **View ▸ Matte** {ui:grade.qual.show.2}: the shade and its glow
+   white, the rest of the room black. Raise **Qualifier softness** {ui:grade.param.qual.soft}
+   until the edge is gentle, then **View ▸ Normal** {ui:grade.qual.show.0}. The node now acts
+   only where the window and the qualifier agree.
+4. In the **Primaries** tab drag the **Gain** wheel {ui:grade.wheel.gain} well towards blue. A
+   very orange light needs a big move: add the **Offset** wheel {ui:grade.wheel.offset} towards
+   blue as well, until the glow reads blue rather than white.
+5. Leave the brightest core a little lighter than the colour (a bulb looks white at its centre).
+   Toggle the node with **Disable / Enable** {ui:grade.toggleNode} to compare: the walls further
+   away should look as they did.
+6. If the camera moves, track the window (**Track forward** {ui:grade.window.0.track.forward}).
+
+Options: the lamp lights the room, so its spill on the nearest wall is part of its light; a wider,
+softer window that tints that spill a little too looks more believable than a blue lamp next to a
+warm wall. Keeping the room exactly as it was is the stylised choice.
 
 ## 4. Brighten a face
 
@@ -121,7 +207,8 @@ between them only works when they match.
 4. Select the close-up, open the **Match** tab {ui:grade.tab.match}, choose the wide shot as
    **Reference** {ui:grade.match.reference} and click **Shot Match**
    {ui:grade.match.shotMatch} (`grade.shotMatch`). A node labelled "Shot Match" is added.
-5. Look at the wipe again and fine-tune the new node by hand (usually Gamma and Temperature).
+5. Look at the wipe again and fine-tune the new node by hand: levels first (Lift, Gamma, Gain),
+   then colour (usually Temperature).
 6. Click **Compare shots** {ui:grade.match.compare} (`grade.compareShots`) to read in plain words
    what still differs.
 7. Press **Off** {ui:stills.mode.off} to leave the comparison.
@@ -132,8 +219,8 @@ between them only works when they match.
 
 **[Resolve-style]**
 
-**Why:** clips shot in the same place and light can share one grade; doing it once and copying
-saves time and keeps them consistent.
+**Why:** clips shot in the same location and light (15 clips of one scene, say) can share one
+grade; grading one and copying it to the others is the quickest way, saves time and keeps them consistent.
 
 1. Select the clip whose grade you want to reuse and choose Clip ▸ Grade ▸ **Copy Grade**
    (`grade.copy`).
@@ -149,7 +236,7 @@ saves time and keeps them consistent.
 
 **[Fork]**
 
-**Why:** a little grain hides banding in skies and gradients and makes clips from different
+**Why:** a little grain hides banding in a sky or any smooth gradient after a grade, and makes clips from different
 sources feel like one film. Add it last, so nothing after it sharpens or blurs it.
 
 1. Select the last node of the grade, or add one with **+ Serial** {ui:grade.addNode}.
@@ -189,11 +276,14 @@ skin.
 5. Set **View** back to **Normal** {ui:grade.qual.show.0}. Always judge the colour itself in
    Normal: the matte only tells you *where* the node acts.
 6. Open the **Primaries** tab {ui:grade.tab.primaries}. Raise **Saturation**
-   {ui:grade.param.saturation} a little (a few steps, not a lot), then raise **Temperature**
+   {ui:grade.param.saturation} a little (a few steps, not a lot: skin saturates quickly and turns
+   orange; if it already has, pull Saturation back here instead), then raise **Temperature**
    {ui:grade.param.temperature} slightly for warmth. If the face is also dull, lift the **Gamma**
    ring {ui:grade.wheel.gamma} a touch.
 7. Press **Disable / Enable** {ui:grade.toggleNode} a few times. The face should look healthier,
-   not obviously different; if you notice the change at once, it is too strong: halve it.
+   not obviously different; if you notice the change at once, it is too strong: halve it. On the
+   vectorscope ([finishing.md](finishing.md)), the face's trace should lie along the skin-tone
+   line.
 8. Set **View** to **Matte** {ui:grade.qual.show.2} one last time while you play the clip: if
    the matte flickers on a moving face, raise **Qualifier softness**
    {ui:grade.param.qual.soft} again, then go back to **Normal** {ui:grade.qual.show.0}.

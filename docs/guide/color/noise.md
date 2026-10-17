@@ -17,7 +17,8 @@ There are two kinds. **Spatial** noise reduction looks at one frame: it averages
 similar pixels around it, which also softens fine detail. **Temporal** noise reduction looks at
 the frames before and after: noise changes from frame to frame while the picture doesn't, so
 averaging the same point over several frames removes noise and keeps detail. It is the better
-tool for static or slowly moving shots; spatial is the fallback where things move fast.
+tool for static or slowly moving shots; spatial is the fallback where things move fast
+(a handheld running shot, lots of motion).
 
 ## Steps
 
@@ -34,7 +35,8 @@ tool for static or slowly moving shots; spatial is the fallback where things mov
    switched off (`grade.toggleNode`).
 4. **NR radius** {ui:grade.param.nr.size} sets how far each pixel looks for similar neighbours
    (0.25 … 3.5 source pixels): larger is smoother and slower.
-5. To clean only part of the picture (say the dark background), add a window to the same node
+5. To clean only part of the picture (say only the dark background, without softening the face), add a window to the
+   same node
    ([secondaries.md](secondaries.md)): the noise reduction stays inside it. (A qualifier on the
    node does *not* limit the noise reduction, see Limits.)
 
@@ -55,7 +57,7 @@ It is too heavy to run while playing, so it renders only where there is time for
 and on the **paused** Program monitor frame. While playing or scrubbing the monitor shows the
 clip without it (from the render cache once that part is rendered).
 
-1. Select the clip on the timeline.
+1. Select the clip on the timeline (temporal NR is per clip and uses the neighbouring frames).
 2. Find the **Temporal NR** controls. They are the same controls in two places, so use
    whichever is open:
    - **Effect Controls** (Premiere workflow; called **Inspector** in the Resolve workflow): the
@@ -93,7 +95,7 @@ node's spatial NR, then that node's correction. With temporal NR on, keep spatia
 
 **[Standard]** **[Fork]**
 
-Spatial: an edge-preserving *bilateral* filter: each pixel is averaged with its neighbours,
+Spatial (set on a grade node): an edge-preserving *bilateral* filter: each pixel is averaged with its neighbours,
 weighted by distance and by how similar they are, so a real edge (a big difference) is left alone
 while small random differences are averaged out. Brightness (luma) and colour (two colour
 differences) are filtered separately with their own strengths. The filter size follows the

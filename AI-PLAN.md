@@ -155,3 +155,269 @@ every feature in the command list has a feature page section; on the advanced se
 and **no invented controls, commands or steps** (any invented one fails the case); first words in
 < 1 s and a typical answer in < 10 s on this PC (laptop time recorded); works offline; no model,
 a corrupt model or a slow machine falls back to today's coach and never crashes. Tag `ai-3`.
+
+## Phase AI4: the assistant sees your footage (owner, 2026-10-15; right after AI3; ≈ 55–100 h)
+
+Today the assistant (AI3) answers from the guide and the page name only: it doesn't see the picture,
+and the Assistant panel doesn't even send the grade and selection the engine already accepts. AI4
+makes answers fit the shot in front of you. Design (owner, 2026-10-15, FORK-PLAN §1a.83): **measured
+facts + a short description, both as text, given to the same assistant model** (SmolLM3 stays the
+one that answers: it is proven on the eval and grounded; the vision model only describes). Order:
+
+1. **Measured picture facts (≈ 15–25 h):** from FilmCraft's own scopes on the current frame (after
+   the input transform and, separately, after the grade): exposure (clipped / crushed share, where
+   the mids sit), white balance (cast of near-neutral areas, in plain words and K / tint), saturation,
+   skin against the skin-tone line, contrast, log vs display-referred. A compact "fact sheet" text
+   plus the grade's facts (G2.10) and the selection, sent with every assistant question (the panel
+   and the Ask box); cached per frame. Useful on its own, before any vision model.
+2. **Vision model: Qwen3-VL 4B Instruct** (approved by the owner 2026-10-15, download yes, **after a
+   check that its licence is Apache-2.0**; 4-bit ≈ 3 GB): run on FilmCraft's own inference (the
+   SigLIP-style image encoder on wgpu, AMD + Intel, CPU fallback; the language part on the AI3 GPU
+   path). It writes one or two sentences about what matters for grading: light sources and their
+   colour and direction, faces, sky, practicals, time of day, interior / exterior. Made once per
+   shot (cached), only when a question needs the picture; unloaded after, so editing keeps its VRAM.
+   ≈ 20–40 h.
+2b. **Question-aware looking (owner, 2026-10-15, FORK-PLAN §1a.89; ≈ 10–20 h):** when a question needs
+   the picture, the vision model gets **the user's question with the frame** (and the measured facts),
+   not only a generic description request, and writes what it sees that bears on that question ("the
+   lamp's glow is orange, the walls are neutral grey-brown, no skin in frame"). Still text handed to
+   the assistant, which answers with the guide's steps; the generic description stays cached per shot
+   for questions that don't need a fresh look. Scored on the AI-POOL `needs_clip` questions with
+   fixture frames (does the look mention what the question is about; no invented content checked on
+   frames with known content).
+3. **Tune it for grading descriptions (≈ 20–35 h):** LoRA on the language part, image encoder frozen
+   (the explainer's tune pipeline, AI1 / G2.11). Training frames: the owner's own X-M5 footage
+   (**approved 2026-10-15; frames stay local, never in the repo, a published model's data or a
+   release**), FilmCraft's test clips, generated frames with known lighting, openly licensed images
+   (licences checked). Labels: the measurable parts from the scopes, the rest written / checked by
+   hand; **the owner reviews a sample before training** (as for the explainer). Kept only if a
+   held-out frame set scores clearly better than the base model.
+   **(Owner, 2026-10-16, FORK-PLAN §1a.96 (c): no X-M5 footage yet, so synthetic frames + downloaded openly
+   licensed footage by others, log footage required (F-Log2 first); licences logged in
+   `coach-eval/VISION-SOURCES.md`. The tune runs in AI4 regardless of the owner's sample review, which is
+   not a gate (later corrections → re-tune), Q44.)**
+5. **Train and test on the larger question pool, once AI-POOL is done (owner, 2026-10-15, FORK-PLAN
+   §1a.86):** (a) **test** the assistant (and the AI4 picture-aware answers) on AI-POOL's held-out
+   set: the ~150-question daily sample in every AI4 step's check, the full ~900 at acceptance;
+   (b) **train**: tune the assistant model (SmolLM3-3B, LoRA, the explainer's pipeline on the RX
+   6700 XT) on AI-POOL's training pairs (the `needs_clip` ones with their picture facts), after the
+   owner has reviewed a random 30–50 pairs (Q35 rule); keep the tune only if it beats the untuned
+   model on the held-out set with 0 invented, else keep the untuned one and log why. The vision
+   tune (item 3) may use the pool's `needs_clip` questions too. If AI-POOL isn't done when AI4's
+   other items are, AI4 waits for it (or the owner says otherwise).
+   (c) **Open-ended creative questions, not only what the guide says (owner, live, 2026-10-15, FORK-PLAN
+   §1a.90).** The owner's example: "how do I remove the person from this clip and replace it with a
+   translucent ghost figure instead". No guide section answers that; a good answer is a **plan built from
+   several tools**, e.g. clean plate (a frame or second take without the person; tripod shots only), mask /
+   roto the person on a duplicate layer and track the mask, drop the person from the base layer with the clean
+   plate, then the ghost: the masked person at 20–40 % opacity, Screen / Add blend, blur + glow, a light
+   desaturate / cool tint, optional echo or offset; plus what FilmCraft can't do yet (object removal / fill,
+   Magic Mask before G3) said plainly with the closest workaround, and options with trade-offs (§ guide rule:
+   never one correct way). More of the kind: "make it look like a security camera / VHS / old film", "freeze
+   the frame and make the colour drain out", "clone myself in the same shot", "make the sky stormy", "a
+   sudden earthquake shake", "the phone screen shows something else", "turn day into night", "a
+   whip-pan transition between two places", "make the music duck when I talk without keyframes",
+   "subtitle style where words pop as they are spoken". Work:
+   1. `creative-*` AI-POOL batches: held-out questions + training pairs whose answers are multi-step
+      **recipes across sections** (`sources` = every section used, ≥ 2), each step naming real controls /
+      command ids; a `gap` part where a step isn't possible yet (expected wording: says so + workaround).
+      Mixed difficulty: some fully possible, some partly, a few not at all (must say so, no invented tool).
+   2. Prompt / retrieval: such questions need sections for each sub-task, not one best match: split the
+      question into sub-goals (mask, track, opacity, blend, blur …) and retrieve per sub-goal (a decomposition
+      step before retrieval; measured on the creative held-out set, other sets must not lose).
+   3. Eval: score creative questions apart from guide-lookup questions (plan covers the expected sub-tasks,
+      every named control real, gaps admitted, 0 invented); the tune is kept only if creative doesn't
+      fall. Where the guide lacks a reusable technique the recipes keep needing (clean plates, ghost /
+      double-exposure, clone shots …), add a practice note (options + trade-offs) so answers can cite it.
+   CPU-only except the model eval: good MINIMAL / LEAN work for the main runner, the Dell lane or CLOUD-QUEUE.
+   **Size (owner, live, 2026-10-15 ~22:45): a creative set as large as the current pool**: ~850 held-out
+   creative questions and ~800 creative training pairs (the pool today: 846 advanced held-out, 811 pool pairs).
+   How, so the numbers stay honest:
+   - **Split by goal family, not by question.** A family is one creative goal ("person → translucent ghost")
+     with its variants (tripod vs handheld, one person vs a crowd, short vs long shot, beginner vs pro
+     wording); a whole family is either held out or training, never both, so the test can't be passed by
+     having seen a reworded copy. ~3–5 questions per family → roughly 200+ held-out families and 200+
+     training families (~400–450 distinct goals across looks, compositing, transitions, motion / titles,
+     audio tricks, social formats, repair jobs). Recorded per item as `family` and checked in `ai_pool.rs`.
+   - **Held-out first.** Write the test families before the training ones (the test is what measures
+     progress); a first ~300 held-out are enough to start scoring creative answers.
+   - **Expected answers as sub-goals**, not one text: each held-out item lists the sub-tasks a good plan
+     covers (e.g. clean plate, mask, track, opacity, blend, glow), the ones FilmCraft can't do yet (gap +
+     workaround wording), and that nothing may be invented; the scorer checks those automatically,
+     plus the existing `ground` checks. Training answers are full recipes with real controls / command
+     ids.
+   - **Check the recipes work.** Every command id / control is checked automatically; a random sample of
+     ~1 in 20 recipes (fully possible ones) is run through the headless app over MCP to see that the steps
+     really produce the effect; a recipe that doesn't gets fixed and its family re-checked.
+   - **Gaps are data.** Goals FilmCraft can't do (object removal / fill, roto, 3D, particles…) stay in
+     the set as admitted-gap cases (aim ≤ ~1/3 of families) and their gaps go to a list for the roadmap.
+   - **Owner read** of 30–50 random creative pairs before any tune uses them (Q35 rule).
+   - **Cost / order:** answers are ~3× longer than lookup pairs and need more thought, so this costs
+     roughly 2–3× AI-POOL; it runs as a lane (the Dell lane or the main runner in small batches) paced by
+     §2c, never at the expense of the weekly line. The AI4 tune can start with whatever training families
+     exist; the creative held-out set is scored from its first ~300 on.
+   - **Who (owner, live, 2026-10-15 ~22:55, FORK-PLAN §1a.91):** the batches are the Dell lane's (CREATIVE-POOL);
+     the main runner does items 2–3 (retrieval, scorer) and the practice notes the lane asks for.
+4. **Tiers:** 4B on a discrete GPU with enough free VRAM; measured facts only otherwise (and on
+   request). **Qwen3-VL 2B for lower-end hardware is deferred** (owner: "only do the 4B for now";
+   ≈ 4–8 h later: same code, one download, one tune).
+
+**Accept:** AI-POOL's full held-out set scored (item 5), with the tuned or untuned assistant as item 5
+chose; on a set of test frames with known content and known problems (the "needs_clip" coach
+questions with fixture clips, ASSISTANT-PLAN-DRAFT §3), answers use at least one picture fact and stay
+grounded (0 invented controls); the AI3 85-case eval doesn't regress; the description adds < 1.5 s the
+first time per shot on the RX 6700 XT and nothing when cached; no model / no GPU / a corrupt model
+falls back to facts only, never a crash. Tag `ai-4`.
+
+## Phase AI5: share an Assistant example to improve it (owner, 2026-10-15; right after AI4; ≈ 6–10 h)
+
+Reverses the owner's 2026-10-14 "no AI usage data" decision, **only as an explicit, per-answer,
+opt-in action** (FORK-PLAN §1a.84). Nothing is ever sent in the background; FilmCraft has no server.
+
+1. **On every Assistant answer** (panel and Ask box): 👍 / 👎, an optional "what should it have
+   said?" box, and **Help improve the Assistant…**.
+2. **Preview before anything leaves:** exactly what is shared, shown as text: the question, the
+   answer, the guide sections it used, FilmCraft version, page / workspace. Ticked off by default
+   and added only if the user ticks them: the current grade's settings (G2.10 facts), the AI4
+   picture facts, and (separate, never pre-ticked) a small frame from their footage. Paths,
+   project / clip / user names and LAN addresses are stripped (the publish script's rules).
+3. **Consent text, shown before sending:** it will be used to train and improve FilmCraft's
+   Assistant, including models released openly; it will be public on GitHub; don't include
+   anything private. The user must tick that they agree.
+4. **Route: GitHub.** "Open on GitHub" opens a pre-filled *New issue* page on the fork's repo (label
+   `assistant-example`, title from the question, body = the previewed text) in the browser; the
+   user submits with their own account. No keys or tokens in the app. A frame can't go in a URL:
+   the issue body says to drag the saved image in, and the image is saved next to the text.
+   Long examples beyond the URL limit are saved and the page says to paste the file.
+5. **Save to file, for anyone:** "Save example…" writes the same previewed text (and the frame, if
+   ticked) to a folder of the user's choosing, for those who'd rather check it or send it another
+   way. Available with or without consent / GitHub.
+6. **On the owner's side:** a script (or a later runner step) reads issues labelled
+   `assistant-example` into the eval set / training pairs after a human review; never into a
+   tune without review (same rule as the training pairs, Q35).
+7. Commands `coach.feedback` (rating, correction) and `coach.shareExample` (`route`: github | file,
+   with the ticked extras) for agents; never crash on a missing browser or an unwritable folder.
+8. **Fork-only: Send to my training inbox (owner, live, 2026-10-15 ~23:45, FORK-PLAN §1a.92; ≈ +2–4 h).** A third
+   button on the owner's build (`FORK-ONLY:` commits, listed in FORK-ONLY.md; `coach.shareExample` `route: inbox`).
+   Nothing goes over the network. Writes **the whole conversation** (every turn, the guide sections each answer used,
+   👍 / 👎 and the correction, selection / on-screen context, the AI4 picture facts, the grade's settings, and the
+   frame when ticked) as one JSON file per conversation to `<data dir>/assistant-inbox/` (follows `--data-dir`;
+   default `~/.local/share/filmcraft-fork/assistant-inbox/`). No stripping (it never leaves the machine; own frames
+   are approved local-only training data). Capped sizes, atomic write, never crashes on an unwritable folder.
+   **Runner side:** a step of the main runner (and `tools/fork/ai-inbox-import.py`) reads new inbox files each run
+   and triages each conversation, whole, into held-out *or* training (never both; creative ones by family), owner
+   corrections become `must` / the reference answer, gap answers go to the gaps list; `origin = "owner-inbox"`.
+   The raw inbox stays out of git; only cleaned cases are committed. Owner read before any tune (Q35) as always.
+
+**Accept:** preview equals what is sent / saved byte for byte (test); nothing leaves without the
+consent tick; stripped fields never appear (test with a project full of private paths and names);
+the GitHub URL opens the right repo with the label; Save works without consent; (fork) the inbox file
+holds every turn and the ticked extras, and the import script turns a test file into a held-out or training case; guide page
+(options: share on GitHub, save and send yourself, or neither, and why). Tag `ai-5`.
+
+## Phase REF: "how do I get this look?" from a picture you like (owner, 2026-10-16; after S1, before C2; ≈ 15–30 h)
+
+FORK-PLAN §1a.93. Builds on AI4 (picture facts, Qwen3-VL, question-aware looking) and the existing
+Shot Match / Gallery (`docs/guide/color/matching.md`).
+
+1. **Bring in a reference picture (≈ 3–5 h):** drop, paste or pick an image file (PNG / JPEG / TIFF
+   via our own decoders; size and pixel caps, hostile-input checks) into the Ask box or the Gallery
+   (`stills.import`, a still without a grade). It is a command with an automation id, like everything.
+2. **Measured difference (≈ 4–6 h):** AI4's `PictureFacts` on the reference (display-referred) and on
+   the current frame after the grade; a short "theirs vs yours" sheet (exposure, contrast, shadow /
+   highlight colour, saturation, skin vs the skin line, black level / letterbox) in the context.
+3. **Grade first pass (≈ 3–6 h):** Shot Match accepts a still as the reference (today only a clip),
+   so the answer's **Do this** builds an ordinary node you can see, adjust or switch off.
+4. **What the picture shows (≈ 3–8 h):** the vision model (question-aware, item 2b) describes what
+   numbers can't: light direction / hardness, depth of field, haze / bloom / halation, grain, framing.
+5. **The answer (≈ 2–5 h):** two parts: **in the grade** (a guide-grounded recipe: nodes, curves,
+   saturation, grain, letterbox) and **on set** (lighting, lens, focus: said plainly, with what can be
+   faked and how close it gets). It never claims to know exactly how the shot was made, and says when
+   the footage is too different for a grade to get there (daylight → neon night).
+
+**Privacy:** the reference picture stays on the machine; never training data, never in an AI5 shared
+example (stripped like other private data). **Accept:** reference fixtures (generated pictures with
+known looks: teal / orange, faded blacks, warm highlights, letterbox, heavy grain) → the measured
+difference names each; Shot Match on a still moves the clip's measured look toward it (test); answers
+stay grounded (0 invented controls) and include both parts; a corrupt / huge / odd image never crashes;
+works with facts only when the vision model is missing. Guide page with options and trade-offs (match
+a still vs a clip vs by eye, beginner vs pro). Tag `ref-1`.
+
+## AI-POOL: a question pool ten times larger (owner, 2026-10-15; Dell lane, alongside AI4)
+
+Grow the assistant's question pools about tenfold for future training and for evaluation that
+catches more regressions (FORK-PLAN §1a.85). Writing work, no GPU: the Dell lane.
+
+| Pool | Before | Target |
+|---|---|---|
+| Advanced eval (`docs/fork/coach-eval/advanced.toml`) | 87 | ~900 (≈ 2 per guide section) |
+| Keyword-coach eval (`questions.toml`) | 126 | ~1 250 |
+| Draft training pairs (`training-pairs.jsonl`) | 885 | ~9 000 |
+
+- **Variety per section** (454 sections): beginner and pro wording, Resolve and Premiere words,
+  short / sloppy phrasings, follow-ups ("and if it's still orange?"), "does FilmCraft have X?" for
+  missing features (gap answers), picture-dependent questions marked `needs_clip` for AI4. The
+  owner's real questions (`origin = "owner-verbatim"`) are the model for tone.
+- **Grounded:** every question names its guide source section(s) and the `must` / `must_not` facts
+  a right answer contains, from the guide's text; no invented features. Existing well-formedness /
+  header tests apply; generator scripts live under `tools/fork/`.
+- **Splits, never mixed:** a held-out **test set** the model never trains on (the eval files), a
+  **training set** (the pairs), and a fixed **daily sample** of ~150 test questions for quick GPU
+  runs (the full ~900 takes ~40 min on the RX 6700 XT). A check refuses overlap (same or
+  near-same question in both).
+- **More training pairs without rewording test questions (owner, 2026-10-15, FORK-PLAN §1a.87):** the
+  ~9 000 target can't be met with single-section questions (most would paraphrase a held-out one).
+  Add three kinds that don't: (1) **multi-section tasks** spanning two or three sections in the order
+  a job needs them ("grade a log clip, then export it for YouTube"; answer = the steps from each
+  section, in order, with their sources); (2) **follow-up chains** of 2–4 turns (the next question
+  depends on the last answer: "and if it's still orange?", "now only the sky"), stored with the
+  earlier turns as context like the Assistant sends them; (3) **picture-dependent pairs** using AI4's
+  measured-fact sheet (the same wording and fields the engine writes for the model, e.g. a frame
+  600 K warm with clipped highlights) + a question, answered with the guide steps that fit those
+  facts (`needs_clip`). The overlap check still applies (a chain or task whose first question
+  rewords a held-out one is left out). Mix kept balanced across areas; a held-out slice of each new
+  kind joins the test set too, so AI4 is scored on them.
+- **Review:** the owner reads a random 30–50 pairs before any tune uses them (Q35 rule); a fresh-
+  context review samples each batch before merge.
+- **Usage:** mostly Sonnet subagents writing in batches (one at a time on this lane), Opus spot
+  checks; batches per guide area so each merge is small. Floors: the coach eval and retrieval
+  floors stay green (new questions may lower the *rate*, never the counts that passed before).
+- **Done:** the targets reached (or the guide's limit stated, if fewer sections support honest
+  questions), splits checked, a ~150-question daily sample chosen, counts in HANDOFF; marker
+  `.dell-pool-complete`.
+
+## Phase AI6: the hands-on assistant, and Claude as co-editor over MCP (owner, 2026-10-15; before Phase 7; ≈ 135–255 h)
+
+Goal: "guide me through a full YouTube video" (grading, Fusion, voice-over, cuts) becomes realistic, and Phase
+7's real-edit check (Y4) is done with the Assistant's help (FORK-PLAN §1a.88). In this order:
+
+1. **Do it for me (≈ 25–45 h).** Answers carry **Do this** actions: the model proposes commands and
+   values only; FilmCraft checks them against the real command list and parameters (nothing invented
+   runs), shows exactly what will change, runs them as one undo step on the user's click, and
+   outlines what changed. Destructive or file-writing commands always ask separately.
+2. **Knows your edit (≈ 20–35 h).** A compact timeline summary (tracks, clips, lengths, markers, gaps) and
+   the transcript (Text panel ▸ Transcript) sent as facts; suggestions the user accepts / rejects: long
+   pauses, filler words, repeated takes, a slow intro, jump-cut candidates (each as a Do-this action).
+3. **Audio facts (≈ 10–20 h):** loudness (LUFS / true peak), noise floor, clipping, voice vs music level per
+   section, like the picture facts.
+4. **Longer memory (≈ 10–15 h):** a whole-session chat with older turns condensed automatically (prompt
+   size stays as today; first words ~1–2 s even in long sessions), and a per-project plan notepad
+   saved with the project.
+5. **Creative suggestions across the video (≈ 60–120 h):** per-shot descriptions (AI4's vision model over
+   every shot, cached) + the facts above → whole-video notes ("the intro drags", "B-roll at 2:10 doesn't
+   match scene 3's grade", "music too loud under the voice"). Mechanical notes are the reliable part;
+   taste-level advice is a second opinion and is labelled so. (A 7–8B tier from the maybe list may help.)
+6. **Claude (or any MCP client) as co-editor (≈ 10–20 h).** FilmCraft's MCP server (`filmcraft-cli mcp`,
+   bridge to the live app) already exposes every command, project / sequence inspection, UI control,
+   screenshots and rendered frames. Add MCP tools / resources for everything above: picture and audio
+   facts, timeline + transcript summary, guide search (`coach.ask` / sections), the project plan notepad,
+   and **proposals** that appear in the app as the same Do-this preview (an MCP client's edits can be
+   set to "ask me first" in Settings, default on for edits, off for read-only calls). A guide page:
+   using Claude Desktop / Claude Code as a co-editor, what is sent (frames, transcript, project
+   details go to the client's provider), the local Assistant as the private / offline option.
+
+**Accept:** a scripted edit of a real-length YouTube-style test project (talking head + B-roll + VO +
+music + one comp) where the Assistant's Do-this actions do the grade, the voice clean-up, the loudness
+pass, and accepted cut suggestions, every action undoable and previewed, 0 invented commands; the same
+project driven over MCP by an external client; no crash on hostile model output (bad commands /
+params refused). Tag `ai-6`.

@@ -1,0 +1,452 @@
+# AI-POOL batch editing-1: editing.md, timeline.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-e1-how-to-start"
+kind = "approach"
+q = "I have 3 hours of footage for a 10 minute video, how do people usually start cutting?"
+sources = ["editing.orders"]
+must = ["no single right order", "rough first then trim: everything usable on the timeline, then cut away", "three-point editing: mark only the good part in the Source monitor", "mixing them is normal"]
+must_not = ["claims one way is correct"]
+style = "beginner"
+
+[[question]]
+id = "pool-e1-three-point-why"
+kind = "pro-practice"
+q = "what's the trade-off of three-point editing compared with throwing everything on the timeline?"
+sources = ["editing.orders", "editing.three-point"]
+must = ["less cleanup later, but you decide more up front", "rough-first is easy to follow but you handle material twice"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e1-add-edit-resolve"
+kind = "tool"
+q = "what's the shortcut to cut at the playhead in the Resolve preset?"
+sources = ["editing.cutting"]
+must = ["Ctrl+B (Cmd+B) runs Add Edit (sequence.addEdit) in the Resolve preset", "Ctrl+K in the Premiere preset"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-e1-cut-all-tracks"
+kind = "tool"
+q = "how do I cut through video and all the audio tracks at once?"
+sources = ["editing.cutting"]
+must = ["Add Edit to All Tracks (sequence.addEditAllTracks)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-razor-key"
+kind = "tool"
+q = "blade tool key?"
+sources = ["editing.cutting"]
+must = ["B in the Resolve preset, C in the Premiere preset (tool.razor)", "back to selection: A in Resolve, V in Premiere"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e1-delete-gap"
+kind = "tool"
+q = "when I delete a clip it leaves a hole, how do I delete and close it up?"
+sources = ["editing.cutting"]
+must = ["Ripple Delete (edit.rippleDelete, Shift+Delete) removes and closes the gap"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-lift-extract"
+kind = "tool"
+q = "what's the difference between lift and extract?"
+sources = ["editing.cutting"]
+must = ["both remove the In to Out range", "Lift leaves a gap, Extract closes it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-extract-key-resolve"
+kind = "tweak"
+q = "there's no key for extract in the Resolve keys"
+sources = ["editing.cutting"]
+must = ["right: the Resolve preset gives Lift and Extract no key yet", "run them from the Timeline menu or the command palette"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-e1-insert-vs-overwrite"
+kind = "tool"
+q = "insert or overwrite, what's the difference"
+sources = ["editing.three-point"]
+must = ["Insert pushes everything after the playhead later", "Overwrite replaces what's under it and moves nothing", "comma / period in Premiere, F9 / F10 in Resolve"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e1-mark-whole"
+kind = "tool"
+q = "can I mark the whole clip under the playhead in one key?"
+sources = ["editing.three-point", "timeline.in-out"]
+must = ["X (markers.markClip)", "Alt+X clears both marks"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-wrong-track"
+kind = "tweak"
+q = "my insert keeps landing on V2 instead of V1"
+sources = ["timeline.targeting", "editing.three-point"]
+must = ["set the source patch (V1 / A1 switches in the track headers) for the tracks it should land on"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-picture-only"
+kind = "tweak"
+q = "how do I bring in just the video from the source monitor without its audio?"
+sources = ["timeline.targeting"]
+must = ["turn source audio off in the track headers' source patch before Insert / Overwrite"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-jkl-speed"
+kind = "tool"
+q = "how do I fast forward through a long clip with the keyboard?"
+sources = ["editing.jkl"]
+must = ["press L repeatedly: each press doubles the speed (2×, 4×, up to 8×)", "K stops, J plays backwards"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-jkl-monitor"
+kind = "tweak"
+q = "pressing L plays the wrong monitor"
+sources = ["editing.jkl"]
+must = ["the keys act on the monitor you last clicked: click the Source or Program monitor first"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e1-kl-slow"
+kind = "gap"
+q = "holding K and tapping L doesn't step a frame like in Premiere"
+sources = ["editing.jkl"]
+must = ["no K+J / K+L frame step or slow shuttle on normal playback", "slow shuttle exists in trim mode (Shift+J / Shift+L)", "use the arrow keys to step frames"]
+must_not = ["claims K+L works"]
+style = "premiere-words"
+
+[[question]]
+id = "pool-e1-shuttle-6k"
+kind = "tweak"
+q = "4x shuttle on my 6.2K files skips a lot of frames"
+sources = ["editing.jkl", "proxies.what"]
+must = ["at 2× and faster 6.2K originals may skip frames", "proxies keep fast shuttling smooth"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e1-trim-tools"
+kind = "tool"
+q = "explain ripple, roll, slip and slide in one go"
+sources = ["editing.trimming"]
+must = ["Ripple: one clip changes length, everything after moves", "Rolling: the cut moves, total length stays", "Slip: which part of the clip shows changes", "Slide: the clip moves between neighbours, which trim"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-trim-resolve-keys"
+kind = "tool"
+q = "where are the ripple and roll tools in the Resolve preset?"
+sources = ["editing.trimming"]
+must = ["the selection tool A already trims by dragging an edit point", "the trim tools are on the toolbar or the command palette (B is the blade)"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-e1-dynamic-trim"
+kind = "multi-step"
+q = "can I trim while the footage plays, to feel the rhythm?"
+sources = ["editing.trimming"]
+must = ["select the edit point and press L or J: the trim plays live (dynamic trimming)", "K stops and keeps it; Shift+J / Shift+L at quarter speed"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e1-trim-undo"
+kind = "tweak"
+q = "I trimmed frame by frame 20 times, can I undo it all at once?"
+sources = ["editing.trimming"]
+must = ["undo puts the whole trim back in one step"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-multicam-make"
+kind = "multi-step"
+q = "two camera interview, how do I set up multicam?"
+sources = ["editing.multicam"]
+must = ["select the clips, Clip ▸ Create Multi-Camera Source Sequence", "line them up by In / Out, timecode, a marker or audio", "put it on the timeline, multicam view, 0 to record, click angles or 1–9"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-multicam-sync"
+kind = "approach"
+q = "my cameras had no shared timecode, how do I sync the multicam?"
+sources = ["editing.multicam"]
+must = ["line the clips up by audio"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-multicam-fix"
+kind = "tweak"
+q = "I switched to the wrong angle during the multicam pass"
+sources = ["editing.multicam"]
+must = ["every switch is an ordinary edit point: trim it", "while stopped, 1–9 switch the angle of the clip at the playhead"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-multicam-flatten"
+kind = "tool"
+q = "how do I turn my finished multicam edit into normal clips?"
+sources = ["editing.multicam"]
+must = ["Flatten (clip.multicamFlatten)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e1-multicam-heavy"
+kind = "approach"
+q = "multicam with four 6.2K cameras stutters badly"
+sources = ["editing.multicam", "proxies.what"]
+must = ["four 6.2K angles is far beyond real-time decoding on one graphics card", "make proxies: multicam is where they help most"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-target-what"
+kind = "tool"
+q = "what does targeting a track actually affect?"
+sources = ["timeline.targeting"]
+must = ["which tracks the keyboard works on: next edit point, pasting, add edit, match frame", "source patch is separate: where Insert / Overwrite land"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-nudge"
+kind = "tool"
+q = "move a clip one frame to the right without the mouse"
+sources = ["timeline.keys"]
+must = ["select it (Select Clip at Playhead) and Nudge right (timeline.nudgeRight); …5 for five frames"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e1-slide-keys"
+kind = "tool"
+q = "is there a keyboard way to slide a clip so the sequence length stays the same?"
+sources = ["timeline.keys"]
+must = ["timeline.slideLeft / slideRight (…5): the clip moves and its neighbours trim"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e1-close-gap"
+kind = "tweak"
+q = "how do I get rid of an empty gap between two clips?"
+sources = ["timeline.keys", "editing.cutting"]
+must = ["select the gap (timeline.selectGap or click it) and Ripple Delete"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-next-edit"
+kind = "tool"
+q = "jump to the next cut on any track"
+sources = ["timeline.navigate"]
+must = ["playhead.nextEditAnyTrack", "playhead.nextEdit uses only the targeted tracks"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-e1-export-range"
+kind = "tool"
+q = "how do I export only part of the timeline?"
+sources = ["timeline.in-out"]
+must = ["Mark In and Mark Out: the range export and render work on"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-lcut-options"
+kind = "approach"
+q = "what are my options for making an L-cut?"
+sources = ["timeline.in-out"]
+must = ["split In / Out in the Source monitor before Insert / Overwrite", "or unlink and trim on the timeline (sync can drift if moved later)"]
+must_not = ["claims one way is the only one"]
+style = "pro"
+
+[[question]]
+id = "pool-e1-marker-source"
+kind = "pro-practice"
+q = "what's the difference between a marker in the source monitor and one on the timeline?"
+sources = ["timeline.markers"]
+must = ["M on the sequence marks the sequence", "in the Source monitor it marks the source clip and travels with every use of that media"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-e1-youtube-chapters"
+kind = "multi-step"
+q = "can I get YouTube chapter timestamps out of my markers?"
+sources = ["timeline.markers"]
+must = ["Export Markers as CSV (markers.exportCsv)", "chapter markers (markers.addChapter) for players that show them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-e1-ripple-markers"
+kind = "tweak"
+q = "my markers stay put when I ripple delete and now they're on the wrong moments"
+sources = ["timeline.markers"]
+must = ["turn on Ripple Sequence Markers (markers.rippleSequenceMarkers)"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-e1k-add-edit"
+q = "cut a clip at the playhead"
+kind = "how"
+origin = "agent"
+page = "editing.md"
+heading = "Cutting clips on the timeline"
+status = "covered"
+facts = ["Add Edit"]
+
+[[coach]]
+id = "pool-e1k-blade"
+q = "blade tool"
+kind = "resolve-word"
+origin = "agent"
+page = "editing.md"
+heading = "Cutting clips on the timeline"
+status = "covered"
+facts = ["B in Resolve preset"]
+
+[[coach]]
+id = "pool-e1k-ripple-delete"
+q = "ripple delete"
+kind = "how"
+origin = "agent"
+page = "editing.md"
+heading = "Cutting clips on the timeline"
+status = "covered"
+facts = ["Shift+Delete"]
+
+[[coach]]
+id = "pool-e1k-overwrite"
+q = "overwrite edit"
+kind = "how"
+origin = "agent"
+page = "editing.md"
+heading = "Three-point editing"
+status = "covered"
+facts = ["period in Premiere, F10 in Resolve"]
+
+[[coach]]
+id = "pool-e1k-jkl"
+q = "jkl shuttle"
+kind = "how"
+origin = "agent"
+page = "editing.md"
+heading = "JKL: playing and shuttling with three keys"
+status = "covered"
+facts = ["L doubles speed"]
+
+[[coach]]
+id = "pool-e1k-slip"
+q = "slip tool"
+kind = "premiere-word"
+origin = "agent"
+page = "editing.md"
+heading = "Trimming"
+alt = [{ page = "timeline.md", heading = "Selecting and moving clips from the keyboard" }]
+status = "covered"
+facts = ["which part of the clip shows changes"]
+
+[[coach]]
+id = "pool-e1k-multicam"
+q = "multicam"
+kind = "how"
+origin = "agent"
+page = "editing.md"
+heading = "Multicam"
+status = "covered"
+facts = ["Create Multi-Camera Source Sequence"]
+
+[[coach]]
+id = "pool-e1k-patch"
+q = "source patching"
+kind = "premiere-word"
+origin = "agent"
+page = "timeline.md"
+heading = "Track targeting and source patching"
+status = "covered"
+facts = ["V1 / A1 switches"]
+
+[[coach]]
+id = "pool-e1k-nudge"
+q = "nudge clip one frame"
+kind = "how"
+origin = "agent"
+page = "timeline.md"
+heading = "Selecting and moving clips from the keyboard"
+status = "covered"
+facts = ["timeline.nudgeLeft / nudgeRight"]
+
+[[coach]]
+id = "pool-e1k-next-edit"
+q = "go to next edit point"
+kind = "how"
+origin = "agent"
+page = "timeline.md"
+heading = "Moving around the timeline"
+status = "covered"
+facts = ["playhead.nextEdit"]
+
+[[coach]]
+id = "pool-e1k-jcut"
+q = "split edit"
+kind = "how"
+origin = "agent"
+page = "timeline.md"
+heading = "In and Out points, and split edits"
+status = "covered"
+facts = ["separate audio and video In / Out"]
+
+[[coach]]
+id = "pool-e1k-marker"
+q = "add a marker"
+kind = "how"
+origin = "agent"
+page = "timeline.md"
+heading = "Markers"
+status = "covered"
+facts = ["M"]
+
+[[coach]]
+id = "pool-e1k-chapter-typo"
+q = "chaptr markers"
+kind = "typo"
+origin = "agent"
+page = "timeline.md"
+heading = "Markers"
+status = "covered"
+facts = ["markers.addChapter"]

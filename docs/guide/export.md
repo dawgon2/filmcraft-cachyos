@@ -1,6 +1,6 @@
 # Export: presets, hardware H.265 and quality
 
-**[FilmCraft] [Fork]** · turning a finished sequence into a file: picking a preset, how the
+**[Revolution] [Fork]** · turning a finished sequence into a file: picking a preset, how the
 H.265 (HEVC) encoder is chosen and when it falls back, bitrate versus constant quality, and what
 happens to HDR sequences
 
@@ -8,9 +8,9 @@ happens to HDR sequences
 
 > id: export.why | does: exporting renders every frame with its grade and effects into a file | resolve: Deliver page | premiere: Export mode | when: the edit is finished | see: export.open
 
-**[FilmCraft]**
+**[Revolution]**
 
-Exporting is the last step of every edit: FilmCraft renders each frame of the sequence (with every
+Exporting is the last step of every edit: Revolution renders each frame of the sequence (with every
 grade and effect) and hands it to an encoder that writes the file. The two choices that matter
 most are **which preset** you start from (it sets the format, size and quality in one go) and
 **how the size of the file is decided** (a target bitrate, or a constant quality). Everything
@@ -21,7 +21,7 @@ does: settings on the left, a preview in the middle, a queue on the side.
 
 > id: export.open | does: opens the Export page with the sequence's file name, location and format | ui: header.mode.export, export.fileName, export.location, export.format | cmd: file.exportMedia | resolve: Deliver page | premiere: Export mode | when: making a file of the sequence | see: export.presets
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Click **Export** in the header {ui:header.mode.export}, or choose File ▸ Export ▸
    **Media…** (`file.exportMedia`; Ctrl+M).
@@ -34,9 +34,9 @@ does: settings on the left, a preview in the middle, a queue on the side.
 
 ## Choose a preset
 
-> id: export.presets | does: chooses or saves a set of export settings for where the file is going | ui: export.preset, export.preset.more, presetManager.* | cmd: export.presets.list, export.presets.save | resolve: render presets | premiere: export presets, Preset Manager | when: YouTube, a master file, a quick review copy | see: export.hevc
+> id: export.presets | does: chooses or saves a set of export settings for where the file is going | ui: export.preset, export.preset.more, presetManager.* | cmd: export.presets.list, export.presets.save | resolve: render presets | premiere: export presets, Preset Manager | when: YouTube, a master file, a quick review copy; saving export settings to reuse next time | see: export.hevc
 
-**[FilmCraft] [Fork]**
+**[Revolution] [Fork]**
 
 A preset is a saved set of export settings. Start from the one closest to where the file is
 going, then change only what you need (the Preset box then says "Custom"). The fork adds six
@@ -58,12 +58,12 @@ H.265 presets for 6.2K footage to upstream's list:
 
 ## How H.265 is encoded, and when it falls back
 
-> id: export.hevc | does: H.265 is encoded by the graphics card's video engine, falling back when it can't | ui: export.video.hevcEncoder, export.video.hwEncodeSpeed, export.video.exportEngines | cmd: export.lanes, export.lanesNote | resolve: Encoder: hardware / native | premiere: Hardware Encoding | when: export is slow or a setting is greyed out | see: hardware.jobs
+> id: export.hevc | does: H.265 is encoded by the graphics card's video engine, falling back when it can't | ui: export.video.hevcEncoder, export.video.hwEncodeSpeed, export.video.exportEngines | cmd: export.lanes, export.lanesNote | resolve: Encoder: hardware / native | premiere: Hardware Encoding | when: export is slow or a setting is greyed out; a 4:2:0 or 4:2:2 master; an export that won't play on a client's Mac or Apple device (hvc1); playing a game while it exports | see: hardware.jobs
 
 **[Fork]**
 
 On this machine H.265 is normally encoded by the graphics card's **video engine** through
-VA-API, inside FilmCraft, with the rendered pictures going straight into the encoder's memory
+VA-API, inside Revolution, with the rendered pictures going straight into the encoder's memory
 (see [hardware.md](hardware.md)). It is fast enough to export 6.2K at around 18–20 frames per
 second. When it can't be used, the export doesn't fail: it moves to the next encoder.
 
@@ -71,13 +71,26 @@ The **Encoder** choice {ui:export.video.hevcEncoder} (Video section, only shown 
 
 | Choice | What happens |
 |---|---|
-| **Auto (hardware if available)** | the video engine in FilmCraft; if it refuses the size or profile, or fails part-way, the system ffmpeg's VA-API encoder carries on, then software x265 |
+| **Auto (hardware if available)** | the video engine in Revolution; if it refuses the size or profile, or fails part-way, the system ffmpeg's VA-API encoder carries on, then software x265 |
 | **Hardware (VA-API)** | the video engine only; the export stops with a message rather than fall back to software |
 | **Software (x265)** | the system ffmpeg's x265 encoder: slower, often a little smaller at the same quality |
 
 1. Leave **Auto** unless you have a reason. Pick **Hardware (VA-API)** when you'd rather know
    than wait for a slow software export; pick **Software (x265)** for archives.
 2. After an export, `perf.stats` names the encoder that was actually used.
+
+**[Fork] With an NVIDIA graphics card on Linux** (a laptop such as the XPS 16, or a desktop
+card), **Auto** also uses NVIDIA's encoder (NVENC) for 8-bit SDR 4:2:0 H.265:
+
+- when the export renders on the NVIDIA GPU (Settings ▸ Playback ▸ **Graphics device** is
+  Performance, or Auto on a machine whose fastest GPU is NVIDIA), NVENC goes first, so the
+  pictures don't cross to another GPU's video engine;
+- otherwise it comes after the VA-API encoders and before software x265.
+
+10-bit, HDR and 4:2:2 exports keep using VA-API or x265 (NVIDIA's encoder has no 4:2:2, and its
+10-bit path on Linux is still to be checked on a real card). **Hardware (VA-API)** never uses
+NVENC. If NVENC stops part-way through an export (the card is lost, the driver resets) the
+export ends with a message naming NVENC; export again, or pick **Hardware (VA-API)**.
 
 **Chroma.** Why: delivery files (YouTube, phones) halve the colour detail in both directions
 (4:2:0). Cameras such as the X-M5 can record 4:2:2, which keeps every row of colour; keying and
@@ -86,7 +99,7 @@ heavy grading later hold up better when the master keeps it too. The **Chroma** 
 
 1. Keep **4:2:0 (delivery)** for anything you upload or send to be watched.
 2. Pick **4:2:2 (master, 10-bit)** for a master you will grade or cut again. It is always 10-bit,
-   so the Profile choice is hidden. FilmCraft picks a video engine that can encode it by
+   so the Profile choice is hidden. Revolution picks a video engine that can encode it by
    itself (here Intel's: the AMD card has none); on a machine without one the export falls back
    to software x265, which is slow at 6.2K. Many players and phones can't play 4:2:2 HEVC; that is expected for a master.
 
@@ -99,7 +112,7 @@ Hardware; command parameter `hwEncodeSpeed` of `file.exportMedia`):
 
 | Choice | What happens |
 |---|---|
-| **Driver default** | FilmCraft sends no setting; the graphics driver uses its own default (what every earlier FilmCraft export did) |
+| **Driver default** | Revolution sends no setting; the graphics driver uses its own default (what every earlier Revolution export did) |
 | **Speed** | the fastest level the driver offers |
 | **Balanced** | the middle of the driver's range |
 | **Quality** | the best quality level the driver offers (slowest) |
@@ -109,13 +122,17 @@ Hardware; command parameter `hwEncodeSpeed` of `file.exportMedia`):
 2. Drivers offer different numbers of levels (here the AMD card reports 32, the Intel graphics 7),
    so the same choice is not the same speed on both. The ffmpeg VA-API fallback gets the same
    level (`-compression_level`); **Software (x265)** ignores it and uses its own preset.
+3. **[Fork]** On an NVIDIA graphics card (NVENC, the H.264 hardware encoder everywhere and H.265
+   on Windows) the choice picks one of NVIDIA's seven presets: Driver default is P5 (what
+   Revolution always used), Speed P1, Balanced P4, Quality P7. A driver that doesn't know the
+   chosen preset gets P5, so the export still runs.
 
 Resolve and Premiere expose encoder effort only for some encoders and under their own names;
 here one choice is mapped onto whatever range the driver reports.
 
 **Two GPUs (Export engines).** [Fork] Why: on a machine with two graphics chips that can both
 encode H.265 (here the AMD card and the Intel graphics in the processor), each one can export a
-different part of the timeline at the same time, and FilmCraft joins the parts into one file.
+different part of the timeline at the same time, and Revolution joins the parts into one file.
 For a long 6.2K export that is the difference between slower and faster than real time. It
 costs more memory and keeps both chips busy, so it is a choice, not a rule.
 
@@ -126,13 +143,13 @@ Hardware, under Encoder speed; command parameter `exportEngines` of `file.export
 | Choice | What happens |
 |---|---|
 | **Auto** | the main chip, plus the second one when it makes the export faster: an export without effects or a grade that qualifies (H.265, 4:2:0, a second chip that encodes, enough free memory); otherwise one |
-| **Primary GPU only** | one chip, as every earlier FilmCraft export did |
+| **Primary GPU only** | one chip, as every earlier Revolution export did |
 | **All GPUs** | every chip that can encode; if the export doesn't qualify it runs on one and the export log says why |
 
 1. Leave **Auto** for most exports. Why Auto leaves graded exports on one chip: with effects, a
    grade, noise reduction or a colour-space interpretation (Log footage) on the clips, the Intel
    graphics render only a few frames per second at full precision, so they would add nothing
-   (FilmCraft would try them and then drop them, which wastes a few seconds). Plain exports gain a
+   (Revolution would try them and then drop them, which wastes a few seconds). Plain exports gain a
    lot (4K about 34 instead of 25 frames per second). The **?** next to the choice
    {ui:export.video.exportEngines.help} says the same. [Fork]
    **But the second chip can still decode for the first.** When the export is smaller than the
@@ -161,7 +178,7 @@ Speed (fork step 6E.3, measured on synthetic test footage, AMD RX 6700 XT + Inte
 6.2K about 26 frames per second on both chips against 19 on one; 4K about 34 against 25.
 **A chip that is much slower drops out by itself.** The Intel graphics share the computer's memory,
 so a heavily graded export (Lumetri, curves, sharpening) runs at a few frames per second on them
-and would hold back the AMD card. After a few seconds FilmCraft compares the two: a chip at less
+and would hold back the AMD card. After a few seconds Revolution compares the two: a chip at less
 than a quarter of the other's speed is stopped, and its part goes back to the faster one; at the
 very end, when the faster chip is idle and would finish the slower one's last part sooner from
 the start, it takes it over. So **All GPUs** (which also tries the second chip on graded exports) is never meant to be
@@ -178,14 +195,37 @@ Neither Resolve nor Premiere offers to split one export across two graphics chip
 render queue can use several machines (remote rendering), which is a different feature.
 
 The software fallbacks run the system ffmpeg as a separate program. The fork plan removes them in
-Phase 7 (FilmCraft's own encoders become the fallback), so treat them as a safety net, not a
+Phase 7 (Revolution's own encoders become the fallback), so treat them as a safety net, not a
 feature.
+
+## Export a looping GIF
+
+> id: export.gif | does: exports a short range of the sequence as a silent, endlessly looping animated GIF | ui: export.preset, export.format, export.range | cmd: file.exportMedia | resolve: no GIF in the Deliver page | premiere: Animated GIF format | when: a reaction GIF, a meme, a looping clip for a chat, a forum or a README; a short silent loop | see: export.presets
+
+**[Revolution]**
+
+A GIF is a picture format that plays as a short silent loop almost anywhere (chats, forums, web
+pages). It has only 256 colours per frame and makes large files, so keep it short and small:
+a few seconds at 640×360 and 15 frames per second is the usual size. Resolve's Deliver page has
+no GIF format; Premiere's Animated GIF works the same way as this.
+
+1. Set an In and an Out point around the moment you want (I and O on the timeline), so only
+   that part is exported.
+2. Open the Export page (`file.exportMedia`) and pick the preset **Animated GIF 640×360**
+   {ui:export.preset} (640×360 at 15 fps), or choose **Animated GIF** in **Format**
+   {ui:export.format} and set your own size and frame rate.
+3. Set **Range** {ui:export.range} to **In to Out**.
+4. Click **Export**. The file loops forever; there is no sound in a GIF, so the audio settings
+   are ignored.
+
+From the command line: `filmcraft-cli export clip.gif --format gif --range inOut` (or
+`--start` / `--end` in seconds).
 
 ## Bitrate or constant quality
 
 > id: export.bitrate-crf | does: aims an encoder at a file size (bitrate) or a quality (CRF) | ui: export.video.bitrateMode, export.video.crf | resolve: Quality: restrict to / automatic | premiere: Bitrate Encoding: CBR, VBR | when: a file must fit a size or stay under a limit (so many GB, an upload cap), or look a certain way | see: export.presets
 
-**[Standard] [FilmCraft]**
+**[Standard] [Revolution]**
 
 An encoder can aim for a **size** (a bitrate: so many megabits per second) or for a **quality**
 (it spends as many bits as each moment needs). A bitrate is predictable, which upload sites and

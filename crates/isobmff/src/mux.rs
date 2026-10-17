@@ -46,11 +46,13 @@ pub struct TrackConfig {
     pub media_start: Option<i64>,
     /// `hdlr` name; a sensible default is used when `None`.
     pub handler_name: Option<String>,
+    /// `tkhd` transformation matrix (e.g. a phone's display rotation); identity when `None`.
+    pub matrix: Option<[i32; 9]>,
 }
 
 impl TrackConfig {
     pub fn new(entry: SampleEntry, timescale: u32) -> Self {
-        TrackConfig { entry, timescale, language: "und".into(), edits: Vec::new(), media_start: None, handler_name: None }
+        TrackConfig { entry, timescale, language: "und".into(), edits: Vec::new(), media_start: None, handler_name: None, matrix: None }
     }
 }
 
@@ -240,7 +242,7 @@ fn write_trak(b: &mut BoxBuf, t: &WTrack, movie_ts: u32, qt: bool, shift: u64, f
     b.u16(0);
     b.i16(if t.handler == Handler::Audio { 0x100 } else { 0 });
     b.u16(0);
-    for v in MATRIX {
+    for v in t.cfg.matrix.unwrap_or(MATRIX) {
         b.i32(v);
     }
     let (w, h) = match &t.cfg.entry.video {
@@ -622,8 +624,10 @@ impl<W: Write + Seek> Mp4Writer<W> {
         for i in 0..self.tracks.len() {
             let Some((vi, start)) = self.tracks[i].tmcd_source else { continue };
             let v = &self.tracks[vi];
-            let vd = v.t.media_duration;
-            let vts = v.cfg.timescale;
+            // Span what the video presents (its edit list), not its raw media (pre-roll included).
+            let mts = self.opts.movie_timescale.max(1);
+            let vd = presentation_duration(v, mts);
+            let vts = mts;
             let tts = self.tracks[i].cfg.timescale;
             let tc_dur = match &self.tracks[i].cfg.entry.codec {
                 CodecConfig::Timecode(tc) => tc.frame_duration,

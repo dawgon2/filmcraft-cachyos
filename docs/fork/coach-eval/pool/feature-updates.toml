@@ -1,0 +1,140 @@
+# FEATURE-POOL batch feature-updates (FEATURE-QUEUE row "UPD: once-a-day update check …, Update
+# available window, one-click install with SHA256SUMS check, Settings ▸ Updates, Roll Back").
+# Source: updates.md (updates.why, updates.install, updates.settings, updates.rollback). The queue row
+# also names `updates.commands`; the guide has no such section (the `app.update.*` line sits under
+# updates.rollback), so that id is used instead.
+# Held-out test questions, written from the guide's text (README.md beside this file). No creative
+# family: updating is not a creative goal. The guide doesn't say how often the daily check runs when
+# Revolution stays open for days, nor what `app.update.status` returns, so no question asks.
+# No keyword-coach questions: the keyword coach leaves updates.md out on purpose (coach_ask.rs, "about the
+# app's own updates, not editing"), so none could pass; the Assistant's retrieval does index it.
+# No recipe spot check: the check needs api.github.com and an installed build line on the Dell; the
+# engine's own update_install_tests.rs covers the install path.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-up-what-sent"
+kind = "tool"
+q = "Does Revolution phone home? What exactly does the update check send?"
+sources = ["updates.why"]
+must = ["one request to GitHub (api.github.com) asking for the newest release", "no usage data, no names, no identifiers; GitHub sees your IP address"]
+must_not = ["it sends usage statistics"]
+style = "beginner"
+
+[[question]]
+id = "feat-up-offline"
+kind = "tool"
+q = "i'm offline most of the time on location, will the update thing hang or nag me"
+sources = ["updates.why"]
+must = ["the check runs in the background and never stalls Revolution", "if GitHub doesn't answer it tries again the next day and shows nothing"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-up-resolve-help-menu"
+kind = "tool"
+q = "In Resolve I use Help > Check for Updates. Where is that in Revolution?"
+sources = ["updates.settings", "updates.why"]
+must = ["Settings ▸ Updates: Check Now", "Revolution also checks by itself once a day"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-up-premiere-cc"
+kind = "tool"
+q = "Premiere updates through the Creative Cloud app. How does Revolution get new versions?"
+sources = ["updates.why", "updates.install"]
+must = ["a daily check inside the app opens an Update available window", "Update downloads, checks and installs the new build beside the running one"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "feat-up-three-choices"
+kind = "tool"
+q = "The Update available window popped up in the corner. What do Update, Later and Don't check each do?"
+sources = ["updates.install"]
+must = ["Update downloads, checks and installs the new build", "Later closes it; it asks again only for an even newer build", "Don't check turns the daily check off (back on in Settings ▸ Updates)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-up-safe-tampered"
+kind = "tool"
+q = "How does Revolution make sure the downloaded build isn't corrupted or tampered with?"
+sources = ["updates.install"]
+must = ["checked against the release's published checksums (SHA256SUMS)", "a damaged or tampered file is refused"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-up-interrupted"
+kind = "tool"
+q = "My wifi dropped halfway through downloading an update. Is my Revolution broken now?"
+sources = ["updates.install"]
+must = ["no: if anything fails the running build stays as it was", "half-finished downloads are removed (at the latest by the next update)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-up-keep-working"
+kind = "tool"
+q = "Do I have to stop editing while it installs an update, and when does the new version actually start?"
+sources = ["updates.install"]
+must = ["you can keep working; a bar shows the progress", "Restart Now, or the next start from the launcher opens the new build"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-up-restart-unsaved"
+kind = "tool"
+q = "If I hit Restart Now with unsaved changes, do I lose them?"
+sources = ["updates.install"]
+must = ["Restart Now closes Revolution as usual and asks about unsaved work first", "then starts the new build"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-up-flatpak"
+kind = "tool"
+q = "I installed Revolution from a Flatpak and the window only offers Open the Release Page. Why no Update button?"
+sources = ["updates.install", "updates.why"]
+must = ["this copy wasn't installed by the build procedure, so it offers the release page instead", "packaged builds are updated by the people who packaged them"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-up-turn-off"
+kind = "tool"
+q = "how do i stop filmcraft checking for updates every day"
+sources = ["updates.settings"]
+must = ["Edit ▸ Preferences ▸ Updates: untick Check for updates every day", "or Don't check for updates in the window; app.update.setEnabled with enabled false"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-up-rollback"
+kind = "tool"
+q = "The new build broke my export. Can I go back to the version I had yesterday?"
+sources = ["updates.rollback"]
+must = ["Settings ▸ Updates: Roll Back to … (the build the update replaced)", "the launcher points back at it; the next start opens it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-up-rollback-offered-again"
+kind = "tool"
+q = "After rolling back, will the update check just keep offering me the broken build?"
+sources = ["updates.rollback"]
+must = ["yes, the newer build stays in its folder and the next check offers it again", "choose Later or turn the check off while you wait for a fix"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-up-script"
+kind = "tool"
+q = "Which commands let a script check for, install and roll back Revolution updates?"
+sources = ["updates.rollback"]
+must = ["app.update.check, app.update.status, app.update.install, app.update.rollback, app.update.setEnabled", "command.list shows their parameters"]
+must_not = []
+style = "pro"

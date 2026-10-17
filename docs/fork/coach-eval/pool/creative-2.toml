@@ -1,0 +1,325 @@
+# AI-POOL batch creative-2 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families (`family`; a family is all held out or all training). Nine families:
+# two extend creative-1's (ghost-figure, day-to-night-street) with variants; seven are new (double
+# exposure, blurring a moving face, colour pop, vertical reframe, music ducking, removing a passer-by,
+# a label that follows something). Every `must` is a plan sub-goal from the guide's own text; gap
+# families say the gap with the guide's workaround (listed in creative-gaps.md). Admitted-gap
+# families here: ghost-figure, remove-passer-by (2 of 9). Held-out only.
+
+# --- ghost-figure (variants of creative-1's pool-cr1-ghost) ---
+
+[[question]]
+id = "pool-cr2-ghost-handheld"
+kind = "creative"
+family = "ghost-figure"
+q = "I filmed handheld, can I still turn the person walking through into a see-through ghost?"
+sources = ["practice.editing.clean-plate", "effects.opacity", "tracking.what"]
+must = ["the clean-plate route needs a locked-off camera: with a handheld shot the empty take no longer lines up (only with tracking and luck)", "the ghost itself: the masked person on a track above, lower Opacity and a Screen blend mode, mask tracked with masks.track", "Revolution can't remove the person and fill in behind them automatically"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-ghost-pro"
+kind = "creative"
+family = "ghost-figure"
+q = "Ghost comp: talent on a locked-off plate, I want them semi-transparent with a soft glow over an empty background plate. Node-wise how would you build it?"
+sources = ["compositor.basics", "compositor.masks", "practice.editing.clean-plate", "effects.opacity"]
+must = ["a comp: Media In for the empty plate as background, Media In of the take through a Mask node around the talent, Merge with low opacity and a Screen / Add blend", "a Blur node on the masked talent softens it", "the plate must be from the same locked-off camera and light"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr2-ghost-premiere"
+kind = "creative"
+family = "ghost-figure"
+q = "in premiere I'd duplicate the layer, mask the person and drop opacity for a ghost. same thing here?"
+sources = ["effects.opacity", "practice.editing.clean-plate"]
+must = ["yes: the clip on a track above with a mask on Opacity (masks.add), feathered, tracked if they move (masks.track)", "Opacity down (around 20–40 %) and Blend Mode Screen or Linear Dodge (Add) so only the bright parts show", "to make the real person vanish underneath, the base track needs a clean plate; there's no automatic removal"]
+must_not = []
+style = "premiere-words"
+
+# --- day-to-night-street (variants of creative-1's pool-cr1-day-to-night) ---
+
+[[question]]
+id = "pool-cr2-night-resolve"
+kind = "creative"
+family = "day-to-night-street"
+q = "day for night on a sunny exterior, what nodes would you stack? I'm used to resolve"
+sources = ["practice.grading.day-for-night", "color.secondaries.windows", "color.primaries.panel"]
+must = ["a node with Gain / Gamma down, Temperature cool and Saturation low", "a gradient window to darken the sky most", "ellipse windows to keep practical lights and faces brighter; hard shadows and a bright sky give it away"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-cr2-night-sloppy"
+kind = "creative"
+family = "day-to-night-street"
+q = "make my afternoon park clip look like its night time"
+sources = ["practice.grading.day-for-night", "color.secondaries.windows"]
+must = ["much darker, cooler and less saturated overall", "darken the sky with a gradient window; keep lights and eyes brighter with windows", "it works best when the sky isn't in shot and the sun was behind the subject"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr2-night-lumetri"
+kind = "creative"
+family = "day-to-night-street"
+q = "can I do a day-to-night look just with Lumetri sliders?"
+sources = ["color.lumetri.panel", "practice.grading.day-for-night", "color.lumetri.which"]
+must = ["Lumetri Basic Correction: Exposure down, Temperature cooler, Saturation lower", "a Lumetri Vignette darkens the edges, but keeping single lights bright needs shapes: windows on a node in the node grader", "options with trade-offs: Lumetri is quick, the node grader gives windows and qualifiers"]
+must_not = []
+style = "premiere-words"
+
+# --- double-exposure-portrait ---
+
+[[question]]
+id = "pool-cr2-dx-forest"
+kind = "creative"
+family = "double-exposure-portrait"
+q = "how do I make a double exposure where a forest shows inside someone's face"
+sources = ["practice.looks.double-exposure", "effects.opacity"]
+must = ["face on V1, forest on V2; V2's Opacity Blend Mode Screen (or Lighten) at about 50–80 %", "a feathered mask on V2's Opacity keeps the forest inside the figure, tracked if the person moves", "grade both shots first; a calm texture works better than a busy one"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-dx-silhouette"
+kind = "creative"
+family = "double-exposure-portrait"
+q = "silhouette against a white sky filled with city lights, which blend mode?"
+sources = ["practice.looks.double-exposure", "effects.opacity"]
+must = ["Multiply keeps the dark parts: a dark silhouette on a bright background gets filled with the texture", "Screen keeps the bright parts instead and needs a dark texture; Screen can never darken"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr2-dx-many-layers"
+kind = "creative"
+family = "double-exposure-portrait"
+q = "I want three shots blended into one dreamy double exposure, not just two"
+sources = ["practice.looks.double-exposure", "compositor.basics", "effects.opacity"]
+must = ["more than two layers: a comp with Merge nodes, each with its own opacity and blend mode", "or stack clips on several tracks, each with its own Opacity blend mode"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-dx-resolve"
+kind = "creative"
+family = "double-exposure-portrait"
+q = "in resolve I'd set the composite mode to screen for a double exposure, where is that here"
+sources = ["effects.opacity", "practice.looks.double-exposure"]
+must = ["the clip's Opacity effect has the Blend Mode (Resolve's Composite Mode), set with effects.setParam, effect opacity, param blend", "Screen for the classic look; 27 modes, the same list as Premiere's"]
+must_not = []
+style = "resolve-words"
+
+# --- blur-moving-face ---
+
+[[question]]
+id = "pool-cr2-blur-face"
+kind = "creative"
+family = "blur-moving-face"
+q = "blur out a stranger's face who walks past in my vlog"
+sources = ["tracking.follow", "tracking.what", "effects.opacity"]
+must = ["Gaussian Blur (or Mosaic for pixelation) with a mask around the face", "track the mask with Mask Path's track buttons (masks.track) so the blur follows; tracking.blurRegion does the effect, mask and track in one go", "if the track is lost the blur stays, to place by hand"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-blur-plate"
+kind = "creative"
+family = "blur-moving-face"
+q = "pixelate a number plate on a moving car"
+sources = ["tracking.follow", "tracking.what"]
+must = ["Mosaic with an ellipse or rectangle mask on the plate, the mask tracked (tracking.blurRegion with effect mosaic)", "flat areas have nothing to follow: the track stops and says lost track rather than guessing"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr2-blur-crowd"
+kind = "creative"
+family = "blur-moving-face"
+q = "several people in the background need their faces hidden, each moves differently"
+sources = ["tracking.what", "tracking.follow", "effects.opacity"]
+must = ["one mask per face, each tracked on its own (masks.track)", "a blur or Mosaic limited to the masks; check each track and fix lost frames by hand"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr2-blur-premiere"
+kind = "creative"
+family = "blur-moving-face"
+q = "premiere has the mask tracker on mosaic, does filmcraft do face blur tracking too"
+sources = ["tracking.follow", "tracking.what"]
+must = ["yes: a mask on Gaussian Blur or Mosaic with Mask Path's track buttons", "tracking.blurRegion for agents and scripts, each part its own undo step"]
+must_not = []
+style = "premiere-words"
+
+# --- colour-pop-one-colour ---
+
+[[question]]
+id = "pool-cr2-pop-red"
+kind = "creative"
+family = "colour-pop-one-colour"
+q = "make everything black and white except the red umbrella"
+sources = ["color.secondaries.qualifier", "practice.node-trees.outside", "effects.stylize"]
+must = ["on its own node, Pick the umbrella's red with the qualifier (grade.pickQualifier) and refine hue, softness and matte blur", "tick Invert so the node acts on everything except the red, then Saturation to 0 on that node", "quicker: the Leave Color effect (Obsolete ▸ Leave Color) keeps only the Color To Leave; the qualifier route gives more control (no outside node yet: invert the qualifier)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-pop-flicker"
+kind = "creative"
+family = "colour-pop-one-colour"
+q = "colour pop on a yellow taxi but the edges flicker when it drives"
+sources = ["color.secondaries.qualifier", "color.secondaries.windows"]
+must = ["edges that flicker need more Qualifier softness or a little Matte blur, not a wider range", "if the matte catches other yellow things, limit it with a window (tracked to the taxi)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr2-pop-sloppy"
+kind = "creative"
+family = "colour-pop-one-colour"
+q = "sin city style only the lips red rest grey"
+sources = ["color.secondaries.qualifier", "practice.node-trees.outside", "practice.looks.high-contrast-bw"]
+must = ["qualify the red lips on a node, Invert, Saturation 0 for everything else", "a punchy high-contrast monochrome for the rest: deep blacks, bright highlights"]
+must_not = []
+style = "sloppy"
+
+# --- vertical-reframe-follow ---
+
+[[question]]
+id = "pool-cr2-vert-tiktok"
+kind = "creative"
+family = "vertical-reframe-follow"
+q = "turn my horizontal 6.2K clip into a TikTok and keep me in frame as I walk around"
+sources = ["practice.delivery.vertical", "effects.stylize", "practice.youtube.safe-areas"]
+must = ["duplicate the sequence (edit.duplicate), set it to 1080 × 1920 or 2160 × 3840 (sequence.settings) and reposition with Motion Position; open gate leaves room", "Auto Reframe (Video Effects ▸ Transform, Target Aspect Vertical 9:16) follows the subject; or keyframe Position by hand / track it", "keep text out of the bottom fifth and the right edge"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-vert-titles"
+kind = "creative"
+family = "vertical-reframe-follow"
+q = "making a vertical cut of my youtube video, the lower thirds are off screen"
+sources = ["practice.delivery.vertical", "graphics.responsive", "practice.youtube.safe-areas"]
+must = ["titles placed for 16:9 fall outside the vertical frame: move or rebuild them in the vertical sequence", "keep key text near the centre, clear of the platform's buttons; guides in the Program monitor mark the zones"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr2-vert-pro"
+kind = "creative"
+family = "vertical-reframe-follow"
+q = "9:16 deliverable from 3:2 open gate, auto-reframe or manual?"
+sources = ["practice.delivery.vertical", "practice.youtube.punch-in", "effects.stylize"]
+must = ["either: the Auto Reframe effect (Target Aspect Vertical 9:16, Motion Preset slower / faster) in a duplicated 9:16 sequence, or Motion Position per clip by hand for full control", "the 6240 × 4160 frame leaves room to reposition (and punch in) without losing resolution"]
+must_not = []
+style = "pro"
+
+# --- music-duck-under-voice ---
+
+[[question]]
+id = "pool-cr2-duck-auto"
+kind = "creative"
+family = "music-duck-under-voice"
+q = "make the music go quieter by itself whenever I talk, I don't want to draw keyframes"
+sources = ["essential-sound.ducking", "essential-sound.types"]
+must = ["tag the voice Dialogue and the song Music (essentialSound.setType)", "on the music clip turn Ducking on, duck against Dialogue, set sensitivity, reduce amount (−15 dB default) and fades, then Generate Keyframes (essentialSound.generateDucking)", "it writes ordinary Volume keyframes for you: none to draw, but regenerate after re-cutting"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-duck-pumping"
+kind = "creative"
+family = "music-duck-under-voice"
+q = "auto ducking makes the music pump up and down between every word"
+sources = ["essential-sound.ducking", "practice.audio.music-under-dialogue"]
+must = ["pumping: slow the fades or lower the sensitivity and regenerate", "or ride the music fader yourself in Touch mode for music that should breathe"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr2-duck-ambience"
+kind = "creative"
+family = "music-duck-under-voice"
+q = "duck the café ambience and the music under the interview, but not by the same amount"
+sources = ["essential-sound.ducking", "essential-sound.types", "practice.audio.music-under-dialogue"]
+must = ["Ducking is on both Music and Ambience types, each with its own amount (−15 dB music, −10 dB ambience by default)", "music roughly 15–20 dB under the voice while words play"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr2-duck-resolve"
+kind = "creative"
+family = "music-duck-under-voice"
+q = "is there something like Fairlight sidechain ducking for music under VO"
+sources = ["essential-sound.ducking", "mixing.automation"]
+must = ["Essential Sound's Ducking on the music clip writes Volume keyframes against the dialogue (essentialSound.generateDucking)", "or record fader moves as automation during playback"]
+must_not = []
+style = "resolve-words"
+
+# --- remove-passer-by (admitted gap: no object removal) ---
+
+[[question]]
+id = "pool-cr2-remove-walker"
+kind = "creative"
+family = "remove-passer-by"
+q = "someone walked through the back of my tripod shot, can I get rid of them"
+sources = ["practice.editing.clean-plate", "effects.opacity", "media.clips"]
+must = ["no automatic object removal and fill: use a clean plate", "the take on V1, an empty moment on V2 (or a Frame Hold of it, clip.frameHold, if nothing else moves), shown through a feathered, tracked mask on V2's Opacity", "watch for light changes and shadows left behind"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-remove-sign"
+kind = "creative"
+family = "remove-passer-by"
+q = "content-aware fill to remove a logo from a wall in a moving shot"
+sources = ["practice.editing.clean-plate", "effects.opacity", "tracking.what"]
+must = ["Revolution has no content-aware fill / object removal yet", "workarounds: a patch of clean wall on a track above through a tracked mask, or blur / Mosaic the logo with a tracked mask", "a moving camera makes a clean plate hard to line up"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-cr2-remove-comp"
+kind = "creative"
+family = "remove-passer-by"
+q = "do the clean plate removal as a comp instead of tracks"
+sources = ["practice.editing.clean-plate", "compositor.basics", "compositor.masks"]
+must = ["Media In for the take and the empty take, a Mask node on the empty take around the object, Merge it over the take", "feather the mask shape; the object removal itself is still a clean plate, nothing fills in automatically"]
+must_not = []
+style = "pro"
+
+# --- label-follows-object ---
+
+[[question]]
+id = "pool-cr2-label-car"
+kind = "creative"
+family = "label-follows-object"
+q = "put a name tag that sticks to my dog running around"
+sources = ["tracking.follow", "graphics.text", "practice.titles.callouts"]
+must = ["the shot on V1, a graphic with the text on V2; place it on the dog on a clear frame", "Motion's Attach to Track (tracking.attach), Position only for the steadiest label, run forward / backward", "it writes Motion keyframes, one undo step per run"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr2-label-arrow"
+kind = "creative"
+family = "label-follows-object"
+q = "an arrow pointing at a player that follows him and turns as he turns"
+sources = ["tracking.follow", "practice.titles.callouts"]
+must = ["Attach to Track with Position & Rotation (or Position, Scale & Rotation) so the arrow turns with the player", "trade-off: looks glued on but shakes more when the detail is weak; Position only is steadiest"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr2-label-sloppy"
+kind = "creative"
+family = "label-follows-object"
+q = "emoji sticker on a face that moves"
+sources = ["tracking.follow", "tracking.what"]
+must = ["the sticker on a track above, placed on the face, Motion's Attach to Track forward", "what is followed is the detail in a small box around the layer's Position; flat areas lose the track"]
+must_not = []
+style = "sloppy"

@@ -99,8 +99,13 @@ pub struct PlaybackPrefs {
     /// "Graphics device" (L2.6): the GPU that draws the interface and the monitors, as its PCI
     /// `vendor:device` ids in hex (`1002:73df`); "" = Auto (the high-performance GPU, or the one
     /// `DRI_PRIME` / `MESA_VK_DEVICE_SELECT` / `WGPU_POWER_PREF` pick). Takes effect at the next
-    /// start; a GPU that isn't there any more falls back to Auto. Exports choose their own.
+    /// start; a GPU that isn't there any more falls back to Auto. Also `power-saving` /
+    /// `performance` (fork XPS a); exports render on the same GPU unless split across two.
     pub graphics_device: String,
+    /// "Lower playback resolution on battery" (fork XPS d): while a laptop runs on battery,
+    /// playback renders one Playback Resolution step lower (Full → 1/2 …); paused frames and
+    /// exports are unchanged. Off by default.
+    pub battery_preview: bool,
 }
 
 impl Default for PlaybackPrefs {
@@ -117,6 +122,7 @@ impl Default for PlaybackPrefs {
             desktop_media_controls: true,
             desktop_global_shortcuts: false,
             graphics_device: String::new(),
+            battery_preview: false,
         }
     }
 }
@@ -196,6 +202,8 @@ pub struct Preferences {
     pub workflow_return_theme: String,
     /// The dark theme the last workflow switch set by itself ("" = none yet): a different current theme was picked by hand and follows the switch.
     pub workflow_auto_theme: String,
+    /// Update check (fork UPD): once a day, on by default; the first prompt says what it sends.
+    pub update: crate::update::UpdatePrefs,
     /// Fork RS1: this file (or its absence) asks for the one-time switch to Resolve, which the
     /// session performs through `set_workflow` once the keyboard presets are loaded. Never saved.
     #[serde(skip)]
@@ -232,6 +240,7 @@ impl Default for Preferences {
             workflow_return_preset: String::new(),
             workflow_return_theme: String::new(),
             workflow_auto_theme: String::new(),
+            update: Default::default(),
             pending_resolve_migration: false,
         }
     }
@@ -604,10 +613,28 @@ pub fn portable_data_dir(exe_dir: &Path) -> Option<PathBuf> {
     exe_dir.join(PORTABLE_MARKER).is_file().then(|| exe_dir.join("data"))
 }
 
+/// The data folder chosen at launch (`--data-dir`), set once by the app / CLI before anything
+/// reads a per-user folder. Read through [`data_dir`].
+static LAUNCH_DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Remember the launch's `--data-dir` for the whole process, so folders found without the launch
+/// arguments (AI and speech models, [`data_dir`]) use it too. The first call wins.
+pub fn set_launch_data_dir(dir: &Path) {
+    let _ = LAUNCH_DATA_DIR.set(dir.to_path_buf());
+}
+
+/// The folder this process keeps its data in: the launch's `--data-dir` when one was given
+/// ([`set_launch_data_dir`]), else [`default_data_dir`].
+pub fn data_dir() -> Option<PathBuf> {
+    LAUNCH_DATA_DIR.get().cloned().or_else(default_data_dir)
+}
+
 /// The data directory. `FILMCRAFT_DATA_DIR` overrides; a portable install ([`PORTABLE_MARKER`] next
 /// to the executable) uses `<exe dir>/data`; otherwise the per-user directory:
-/// macOS `~/Library/Application Support/FilmCraft`, Windows `%APPDATA%\FilmCraft`,
-/// elsewhere `$XDG_DATA_HOME/filmcraft` or `~/.local/share/filmcraft`.
+/// macOS `~/Library/Application Support/Revolution`, Windows `%APPDATA%\Revolution`,
+/// elsewhere `$XDG_DATA_HOME/revolution` or `~/.local/share/revolution`. Fork rebrand (FORK-PLAN
+/// §1a.103): while the Revolution folder doesn't exist but an older FilmCraft one does, the older
+/// one is used, so settings, presets and recovered work carry over untouched.
 pub fn default_data_dir() -> Option<PathBuf> {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(d) = env("FILMCRAFT_DATA_DIR") {
@@ -616,13 +643,41 @@ pub fn default_data_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::current_exe().ok().and_then(|exe| exe.parent().and_then(portable_data_dir)) {
         return Some(d);
     }
-    if cfg!(target_os = "macos") {
-        return env("HOME").map(|h| h.join("Library/Application Support/FilmCraft"));
+    let (new, old) = if cfg!(target_os = "macos") {
+        let base = env("HOME")?.join("Library/Application Support");
+        (base.join("Revolution"), base.join("FilmCraft"))
+    } else if cfg!(windows) {
+        let base = env("APPDATA")?;
+        (base.join("Revolution"), base.join("FilmCraft"))
+    } else {
+        let base = env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share")))?;
+        (base.join("revolution"), base.join("filmcraft"))
+    };
+    Some(pick_data_dir(new, old))
+}
+
+/// The Revolution folder, or the older FilmCraft one while only that exists.
+fn pick_data_dir(new: PathBuf, old: PathBuf) -> PathBuf {
+    if !new.exists() && old.is_dir() { old } else { new }
+}
+
+#[cfg(test)]
+mod data_dir_tests {
+    use super::pick_data_dir;
+
+    #[test]
+    fn older_filmcraft_folder_is_kept_until_a_revolution_one_exists() {
+        let t = std::env::temp_dir().join(format!("fc-datadir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let (new, old) = (t.join("revolution"), t.join("filmcraft"));
+        assert_eq!(pick_data_dir(new.clone(), old.clone()), new, "fresh install: Revolution");
+        std::fs::create_dir(&old).unwrap();
+        assert_eq!(pick_data_dir(new.clone(), old.clone()), old, "only FilmCraft's: keep using it");
+        std::fs::create_dir(&new).unwrap();
+        assert_eq!(pick_data_dir(new.clone(), old), new, "both: Revolution's");
+        let _ = std::fs::remove_dir_all(&t);
     }
-    if cfg!(windows) {
-        return env("APPDATA").map(|h| h.join("FilmCraft"));
-    }
-    env("XDG_DATA_HOME").map(|d| d.join("filmcraft")).or_else(|| env("HOME").map(|h| h.join(".local/share/filmcraft")))
 }
 
 pub fn unix_now() -> i64 {
@@ -1126,6 +1181,11 @@ impl Worker {
                     p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| s.project.name.clone()),
                 )
             }
+            // a project on a network share auto-saves on this computer (STORAGE-PLAN S1 item 4)
+            Some(p) if crate::netfs::classify(Path::new(p)).is_network() => (
+                self.data_dir.join(names::AUTO_SAVE_DIR),
+                Path::new(p).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| s.project.name.clone()),
+            ),
             Some(p) => {
                 let p = Path::new(p);
                 (names::auto_save_dir(p), p.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| s.project.name.clone()))

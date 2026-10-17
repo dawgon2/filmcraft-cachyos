@@ -1,15 +1,15 @@
 # Proxies
 
-**[Fork] [FilmCraft]** · smaller copies of heavy clips that FilmCraft makes by itself and plays
+**[Fork] [Revolution]** · smaller copies of heavy clips that Revolution makes by itself and plays
 instead of the originals; written for Phase 6.2 (automatic proxies)
 
 ## What a proxy is, and why
 
 > id: proxies.what | does: a smaller copy of a clip shown while editing so heavy footage plays smoothly | resolve: Proxy media / Optimized media | premiere: Proxies | when: 6.2K or other footage the computer can't play live | see: proxies.auto
 
-**[FilmCraft]**
+**[Revolution]**
 
-A **proxy** is a smaller, easier-to-decode copy of a clip. While you edit, FilmCraft can show the
+A **proxy** is a smaller, easier-to-decode copy of a clip. While you edit, Revolution can show the
 proxy instead of the original, so playback stays smooth on footage the computer can't decode at
 full speed. Your edit, your grade and your export are not affected: an **export always reads the
 original files**, at full quality. A clip with a proxy shows a small **P** badge in the Project
@@ -25,7 +25,7 @@ media.
 
 **[Fork]**
 
-You don't have to make proxies yourself. When you import a clip, or open a project, FilmCraft
+You don't have to make proxies yourself. When you import a clip, or open a project, Revolution
 looks at each clip and queues a proxy in the background when it is one of these:
 
 - **4:2:2 H.265 or H.264** (an X-M5 occasional setting). The graphics card's video engine can't
@@ -43,13 +43,13 @@ A finished proxy is attached by itself. Attaching it is not an edit: it adds not
 history, and Undo / Redo keep the proxy in place.
 
 The proxy is half the size of the original, H.265 10-bit made on the graphics card's video
-engine. If the video engine can't encode, FilmCraft makes a ProRes 422 Proxy (half size) instead,
+engine. If the video engine can't encode, Revolution makes a ProRes 422 Proxy (half size) instead,
 by itself, without asking. Proxies have no sound: the sound always plays from the original.
 
 Proxies are written to a **Proxies** folder next to the media (or under Project Settings ▸ Scratch
 Disks ▸ Captured and Generated, when that is set). Their names look like
 `A001_Proxy.0123456789abcdef.mov`: the 16 characters are a fingerprint of the original file, so
-FilmCraft knows which file a proxy was made from. Importing the same file again, or opening it in
+Revolution knows which file a proxy was made from. Importing the same file again, or opening it in
 another project, reuses the proxy instead of making it again.
 
 ## Never in the way
@@ -68,7 +68,7 @@ So making proxies never makes playback drop frames; it only takes longer when yo
 
 ## Watching the progress
 
-> id: proxies.progress | does: badges in the Project panel show each clip's proxy state | cmd: media.proxyStatus | resolve: Proxy status column | premiere: Proxy column | when: checking which clips have proxies | see: proxies.mode
+> id: proxies.progress | does: badges in the Project panel show each clip's proxy state | cmd: media.proxyStatus | resolve: Proxy status column | premiere: Proxy column | when: checking which clips have proxies; what the little P (or a red P !) on a clip means | see: proxies.mode
 
 **[Fork]**
 
@@ -118,14 +118,14 @@ The monitor's **Toggle Proxies** button {ui:program.transport.media.toggleProxie
 proxies**. From Auto, one click turns proxies on for every frame; Auto comes back from the
 Preferences window.
 
-Unlike Premiere, where Toggle Proxies is the only switch, FilmCraft's default (Auto) uses proxies
+Unlike Premiere, where Toggle Proxies is the only switch, Revolution's default (Auto) uses proxies
 only while the picture moves.
 
 ## Making or stopping proxies yourself
 
 > id: proxies.manual | does: makes, attaches or cancels proxies for chosen clips | cmd: media.createProxies, media.attachProxies, media.cancelProxies | resolve: Generate Proxy Media | premiere: Proxy ▸ Create Proxies / Attach Proxies | when: clips the automatic rules skipped; stopping the worker | see: proxies.auto
 
-**[Fork] [FilmCraft]**
+**[Fork] [Revolution]**
 
 To make the automatic proxy for clips that didn't get one:
 
@@ -146,6 +146,6 @@ To stop proxies that are queued or being made:
 **[Fork]**
 
 If you relink a clip to another file (File ▸ Link Media…), or the file on disk was replaced, the
-fingerprint in the proxy's name no longer matches. FilmCraft then detaches the old proxy and makes
+fingerprint in the proxy's name no longer matches. Revolution then detaches the old proxy and makes
 a new one, so a proxy never shows pictures from a different take. Proxies you attached yourself
 (Clip ▸ Proxy ▸ **Attach Proxies…**, `media.attachProxies`) are never touched.

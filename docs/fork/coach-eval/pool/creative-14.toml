@@ -1,0 +1,326 @@
+# AI-POOL batch creative-14 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: tricks and genre pieces. Ten new families: picture pulsing to the music
+# (gap: nothing reacts to audio), a hyperlapse walk, an unboxing with crisp sound, comic speech
+# bubbles, a glowing outline round a dancer (partial gap: no automatic cut-out), a silent-film look,
+# an invisibility cloak, vanishing in a flash, a dolly-zoom (partial: faked), a split two-tone grade.
+# `must` = plan sub-goals from the guide's own text. Held-out only.
+
+# --- music-reactive-pulse (gap) ---
+
+[[question]]
+id = "pool-cr14-pulse"
+kind = "creative"
+family = "music-reactive-pulse"
+q = "make the video pulse and flash with the bass of the song automatically"
+sources = ["shader-effects.recipes", "timeline.markers", "effects.keyframes"]
+must = ["nothing in Revolution reacts to the audio yet", "by hand: markers on the beats (M while playing), then brightness or Scale keyframes on each", "the Pulse shader recipe pulses at a steady rate set in pulses per second, not from the sound: set it to the song's tempo"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-pulse-bpm"
+kind = "creative"
+family = "music-reactive-pulse"
+q = "120 bpm track, I want a zoom bump on every beat"
+sources = ["shader-effects.recipes", "effects.presets", "timeline.markers"]
+must = ["120 bpm = 2 beats a second: the Pulse shader at 2 pulses per second gives a steady brightness beat (it uses time)", "for Scale bumps: make one bump, save it as a preset, apply at each beat marker"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr14-pulse-viz"
+kind = "creative"
+family = "music-reactive-pulse"
+q = "audio spectrum visualizer bars for my music upload"
+sources = ["shader-effects.write", "compositor.basics"]
+must = ["no audio visualiser: effects and shaders don't read the sound", "make the visualiser elsewhere and import it, or use a still with the song"]
+must_not = []
+style = "sloppy"
+
+# --- hyperlapse-walk ---
+
+[[question]]
+id = "pool-cr14-hyperlapse"
+kind = "creative"
+family = "hyperlapse-walk"
+q = "turn my 10 minute walk through the city into a smooth 30 second hyperlapse"
+sources = ["media.clips", "practice.editing.stabilize"]
+must = ["Speed / Duration (clip.speedDuration) to the new length (20× faster)", "Warp Stabilizer with Smooth Motion to steady it (more Smoothness for a glide); auto-scale crops the edges"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-hyperlapse-order"
+kind = "creative"
+family = "hyperlapse-walk"
+q = "stabilize before or after speeding up?"
+sources = ["practice.editing.stabilize", "media.clips"]
+must = ["the stabilizer analyses the clip's camera motion; try it on the sped-up clip and compare with stabilising first (nesting the sped-up clip, clip.nest, is one way to stabilise the result)", "a lower Smoothness if the frame floats"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr14-hyperlapse-blur"
+kind = "creative"
+family = "hyperlapse-walk"
+q = "sped up walk looks jittery and strobey"
+sources = ["media.clips", "practice.editing.stabilize"]
+must = ["Frame Blending (clip.setTimeInterpolation) mixes neighbouring frames for motion blur", "Warp Stabilizer removes the bounce"]
+must_not = []
+style = "sloppy"
+
+# --- crisp-unboxing ---
+
+[[question]]
+id = "pool-cr14-unbox"
+kind = "creative"
+family = "crisp-unboxing"
+q = "unboxing video where the tape and paper sounds are really crisp and satisfying"
+sources = ["essential-sound.controls", "essential-sound.types", "practice.youtube.punch-in"]
+must = ["tag the handling sounds SFX and lift them; Dialogue-type voice with Clarity ▸ EQ (Presence Lift / Bright Air presets) and Reduce Noise for room hiss", "punch-in close-ups on the hands for the key moments"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-unbox-music"
+kind = "creative"
+family = "crisp-unboxing"
+q = "background music but the unboxing sounds should cut through"
+sources = ["essential-sound.ducking", "practice.audio.music-under-dialogue"]
+must = ["keep the music well under: Ducking on the music clip against the SFX (or Dialogue) type", "or ride the music fader yourself"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr14-unbox-overhead"
+kind = "creative"
+family = "crisp-unboxing"
+q = "top-down unboxing, clean white table, product colours true"
+sources = ["practice.looks.commercial", "color.primaries.white-balance"]
+must = ["white-balance on the table (pick a neutral white)", "clean commercial look: white point near the top without clipping the table, gentle contrast"]
+must_not = []
+style = "pro"
+
+# --- comic-speech-bubble ---
+
+[[question]]
+id = "pool-cr14-bubble"
+kind = "creative"
+family = "comic-speech-bubble"
+q = "comic style speech bubbles that follow people's heads"
+sources = ["graphics.layers", "graphics.text", "tracking.follow"]
+must = ["a graphic with a shape layer for the bubble and a text layer, the box pinned to the text so it grows (graphics.pin)", "Attach to Track on its Motion (Position only) so it follows the head"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-bubble-pop"
+kind = "creative"
+family = "comic-speech-bubble"
+q = "bubble should pop in with a bounce"
+sources = ["effects.keyframes", "practice.titles.in-out"]
+must = ["Scale keyframes from 0 to a little over 100 % and back to 100 % over a few frames (eased)", "a matching exit"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr14-bubble-template"
+kind = "creative"
+family = "comic-speech-bubble"
+q = "reusable speech bubble with editable text for a whole series"
+sources = ["graphics.templates", "graphics.responsive"]
+must = ["export it as a template with the text editable (graphics.template.export)", "the bubble pinned to the text so long lines still fit; protected time keeps the pop animation when trimmed"]
+must_not = []
+style = "pro"
+
+# --- glowing-outline (partial gap) ---
+
+[[question]]
+id = "pool-cr14-outline"
+kind = "creative"
+family = "glowing-outline"
+q = "glowing neon outline around a dancer"
+sources = ["effects.stylize", "effects.opacity", "tracking.what"]
+must = ["Edge Glow (Video Effects ▸ Lights & Glows) glows along edges", "to limit it to the dancer: a copy with the effect above the shot, masked to the dancer and tracked or keyframed (no automatic person cut-out)", "a plain or dark background makes the edges cleaner"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-outline-green"
+kind = "creative"
+family = "glowing-outline"
+q = "dancer on green screen, I want a coloured glow outline"
+sources = ["keying.ultra-key", "effects.stylize", "keying.cleanup"]
+must = ["key the green first (Ultra Key), clean the edge", "Edge Glow or Wonder Glow with a Glow Color on the keyed dancer"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr14-outline-roto"
+kind = "creative"
+family = "glowing-outline"
+q = "rotoscope the person so I can outline them"
+sources = ["compositor.masks", "effects.opacity", "tracking.what"]
+must = ["no rotoscoping tool beyond masks: draw a Bézier mask and keyframe its points, track it where possible", "it's slow by hand; shoot on green when you can"]
+must_not = []
+style = "sloppy"
+
+# --- silent-film-look ---
+
+[[question]]
+id = "pool-cr14-silent"
+kind = "creative"
+family = "silent-film-look"
+q = "make it look like an old silent movie from the 1920s"
+sources = ["practice.looks.black-white", "effects.stylize", "color.finishing.grain"]
+must = ["black and white (shift colours, then Saturation 0), strong grain, a vignette", "jerky motion: Posterize Time at a low frame rate (around 16–18) and a slight speed-up", "intertitle cards: text graphics on black between shots"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-silent-titles"
+kind = "creative"
+family = "silent-film-look"
+q = "the black title cards with ornate text between scenes"
+sources = ["media.generated", "graphics.text", "practice.titles.reading-time"]
+must = ["Black Video (or a Color Matte) with a centred text graphic", "keep each card up long enough to read twice"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr14-silent-music"
+kind = "creative"
+family = "silent-film-look"
+q = "silent film with a piano score and the projector flicker"
+sources = ["effects.stylize", "effects.keyframes", "essential-sound.types"]
+must = ["the music typed Music under the whole film", "flicker: small brightness keyframes or Posterize Time stutter; grain on top"]
+must_not = []
+style = "pro"
+
+# --- invisibility-cloak ---
+
+[[question]]
+id = "pool-cr14-cloak"
+kind = "creative"
+family = "invisibility-cloak"
+q = "Harry Potter invisibility cloak effect with a green blanket"
+sources = ["keying.ultra-key", "practice.editing.clean-plate", "keying.check"]
+must = ["locked-off camera: record a clean plate (the scene without you)", "clean plate on V1, the take on V2 with Ultra Key on the green blanket so the plate shows through", "check the matte with Output ▸ Alpha Channel; even light on the blanket keys better"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-cloak-hand"
+kind = "creative"
+family = "invisibility-cloak"
+q = "invisible hand holding a cup, green glove trick"
+sources = ["keying.ultra-key", "practice.editing.clean-plate", "keying.cleanup"]
+must = ["the clean plate with the cup's background below, the take with Ultra Key on the green glove above", "spill suppression on the cup's edges where the glove reflects green"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr14-cloak-handheld"
+kind = "creative"
+family = "invisibility-cloak"
+q = "can the cloak effect work if the camera moves"
+sources = ["practice.editing.clean-plate", "tracking.what"]
+must = ["hard: the clean plate no longer lines up with a moving camera (only with tracking and luck)", "shoot it on a tripod"]
+must_not = []
+style = "pro"
+
+# --- vanish-in-a-flash ---
+
+[[question]]
+id = "pool-cr14-vanish"
+kind = "creative"
+family = "vanish-in-a-flash"
+q = "make myself disappear with a flash of light"
+sources = ["practice.editing.clean-plate", "effects.transitions", "effects.opacity"]
+must = ["tripod: a take with you, then the empty frame; cut between them", "hide the cut with a short Dip to White or a light flash overlay on Screen"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-vanish-smoke"
+kind = "creative"
+family = "vanish-in-a-flash"
+q = "disappear in a puff of smoke"
+sources = ["effects.opacity", "compositor.basics", "practice.editing.jump-cuts"]
+must = ["jump cut from you to the empty frame (locked-off)", "smoke overlay footage on black with Screen over the cut; no particle generator"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr14-vanish-fade"
+kind = "creative"
+family = "vanish-in-a-flash"
+q = "slowly fade out of existence like in Avengers"
+sources = ["practice.editing.clean-plate", "effects.opacity", "effects.keyframes"]
+must = ["clean plate on V1, the take on V2, Opacity keyframed down to 0 (a mask around you fades only you)", "a crumbling-to-dust effect needs particles, which Revolution doesn't have"]
+must_not = []
+style = "pro"
+
+# --- dolly-zoom (partial) ---
+
+[[question]]
+id = "pool-cr14-dolly"
+kind = "creative"
+family = "dolly-zoom"
+q = "the Vertigo dolly zoom effect where the background stretches"
+sources = ["effects.keyframes", "practice.youtube.punch-in", "practice.titles.easing"]
+must = ["the real effect needs the camera to move while the lens zooms", "fake it in the edit: on a shot where the camera pulls back, keyframe Scale up so the subject stays the same size (high-resolution footage gives room)", "eased keyframes so it starts smoothly"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-dolly-track"
+kind = "creative"
+family = "dolly-zoom"
+q = "keep the face locked in place while scaling for a dolly zoom"
+sources = ["tracking.follow", "effects.keyframes"]
+must = ["keyframe Scale and Position together so the face stays put", "tracking writes Motion keyframes for position; scale has to be shaped by hand"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr14-dolly-sloppy"
+kind = "creative"
+family = "dolly-zoom"
+q = "zoom effect where background moves but person stays same"
+sources = ["effects.keyframes", "practice.youtube.punch-in"]
+must = ["needs a shot where the camera moves towards or away from the person", "Scale keyframes counter the move so the person stays the same size"]
+must_not = []
+style = "sloppy"
+
+# --- split-two-tone-grade ---
+
+[[question]]
+id = "pool-cr14-twotone"
+kind = "creative"
+family = "split-two-tone-grade"
+q = "left half of the frame warm and the right half cold for a two-worlds scene"
+sources = ["color.secondaries.windows", "practice.node-trees.outside"]
+must = ["a node with a Rectangle or Linear window on the left half, warmed; another node with the inverted window, cooled", "soften the window edge for a gradual change, or keep it hard for a split"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr14-twotone-move"
+kind = "creative"
+family = "split-two-tone-grade"
+q = "the colour split line should sweep across as the character crosses"
+sources = ["color.secondaries.windows", "color.secondaries.tracking", "effects.opacity"]
+must = ["track the window to the character, or put a differently graded copy on V2 with a keyframed rectangle mask that sweeps across", "the copy route lets you keyframe the mask's position"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr14-twotone-lumetri"
+kind = "creative"
+family = "split-two-tone-grade"
+q = "half warm half cool with only lumetri"
+sources = ["color.lumetri.panel", "effects.opacity"]
+must = ["two copies of the clip: one warm, one cool Lumetri, the top one masked to half the frame (mask on Opacity, feathered)", "feather the mask for a soft split, or leave it hard"]
+must_not = []
+style = "premiere-words"

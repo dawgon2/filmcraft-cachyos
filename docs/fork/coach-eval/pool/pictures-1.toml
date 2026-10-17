@@ -1,0 +1,57 @@
+# AI-POOL batch pictures-1 (FORK-PLAN §1a.87): questions on a frame described by AI4's fact sheet
+# (PictureFacts::sheet wording). Held-out slice: sheets and questions that differ from pictures-1.jsonl.
+
+[[question]]
+id = "pool-pic1-warm-interview"
+kind = "picture"
+facts = "Exposure: mids about 0.2 stops below middle grey; 0% clipped highlights, 0% crushed blacks; contrast 4.7 stops (5–95 %).\nWhite balance: near-neutral areas (24% of the frame) look warm (towards orange), about 3400 K.\nSaturation: moderate.\nSkin-tone colours (faces, or any warm surface): 14% of the frame, about 9° towards yellow from the skin line."
+q = "how do I fix this interview shot?"
+sources = ["color.primaries.white-balance", "practice.grading.balance-first"]
+must = ["near-neutral areas read warm (about 3400 K): an orange cast", "balance on the first node with the WB picker (grade.wb.pick) on something neutral, or Auto balance"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-pic1-underexposed"
+kind = "picture"
+facts = "Exposure: mids about 2.1 stops below middle grey; 0% clipped highlights, 9% crushed blacks; contrast 3.6 stops (5–95 %).\nWhite balance: near-neutral areas (20% of the frame) look neutral, about 6500 K.\nSaturation: low (muted).\nSkin-tone colours (faces, or any warm surface): 6% of the frame, on the skin line."
+q = "the client says it's muddy"
+sources = ["practice.grading.balance-first", "practice.grading.black-white-points"]
+must = ["mids about 2 stops below middle grey with crushed blacks: raise exposure with Offset / Gain on the balance node", "set black and white points on the waveform"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-pic1-clipped-sky"
+kind = "picture"
+facts = "Exposure: mids about 0.4 stops above middle grey; 18% clipped highlights, 0% crushed blacks; contrast 6.0 stops (5–95 %).\nWhite balance: near-neutral areas (16% of the frame) look slightly cool (towards blue), about 7200 K.\nSaturation: moderate.\nSkin-tone colours: little or none in the frame."
+q = "can I get the sky back?"
+sources = ["color.finishing.soft-clip", "practice.mixed-cameras.overexposed"]
+must = ["18% of the frame is clipped: clipped areas hold no detail and turn grey when pulled down", "Highlight soft clip / a curve shoulder to roll off what still has detail"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-pic1-flat"
+kind = "picture"
+facts = "Exposure: mids about 0.1 stops above middle grey; 0% clipped highlights, 0% crushed blacks; contrast 1.9 stops (5–95 %).\nWhite balance: near-neutral areas (38% of the frame) look neutral, about 6400 K.\nSaturation: low (muted).\nSkin-tone colours (faces, or any warm surface): 9% of the frame, on the skin line."
+q = "this looks grey and lifeless"
+sources = ["practice.grading.normalise-log", "practice.grading.contrast-pivot"]
+must = ["very low contrast and saturation: check the input colour space (clip.interpretFootage) is set so log is normalised", "then Contrast around a Pivot at the face, saturation after"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-pic1-skin-magenta"
+kind = "picture"
+facts = "Exposure: mids about 0.0 stops above middle grey; 0% clipped highlights, 0% crushed blacks; contrast 5.0 stops (5–95 %).\nWhite balance: near-neutral areas (30% of the frame) look neutral, about 6500 K.\nSaturation: moderate.\nSkin-tone colours (faces, or any warm surface): 12% of the frame, about 14° towards red / magenta from the skin line."
+q = "faces look a bit purple but the rest is fine"
+sources = ["practice.grading.skin-line", "practice.grading.qualify-skin"]
+must = ["balance is neutral but skin sits towards red / magenta from the skin line", "a skin qualifier on a new node (grade.pickQualifier) with a small hue move, not a global change"]
+must_not = []
+style = "beginner"
+needs_clip = true

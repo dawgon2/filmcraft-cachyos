@@ -1,0 +1,326 @@
+# AI-POOL batch creative-11 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: whole small jobs people bring (a wedding highlight, a house tour, a
+# recipe video) and a few tricks. Ten new families: wedding highlight, real-estate tour, overhead
+# recipe video, gaming montage, a screen-recording tutorial, a sports replay with an arrow, flashes on
+# the beat, a vertical phone clip in a wide video, a memorial slideshow, a recorded lecture with
+# slides. `must` = plan sub-goals from the guide's own text. No admitted-gap family. Held-out only.
+
+# --- wedding-highlight ---
+
+[[question]]
+id = "pool-cr11-wedding"
+kind = "creative"
+family = "wedding-highlight"
+q = "turn 6 hours of wedding footage into a 3 minute highlight video"
+sources = ["practice.editing.selects", "practice.editing.music-beat", "essential-sound.remix"]
+must = ["selects first: watch once, mark the best moments (markers, subclips), be strict", "fit the song to about three minutes with Remix and cut on its phrases (markers on the beats, Snap)", "a warm, gentle grade across all shots"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-wedding-vows"
+kind = "creative"
+family = "wedding-highlight"
+q = "wedding edit: music, but drop to the vows audio for the emotional part"
+sources = ["essential-sound.ducking", "practice.audio.music-under-dialogue", "practice.editing.j-l-cuts"]
+must = ["the vows typed Dialogue, the song Music with Ducking so it dips under them", "let the vows' audio start a little before their picture (J-cut)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr11-wedding-cams"
+kind = "creative"
+family = "wedding-highlight"
+q = "ceremony shot on 2 cameras and a separate audio recorder, put it together"
+sources = ["practice.editing.sync-sound", "editing.multicam", "practice.mixed-cameras.interview"]
+must = ["sync both cameras and the recorder by waveform, make a multicam", "match the two cameras' colour (skin first) before or on the angles"]
+must_not = []
+style = "sloppy"
+
+# --- real-estate-tour ---
+
+[[question]]
+id = "pool-cr11-house"
+kind = "creative"
+family = "real-estate-tour"
+q = "house tour video where the windows are blown out and the walk is wobbly"
+sources = ["practice.editing.stabilize", "practice.mixed-cameras.overexposed", "practice.mixed-cameras.mixed-light"]
+must = ["Warp Stabilizer (Smooth Motion) for the walk-through", "soft clip / curve shoulder for the windows; clipped window areas can't be recovered", "balance for the main light; treat the other light source with a window or qualifier"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-house-titles"
+kind = "creative"
+family = "real-estate-tour"
+q = "room names popping up as we walk through each room"
+sources = ["graphics.templates", "practice.titles.in-out", "practice.titles.lower-third"]
+must = ["one lower-third template with the room name editable, applied at each room", "a matching in and out animation"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr11-house-vertical"
+kind = "creative"
+family = "real-estate-tour"
+q = "need the house tour as a horizontal for the website and vertical for instagram reels"
+sources = ["practice.delivery.vertical", "practice.youtube.batch-export"]
+must = ["duplicate the sequence at 1080 × 1920 and reposition clips", "queue both exports in the export queue"]
+must_not = []
+style = "pro"
+
+# --- overhead-recipe ---
+
+[[question]]
+id = "pool-cr11-recipe"
+kind = "creative"
+family = "overhead-recipe"
+q = "overhead cooking video, speed up the boring stirring and label the ingredients"
+sources = ["media.clips", "practice.titles.callouts", "graphics.text"]
+must = ["cut the long stirring and speed it up with Speed / Duration (Ripple on)", "ingredient labels as text graphics; Attach to Track keeps a label on a moving bowl"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-recipe-punch"
+kind = "creative"
+family = "overhead-recipe"
+q = "one overhead 4K camera but I want close-ups of the chopping too"
+sources = ["practice.youtube.punch-in", "practice.youtube.pattern-interrupt"]
+must = ["punch in with Motion Scale and Position on a 1080p sequence (or 6.2K in 4K)", "alternate wide and punch-in to keep it moving"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr11-recipe-food"
+kind = "creative"
+family = "overhead-recipe"
+q = "food looks dull and bluish under my kitchen lights"
+sources = ["color.recipes.warm", "practice.looks.commercial", "color.primaries.white-balance"]
+must = ["balance first (pick something white, like a plate), then warm it a little", "clean, slightly saturated: white point near the top, gentle contrast"]
+must_not = []
+style = "pro"
+
+# --- gaming-montage ---
+
+[[question]]
+id = "pool-cr11-gaming"
+kind = "creative"
+family = "gaming-montage"
+q = "gaming montage with glitchy transitions synced to the beat"
+sources = ["effects.stylize", "practice.editing.music-beat", "practice.youtube.screen-recordings"]
+must = ["markers on the beats, cuts snapped to them", "Glitch or VHS Damage transitions on some edits (Video Transitions ▸ Grunge & Distort)", "a sequence at the capture's frame rate so motion stays smooth"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-gaming-facecam"
+kind = "creative"
+family = "gaming-montage"
+q = "gameplay with my facecam in the corner and my mic voice clean"
+sources = ["effects.apply", "audio.cleanup-voice", "media.clips"]
+must = ["facecam on V2, Motion Scale down and Position in a corner", "Clean Up Voice on the mic track", "sync facecam and game capture by audio (clip.synchronize)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr11-gaming-vfr"
+kind = "creative"
+family = "gaming-montage"
+q = "OBS recording drifts out of sync over 20 minutes"
+sources = ["practice.youtube.screen-recordings", "media.clips"]
+must = ["variable-frame-rate recordings drift: record at a constant frame rate", "for now, cut and re-sync the audio in sections (clip.synchronize or slip)"]
+must_not = []
+style = "pro"
+
+# --- screen-tutorial ---
+
+[[question]]
+id = "pool-cr11-tutorial"
+kind = "creative"
+family = "screen-tutorial"
+q = "software tutorial where it zooms in on the button I click"
+sources = ["practice.youtube.screen-recordings", "effects.keyframes", "practice.titles.easing"]
+must = ["a sequence at the recording's size and frame rate (file.newSequenceFromClip)", "Motion Scale and Position keyframes for each zoom, eased in and out", "constant-quality export so text stays sharp"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-tutorial-arrow"
+kind = "creative"
+family = "screen-tutorial"
+q = "screen tutorial with arrows and highlight boxes around buttons"
+sources = ["graphics.layers", "practice.titles.callouts", "effects.opacity"]
+must = ["shape layers (arrows, boxes) in a graphic clip over the recording", "or darken everything except the button: a dimmed copy with an inverted rectangle mask"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr11-tutorial-voice"
+kind = "creative"
+family = "screen-tutorial"
+q = "record the voiceover after the screen capture and cut out the ums"
+sources = ["audio.voiceover-record", "text.cleanup", "audio.cleanup-voice"]
+must = ["record the voice-over at the playhead (audio.voiceover.start), then Clean Up Voice", "transcribe and Remove Filler Words / Remove Pauses"]
+must_not = []
+style = "pro"
+
+# --- sports-replay ---
+
+[[question]]
+id = "pool-cr11-replay"
+kind = "creative"
+family = "sports-replay"
+q = "slow motion replay of the goal with an arrow on the scorer"
+sources = ["practice.editing.speed-ramp", "practice.titles.callouts", "tracking.follow"]
+must = ["copy the moment after the live action and set it slower (Speed / Duration, Optical Flow)", "an arrow graphic attached to the player with Attach to Track (Position only)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-replay-freeze"
+kind = "creative"
+family = "sports-replay"
+q = "freeze on the pass and draw the run on the frame, then play on"
+sources = ["file-menu.clip-video", "graphics.layers", "effects.keyframes"]
+must = ["Insert Frame Hold Segment (clip.insertFrameHoldSegment) at the moment", "shape layers (lines, circles) in a graphic over the hold, animated on, then the play continues"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr11-replay-spot"
+kind = "creative"
+family = "sports-replay"
+q = "spotlight one player and darken the rest during the replay"
+sources = ["practice.grading.vignette", "color.secondaries.tracking"]
+must = ["an inverted soft ellipse window on the player with Gain down outside", "track the window so it follows the player"]
+must_not = []
+style = "sloppy"
+
+# --- beat-flashes ---
+
+[[question]]
+id = "pool-cr11-flash"
+kind = "creative"
+family = "beat-flashes"
+q = "white flashes on every beat drop of the song"
+sources = ["practice.editing.music-beat", "effects.transitions", "effects.keyframes"]
+must = ["markers on the drops (M while playing)", "a short Dip to White on the cut at each drop, or an Exposure keyframe bump over a couple of frames"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-flash-strobe"
+kind = "creative"
+family = "beat-flashes"
+q = "strobe light party effect for the dance part"
+sources = ["effects.stylize", "effects.keyframes"]
+must = ["Posterize Time at a low frame rate gives a stuttering strobe feel", "brightness bumps keyframed on the beats; keep flashing gentle and short (flashing can trouble some viewers)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr11-flash-preset"
+kind = "creative"
+family = "beat-flashes"
+q = "same 3-frame flash on 40 beats, fastest way"
+sources = ["effects.presets", "timeline.markers"]
+must = ["build the flash once, save it as a preset (presets.save, keyframes anchored to the In point), apply it at each marker", "or one adjustment layer clip copied to each marker"]
+must_not = []
+style = "pro"
+
+# --- vertical-in-horizontal ---
+
+[[question]]
+id = "pool-cr11-vert-fill"
+kind = "creative"
+family = "vertical-in-horizontal"
+q = "vertical phone video in my 16:9 edit with the blurry background instead of black bars"
+sources = ["file-menu.clip-video", "effects.apply", "effects.opacity"]
+must = ["two copies: the lower one Fill frame (clip.fillFrame) with Gaussian Blur, the upper one Fit to frame (clip.fitToFrame)", "darken or desaturate the blurred copy a little so the sharp one stands out"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-vert-fill-many"
+kind = "creative"
+family = "vertical-in-horizontal"
+q = "blurred-background treatment on 30 vertical clips"
+sources = ["effects.presets", "file-menu.clip-video", "compositor.basics"]
+must = ["save the blur + scale setup as a preset and apply it to the background copies", "or one comp (Media In → Blur behind a fitted Media In) reused per clip"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr11-vert-fill-sloppy"
+kind = "creative"
+family = "vertical-in-horizontal"
+q = "tiktok clip in youtube video black sides ugly"
+sources = ["file-menu.clip-video", "effects.apply"]
+must = ["fill the sides with a blurred, enlarged copy of the same clip behind it (Fill frame + Gaussian Blur)", "the original on top, Fit to frame"]
+must_not = []
+style = "sloppy"
+
+# --- memorial-slideshow ---
+
+[[question]]
+id = "pool-cr11-memorial"
+kind = "creative"
+family = "memorial-slideshow"
+q = "a tribute video for my grandmother with photos and her favourite song"
+sources = ["media.import", "effects.transitions", "essential-sound.remix"]
+must = ["import the photos, lay them out in order with slow moves (Motion Scale / Position keyframes)", "gentle dissolves between them (Apply Default Transitions to Selection)", "fit the song to the length with Remix so it ends properly"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-memorial-titles"
+kind = "creative"
+family = "memorial-slideshow"
+q = "add dates and names under some photos, simple and elegant"
+sources = ["graphics.text", "practice.titles.type-system", "practice.titles.reading-time"]
+must = ["text graphics with one typeface and a few fixed sizes", "keep each caption on screen long enough to read twice"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr11-memorial-old"
+kind = "creative"
+family = "memorial-slideshow"
+q = "scanned prints are faded and yellow, fix them before the slideshow"
+sources = ["color.primaries.white-balance", "color.lumetri.panel", "color.matching.copy-paste"]
+must = ["white-balance each scan (pick a white border or neutral area), lift contrast a little", "copy the correction to similar scans"]
+must_not = []
+style = "pro"
+
+# --- lecture-with-slides ---
+
+[[question]]
+id = "pool-cr11-lecture"
+kind = "creative"
+family = "lecture-with-slides"
+q = "recorded talk: camera on the speaker plus the slides as a screen capture, make it watchable"
+sources = ["editing.multicam", "practice.editing.sync-sound", "audio.cleanup-voice"]
+must = ["sync the camera and the slide capture by audio and make a multicam; cut between speaker and slides", "Clean Up Voice on the speaker's audio"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr11-lecture-pip"
+kind = "creative"
+family = "lecture-with-slides"
+q = "slides full screen with the speaker small in a corner"
+sources = ["effects.apply", "compositor.basics", "practice.titles.safe-margins"]
+must = ["the slides on V1, the speaker on V2 with Motion Scale down and Position in a corner (or a comp with Transform + Merge)", "keep the box inside the margins, clear of slide text"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr11-lecture-chapters"
+kind = "creative"
+family = "lecture-with-slides"
+q = "hour-long lecture: chapters per topic and captions for accessibility"
+sources = ["practice.youtube.chapters", "text.captions", "practice.delivery.captions"]
+must = ["chapter markers at each topic, exported as CSV for the description", "captions from the transcript, delivered as an SRT / VTT file"]
+must_not = []
+style = "pro"

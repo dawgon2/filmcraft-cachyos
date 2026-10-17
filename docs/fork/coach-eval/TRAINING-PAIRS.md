@@ -5,8 +5,8 @@ the fork guide by `tools/fork/ai3-training-pairs.py` (rerun it after guide chang
 
 | kind | from | question form | answer |
 |---|---|---|---|
-| `practice` | a practice note (docs/guide/practice/) | "How do I <technique>?" | the FilmCraft way, why, pitfalls |
-| `mapping` | a practice note's `resolve:` / `premiere:` header | "In Resolve / Premiere I'd use X. How do I do that in FilmCraft?" | the same |
+| `practice` | a practice note (docs/guide/practice/) | "How do I <technique>?" | the Revolution way, why, pitfalls |
+| `mapping` | a practice note's `resolve:` / `premiere:` header | "In Resolve / Premiere I'd use X. How do I do that in Revolution?" | the same |
 | `feature` | a feature section's header and steps | "What does X do?", "What should I use for <when>?" | the header's `does`, then the first steps |
 
 `sources` are compact-header ids (docs/guide/README.md), so an answer can cite them.

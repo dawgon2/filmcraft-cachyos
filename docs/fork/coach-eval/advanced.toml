@@ -3,7 +3,7 @@
 # For scoring candidate models + retrieval in AI3: each question names the guide sections a
 # correct, grounded answer should come from (`sources`: compact-header ids, docs/guide/README.md
 # "Section headers"; any of them counts), facts it must state (`must`) and things it must not do
-# (`must_not`, e.g. invent a control or recommend a tool FilmCraft doesn't have as if it did).
+# (`must_not`, e.g. invent a control or recommend a tool Revolution doesn't have as if it did).
 #
 #   id        stable name
 #   kind      node-role | approach | tweak | tool | multi-step | pro-practice | gap
@@ -67,7 +67,7 @@ must_not = []
 id = "adv-skin-orange"
 kind = "tweak"
 q = "faces went orange after I added saturation"
-sources = ["practice.grading.saturation-order", "practice.grading.skin-line"]
+sources = ["practice.grading.saturation-order", "practice.grading.skin-line", "color.recipes.skin"]
 must = ["skin saturates quickly", "pull saturation back or qualify skin"]
 must_not = []
 
@@ -93,7 +93,7 @@ kind = "approach"
 q = "make it look like film"
 sources = ["practice.looks.film-curve", "practice.grading.grain-finish", "practice.grading.curve-shoulder"]
 must = ["soft toe and shoulder", "grain", "highlight roll-off"]
-must_not = ["claims a film-emulation tool exists that FilmCraft doesn't ship"]
+must_not = ["claims a film-emulation tool exists that Revolution doesn't ship"]
 
 [[question]]
 id = "adv-bleach-bypass"
@@ -332,7 +332,7 @@ id = "adv-glow"
 kind = "gap"
 q = "is there a glow or halation effect?"
 sources = ["practice.node-trees.glow"]
-must = ["not yet", "a blurred, keyed duplicate with Screen / Lighten as a workaround"]
+must = ["glow: Wonder Glow (Video Effects ▸ Lights & Glows)", "no halation effect yet: Wonder Glow with a red-orange colour, or a blurred, keyed duplicate with Screen"]
 must_not = []
 
 [[question]]
@@ -370,7 +370,7 @@ must_not = []
 [[question]]
 id = "adv-gamma-web"
 kind = "pro-practice"
-q = "my grade looks darker on YouTube than in FilmCraft"
+q = "my grade looks darker on YouTube than in Revolution"
 sources = ["practice.delivery.display-gamma", "practice.delivery.check-export"]
 must = ["viewing environment / monitor gamma differences", "check the export on typical screens"]
 must_not = []
@@ -387,7 +387,7 @@ must_not = ["claims they convert into each other"]
 id = "adv-adjustment-layer"
 kind = "approach"
 q = "how do I put one look over a whole scene?"
-sources = ["practice.node-trees.groups", "media.generated"]
+sources = ["practice.node-trees.groups", "media.generated", "practice.grading.look-node"]
 must = ["an adjustment layer with Lumetri", "or append the look node"]
 must_not = []
 
@@ -403,7 +403,7 @@ must_not = []
 id = "adv-shot-match-limits"
 kind = "tweak"
 q = "Shot Match made it close but not quite right"
-sources = ["color.matching.shot-match", "practice.grading.match-order"]
+sources = ["color.matching.shot-match", "practice.grading.match-order", "color.recipes.match"]
 must = ["a first pass", "fine-tune levels then colour"]
 must_not = []
 
@@ -498,7 +498,7 @@ must_not = []
 [[question]]
 id = "adv-grey-card"
 kind = "pro-practice"
-q = "is a grey card worth it and how do I use it in FilmCraft?"
+q = "is a grey card worth it and how do I use it in Revolution?"
 sources = ["practice.mixed-cameras.grey-card"]
 must = ["record it per set-up", "white-balance picker on the card", "copy the node to the set-up's clips"]
 must_not = ["claims automatic chart matching exists"]
@@ -527,7 +527,7 @@ kind = "multi-step"
 q = "how do I put a green screen shot over a background plate with nodes?"
 sources = ["compositor.recipes", "compositor.basics", "compositor.make", "keying.ultra-key"]
 must = ["a Media In for the foreground and a Media In (or Solid) for the background", "a Key node on the foreground", "a Merge node: foreground over background", "the Merge goes to Media Out"]
-must_not = ["sends the user to the Fusion page's 3D tools", "invents a node FilmCraft doesn't have"]
+must_not = ["sends the user to the Fusion page's 3D tools", "invents a node Revolution doesn't have"]
 
 [[question]]
 id = "adv-comp-check-a-node"
@@ -591,7 +591,7 @@ must_not = []
 id = "adv-edit-j-cut"
 kind = "multi-step"
 q = "how do I make the audio of the next shot start before its picture (a J-cut)?"
-sources = ["timeline.in-out", "editing.trimming"]
+sources = ["timeline.in-out", "editing.trimming", "practice.editing.j-l-cuts"]
 must = ["separate audio and video In / Out (split In / Out)", "or roll the audio edit alone"]
 must_not = ["invents a J-cut button"]
 
@@ -648,7 +648,7 @@ must_not = ["tells the user to rebuild the title each time"]
 [[question]]
 id = "adv-text-remove-ums"
 kind = "tool"
-q = "can FilmCraft cut the ums and long pauses out of my interview automatically?"
+q = "can Revolution cut the ums and long pauses out of my interview automatically?"
 sources = ["text.cleanup", "text.transcripts"]
 must = ["transcribe first", "removes long pauses and filler words in one step", "check the result"]
 must_not = []
@@ -683,7 +683,7 @@ kind = "pro-practice"
 q = "how do I send my edit to someone grading in Resolve?"
 sources = ["media.interchange", "projects.resolve", "practice.workflow.handoff"]
 must = ["export the timeline as OpenTimelineIO, FCPXML or EDL"]
-must_not = ["claims FilmCraft writes Resolve project files (.drp)"]
+must_not = ["claims Revolution writes Resolve project files (.drp)"]
 
 [[question]]
 id = "adv-play-heavy-timeline"
@@ -700,3 +700,20 @@ q = "how do I move a project to my laptop?"
 sources = ["projects.export-import", "projects.where"]
 must = ["Export writes an archive: the project plus copies of all its media", "Import it on the other computer", "a project is a .fcproj file, not a database entry"]
 must_not = ["mentions a Resolve-style database"]
+
+[[question]]
+id = "adv-assistant-gpu"
+kind = "tool"
+q = "is this AI running on my gpu?"
+sources = ["color.coach.assistant-where"]
+must = ["a separate graphics card runs it automatically", "built-in graphics: the processor", "how to check (speed or the log)"]
+must_not = ["keyer"]
+
+[[question]]
+id = "adv-lamp-blue-room-natural"
+kind = "approach"
+q = "I want to make the lamp light blue while keeping the room lighting natural looking"
+sources = ["color.recipes.one-light"]
+must = ["isolate the lamp and its glow on its own node (window, optionally a qualifier)", "soft edge so it fades out", "push Gain / Offset towards blue on that node", "the rest of the room untouched"]
+must_not = ["towards orange"]
+

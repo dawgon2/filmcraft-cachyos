@@ -151,10 +151,10 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("mode.import", "Import", [], None),
     uic!("mode.edit", "Edit", [], None),
     uic!("mode.export", "Export", ["File", "Export"], Some("Cmd+M")),
-    uic!("help.discord", "Join the ArtCraft Discord…", ["Help"], None),
-    uic!("help.website", "ArtCraft Website", ["Help"], None),
-    uic!("help.appPage", "FilmCraft on getartcraft.com", ["Help"], None),
-    uic!("help.github", "FilmCraft on GitHub", ["Help"], None),
+    uic!("help.discord", "Revolution Releases…", ["Help"], None),
+    uic!("help.website", "Based on FilmCraft (Original Project)", ["Help"], None),
+    uic!("help.appPage", "Revolution on GitHub", ["Help"], None),
+    uic!("help.github", "Source Code on GitHub", ["Help"], None),
     uic!("help.reportIssue", "Report an Issue…", ["Help"], None),
     // KDE Connect (LINUX-PLAN L2.10): the Project panel's Send via KDE Connect submenu
     uic!("kdeconnect.devices", "Paired Devices (KDE Connect)", [], None),
@@ -174,7 +174,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     uic!("help.revealLogFiles", "Reveal Log Files…", ["Help"], None),
     uic!("help.systemCompatibilityReport", "System Compatibility Report…", ["Help"], None),
     uic!("coach.showLessons", "Grading Lessons…", ["Help"], None),
-    uic!("app.about", "About FilmCraft", ["Help"], None),
+    uic!("app.about", "About Revolution", ["Help"], None),
     uic!("app.keyboardShortcuts", "Keyboard Shortcuts…", ["Edit"], Some("Cmd+Alt+K")),
     uic!("app.settings.general", "General…", ["Edit", "Preferences"], Some("Cmd+,")),
     uic!("app.settings.appearance", "Appearance…", ["Edit", "Preferences"], None),
@@ -699,7 +699,7 @@ pub fn language_of(items: &[MenuItem]) -> crate::i18n::Language {
 
 /// The application menu left of File (fork, owner 2026-10-13): Preferences…, a separator, Quit
 /// FilmCraft. Not in [`MENUS`]: macOS builds its own application menu.
-pub const APP_MENU: &str = "FilmCraft";
+pub const APP_MENU: &str = "Revolution";
 
 /// Items of the application menu that get a separator above them.
 pub const APP_MENU_SEPARATOR_BEFORE: &[&str] = &["app.quit"];

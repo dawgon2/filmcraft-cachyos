@@ -381,6 +381,100 @@ pub fn matmul_q6k(weights: &[BlockQ6K], xs: &[BlockQ8K], cols: usize, out: &mut 
     rows_at::<Q6K>(simd_level(), weights, xs, cols, out)
 }
 
+/// ggml's `make_qkx1_quants` as candle 0.9.2 has it: a scale and a (negated) minimum for 32
+/// values on `nmax` levels, refined `ntry` times.
+fn make_qkx1_quants(nmax: i32, ntry: usize, x: &[f32]) -> (f32, f32) {
+    let min = x.iter().copied().min_by(f32::total_cmp).unwrap_or(0.0);
+    let max = x.iter().copied().max_by(f32::total_cmp).unwrap_or(0.0);
+    if max == min {
+        return (0.0, 0.0);
+    }
+    let mut min = min.min(0.0);
+    let mut iscale = nmax as f32 / (max - min);
+    let mut scale = 1.0 / iscale;
+    let mut l = [0u8; 32];
+    for _ in 0..ntry {
+        let (mut sumlx, mut suml2, mut changed) = (0.0f32, 0i32, false);
+        for (value, li_slot) in x.iter().zip(l.iter_mut()) {
+            let li = ((iscale * (value - min)).round() as i32).clamp(0, nmax);
+            if li as u8 != *li_slot {
+                *li_slot = li as u8;
+                changed = true;
+            }
+            sumlx += (value - min) * li as f32;
+            suml2 += li * li;
+        }
+        scale = sumlx / suml2 as f32;
+        let sum: f32 = x.iter().zip(&l).map(|(xi, &li)| xi - scale * f32::from(li)).sum();
+        min = (sum / x.len() as f32).min(0.0);
+        iscale = 1.0 / scale;
+        if !changed {
+            break;
+        }
+    }
+    (scale, -min)
+}
+
+/// Quantizes weights to Q4_K exactly as candle 0.9.2's `BlockQ4K::from_float` (ggml layout; the
+/// per-32 scales and minimums from [`make_qkx1_quants`]), appending GGUF bytes to `out`
+/// ([`Q4K_BYTES`] per 256 values). `xs.len()` must be whole super-blocks and finite.
+pub fn quantize_q4k_bytes(xs: &[f32], out: &mut Vec<u8>) -> Result<(), LlmError> {
+    if !xs.len().is_multiple_of(QK_K) || xs.iter().any(|v| !v.is_finite()) {
+        return Err(err(format!("{} values are not whole finite {QK_K}-value super-blocks", xs.len())));
+    }
+    out.reserve(xs.len() / QK_K * Q4K_BYTES);
+    for x in xs.as_chunks::<QK_K>().0 {
+        let (mut scales, mut mins) = ([0f32; QK_K / 32], [0f32; QK_K / 32]);
+        for ((sc, mn), part) in scales.iter_mut().zip(mins.iter_mut()).zip(x.as_chunks::<32>().0) {
+            (*sc, *mn) = make_qkx1_quants(15, 5, part);
+        }
+        let max_scale = scales.iter().fold(0f32, |m, &v| v.max(m));
+        let max_min = mins.iter().fold(0f32, |m, &v| v.max(m));
+        let inv_scale = if max_scale > 0.0 { 63.0 / max_scale } else { 0.0 };
+        let inv_min = if max_min > 0.0 { 63.0 / max_min } else { 0.0 };
+        let mut packed = [0u8; 12];
+        for j in 0..QK_K / 32 {
+            let ls = ((inv_scale * scales[j]).round() as i32).min(63) as u8;
+            let lm = ((inv_min * mins[j]).round() as i32).min(63) as u8;
+            if j < 4 {
+                packed[j] = ls;
+                packed[j + 4] = lm;
+            } else {
+                packed[j + 4] = (ls & 0xF) | ((lm & 0xF) << 4);
+                packed[j - 4] |= (ls >> 4) << 6;
+                packed[j] |= (lm >> 4) << 6;
+            }
+        }
+        let d = f16::from_f32(max_scale / 63.0);
+        let dmin = f16::from_f32(max_min / 63.0);
+        let mut l = [0u8; QK_K];
+        for j in 0..QK_K / 32 {
+            // the 6-bit scale and minimum of sub-block j, unpacked as ggml's get_scale_min_k4
+            let (sc, m) = if j < 4 {
+                (packed[j] & 63, packed[j + 4] & 63)
+            } else {
+                ((packed[j + 4] & 0xF) | ((packed[j - 4] >> 6) << 4), (packed[j + 4] >> 4) | ((packed[j] >> 6) << 4))
+            };
+            let dd = d.to_f32() * f32::from(sc);
+            if dd != 0.0 {
+                let dm = dmin.to_f32() * f32::from(m);
+                for ii in 0..32 {
+                    l[32 * j + ii] = (((x[32 * j + ii] + dm) / dd).round() as i32).clamp(0, 15) as u8;
+                }
+            }
+        }
+        out.extend_from_slice(&d.to_le_bytes());
+        out.extend_from_slice(&dmin.to_le_bytes());
+        out.extend_from_slice(&packed);
+        for j in (0..QK_K).step_by(64) {
+            for v in 0..32 {
+                out.push(l[j + v] | (l[j + v + 32] << 4));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -591,5 +685,41 @@ mod tests {
             }
             eprintln!("candle {dtype:?}: {:.1} µs per matvec", t.elapsed().as_secs_f64() * 1e6 / 200.0);
         }
+    }
+
+    /// Our Q4_K weight quantizer writes the same bytes as candle's (the `llm_quantize` path).
+    #[test]
+    fn quantize_q4k_matches_candle_byte_for_byte() {
+        use candle_core::quantized::{GgmlDType, QTensor};
+        use candle_core::{Device, Tensor};
+        for (rows, seed) in [(3usize, 1u32), (8, 7), (1, 99)] {
+            let cols = 512;
+            let v: Vec<f32> = (0..rows * cols)
+                .map(|i| {
+                    ((((i as u32).wrapping_mul(2_654_435_761) ^ seed.wrapping_mul(40_503)) >> 8) as f32 / (1u32 << 24) as f32 - 0.5) * 0.3
+                        + if i % 97 == 0 { 0.8 } else { 0.0 }
+                })
+                .collect();
+            let mut ours = Vec::new();
+            quantize_q4k_bytes(&v, &mut ours).unwrap();
+            let t = Tensor::from_vec(v.clone(), (rows, cols), &Device::Cpu).unwrap();
+            let q = QTensor::quantize(&t, GgmlDType::Q4K).unwrap();
+            let theirs = q.data().unwrap();
+            assert_eq!(ours.len(), theirs.len());
+            assert!(ours == theirs.as_ref(), "rows {rows}: bytes differ");
+            // and our parser reads it back close to the input
+            let mut blocks = Vec::new();
+            parse_q4k(&ours, &mut blocks).unwrap();
+            let mut back = Vec::new();
+            dequantize_q4k(&blocks, &mut back);
+            let worst = back.iter().zip(&v).fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+            assert!(worst < 0.1, "{worst}");
+        }
+        // a constant block and bad input
+        let mut out = Vec::new();
+        quantize_q4k_bytes(&[0.25; QK_K], &mut out).unwrap();
+        assert_eq!(out.len(), Q4K_BYTES);
+        assert!(quantize_q4k_bytes(&[0.0; 100], &mut out).is_err());
+        assert!(quantize_q4k_bytes(&[f32::NAN; QK_K], &mut out).is_err());
     }
 }

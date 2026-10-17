@@ -174,6 +174,9 @@ fn sha256(path: &Path) -> std::result::Result<String, String> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// Runs on the command thread, unlike `download`: the work is bounded (the release zip is checked by
+/// its size before it is hashed, a checkpoint is capped at `weights::MAX_FILE_BYTES`), it's a
+/// one-off the user asks for, and no UI control calls it (the panels offer `download`).
 fn install_file(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "audio.voiceIsolate.installFile";
     need_build(CMD)?;
@@ -193,6 +196,11 @@ fn install_from(cmd: &str, src: &Path, dir: &Path) -> Result<()> {
     let is_zip = src.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip"));
     // Check the file before anything is written.
     if is_zip {
+        // the release's size first, so a huge file is never hashed on the command thread
+        let len = std::fs::metadata(src).map_err(|e| bad(cmd, e.to_string()))?.len();
+        if len != pkg::ZIP_SIZE {
+            return Err(bad(cmd, format!("{} is not the DeepFilterNet3 release ({len} bytes, not {})", src.display(), pkg::ZIP_SIZE)));
+        }
         let sha = sha256(src).map_err(|e| bad(cmd, e))?;
         if sha != pkg::ZIP_SHA256 {
             return Err(bad(cmd, format!("{} is not the DeepFilterNet3 release (SHA-256 {sha})", src.display())));

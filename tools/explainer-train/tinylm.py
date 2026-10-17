@@ -1,5 +1,6 @@
 """A small, dependency-light PyTorch implementation of the two decoder families FilmCraft's
-explainer uses (Llama: SmolLM2; Qwen2: Qwen2.5), with LoRA adapters.
+explainer and assistant use (Llama: SmolLM2; Qwen2: Qwen2.5; SmolLM3: Llama-style with no rotary
+positions in every 4th layer), with LoRA adapters.
 
 Offline training tooling only (GRADE-PLAN G2.11b); never part of the product. It needs only
 `torch`, `safetensors` and `tokenizers`, so it does not depend on the `transformers` /
@@ -29,7 +30,7 @@ LORA_TARGETS = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", 
 class Config:
     def __init__(self, d: dict):
         self.family = d.get("model_type", "llama")
-        if self.family not in ("llama", "qwen2"):
+        if self.family not in ("llama", "qwen2", "smollm3"):
             raise ValueError(f"unsupported model_type {self.family!r}")
         self.hidden = int(d["hidden_size"])
         self.inter = int(d["intermediate_size"])
@@ -46,6 +47,15 @@ class Config:
         if self.hidden % self.heads or self.heads % self.kv_heads:
             raise ValueError("bad head layout")
         self.head_dim = self.hidden // self.heads
+        # SmolLM3 (NoPE): `no_rope_layers[i]` is 1 where layer i uses rotary positions, 0 where it
+        # uses none (every 4th layer in SmolLM3-3B); the other families rotate in every layer
+        flags = d.get("no_rope_layers") if self.family == "smollm3" else None
+        if flags is None:
+            self.use_rope = [True] * self.layers
+        else:
+            if len(flags) != self.layers:
+                raise ValueError("no_rope_layers length differs from num_hidden_layers")
+            self.use_rope = [bool(f) for f in flags]
 
 
 class LoRALinear(nn.Module):
@@ -132,14 +142,17 @@ class MLP(nn.Module):
 
 
 class Layer(nn.Module):
-    def __init__(self, c: Config):
+    def __init__(self, c: Config, rope: bool = True):
         super().__init__()
+        self.rope = rope
         self.input_layernorm = RMSNorm(c.hidden, c.eps)
         self.self_attn = Attention(c)
         self.post_attention_layernorm = RMSNorm(c.hidden, c.eps)
         self.mlp = MLP(c)
 
     def forward(self, x, cos, sin):
+        if not self.rope:
+            cos, sin = torch.ones_like(cos), torch.zeros_like(sin)
         x = x + self.self_attn(self.input_layernorm(x), cos, sin)
         return x + self.mlp(self.post_attention_layernorm(x))
 
@@ -148,7 +161,7 @@ class Inner(nn.Module):
     def __init__(self, c: Config):
         super().__init__()
         self.embed_tokens = nn.Embedding(c.vocab, c.hidden)
-        self.layers = nn.ModuleList(Layer(c) for _ in range(c.layers))
+        self.layers = nn.ModuleList(Layer(c, c.use_rope[i]) for i in range(c.layers))
         self.norm = RMSNorm(c.hidden, c.eps)
 
 
@@ -194,9 +207,22 @@ class CausalLM(nn.Module):
 
 def load(base_dir: Path, device: str, dtype) -> CausalLM:
     cfg = Config(json.loads((base_dir / "config.json").read_text()))
-    with torch.device("meta"):
-        m = CausalLM(cfg)
-    sd = load_file(str(base_dir / "model.safetensors"))
+    # build in the target dtype: a 3B model allocated as float32 first doesn't fit a 12 GB GPU
+    old = torch.get_default_dtype()
+    torch.set_default_dtype(dtype)
+    try:
+        with torch.device("meta"):
+            m = CausalLM(cfg)
+    finally:
+        torch.set_default_dtype(old)
+    index = base_dir / "model.safetensors.index.json"
+    if index.exists():
+        # sharded checkpoint (SmolLM3-3B: two files)
+        sd = {}
+        for shard in sorted(set(json.loads(index.read_text())["weight_map"].values())):
+            sd.update(load_file(str(base_dir / shard)))
+    else:
+        sd = load_file(str(base_dir / "model.safetensors"))
     m = m.to_empty(device=device)
     missing, unexpected = m.load_state_dict({k: v.to(dtype) for k, v in sd.items()}, strict=False)
     missing = [k for k in missing if k != "lm_head.weight"]

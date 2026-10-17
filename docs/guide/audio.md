@@ -7,8 +7,10 @@ process, Clean Up Voice and reviewing voice-over takes.
 
 > id: audio.voice-isolation | does: removes the noise around speech with the DeepFilterNet3 model (DeNoise without it) | ui: settings.audio.voiceIsolation.* | cmd: audio.voiceIsolate.* | resolve: Voice Isolation | premiere: Enhance Speech, DeNoise | when: speech over changing noise: traffic, keyboard, wind, crowd | see: audio.manual-voice-cleanup
 
-**[Fork]** effect, **[Standard]** model: DeepFilterNet3 (Schröter et al., open source, MIT /
-Apache-2.0), run on the CPU in pure Rust.
+**[Fork]** effect, **[Standard]** model
+
+Voice Isolation keeps speech and removes the noise around it with DeepFilterNet3 (Schröter et al.,
+open source, MIT / Apache-2.0), a trained model that runs on the CPU in pure Rust.
 
 ### What it does
 
@@ -86,15 +88,17 @@ There is no single right tool; pick by the noise and how much time you have.
 Classic noise reduction learns the noise floor and subtracts it, which works only while the noise
 stays the same. DeepFilterNet was trained on thousands of hours of speech and noise, so it
 recognises speech directly: it sets a gain for 32 frequency bands every 10 ms and, below 4.8 kHz,
-rebuilds the voice's fine detail from the last few moments of sound ("deep filtering"). FilmCraft's
+rebuilds the voice's fine detail from the last few moments of sound ("deep filtering"). Revolution's
 port gives the same output as the original to within 16-bit precision.
 
 ## Cleaning up a voice by hand
 
 > id: audio.manual-voice-cleanup | does: the order to fix a voice by hand: rumble, noise, hum, esses, level, tone, loudness | ui: essentialSound.* | cmd: essentialSound.* | resolve: Fairlight EQ, Dynamics, Voice Isolation, Dialogue Leveler | premiere: Essential Sound ▸ Dialogue | when: a voice you care about; checking what one click did | see: audio.cleanup-voice
 
-**[Standard]** process: the order most audio editors follow for a voice-over or interview, written
-out so you can do it yourself and so FilmCraft's one click can be checked against it. Every step is
+**[Standard]** process
+
+The order most audio editors follow for a voice-over or interview, written out so you can do it
+yourself and so Revolution's one click can be checked against it. Every step is
 an ordinary Essential Sound control (`{ui:essentialSound.type.Dialogue}` first), so you can also do
 the same with separate effects in Effect Controls.
 
@@ -127,8 +131,12 @@ noise back up, and loudness comes last because every step before changes the lev
 
 > id: audio.cleanup-voice | does: one click measures a voice clip and sets the Essential Sound controls and loudness | ui: essentialSound.cleanupVoice | cmd: audio.cleanupVoice, jobs.cancel | resolve: Voice Isolation + Dialogue Leveler (closest) | premiere: Enhance Speech + Auto-Match (closest) | when: many voice clips; a fast start before tuning by ear | see: audio.manual-voice-cleanup, audio.voice-isolation
 
-**[Fork]** command `audio.cleanupVoice`; button `{ui:essentialSound.cleanupVoice}` at the top of
-Essential Sound ▸ Repair.
+**[Fork]**
+
+The quickest decent start for one voice clip or many: select the clips and click **Clean Up
+Voice** (`{ui:essentialSound.cleanupVoice}`, at the top of Essential Sound ▸ Repair; command
+`audio.cleanupVoice`). It measures each clip and sets the clean-up controls and the loudness for
+it; then listen and tune by ear the one or two sliders that need it.
 
 It does the manual process above for you as a starting point: it measures the clip (noise floor
 against the voice level, energy below 80 Hz, how sharp the "s" sounds are, how much the level
@@ -169,7 +177,7 @@ in place and get the report (otherwise it returns a `job` id; `jobs.list` / `job
 
 > id: audio.voiceover-record | does: records narration from a microphone onto a track at the playhead, with pre-roll, countdown and punch-in | cmd: audio.voiceover.settings, audio.voiceover.start, audio.voiceover.stop | resolve: Fairlight ADR / record on an armed track | premiere: Voice-over Record | when: narration, voice-over, pickups | see: audio.voiceover-takes, audio.cleanup-voice
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Pick the microphone and its input channel in **Voice-Over Record Settings**
    (`audio.voiceover.settings`), with the file name to use (default "Voice-over"), the countdown
@@ -184,7 +192,7 @@ in place and get the report (otherwise it returns a `job` id; `jobs.list` / `job
 
 | Option | Good for | Trade-offs |
 |---|---|---|
-| **Record to picture in FilmCraft** | Timing the voice to the cut as you watch | Computer fans and room noise get in; clean up afterwards ([Clean Up Voice](#clean-up-voice-one-click)) |
+| **Record to picture in Revolution** | Timing the voice to the cut as you watch | Computer fans and room noise get in; clean up afterwards ([Clean Up Voice](#clean-up-voice-one-click)) |
 | **Record elsewhere, import** | A quiet booth, a better recorder | No timing to picture while recording |
 | **Punch-in over In / Out** | Replacing one line | Matching the voice's level and room to the takes around it |
 
@@ -192,8 +200,9 @@ in place and get the report (otherwise it returns a `job` id; `jobs.list` / `job
 
 > id: audio.voiceover-takes | does: keeps every voice-over recording as a take and swaps takes in place | cmd: audio.voiceover.takes, audio.voiceover.pickTake | resolve: Take Selector (closest) | premiere: — | when: re-recording a line until it sounds right | see: audio.cleanup-voice
 
-**[Fork]** Takes list in Essential Sound; commands `audio.voiceover.takes` and
-`audio.voiceover.pickTake`.
+**[Fork]**
+
+Takes list in Essential Sound; commands `audio.voiceover.takes` and `audio.voiceover.pickTake`.
 
 Every voice-over recording is kept. When you record again at the same point on the same track,
 the new recording goes on the timeline and the earlier ones stay in the project as *takes* of that

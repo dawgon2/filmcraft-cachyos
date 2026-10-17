@@ -5,6 +5,7 @@
 //!   [`Mp4File::read_sample`].
 //! - **Mux:** [`Mp4Writer`] writes progressive MP4/MOV (optionally faststart);
 //!   [`FragmentedWriter`] writes fragmented MP4.
+//! - **Trim:** [`trim_mp4`] stream-copies a time range of an MP4/MOV into a new file (no re-encode).
 //!
 //! See the crate README for supported boxes and limitations.
 
@@ -16,6 +17,7 @@ mod demux;
 mod error;
 mod mux;
 mod source;
+pub mod trim;
 
 pub use bytes::FourCc;
 pub use codec::{
@@ -26,3 +28,4 @@ pub use demux::{Edit, Metadata, Mp4File, Sample, SampleGroup, Track, TrackKind, 
 pub use error::{Error, Result};
 pub use mux::{Brand, FragmentedWriter, Mp4Writer, TrackConfig, WriteSample, WriterOptions};
 pub use source::ByteSource;
+pub use trim::{DroppedTrack, PresentationTime, TrimError, TrimReport, TrimmedTrack, trim_mp4};

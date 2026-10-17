@@ -1171,9 +1171,21 @@ pub(crate) fn bounded_time_range(start: Tick, duration: Tick) -> bool {
     within(start.0) && within(duration.0) && start.0.checked_add(duration.0).is_some_and(within)
 }
 
+/// A renderer name as saved, with the pre-rebrand "FilmCraft " prefix renamed (FORK-PLAN §1a.103).
+fn renderer_name<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let s = String::deserialize(d)?;
+    Ok(match s.strip_prefix("FilmCraft ") {
+        Some(rest) => format!("Revolution {rest}"),
+        None => s,
+    })
+}
+
 /// Project-level settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectSettings {
+    /// Renderer name; "FilmCraft …" names from before the fork rebrand read as "Revolution …"
+    /// (FORK-PLAN §1a.103).
+    #[serde(deserialize_with = "renderer_name")]
     pub renderer: String,
     pub video_display: filmcraft_time::TimeDisplay,
     pub audio_display_samples: bool,
@@ -1253,7 +1265,7 @@ pub enum IngestAction {
 impl Default for ProjectSettings {
     fn default() -> Self {
         Self {
-            renderer: "FilmCraft GPU Acceleration (wgpu)".into(),
+            renderer: "Revolution GPU Acceleration (wgpu)".into(),
             video_display: filmcraft_time::TimeDisplay::Timecode,
             audio_display_samples: true,
             default_still_duration: Tick(5 * TICKS_PER_SECOND),
@@ -1848,6 +1860,15 @@ fn has_auto_point(e: &EffectInstance) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pre_rebrand_renderer_names_read_as_revolution() {
+        // fork rebrand (FORK-PLAN §1a.103)
+        let mut v = serde_json::to_value(ProjectSettings::default()).unwrap();
+        v["renderer"] = "FilmCraft Software Only (CPU)".into();
+        let st: ProjectSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(st.renderer, "Revolution Software Only (CPU)");
+    }
+
     use super::*;
     use filmcraft_media::{DemoScene, MediaSource};
 

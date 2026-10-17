@@ -87,7 +87,9 @@ corrections, and later nodes can still adjust it.
    {ui:grade.lut} at the bottom.
 2. Pick a built-in LUT or one from the project's LUT library, or **Browse…** for a `.cube` /
    `.3dl` file (it is copied into the project, `lut.import`). The command is `grade.setLut`.
-3. Lower **LUT mix** {ui:grade.param.lut.mix} to blend the LUT with the node's picture.
+3. Lower **LUT mix** {ui:grade.param.lut.mix} to blend the LUT with the node's picture (a LUT
+   that looks too strong usually wants 50–80 %). Balance the shot on an earlier node first: a
+   LUT on an unbalanced shot exaggerates its cast.
 4. Choose **None** to remove it.
 
 **[Fork]** The LUT works on the node's grading signal (DaVinci Intermediate in a DaVinci Wide
@@ -101,7 +103,7 @@ missing LUT applies nothing.
 
 ### Why
 
-**[FilmCraft]** (the Lumetri Scopes panel comes from upstream) · reading advice **[Fork]**
+**[Revolution]** (the Lumetri Scopes panel comes from upstream) · reading advice **[Fork]**
 
 Your eyes adapt and your monitor may be off; the scopes don't. They measure the frame under the
 playhead, so you can set exposure, check that white and black are neutral and see where skin sits

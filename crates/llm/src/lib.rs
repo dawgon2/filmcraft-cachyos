@@ -13,24 +13,41 @@
 //!   greedy or sampled decoding that stops at end-of-turn, `max_tokens` or a deadline, under
 //!   `catch_unwind`. Without the feature, [`Model::load`] returns [`LlmError::Unavailable`], so
 //!   callers need no `cfg`.
+//! - [`embed::Embedder`] (feature `infer`): sentence embeddings with a small BERT encoder
+//!   (BAAI/bge-small-en-v1.5), our own CPU forward pass, for searching the guide.
 //! - [`explain_prompt`]: the fixed, grounded prompt for "explain this grade".
 //!
 //! The caller must still check the output against the facts (numbers, directions, length) and
 //! fall back to the template sentence on any mismatch, error or timeout.
 
 #[cfg(feature = "infer")]
+pub mod convert;
+#[cfg(feature = "infer")]
+pub mod embed;
+#[cfg(feature = "infer")]
 pub mod forward;
 pub mod gguf;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+#[cfg(feature = "gpu")]
+pub mod gpu_forward;
+#[cfg(feature = "gpu")]
+pub mod gpu_vision;
 #[cfg(feature = "infer")]
 pub mod kquant;
 pub mod models;
+pub mod mrope;
 mod prompt;
 #[cfg(feature = "infer")]
 pub mod quant;
+pub mod safetensors;
 #[cfg(feature = "infer")]
 pub mod sample;
+pub mod vision;
+pub mod vision_config;
+pub mod vision_prep;
+#[cfg(feature = "infer")]
+pub mod vl;
 #[cfg(feature = "infer")]
 pub mod weights;
 
@@ -133,6 +150,9 @@ pub struct Generation {
     /// Tokenizing plus the prompt's forward pass (time to the first answer token's logits); the
     /// rest of `elapsed` is decoding `new_tokens` tokens.
     pub prefill: Duration,
+    /// Prompt tokens whose keys / values came from the previous call's cache (a shared prefix,
+    /// such as the system prompt), not run again.
+    pub reused_tokens: usize,
 }
 
 /// Download the missing files of `m` into `models_dir/<id>/`, each checked against its SHA-256
@@ -148,6 +168,20 @@ pub fn download(models_dir: &std::path::Path, m: &ModelInfo, progress: filmcraft
         )));
     }
     filmcraft_speech::models::download_files(&models::model_dir(models_dir, m), m.files, progress).map_err(|e| match e {
+        SpeechError::Cancelled => LlmError::Cancelled,
+        SpeechError::Io(s) => LlmError::Io(s),
+        other => LlmError::Download(other.to_string()),
+    })
+}
+
+/// Download the missing files of the picture model ([`models::VISION_MODEL`]) into
+/// `models_dir/<id>/`, each checked against its SHA-256 and size (feature `download`; the user
+/// must have opted in first).
+#[cfg(feature = "download")]
+pub fn download_vision(models_dir: &std::path::Path, progress: filmcraft_speech::models::DownloadProgress) -> Result<(), LlmError> {
+    use filmcraft_speech::SpeechError;
+    let m = &models::VISION_MODEL;
+    filmcraft_speech::models::download_files(&models_dir.join(m.id), m.files, progress).map_err(|e| match e {
         SpeechError::Cancelled => LlmError::Cancelled,
         SpeechError::Io(s) => LlmError::Io(s),
         other => LlmError::Download(other.to_string()),

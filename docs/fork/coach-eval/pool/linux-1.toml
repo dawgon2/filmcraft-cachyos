@@ -1,0 +1,389 @@
+# AI-POOL batch linux-1: linux.md (the Linux desktop). Not in the keyword coach's index
+# (NOT_INDEXED), so advanced-format questions and pairs only.
+
+[[question]]
+id = "pool-l1-install-choice"
+kind = "approach"
+q = "should I install Revolution from the distro package, Flatpak or the tarball?"
+sources = ["linux.install"]
+must = ["the package runs natively (sees every drive, journal logs, system drivers)", "Flatpak is sandboxed with its own libraries (home and external drives only, no network by default)", "the tarball / AppImage needs nothing system-wide, good for trying or two versions", "none is the one right choice"]
+must_not = ["claims one way is always right"]
+style = "beginner"
+
+[[question]]
+id = "pool-l1-flatpak-footage"
+kind = "tweak"
+q = "the Flatpak can't see my footage in /data/video"
+sources = ["linux.install"]
+must = ["Flatpak only reads the home folder and external drives (/media, /run/media, /mnt)", "move the footage there, or use the distribution package"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-flatpak-control"
+kind = "tweak"
+q = "the --control agent port doesn't work in the Flatpak"
+sources = ["linux.install"]
+must = ["the Flatpak has no network: flatpak override --user --share=network ai.storyteller.filmcraft"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-cache-safe"
+kind = "pro-practice"
+q = "which Revolution folders are safe to delete to free disk space?"
+sources = ["linux.files"]
+must = ["the media cache (~/.cache/filmcraft/Media Cache): Revolution rebuilds it", "logs in ~/.local/state/filmcraft/Logs (attach to bug reports first)", "not ~/.local/share/filmcraft: that is your data"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-paths"
+kind = "tool"
+q = "how do I find out which folders this Revolution session uses?"
+sources = ["linux.files"]
+must = ["the command app.paths lists data, config, cache and state folders, logs and the media cache"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-move-cache"
+kind = "tool"
+q = "put the media cache on my fast NVMe drive"
+sources = ["linux.files"]
+must = ["Settings ▸ Media Cache ▸ Location"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-l1-portable"
+kind = "pro-practice"
+q = "can I keep everything Revolution writes in one folder, like a portable install?"
+sources = ["linux.files"]
+must = ["start with --data-dir <folder> (or FILMCRAFT_DATA_DIR): everything stays inside that folder"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-window-position"
+kind = "tweak"
+q = "Revolution doesn't remember which monitor it was on"
+sources = ["linux.window"]
+must = ["only size and maximised state are kept: on Wayland the compositor decides placement", "KWin's Window Rules can pin it to a screen or position"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-reset-window"
+kind = "tweak"
+q = "how do I reset the window to its default size?"
+sources = ["linux.window"]
+must = ["delete window.json in the state folder (~/.local/state/filmcraft) while Revolution is closed"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-gnome-titlebar"
+kind = "pro-practice"
+q = "why does Revolution draw its own title bar on GNOME?"
+sources = ["linux.window"]
+must = ["GNOME on Wayland leaves title bars to the app, so Revolution draws a plain Adwaita-style frame", "on KDE and most X11 window managers the desktop's own title bar is used"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-fullscreen-off"
+kind = "tool"
+q = "it always opens full screen and covers my taskbar, how do I stop that?"
+sources = ["linux.fullscreen"]
+must = ["toggle with the full-screen button, F11 or View ▸ Full Screen; the choice is remembered", "Settings ▸ General ▸ Full screen is the same switch"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-quit-fullscreen"
+kind = "tweak"
+q = "in full screen there's no close button, how do I quit?"
+sources = ["linux.fullscreen"]
+must = ["Revolution ▸ Quit Revolution (Ctrl+Q)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-fullscreen-choice"
+kind = "approach"
+q = "full screen or a normal window, what do editors usually do?"
+sources = ["linux.fullscreen"]
+must = ["full screen suits a screen used only for editing, or a laptop", "a window suits working next to other apps, using the task bar or seeing notifications"]
+must_not = ["claims one is always right"]
+style = "beginner"
+
+[[question]]
+id = "pool-l1-global-menu"
+kind = "tool"
+q = "can Revolution's menus go into Plasma's global menu?"
+sources = ["linux.global-menu"]
+must = ["yes by default when a Global Menu widget is present (Settings ▸ General ▸ Menu bar)", "in full screen the menu comes back inside the window"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-accent"
+kind = "multi-step"
+q = "make Revolution's highlight colour match my KDE accent colour"
+sources = ["linux.accent"]
+must = ["Settings ▸ Appearance ▸ Use the system accent color, OK", "it follows desktop changes while running"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-accent-tradeoff"
+kind = "pro-practice"
+q = "any downside to using the system accent colour?"
+sources = ["linux.accent"]
+must = ["a very light or dark accent can make selections hard to see", "off keeps Revolution's own look, matching tutorials and other machines"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-reduce-motion"
+kind = "tool"
+q = "the sliding menus make me feel a bit sick, can I turn animations off?"
+sources = ["linux.motion"]
+must = ["Settings ▸ Appearance ▸ Animations: Off (reduce motion)", "Sync with system follows the desktop's reduced-motion setting"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-motion-playback"
+kind = "pro-practice"
+q = "does reduced motion affect playback or the playhead?"
+sources = ["linux.motion"]
+must = ["no: playback, scrubbing and the playhead are never affected"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-text-size"
+kind = "multi-step"
+q = "I set bigger fonts in Plasma, can Revolution follow?"
+sources = ["linux.text-size"]
+must = ["Settings ▸ Appearance: UI Scale on Auto (system) and Match the desktop's text size on", "the whole interface scales (an 11 pt font gives 110 %)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-text-tradeoff"
+kind = "pro-practice"
+q = "if I match the desktop text size will I lose timeline space?"
+sources = ["linux.text-size"]
+must = ["yes: it scales the whole interface, so fewer tracks and a smaller monitor", "a fixed UI Scale is the other option"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-export-notify"
+kind = "tool"
+q = "will I get notified when a long export finishes while I'm in another app?"
+sources = ["linux.progress"]
+must = ["progress shows on the taskbar entry and a desktop notification says when it's done", "Show in Folder opens the file manager on the export"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-no-notify-front"
+kind = "tweak"
+q = "a short export finished but no notification appeared"
+sources = ["linux.progress"]
+must = ["notifications come when Revolution is in the background, or when the job ran 30 s or more", "cancelled jobs and preview renders never notify"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-sleep-export"
+kind = "pro-practice"
+q = "will my laptop go to sleep during an overnight export?"
+sources = ["linux.inhibit"]
+must = ["no: while a job runs Revolution asks the computer not to suspend (and the screen not to lock while playing)", "the request is dropped when the job ends"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-second-window"
+kind = "tool"
+q = "how do I open a second Revolution window on purpose?"
+sources = ["linux.single-instance"]
+must = ["launch with --new-instance (or the launcher's New Window action)", "a normal second launch hands its files to the running Revolution"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-dialog-wrong-folder"
+kind = "tweak"
+q = "the import dialog keeps opening my export folder"
+sources = ["linux.dialogs"]
+must = ["each kind of dialog remembers its own folder (import, open, projects, export, folders)", "deleting dialogs.lastFolders from the preferences resets them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-dialog-blocking"
+kind = "pro-practice"
+q = "does opening a file dialog freeze playback or my export?"
+sources = ["linux.dialogs"]
+must = ["no: Revolution keeps running while a dialog is open", "only one file dialog at a time"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-laptop-gpu"
+kind = "approach"
+q = "on my laptop with Intel and NVIDIA graphics, which GPU should Revolution use?"
+sources = ["linux.gpu"]
+must = ["Preferences ▸ Playback ▸ Graphics device: Auto picks the discrete GPU", "discrete: fastest with grades, more power; integrated: longer battery, heavy grades may drop frames", "restart after changing"]
+must_not = ["claims one is always right"]
+style = "beginner"
+
+[[question]]
+id = "pool-l1-gpu-not-found"
+kind = "tweak"
+q = "Settings says my chosen graphics device is not found"
+sources = ["linux.gpu"]
+must = ["that GPU isn't there any more (removed card, eGPU unplugged, copied preferences): Revolution starts on Auto", "pick another device"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-bt-headphones"
+kind = "pro-practice"
+q = "my Bluetooth headphones reconnect mid-playback, will Revolution lose sync?"
+sources = ["linux.audio-device"]
+must = ["a short glitch restarts the stream in about a third of a second, staying in sync", "a lost device restarts on the chosen output or the desktop default"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-no-sound-status"
+kind = "tweak"
+q = "status line says audio output failed, playing without sound"
+sources = ["linux.audio-device"]
+must = ["the device kept failing (more than three restarts in ten seconds)", "Stop and Play once it's back, or pick another output in Preferences ▸ Audio Hardware"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-wayland-drag"
+kind = "gap"
+q = "dragging files from Dolphin into Revolution does nothing on Wayland"
+sources = ["linux.drag-drop"]
+must = ["Wayland drag-and-drop isn't supported yet (winit 0.30)", "copy and paste (Ctrl+C / Ctrl+V), Open With ▸ Revolution, or File ▸ Import instead"]
+must_not = ["claims drag and drop works on Wayland"]
+style = "gap"
+
+[[question]]
+id = "pool-l1-pinch"
+kind = "gap"
+q = "pinch to zoom the timeline doesn't work on my touchpad"
+sources = ["linux.paste"]
+must = ["pinch doesn't reach Revolution on Wayland yet", "zoom with Alt + two-finger scroll, the zoom keys or the zoom slider"]
+must_not = []
+style = "gap"
+
+[[question]]
+id = "pool-l1-ime"
+kind = "tool"
+q = "can I type Japanese titles with fcitx5?"
+sources = ["linux.paste"]
+must = ["yes: input methods (fcitx5, IBus) work in every text field", "enable the input method for Wayland apps"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-dolphin-thumbs"
+kind = "multi-step"
+q = "project files show no thumbnail in Dolphin"
+sources = ["linux.project-files"]
+must = ["Dolphin needs the separate filmcraft-kde-thumbnailer package", "then tick Revolution projects in Configure Dolphin ▸ Interface ▸ Previews"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-unsaved-open"
+kind = "tweak"
+q = "I double-clicked another project but Revolution didn't switch to it"
+sources = ["linux.project-files"]
+must = ["the running Revolution has unsaved changes, so it isn't swapped in (the status bar says so)", "save or close, then open it again"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-media-keys-music"
+kind = "tweak"
+q = "my keyboard's play key pauses Revolution instead of my music"
+sources = ["linux.media-keys"]
+must = ["turn off Settings ▸ Playback ▸ Media keys and the desktop's media controls"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-global-marker"
+kind = "multi-step"
+q = "drop a marker while I'm typing notes in another window"
+sources = ["linux.global-shortcuts"]
+must = ["turn on Settings ▸ Playback ▸ Global shortcuts", "confirm the desktop's dialog (Add Marker suggested as Ctrl+Alt+Shift+M)", "needs the GlobalShortcuts portal (Plasma 6, GNOME 48+)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-kdeconnect-send"
+kind = "tool"
+q = "send my export to my phone over wifi"
+sources = ["linux.kdeconnect-send"]
+must = ["with KDE Connect paired: right-click the export in the Project panel ▸ Send via KDE Connect ▸ device"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-l1-gsconnect"
+kind = "gap"
+q = "does send to phone work with GSConnect on GNOME?"
+sources = ["linux.kdeconnect-send"]
+must = ["not yet: GSConnect isn't supported, the entry doesn't appear"]
+must_not = ["claims GSConnect works"]
+style = "gap"
+
+[[question]]
+id = "pool-l1-phone-import"
+kind = "approach"
+q = "I share B-roll from my phone while shooting, can it go straight into the project?"
+sources = ["linux.kdeconnect-send"]
+must = ["Settings ▸ Media ▸ Files shared from a phone: Import into the Inbox bin (no question)", "Offer to import is the default; Ignore leaves them in Downloads"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-phone-remote"
+kind = "multi-step"
+q = "use my phone as a remote to play the cut on the TV"
+sources = ["linux.kdeconnect-remote"]
+must = ["KDE Connect app ▸ Multimedia control ▸ pick Revolution", "play / pause, frame skip and seek act on the Program playhead", "needs a sequence open and the media controls setting on"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-l1-journal"
+kind = "tool"
+q = "how do I see Revolution's warnings in the journal?"
+sources = ["linux.logs"]
+must = ["journalctl --user -t filmcraft -p warning (when started from the desktop launcher)", "the log file is in ~/.local/state/filmcraft/Logs"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-l1-report-crash"
+kind = "multi-step"
+q = "Revolution hit an error, what should I do?"
+sources = ["linux.logs"]
+must = ["click Save Project first", "Report an Issue… opens the crash log and the issue tracker; attach the log", "Continue keeps working; nothing is sent by Revolution itself"]
+must_not = []
+style = "beginner"

@@ -1,0 +1,449 @@
+# AI-POOL batch color-3: color/lumetri.md, color/nodes.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-c3-two-tools-why"
+kind = "approach"
+q = "why are there two colour tools in this app?"
+sources = ["color.lumetri.what"]
+must = ["Lumetri Color for Premiere habits, the node grader for Resolve habits", "neither replaces the other", "both are built from the same colour operations, so the same setting gives the same picture"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-lumetri-sees-nodes"
+kind = "pro-practice"
+q = "I changed node 1 a lot and now my Lumetri highlights slider behaves differently"
+sources = ["color.lumetri.order"]
+must = ["Lumetri sees the picture the nodes made", "a big change in the nodes changes what Lumetri's sliders do"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c3-bypass-lumetri"
+kind = "tweak"
+q = "I pressed Bypass but the clip still looks graded"
+sources = ["color.lumetri.order"]
+must = ["Bypass turns off only the node grade", "Lumetri has its own fx switch in its header"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-c3-add-lumetri"
+kind = "tool"
+q = "how do I put Lumetri on a clip?"
+sources = ["color.lumetri.panel"]
+must = ["Window ▸ Lumetri Color (a tab beside Primaries in Color Grading)", "Add Lumetri Color to clip (effects.apply with lumetri)"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-c3-vibrance"
+kind = "tool"
+q = "where's vibrance?"
+sources = ["color.lumetri.panel", "color.lumetri.which"]
+must = ["Lumetri's Creative section", "the node grader has no vibrance yet"]
+must_not = ["invents a vibrance control on a node"]
+style = "sloppy"
+
+[[question]]
+id = "pool-c3-hue-curves-lumetri"
+kind = "tool"
+q = "I need a hue vs luma curve to darken the blues"
+sources = ["color.lumetri.panel", "color.curves.limits"]
+must = ["Lumetri Color's Curves section has Hue vs Luma", "the node grader has only Y / R / G / B curves"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c3-look-lut-intensity"
+kind = "approach"
+q = "I want a creative LUT but only at half strength"
+sources = ["color.lumetri.panel", "color.lumetri.which"]
+must = ["Lumetri Creative: a Look LUT with Intensity (lumetri.setLook)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-lumetri-wb-keys"
+kind = "pro-practice"
+q = "the Lumetri WB selector wiped my Temperature keyframes, is that a bug?"
+sources = ["color.lumetri.panel"]
+must = ["no: Lumetri's selector removes keyframes from Temperature / Tint (as Apply Match does)", "the node grader's picker keyframes at the playhead instead"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c3-color-match"
+kind = "multi-step"
+q = "how do I use Lumetri's colour match?"
+sources = ["color.lumetri.panel"]
+must = ["turn on Comparison View", "park the reference frame", "Apply Match (lumetri.applyMatch) moves Lumetri's wheels"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-c3-presets"
+kind = "tool"
+q = "Are there built-in Lumetri looks I can just drop on?"
+sources = ["color.lumetri.panel"]
+must = ["Effects panel ▸ Lumetri Presets", "lumetri.applyPreset"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-keyframe-lumetri"
+kind = "tool"
+q = "can I keyframe lumetri exposure"
+sources = ["color.lumetri.panel"]
+must = ["every Lumetri slider is an effect parameter and can be keyframed like any effect"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c3-which-several-keys"
+kind = "approach"
+q = "I need to fix skin, sky and grass separately on one shot. Lumetri or nodes?"
+sources = ["color.lumetri.which"]
+must = ["nodes: one qualifier per node", "Lumetri has a single HSL Secondary"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-split-both"
+kind = "pro-practice"
+q = "if I use both tools, what's a sensible split of the work?"
+sources = ["color.lumetri.which"]
+must = ["balance and look in nodes", "Lumetri only for what nodes don't have yet (a vignette, vibrance)"]
+must_not = ["claims there is only one right split"]
+style = "pro"
+
+[[question]]
+id = "pool-c3-convert"
+kind = "gap"
+q = "can I convert my Lumetri settings into nodes?"
+sources = ["color.lumetri.no-carry-over"]
+must = ["no conversion either way", "rebuild by eye with a still and the wipe"]
+must_not = ["invents a convert command"]
+style = "gap"
+
+[[question]]
+id = "pool-c3-copy-lumetri"
+kind = "multi-step"
+q = "copy grade didn't bring my lumetri across to the other clip"
+sources = ["color.lumetri.no-carry-over"]
+must = ["Copy / Paste Grade copy only the nodes", "Lumetri travels with the clip's effects: Edit ▸ Copy and Paste Attributes"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c3-same-grade-lumetri"
+kind = "pro-practice"
+q = "Does \"Same grade?\" look at Lumetri too?"
+sources = ["color.lumetri.no-carry-over"]
+must = ["no: Same grade? and the node explainer look only at the nodes", "Compare shots measures the finished picture, Lumetri included"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c3-workflow-panel"
+kind = "tool"
+q = "how do I make the node grader the default colour panel instead of Lumetri"
+sources = ["color.lumetri.no-carry-over"]
+must = ["Settings ▸ General ▸ Workflow: DaVinci Resolve (settings.setWorkflow)", "Lumetri stays one tab away"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-c3-premiere-user"
+kind = "approach"
+q = "I only know Premiere. Do I have to learn nodes?"
+sources = ["color.lumetri.premiere", "color.lumetri.what"]
+must = ["no: Lumetri follows Premiere's sections and names", "if you never open the node grader nothing changes; it would run before Lumetri"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-c3-grade-per-clip"
+kind = "node-role"
+q = "is the node grade on the clip or on the whole sequence?"
+sources = ["color.nodes.why"]
+must = ["the grade belongs to the clip"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-disable-vs-delete"
+kind = "node-role"
+q = "should I delete a node or disable it if I might want it back?"
+sources = ["color.nodes.delete", "color.nodes.panel"]
+must = ["Disable keeps its settings (box struck through)", "Delete removes its work; Ctrl+Z brings it back"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-node-limit"
+kind = "pro-practice"
+q = "is there a maximum number of nodes per clip?"
+sources = ["color.nodes.panel"]
+must = ["at most 64 nodes per grade", "a damaged file with more shows \"+N more (not rendered)\""]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c3-node-label"
+kind = "tool"
+q = "my node boxes say \"Primaries + Curves\", where does that come from?"
+sources = ["color.nodes.panel", "color.nodes.reorder"]
+must = ["a node without a name is labelled by what it holds", "rename it to show your own name"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-three-node"
+kind = "multi-step"
+q = "walk me through building a simple three node grade"
+sources = ["color.nodes.three-node"]
+must = ["Add Node, then + Serial twice: boxes 01, 02, 03", "a job on each (Gain on 01, grain on 03)", "Disable one node to see its work, Bypass for the whole grade"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-move-node-drag"
+kind = "gap"
+q = "can I drag a node to reorder it?"
+sources = ["color.nodes.reorder"]
+must = ["no drag yet", "grade.moveNode (node, to) from the control channel, MCP or command list"]
+must_not = ["claims nodes can be dragged"]
+style = "gap"
+
+[[question]]
+id = "pool-c3-label-clear"
+kind = "tweak"
+q = "how do I take a name off a node?"
+sources = ["color.nodes.reorder"]
+must = ["Rename and leave the name empty: it shows what it changes instead"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-starter-why-balance"
+kind = "node-role"
+q = "why does balance go before exposure in the starter tree?"
+sources = ["color.nodes.starter-tree"]
+must = ["every later node then works on a neutral picture", "a brightness change on a colour cast pushes the cast further"]
+must_not = ["claims it is the only right order"]
+style = "pro"
+
+[[question]]
+id = "pool-c3-sat-after-contrast"
+kind = "node-role"
+q = "why put saturation after contrast?"
+sources = ["color.nodes.starter-tree", "practice.grading.saturation-order"]
+must = ["a steeper tone curve also makes colours look more saturated"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c3-auto-tree"
+kind = "gap"
+q = "can Revolution build the F-Log2 node tree for me automatically?"
+sources = ["color.nodes.starter-tree"]
+must = ["no: the app doesn't build the tree; add nodes with + Serial", "the input and output conversions are automatic"]
+must_not = ["invents a build-tree command"]
+style = "gap"
+
+[[question]]
+id = "pool-c3-nr-placement"
+kind = "pro-practice"
+q = "spatial NR on the first node or the last?"
+sources = ["color.nodes.orders", "color.noise.temporal"]
+must = ["both are in use", "first: cleans before contrast and saturation boost the noise, qualifiers key cleaner", "last: runs once the look is set (NR is slow)", "temporal NR is a clip setting that always runs before the grade"]
+must_not = ["claims one placement is the only correct one"]
+style = "pro"
+
+[[question]]
+id = "pool-c3-cst-bookends"
+kind = "node-role"
+q = "do I need CST nodes at the start and end like in Resolve?"
+sources = ["color.nodes.orders", "color.color-management.resolve"]
+must = ["no: the input and output transforms are automatic, so the bookends are already there"]
+must_not = ["tells the user to add CST nodes by hand"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-c3-lut-node-709"
+kind = "pro-practice"
+q = "I put a Rec.709 film LUT on a node in a DaVinci Wide Gamut sequence and it looks wrong"
+sources = ["color.nodes.orders", "color.finishing.lut"]
+must = ["a LUT node works on the working signal (DaVinci Intermediate in a DWG sequence)", "use a LUT made for that signal, or a Rec. 709 LUT only in a Rec. 709 sequence"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-c3-mixed-cameras"
+kind = "approach"
+q = "I've got two different cameras in one scene, how should I organise the nodes?"
+sources = ["color.nodes.orders"]
+must = ["balance each camera's shots to match first (a balance node per shot)", "then share the look across all of them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-c3-resolve-keys"
+kind = "tool"
+q = "what are the Resolve-style shortcuts for nodes here?"
+sources = ["color.nodes.resolve"]
+must = ["with Workflow set to Resolve: Alt+S serial, Shift+S before, Ctrl+D enable / disable, Shift+D bypass", "no shortcuts in the default Premiere workflow"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-c3-splitter"
+kind = "gap"
+q = "is there a splitter / combiner node to grade channels separately?"
+sources = ["color.nodes.later", "color.nodes.resolve"]
+must = ["not yet: splitter / combiner nodes are planned with parallel, layer, outside and key-mixer nodes"]
+must_not = ["invents a splitter node"]
+style = "resolve-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-c3k-add-lumetri"
+q = "add lumetri color to a clip"
+kind = "how"
+origin = "agent"
+page = "color/lumetri.md"
+heading = "Using the Lumetri Color panel"
+status = "covered"
+facts = ["Add Lumetri Color to clip"]
+
+[[coach]]
+id = "pool-c3k-vibrance"
+q = "vibrance"
+kind = "premiere-word"
+origin = "agent"
+page = "color/lumetri.md"
+heading = "Using the Lumetri Color panel"
+alt = [{ page = "color/lumetri.md", heading = "Which one to use" }]
+status = "covered"
+facts = ["Creative section"]
+
+[[coach]]
+id = "pool-c3k-color-match"
+q = "how do I use color match"
+kind = "how"
+origin = "agent"
+page = "color/lumetri.md"
+heading = "Using the Lumetri Color panel"
+alt = [{ page = "color/matching.md", heading = "Shot Match" }]
+status = "covered"
+facts = ["Comparison View", "Apply Match"]
+
+[[coach]]
+id = "pool-c3k-presets"
+q = "lumetri presets"
+kind = "premiere-word"
+origin = "agent"
+page = "color/lumetri.md"
+heading = "Using the Lumetri Color panel"
+status = "covered"
+facts = ["Effects panel ▸ Lumetri Presets"]
+
+[[coach]]
+id = "pool-c3k-copy-lumetri"
+q = "how do I copy lumetri to another clip"
+kind = "how"
+origin = "agent"
+page = "color/lumetri.md"
+heading = "What doesn't carry over"
+status = "covered"
+facts = ["Edit ▸ Copy, Paste Attributes"]
+
+[[coach]]
+id = "pool-c3k-disable"
+q = "how do I turn off one node"
+kind = "how"
+origin = "agent"
+page = "color/nodes.md"
+heading = "The Nodes panel"
+alt = [{ page = "color/nodes.md", heading = "Steps: build a three-node grade" }]
+status = "covered"
+facts = ["Disable"]
+
+[[coach]]
+id = "pool-c3k-delete"
+q = "delete a node"
+kind = "how"
+origin = "agent"
+page = "color/nodes.md"
+heading = "Delete a node"
+status = "covered"
+facts = ["Delete", "Ctrl+Z"]
+
+[[coach]]
+id = "pool-c3k-three"
+q = "build a three node grade"
+kind = "how"
+origin = "agent"
+page = "color/nodes.md"
+heading = "Steps: build a three-node grade"
+status = "covered"
+facts = ["+ Serial"]
+
+[[coach]]
+id = "pool-c3k-node-label"
+q = "node labels"
+kind = "resolve-word"
+origin = "agent"
+page = "color/nodes.md"
+heading = "Reorder and name nodes"
+status = "covered"
+facts = ["Rename"]
+
+[[coach]]
+id = "pool-c3k-nr-order"
+q = "should noise reduction be the first node"
+kind = "order"
+origin = "agent"
+page = "color/nodes.md"
+heading = "Other node orders, and why you'd choose them"
+alt = [{ page = "color/noise.md", heading = "Temporal noise reduction" }]
+status = "covered"
+facts = ["first or last, both in use"]
+
+[[coach]]
+id = "pool-c3k-shortcut"
+q = "shortcut for serial node"
+kind = "where"
+origin = "agent"
+page = "color/nodes.md"
+heading = "If you know Resolve"
+status = "covered"
+facts = ["Alt+S with Workflow Resolve"]
+
+[[coach]]
+id = "pool-c3k-undo-typo"
+q = "undo deleted nod"
+kind = "typo"
+origin = "agent"
+page = "color/nodes.md"
+heading = "Delete a node"
+alt = [{ page = "color/nodes.md", heading = "Undo" }]
+status = "covered"
+facts = ["Ctrl+Z"]
+
+[[coach]]
+id = "pool-c3k-layer"
+q = "layer node"
+kind = "resolve-word"
+origin = "agent"
+page = "color/nodes.md"
+heading = "Later: parallel and layer nodes (C2)"
+alt = [{ page = "color/nodes.md", heading = "If you know Resolve" }]
+status = "covered"
+facts = ["planned"]

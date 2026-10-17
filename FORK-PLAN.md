@@ -95,7 +95,7 @@ the agent's own recorded interpretations, not the owner's words.
    now that 6.1b decodes 4:2:2 on Intel); Phase 8 deferred to the end because other developers
    are likely building backends upstream (check upstream first, §1a.34). **Revised by the owner
    2026-10-12 (§1a.35), the current order:** … 6 → **G2c** → Y1 → 6E → U0.2 → **A1** (on the Dell lane, §1a.60) → Y3 → C1 → C2 → **AI1** → **A2** *(superseded for AI1 by §1a.69: … U0.2 → AI1 → X422 → Y3 → C1 → C2 → AI2 → …)*
-   → **G3** → 7 (+ Y4) → Y2 → H1 → H2 → H3 → **C3 → C4 → G4 → A3 → R1 → R2** → D → 8 (deferred) *(A3 moved before S1 by §1a.76: … AI3 → C2 → AI2 → A3 → S1 → …; UPD after G3 by §1a.77)*; R1 / R2 (CinemaDNG, ProRes RAW):
+   → **G3** → 7 (+ Y4) → Y2 → H1 → H2 → H3 → **C3 → C4 → G4 → A3 → R1 → R2** → D → 8 (deferred) *(A3 moved before S1 by §1a.76: … AI3 → C2 → AI2 → A3 → S1 → …; UPD after G3 by §1a.77; R1 removed to the maybe list by §1a.81)*; R1 / R2 (CinemaDNG, ProRes RAW):
    [`RAW-PLAN.md`](RAW-PLAN.md), tags `raw-1/2`, added by the owner 2026-10-12 (§1a.36); AI1 (portable
    fast inference, retires the x86-64-v3 flag): [`AI-PLAN.md`](AI-PLAN.md), tag `ai-1` (§1a.37). A phases:
    [`AUDIO-PLAN.md`](AUDIO-PLAN.md) (tags `audio-1/2/3`); G3 Magic Mask and G4 advanced grading:
@@ -108,7 +108,7 @@ the agent's own recorded interpretations, not the owner's words.
    is complete when 8 is done; then stop (§1a.22 lists what never starts without the owner).
    **Later revisions (2026-10-12): §1a.40 (6.7b), §1a.41 (grouping), §1a.43 (L1 / L2 Dell lane),
    §1a.45 (Y1 on upstream's decoder), §1a.47 (CO1), §1a.48 (AI1 before C1, AI2 after C2: the current
-   order), §1a.49 (retrain in AI1 and AI2). Where they differ from the text above, they win.**
+   order), §1a.49 (retrain in AI1 and AI2), … **§1a.99 (latest, 2026-10-16: tune + search by meaning → UPD → XPS laptop → pause)**, §1a.100 (document every feature + FEATURE-QUEUE for the Dell lane), §1a.101 (publish hold lifts when S1 is accepted), **§1a.102 (current order: tune + meaning search → S1 → publish → UPD → XPS → pause)**. Where they differ from the text above, they win.**
 7. **Benchmark passes.** Quick passes (the key 6.2K playback and decode scenarios, `--quick`, one
    run each, labelled "quick pass") for phases whose main result is known (Phases 1, 3, 6, 8 and
    in-between steps); **the full `xm5` suite at Phase 2, 4, 5 and 7 acceptance**, and whenever a
@@ -386,7 +386,10 @@ the agent's own recorded interpretations, not the owner's words.
       `strings` must show no owner user name and no `/home/<name>` other than `/home/user`. The
       private `~/Apps/filmcraft-builds/<tag>/` binaries contain home paths: never upload them.
     - **Release:** `gh release create fork-<tag> --target fork` with the phase `NOTES.md`
-      (checked for private details) and the scrubbed Linux build tarball.
+      (checked for private details) and the scrubbed Linux build tarball
+      (`filmcraft-fork-<tag>-linux-x86_64.tar.gz`, one top folder `filmcraft-fork-<tag>/`), **plus a
+      `SHA256SUMS` asset** (`sha256sum filmcraft-fork-<tag>-linux-x86_64.tar.gz > SHA256SUMS`, added
+      2026-10-16 for UPD §1a.77: the in-app update refuses a release without it).
     - **Explainers:** each model version is its own release `explainer-<name>` (TRAINING.md
       "Publishing": GGUF, tokenizer.json, LICENSE, NOTICE, manifest.json; never
       `manifest.private.json`).
@@ -520,7 +523,7 @@ the agent's own recorded interpretations, not the owner's words.
     stops itself at 5-hour ≥ 80 % / weekly ≥ 94 %, done-marker `.linux-lane-complete`); the main runner never
     picks it up, only accepts it. (g) Owner, same day: real-desktop checks on the Dell are fine
     whenever he isn't using it (still check first, as above).
-44. **Fable for the hardest builds (owner, live, 2026-10-12).** While Fable's weekly use is under
+44. **(Replaced by §1a.95 on 2026-10-16: Opus by default.)** **Fable for the hardest builds (owner, live, 2026-10-12).** While Fable's weekly use is under
     its line − 3, leaf builders for GPU shaders / WGSL, concurrency and decoder / encoder state use
     Fable instead of Opus (runner prompt §2c). Other lanes unchanged. The owner: spending Fable's
     allowance "doesn't matter if there's no gain"; the point is fewer review-and-fix rounds.
@@ -1015,6 +1018,287 @@ the agent's own recorded interpretations, not the owner's words.
     what is required to finish AI3." So: Opus lanes (several if they really run in parallel), Fable only for a step
     that needs it (a hard bug after two Opus attempts), never by default; not MINIMAL.
 
+80. **AI3: build, don't publish (owner, live, 2026-10-15 ~13:50).** "when AI3 is finished, please build it but don't
+    publish it until I tell you." Replaces §1a.79's "publish" for AI3 only: tag `ai-3` and the build (§1a.9) as usual;
+    no public snapshot on branch `fork`, no `fork-ai-3` tag, no release until he says so. The pause (§1a.79 (3)) still
+    follows; the message to the live session says AI3 is built and waiting to be published. (H group: already published.)
+
+81. **R1 (CinemaDNG) leaves the plan; it goes on the maybe list (owner, live, 2026-10-15 ~15:20).** Told that
+    upstream added its own clean-room DNG / CinemaDNG decoder (`crates/dng`, upstream #1065), the owner said "add
+    cinemaDNG to the list of maybes but remove it from the plan". Order now: … G4 → **R2** → D → 8 (R1 removed).
+    **Maybe list** (not scheduled; reconsider only on the owner's word): R1 CinemaDNG (first check whether
+    upstream's `crates/dng`, taken in at the next upstream sync, already reads the owner's files; if a gap shows,
+    a fix there is an upstream contribution, not a fork phase).
+    **Maybe list, added by the owner 2026-10-15 ~21:00:** (b) **Qwen3-VL 2B** for lower-end hardware (AI4 item 4,
+    deferred: "only do the 4B for now"); (c) **a larger assistant model, 7–8B** (planning / reasoning tier for
+    machines that can run it, e.g. the RX 6700 XT; OLMo 2 7B was the candidate in §1a.74, decided by the eval; its
+    download needs the owner's yes): "ok add this to the maybe with 2B".
+
+82. **Send a whole project (owner, live, 2026-10-15 ~15:30).** On S1 → S2: "can we give this the capability of
+    sending the entire project. the project file with everything such as audio and grade nodes, plus all the
+    footage needed for it?" Added as **STORAGE-PLAN S1.5** (a complete, verified project package: every file the
+    edit needs, optional trim to used ranges + handles, one folder or one `.fcpackage`, SHA-256 manifest, import
+    that relinks automatically) and **S2.6** (Send / Receive Project to and from remote locations, with resume).
+    Estimates now S1 ≈ 18–35 h, S2 ≈ 35–70 h. Order unchanged.
+
+83. **AI4: the assistant sees your footage (owner, live, 2026-10-15 ~16:40).** Agreed design: scope-measured
+    facts + a short description from a vision model, both as text, to the same assistant model (SmolLM3).
+    "yes to both, but only do the 4B for now, add it to the plan": **Qwen3-VL 4B Instruct download approved**
+    (verify the licence is Apache-2.0 first), **the owner's own X-M5 frames may be used as training data**
+    (local only, never in the repo or a published model's data), the 2B tier deferred. Plan: AI-PLAN Phase AI4.
+    Order: … AI3 → C2 → AI2 → **AI4** → A3 → S1 → … (agent's placement: the AI work together; the owner may move it).
+    **Moved by the owner (~16:45): "put it after AI3".** Order: … AI3 ✓ → **AI4** → C2 → AI2 → A3 → S1 → S2 → G3 → UPD → 7 …
+    AI4 is the next phase when work resumes.
+
+84. **AI5: opt-in sharing of Assistant examples, via GitHub (owner, live, 2026-10-15 ~17:20).** Reverses the
+    2026-10-14 "no AI usage data" decision for an explicit, per-answer action only: "yes this sounds good. Make it
+    phase AI5 though and use Github as the route. With the save feature being available for anyone as well." Plan:
+    AI-PLAN Phase AI5 (preview, consent, pre-filled GitHub issue opened in the user's browser, Save to file for
+    everyone, private data stripped; no server, no keys in the app). Order: … AI3 ✓ → AI4 → **AI5** → C2 → AI2 → …
+    The UPD update check still sends no usage data (§1a.77).
+
+85. **Resume: AI4 on the main runner, AI-POOL on the Dell lane (owner, live, 2026-10-15 ~18:50).** Asked to make the
+    question pool ~10× larger for future training: "yes this sounds like a plan. Please resume work on AI4 on the
+    main runner and do this on the dell runner." The §1a.79 pause ends (`.fork-paused` removed, both scheduled tasks
+    re-enabled; the cloud routine stays off until the owner says). Main runner: AI4 (AI-PLAN), normal usage rules
+    (the §1a.79 override was for the ship only). Dell lane: AI-POOL (AI-PLAN), writing only, under its usual rules.
+    `ai-3` stays on publish hold (§1a.80). Fixes made live on 2026-10-15 after the pause: builds ai-3b … ai-3e
+    (`latest` → ai-3e): models follow `--data-dir`, colour-direction filter, clear-winner rule, recipes 2b / 2c / 3b,
+    "Where the Assistant runs"; GPU eval 85 / 87, 0 invented (synthetic).
+
+86. **AI4 trains and tests on AI-POOL (owner, live, 2026-10-15 ~18:50).** "Once this is done, add training and testing
+    on it to AI4." AI4 item 5 (AI-PLAN): test on AI-POOL's held-out set (daily sample per step, full set at acceptance),
+    tune the assistant on its training pairs after the owner's sample review, kept only if it beats the untuned model.
+
+87. **AI-POOL: more training pairs through new kinds (owner, live, 2026-10-15 ~20:45).** Told the ~9 000-pair target
+    isn't reachable honestly (single-section pairs reword held-out questions), the owner chose option 2 ("this sounds
+    great!"): multi-section tasks, follow-up chains, and picture-dependent pairs on AI4's measured-fact sheet, each kind
+    with a held-out slice in the test set (AI-PLAN AI-POOL). The test-question target (~900) stands.
+
+88. **AI6: hands-on assistant + Claude as co-editor over MCP, before Phase 7 (owner, live, 2026-10-15 ~21:10).**
+    "ok this sounds good. Could we also add an MCP where you could control all of this?" AI-PLAN Phase AI6: Do-this
+    actions (preview, confirm, one undo), edit awareness (timeline + transcript, cut suggestions), audio facts,
+    longer memory + project plan notepad, creative whole-video notes, and MCP tools for all of it (the MCP server
+    already exists; proposals from an MCP client show the same preview). Order: … G3 → UPD → **AI6** → 7 (+ Y4) …,
+    so Phase 7's real-edit check uses the Assistant. ≈ 135–255 h.
+
+89. **AI4 gets question-aware looking; Claude in the Assistant panel is not planned (owner, live, 2026-10-15 ~21:30).**
+    Asked whether Claude could run in the Assistant panel (switch Local / Claude, via Claude Code or an API key):
+    "don't plan it for now" (not on any list; don't build it). Asked whether to add question-aware looking to AI4:
+    "yes please": AI-PLAN AI4 item 2b (the vision model gets the question with the frame).
+90. **Train and test on open-ended creative questions the guide doesn't answer directly (owner, live, 2026-10-15 ~22:30, clarified ~22:40).**
+    "Make sure to train on more niche situations than just general questions covered by the guide as well", then: "I meant
+    more like 'how do I remove the person from this clip and replace it with a translucent ghost figure instead' type of
+    questions … questions that wouldn't just be covered by a guide." So: questions about a creative result that
+    no single section answers, where the assistant has to work out a plan by combining FilmCraft's tools
+    (AI-PLAN AI4 item 5c, `creative-*` batches). Answers stay grounded: every step names a real control or command, the
+    parts FilmCraft can't do yet are said plainly with the closest workaround, 0 invented.
+91. **The Dell lane builds the creative set while the main runner continues AI4 (owner, live, 2026-10-15 ~22:55).**
+    "Can we get the Dell to build the creative set while AI4 continues to run." The Dell lane (AI-POOL done) now runs
+    **CREATIVE-POOL** (its SKILL.md §8, marker `.dell-creative-complete`): the `family` field + check in `ai_pool.rs`,
+    then held-out `creative-*` batches first (~300 before training batches), then training recipes toward AI-PLAN 5c's
+    ~850 held-out / ~800 pairs, ~1 in 20 recipes run headless on the Dell, gaps listed in `pool/creative-gaps.md`.
+    Split: the lane owns `pool/creative-*`, `ai_pool.rs`, the daily sample; the main runner keeps the guide /
+    practice notes (the lane lists "practice notes wanted" in HANDOFF), `coach_*.rs` retrieval / scorer and the
+    model work, and stops writing creative batches itself. CLOUD-QUEUE item 19 (CREATIVE-2) is taken by the lane.
+92. **Owner's own conversations as training data: a local "training inbox", built in AI5 (owner, live, 2026-10-15 ~23:05).**
+    Asked for a way to send his Assistant conversations and relevant data somewhere the runners can train on; chose to
+    build it **as part of AI5** (not earlier). AI-PLAN AI5 item 8: fork-only "Send to my training inbox" writes the whole
+    conversation + context / picture facts / grade / optional frame to `<data dir>/assistant-inbox/` (no network, no
+    stripping); the main runner imports it each run into held-out or training cases (`origin = "owner-inbox"`), never
+    both, owner read before any tune. Fits §1a.84 (explicit, per-conversation, nothing in the background).
+92. **Stop stopping barely into a run (owner, live, 2026-10-15 ~22:55).** "please stop stopping barely into a run."
+    Runs on 2026-10-15 kept ending after one or two small steps with "run ends at a clean checkpoint (weekly far
+    over its line: conserving)", which breaks §1a.70. Restated as a check: a run that holds the lock ends **only**
+    for one of these, and its last progress-log entry names which: (1) the 5-hour throttle (> L5 + 20, §2c),
+    (2) a phase end (tag + build), (3) a long context (> ~60 % of the window), (4) a step that truly can't
+    proceed and no other step is ready. "Conserving", "weekly over the line", "clean checkpoint" or "one step
+    done" are **not** end reasons: they only choose MINIMAL mode. In MINIMAL keep taking the next small,
+    settled step (guide / practice notes, tests, retrieval fixes, owed items) for as long as the run lasts.
+
+93. **REF: "how do I get this look?" from a picture you like; S1 moves after AI5 (owner, live, 2026-10-16 ~01:30).**
+    Asked whether he could insert a picture of a shot he likes and ask how to do what they did. Offered it as AI4
+    item 2c; owner: "no but add it before C2", then "also move S1 to after AI5". New phase **REF** (AI-PLAN Phase
+    REF): drop / paste / pick a reference picture (Ask box and Gallery); FilmCraft measures it and the current
+    frame with AI4's picture facts and states the difference; the vision model describes what numbers can't
+    (light direction, depth of field, haze, grain, framing, letterbox); the answer splits **what the grade can
+    do** (guide-grounded recipe + Shot Match against the picture as a first-pass node) from **what was done on
+    set** (light, lens, focus: said honestly, with what can be faked); never claims to know exactly how it was
+    made. The picture stays local: not training data, never in a shared example. **Order (agent's reading of
+    the two instructions: S1 right after AI5, REF still before C2; S2 stays where it was):** … AI3 ✓ → AI4 →
+    AI5 → **S1** → **REF** → C2 → AI2 → A3 → S2 → G3 → UPD → AI6 → 7 (+ Y4) → … (logged in OWNER-QUESTIONS Q43,
+    FYI).
+
+94. **Usage modes never block needed work (owner, live, 2026-10-16 ~02:45).** "don't be in a usage mode that stops
+    you from doing work that needs to get done. do the gpu/design work". After a run ended with "every AI4 step
+    left is GPU / design work for STEADY+". From now on the §2c modes only set **how** work is done (how many
+    lanes, which reviewer model, how much reading), never **whether** the next step in the order is done: when
+    the next step is GPU, shader, design or diagnosis work, do it in any mode, with at least one builder (Fable
+    per §1a.44 for shaders / concurrency / decoder state) and an Opus review of risky diffs (FFI, `unsafe`,
+    shaders, concurrency). "Needs STEADY+" is no longer an end reason (§1a.92 reason 4) or a reason to defer. The
+    5-hour throttle (> L5 + 20) still pauses a run, as do the other §1a.92 reasons.
+
+95. **Opus by default, Fable only after Opus fails twice; no Fable this week (owner, live, 2026-10-16 ~03:05).**
+    Asked whether anything needs Fable over Opus (answer: no measured benefit, Fable likely costs more of the
+    all-models weekly limit). Owner: "sounds good. yeah let it finish but don't use fable again this week".
+    Replaces §1a.44 and every "Fable" role in §2c / §3 of the runner prompt: builders, reviewers, designers and
+    diagnosticians use **Opus** (Sonnet where the prompt already says so); Fable only for a bug or design call
+    Opus has already failed at twice. **Until the weekly reset of 2026-10-20 04:00 EDT: no Fable at all**, not
+    even under that exception. The two Fable lanes started 2026-10-16 ~02:50 (GPU text forward, GPU vision
+    encoder) finish as they are.
+96. **LEAN floor; AI4 owner reviews (owner, live, 2026-10-16 ~04:20).**
+    (a) **Mode floor LEAN:** "please let it know that it can work in the step above minimal". Where §1a.52 / §1a.55 /
+    §2c would choose MINIMAL because usage is over the weekly line or over L5 + 20, runs work in **LEAN** instead
+    (subagents allowed as LEAN allows; Opus per §1a.95). Unchanged: the 5-hour throttle (finish the step, end the run)
+    and the near-limit MINIMAL of §1a.53 (weekly ≥ 98 % or 5-hour ≥ 93 %), so a real limit still costs at most one
+    small step. Holds until the owner says otherwise.
+    (b) **Q41 answered: the owner has read the training pairs.** The Q35 owner read is done for AI-POOL's and
+    CREATIVE-POOL's training pairs, so AI4 item 5 (b) tunes may use them (keep-only-if-better rule unchanged).
+    (c) **AI4 item 3 training frames: no X-M5 footage yet (owner, live, ~04:30).** The owner doesn't have the
+    camera yet, so there are no own frames. Use **synthetic frames** (known lighting) and, preferred by the owner,
+    **downloaded footage shot by others**. **Download approved** for that purpose, on these terms: openly licensed
+    only (public domain / CC0 / CC-BY / CC-BY-SA, e.g. Wikimedia Commons, Blender open movies, other open test
+    footage; licence checked per file and logged with source URL and attribution in `docs/fork/coach-eval/VISION-SOURCES.md`),
+    no "free to use" sites whose terms forbid training or redistribution, ≤ 20 GB in all, stored under
+    `~/.local/share/filmcraft-fork/training-footage/` (never in git; only the source list and labels are
+    committed). **Log footage is required (owner, live, ~04:35: "make sure to download log footage and train on
+    it"):** download openly licensed log clips (F-Log2 / F-Log first; S-Log3, V-Log, LogC, C-Log, N-Log … too) and
+    include them in the training set, labelled both as shot (flat, log) and after the matching input transform;
+    if openly licensed F-Log2 is scarce, also make F-Log2 frames by encoding linear / scene-referred open footage
+    with Fujifilm's published F-Log2 curve (marked synthetic in the source list). The runner builds the frames,
+    labels and a review sample (`docs/fork/coach-eval/VISION-READ.md`, 30–50 frames + labels) and tells the owner
+    it is ready. **The tune is done in AI4 regardless of the review (owner, live, ~04:35: "no please do the tune
+    regardless")**: the review is not a gate; if the owner notes wrong labels later, they're fixed and the tune is
+    re-run. The tune is still kept only if it beats the base model on held-out frames (AI-PLAN item 3), and
+    `ai-4` is tagged after it. AI5 starts right after `ai-4`.
+
+97. **Q46 yes: tune the Assistant (owner, live, 2026-10-16 ~13:20).** "yes please tune it". SmolLM3-3B's full weights are
+    downloaded and verified (`~/.local/share/filmcraft-fork/models/llm-base/SmolLM3-3B/`, rev a07cc9a0…). **AI4.5b-late**
+    runs next: the run in progress finishes its current step, then the next run does the tune before continuing S1.
+    Work: (1) `tools/explainer-train/tinylm.py` learns SmolLM3 (Llama-style, tied head; **no rotary on every 4th layer**,
+    `no_rope_layers` in config.json: 0 = no RoPE), parity-checked against FilmCraft's own SmolLM3 forward (greedy answers
+    equal to the app's on a few questions); (2) a training-data example in the engine that builds each pool / creative
+    training pair's prompt with the app's own `pick_prompt` (Pick style, the default) and the target keys as Q46's design
+    note says (pairs whose sources weren't retrieved are skipped), split by family / pair, never touching held-out ids;
+    (3) LoRA on the RX 6700 XT with the best adapter saved on every improvement; (4) convert with FilmCraft's own
+    converter and keep it **only if** it beats the untuned model on the held-out daily sample and the AI3 87-question set
+    with 0 invented and creative not falling (AI-PLAN item 5 (b)); otherwise keep the untuned model and log why. If kept:
+    catalogue entry + build `ai-4b` (held like `ai-4`).
+98. **Q45 (a): search by meaning for the Assistant (owner, live, 2026-10-16 ~13:35).** "ok sounds good" to: allow one
+    small openly licensed embedding model (≈ 25–140 MB; Apache-2.0 / MIT, e.g. a MiniLM / BGE-small class model;
+    licence checked and logged before download) **downloaded by the runner** (this chat is the owner's yes; pin
+    revision + SHA-256 like the other models, `~/.local/share/filmcraft-fork/models/`), run on FilmCraft's own
+    inference, used to retrieve guide sections by meaning (alone or mixed with the word search). Kept only if it
+    raises creative plan coverage (≥ 2 plan sections in the top 6, today 138 / 608) and the creative pass rate,
+    without costing lookup hits or the AI3 87-question set, 0 invented. Order: with / right before the assistant tune
+    (§1a.97), so the tune trains on the prompts the new search produces.
+
+99. **New order: tune + search by meaning → UPD → XPS (the owner's laptop) → pause (owner, live, 2026-10-16 ~15:30).**
+    "after these two [the §1a.97 tune and §1a.98 search by meaning] can you do UPD and then after that start
+    developing for full compatibility with my dell xps 16 (with the intel ultra 155h + NVIDIA 4050 discrete). Finish
+    as much of the compatibility as possible without the laptop and then pause until I get my laptop ready to be
+    tested and built on." **Order (replaces the tail of §1a.93):** AI4.5b-late tune (§1a.97) + search by meaning
+    (§1a.98) → **UPD** (§1a.77, moved here from after G3; tag `update-1`) → **XPS** (below; everything that can be
+    done without the laptop) → **pause** (create `.fork-paused` containing the line `dell-lane: feature-pool`, §1a.79 mechanism; the main runner stops; the Dell lane only continues queued FEATURE-POOL rows, §1a.100) until the
+    owner says the laptop is ready (he deletes `.fork-paused` or says so live). After the pause: XPS on the laptop
+    (tag `xps-1`) → the rest of S1 → REF → C2 → AI2 → A3 → S2 → G3 → AI6 → 7 (+ Y4) → … (unchanged).
+    **Agent's readings (FYI, never block; recorded here, not in OWNER-QUESTIONS, because a run had it open):** (i) S1 is mid-phase: the run in progress finishes the
+    S1 step it is on (one green commit), then UPD; the remaining S1 items wait until after the pause. (ii) Search by
+    meaning's model is on disk (Q51 answered 14:17, `models/embed/bge-small-en-v1.5`): run its keep / drop coverage
+    eval (§1a.98) with the tune's eval, then UPD. (iii) UPD while releases are on publish hold (Q47): build and test it against recorded / mocked GitHub
+    replies; the live check is verified at the next publish. (iv) The laptop is assumed to run Linux (CachyOS like this
+    PC); Windows on it is the separate Windows-compatibility work, not XPS.
+    **Phase XPS: full compatibility with the Dell XPS 16 (Core Ultra 7 155H, Intel Arc Xe-LPG iGPU `renderD128`, RTX
+    4050 Laptop 6 GB `renderD129`).** Pulls **Phase 8 item 6** forward (8.6a–d move here; Phase 8 keeps the backup
+    backends and ARM64) plus LINUX-AUDIT **L2.6** (GPU choice) and the laptop parts of **L2.7** (power). Re-check
+    upstream first (§1a.34) and take what exists (NVDEC, NVENC `nvenc/export.rs`, `graphics.rs` #820).
+    **Without the laptop (now):**
+    a. **GPU choice (8.6a + L2.6):** one `pick_adapter(prefs, adapters)` for interop, `graphics.rs` and the export
+       renderer; VA-API node chosen by vendor (Intel iHD), never node order; NVDEC only when the iGPU can't decode the
+       clip; Settings ▸ Playback ▸ Graphics device (Auto / Power saving / Performance / by name) + `graphics.listDevices`;
+       honour `DRI_PRIME`, `__NV_PRIME_RENDER_OFFLOAD`, `MESA_VK_DEVICE_SELECT`; don't wake a sleeping dGPU (runtime D3)
+       just to list adapters. Tests with fake adapter / node lists for this laptop's exact layout.
+    b. **NVENC on par (8.6b):** HEVC Main / Main 10 on Linux, the 6E.2 speed preset → P1–P7, rate control, colour tags,
+       fallback to VA-API mid-stream, never-crash bounds; unit tests against a mocked driver interface; real runs owed.
+    c. **Intel Meteor Lake (Xe-LPG) on iHD:** capabilities read from the driver (vainfo-style query), never assumed;
+       HEVC 4:2:2 10-bit decode (the X-M5 6.2K path) expected on the iGPU, never NVIDIA (RTX 40 has no 4:2:2); the
+       Dell's UHD 770 (same iHD driver, 6.1b path) is the stand-in for tests that can run now.
+    d. **Laptop limits:** VRAM budgets from the adapter's real memory (6 GB on the 4050, shared on the iGPU), battery /
+       AC detection (UPower) with an optional lighter preview on battery, suspend inhibit while exporting, HiDPI /
+       fractional scaling on the 16" panel, NVIDIA proprietary-driver Vulkan + Wayland quirks noted and guarded.
+    e. **Runbook + probe:** `docs/fork/XPS-SETUP.md` (what the owner installs: nvidia-open, intel-media-driver,
+       vulkan-icd for both, libva-utils, ssh access like the Dell, repo + test clips) and `tools/fork/xps-probe.sh`
+       (records kernel, drivers, vainfo per node, vulkaninfo, NVENC / NVDEC caps, power state into one report), plus
+       the exact test list for the laptop. Guide page `docs/guide/` hardware section for hybrid laptops.
+    f. **Pre-laptop accept:** `cargo xtask ci` green, the above tested with fakes and on the Dell where possible, build
+       `~/Apps/filmcraft-builds/xps-pre` (§1a.9, not tagged, not published); then the pause.
+    **With the laptop (after the pause):** run the probe, fix what it finds, 8.6c zero-copy (Vulkan ↔ CUDA, NVDEC frames
+    kept on the GPU), 8.6d two-GPU export (NVENC lane + VA-API lane), benchmarks (`xm5-play-full`, `xm5-export-4k` on
+    each GPU, on battery and on AC); **Accept:** plays and exports on the iGPU, the dGPU and Auto, falls back cleanly,
+    never crashes; tag `xps-1`, build per §1a.9. Estimates: ≈ 15–25 h before the laptop, ≈ 10–20 h with it.
+
+100. **Every new tool / feature: documented well, then AI training sets built from it on the Dell (owner, live,
+    2026-10-16 ~15:40; standing, every phase from now on).** "after every new tool / feature added, we document it well
+    and get the dell lane to build further ai training sets based on it". **Main runner, per user-visible tool / feature /
+    command / setting (part of the step, not a later chore):** (1) **document it well**: its guide page / section
+    (header `does:` / `when:` with quoted example questions / `ui:` ids, every control and command id, limits and gaps
+    stated), a practice note where it changes a workflow (options + trade-offs, beginner vs pro, §1a.47 b), the effect
+    catalogue / reference if it is an effect, glossary terms, and the coach / assistant retrieval checked (lookup floors
+    green; a quoted `when:` question that retrieves the new section); (2) **queue it**: a row in
+    `docs/fork/coach-eval/pool/FEATURE-QUEUE.md` (date, commits, feature, guide section ids, command ids, `queued`) in
+    the same commit as the guide text. Phase acceptance checks that every feature commit of the phase has guide text and
+    a queue row. When the lane marks a row `guide wanted`, fixing that guide text comes before the next new feature.
+    **Dell lane (its SKILL.md §9, FEATURE-POOL; standing, runs whenever rows are `queued`):** per row, held-out questions
+    (lookup, task and creative families that use the feature; `feature-<slug>.toml`) and training pairs
+    (`feature-<slug>.jsonl`), with AI-POOL / CREATIVE-POOL's rules (real ids only, overlap / near-copy check, a family
+    held out or training, never both, honest counts: few honest questions beat many rewordings, a recipe spot check about
+    1 in 20 on the Dell); it sets the row `done` with counts, and the main runner's next assistant tune or retrain
+    (§1a.49, §1a.97) uses the new pairs after the owner's read rule (Q35). Backfill: the rows for everything added since
+    the pools were built (S1.1–S1.5, AI4, AI5, search by meaning) are seeded. **During the XPS pause (owner, live, ~15:55: "only if there is stuff to build upon"):** the lane keeps running FEATURE-POOL only while FEATURE-QUEUE has `queued` rows; with none it stops like any paused task. So the XPS pause writes `.fork-paused` with the line `dell-lane: feature-pool` (§1a.99); any other `.fork-paused` (no such line) stops the lane completely.
+
+101. **Publishing resumes after S1 (owner, live, 2026-10-16 ~15:50).** "you can resume publish after S1 is done" (about
+    the Q47 hold, `.fork-publish-hold` = `ai-3`, `ai-4`, `ai-5`). When S1 is accepted (tag `storage-1`, build per §1a.9),
+    that run publishes per §1a.33: the held tags and `storage-1` together (one release for the newest build, the held
+    ones' notes folded in, or one per tag if §1a.33's script needs it), then empties `.fork-publish-hold` (delete the
+    file) and records it in OWNER-QUESTIONS Q47 ("answered: §1a.101"). Phases after that publish normally again. If UPD
+    is merged by then, its live update check is verified against that release (§1a.99 (iii)). **Timing (FYI):** under
+    §1a.99, S1's remaining items come after the XPS pause, so this publish happens then; if the owner moves S1's finish
+    earlier, the publish moves with it.
+
+102. **S1 finishes before UPD; publish before the pause (owner, live, 2026-10-16 ~16:00: "yes please" to moving S1's
+    finish ahead of UPD).** **Order (replaces §1a.99's):** AI4.5b-late tune (§1a.97) + search by meaning (§1a.98) → **the
+    rest of S1** to acceptance (tag `storage-1`, build per §1a.9) → **publish** (§1a.101: held `ai-3` / `ai-4` / `ai-5` +
+    `storage-1`, `.fork-publish-hold` deleted) → **UPD** (its live update check verified against that real release, not
+    only mocked replies; tag `update-1`, publishes normally) → **XPS** pre-laptop part (§1a.99 a–f) → **pause**
+    (`.fork-paused` with `dell-lane: feature-pool`, §1a.100). After the pause: XPS on the laptop (`xps-1`) → REF → C2 →
+    AI2 → A3 → S2 → G3 → AI6 → 7 (+ Y4) → … . §1a.99 (i) no longer applies (S1 continues straight on); §1a.101's timing
+    note is void. Where HANDOFF's "Exact next step" still says S1's rest waits for the pause, this entry wins.
+
+
+103. **Rebrand to Revolution (first asked as Renaissance); release everything as Revolution 0.1 (owner, live, 2026-10-16 ~23:55).** "change the
+    name of our fork to Renaissance and change every branding of "FilmCraft" in our app to Renaissance? And then
+    release all of our updates as Renaissance 0.1"; minutes later (~00:05): "actually can you change it to Revolution instead of Renaissance". The name is **Revolution**. Answers to the scope questions: **(a) everything the user sees**
+    is Revolution: window title, About, menus, messages, dialogs, guide / assistant text, README, the program name
+    `revolution`, desktop launcher, app id and icon name; settings / project data move to a Revolution folder
+    automatically (old folder read when the new one is missing). **Internals stay `filmcraft-*`** (crate names,
+    code identifiers, file formats, control-protocol / MCP ids) so upstream syncs (§1a.19) stay clean; the About box
+    and README keep the credit "based on FilmCraft" (MIT / Apache notices kept). **(b) The public repo
+    dawgon2/filmcraft-cachyos is renamed dawgon2/revolution** (GitHub redirects the old URL; the `cachyos` remote
+    and the updater channel follow). **(c) Release:** the publish hold is lifted for every held tag (ai-3 / ai-4 /
+    ai-5); one sanitised snapshot "Revolution 0.1" on branch `fork` on top of the h264-3 snapshot, tag
+    `revolution-0.1`, GitHub release with tarball + `SHA256SUMS`; later releases `revolution-0.2`, … (the updater's
+    tag prefix becomes `revolution-`). Owner's go for this publish given in chat (answers Q53 for these tags).
+
+104. **S2 right after `xps-1`; packages become `.revolution` (owner, live, 2026-10-17 ~02:00).** "can you do S2 after
+    xps-1 and when you do that can you change .fcpackage to .revolution? if that's too much due to byte size can
+    you do .rev?" **Order (replaces §1a.102's tail):** XPS on the laptop (`xps-1`) → **S2** (STORAGE-PLAN: built-in
+    remote locations, Send / Receive Project) → REF → C2 → AI2 → A3 → G3 → AI6 → 7 (+ Y4) → … . **As part of S2:**
+    the one-file project package's extension becomes **`.revolution`** (extension length is no problem on any OS,
+    so not `.rev`): Package as One File… writes `.revolution`; Import Package, the file dialogs, `projects.import` /
+    `importPackage`, Send / Receive Project and the MIME / desktop entries accept **both** `.revolution` and the
+    older `.fcpackage` (packages already made must keep opening); the guide and tests follow. The format inside
+    is unchanged (a stored zip with `manifest.json`).
+
 ## 2. The machine and the footage (don't re-research these)
 
 **System:** CachyOS (Arch-based, rolling, recent kernel and Mesa), AMD Radeon RX 6700 XT
@@ -1429,164 +1713,35 @@ none yet (2026-10-08). Re-run every one marked *synthetic* on real footage later
 
 Older entries (everything before the newest ~20) are in [`docs/fork/PROGRESS-LOG-ARCHIVE.md`](docs/fork/PROGRESS-LOG-ARCHIVE.md) (§1a.55); read them only when HANDOFF points at one.
 
-- **2026-10-15 01:35 EDT: runner session killed by an out-of-memory kill (~01:30).** Cause: a live session ran the whole
-  `cargo test --test ui` in one process with plain cargo while this runner's model eval ran (fork-lessons: one module at a time,
-  through fc-cargo.sh). Nothing lost: every step was committed (33b2399f); the full 85-case eval survived as an orphan and
-  writes its report (HANDOFF: PID, log). The stale lock was removed by the live session so the next run starts on time.
-- **2026-10-15 02:05 EDT: AI3.6 full eval re-run done (scheduled run, MINIMAL: weekly U 47 / L 27, 5-hour 12 / L5 49).** The
-  orphaned 85-case run finished: **83 / 85 auto-pass (97.6 %), 0 invented**, every case model-answered, median 25.6 s / answer
-  (pick style + the yes / no `PICK_SYSTEM` line; was 76 / 85). Misses: `adv-mixed-light`, `adv-interview-match` (no expected
-  source cited). Report `target/ai3-eval.json` (not committed, synthetic).
-- **2026-10-15 02:20 EDT: AI3.6 misses.** `adv-interview-match`: the model answered from `color.recipes.match` (retrieval
-  rank 1, correct steps): added to the case's sources; the recipe's wipe step now says to match skin first (the case's `must`).
-  `adv-mixed-light`: right section at rank 1, the model chose day-for-night bullets: model limit, left honest. Engine lib 864 green.
-- **2026-10-15 02:45 EDT: AI3.3b smaller pick prompt.** `pick_prompt` no longer offers sections whose picks `parse_picks` would
-  drop (relevance < 0.5): 3 682 → 3 064 chars on average over the 85 cases. Full model re-run: **84 / 85 (98.8 %), 0 invented,
-  median 21.5 s / answer (was 25.6), max 32.4 s (was 90.7)**, 28 min (was 40); synthetic. Engine coach tests + clippy green.
-- **2026-10-15 03:05 EDT: C1 owed fix, comp render targets.** A comp of another size than the frame reallocated the
-  compositor's `output` and `backdrop` textures twice per frame (comp size, then frame size). Comp slot draws now swap in their
-  own `comp_output` / `comp_backdrop` like the slot accumulator; regression test counts render targets (thread-local, tests
-  only): 2 new per frame before, 0 now. `filmcraft-gpu` lib 75 green on AMD and Intel, clippy green. MINIMAL (U 48 / L 28).
-- **2026-10-15 03:20 EDT: settings flake fixed.** `Session::set_prefs` re-applied the process-wide hardware-decoding switch
-  (and decode-cache budget) on every `prefs.set`, so one session's unrelated change undid another's "Off" (the parallel flake of
-  `hardware_decoding_setting_drives_the_decoder_switch`, also wrong for CLI / control sessions). Now only when Hardware
-  decoding or Memory change; the test checks it deterministically (failed before). Engine lib 865 green, clippy green.
-- 2026-10-15 02:56 EDT (scheduled run, MINIMAL: weekly U 48 / L 28, 5-hour 14 / L5 74; no cloud work): **C1 owed: Item-source
-  Media In on the GPU.** A comp's Media In of a media item or subclip now compiles to one frame-plan layer
-  (`plan::media_frame_layer`, fitted and centred like the CPU `fit`; log / HDR Y'CbCr frames carry the input transform as layer
-  colour ops, graded at the size drawn), so the GPU draws the decoded frame instead of uploading a CPU picture; RGB frames that
-  need management, nested sequences and comps keep the CPU path. Tests `an_item_source_compiles_to_a_plan_layer` (failed
-  before: an Image pass) and `a_media_frame_layer_fits_the_canvas` (incl. a zero-width canvas); render crate 359 green, clippy
-  green. Owed: an in-app AMD + Intel look at a comp reading an F-Log2 clip.
-- **2026-10-15 03:25 EDT (scheduled run, MINIMAL: weekly U 48 / L 28, 5-hour 15 / L5 77; no cloud work): U0.2 owed: `teardown_ui` flake made
-  deterministic.** Reproduced at 6 threads with `teardown_ui timeline text title trim` (the 3 s media bound failed; the
-  thread list showed ~100 other tests' frame / background threads sharing the cores, starving the closed app's last frame).
-  The test now counts frame jobs after the close (only the frames in hand may finish: ≤ workers + 1) and waits up to 2 min
-  for the workers (new `FrameServer::live_workers`, looks without stopping) and the media pool; a failure lists the live
-  threads. Checked it still catches the bug: with the app's frame stop removed it fails (workers still running). Passes
-  alone and twice under the contention filter; ui-egui clippy green. The ~38 "filmcraft-backg" threads in the list are
-  unnamed child threads (rayon / decoders) inheriting their parent's name on Linux, not leaked workers.
-- **2026-10-15 03:33 EDT (scheduled run, LEAN: weekly U 48 / L 42, 5-hour 17 / L5 85; no cloud work): C1 owed Opus review of the
-  GPU comp path.** One bug: `render_plan` runs every comp first, and a later comp's uploads (fills, slot registrations) could push
-  an earlier comp's result out of the 24-entry upload cache, so that comp drew transparent with no error. Fix: `refresh_comp_output`
-  re-registers each comp's output slot right before the frame draws it; test `a_busy_later_comp_does_not_evict_an_earlier_result`
-  (failed before), `filmcraft-gpu` lib 76 green on AMD and Intel, clippy green. Other findings (comp VRAM across sets, effect pool
-  churn from the nested `render_plan`, `Pass::Image` size mismatch vs the CPU, nested scale > 1) are listed as owed in HANDOFF.
-  Note: earlier runs today logged L 28; the weekly line from resetsAt (Tue 04:00) is ≈ 42 at this hour, so they were LEAN, not MINIMAL.
-- **2026-10-15 (03:27–03:58 EDT run): C1 review finding 4.** A comp whose picture pass has another size than the comp (the CPU oracle keeps it
-  as it is; the GPU drew it transparent) now runs on the CPU; check added to `a_comp_too_wide_for_a_texture_falls_back_to_the_cpu`.
-  `filmcraft-gpu` lib 76 green on AMD and Intel, clippy green.
-- **2026-10-15 (03:27–03:58 EDT run): C1 review finding 3.** A comp's slot draws are nested `render_plan`s that each began and ended the effect
-  pool's frame, so with effects in a comp and on a frame layer of another size, both sizes' pooled effect textures were dropped and
-  made again every frame. The pool frame is now opened once per top-level `render_plan` (`fx_frame_open`); test
-  `comp_and_frame_effects_keep_their_pooled_textures` (1 size pooled before, 2 now). `filmcraft-gpu` all green on AMD and Intel, clippy green.
-- **2026-10-15 (03:27–03:58 EDT run): C1 review finding 2.** Comp GPU memory: `COMP_VRAM_BUDGET` (2 GB) was per comp, so up to 8 slot sets
-  could hold ~16 GB, and sets were never freed. Now the budget covers every held set (a comp above it runs on the CPU), a frame
-  drops the sets of comps it no longer has, and after `COMP_IDLE_FRAMES` (120) comp-free top-level draws all comp textures
-  (sets, output, backdrop) are let go. Test `comps_share_one_budget_and_their_textures_are_let_go`; `filmcraft-gpu` all green on AMD
-  and Intel, clippy green. Only finding 5 (nested `track_layers` scale > 1) is left from the review.
-- **2026-10-15 (03:27–03:58 EDT run): C1 review finding 5 looked at, left as is.** A comp larger than its sequence reads a track at scale > 1;
-  that only changes graphics / captions (rasterised at the comp's size, sharper than the CPU oracle's upscale) since media frames are
-  already capped at full size (`want` ≤ 1) and effect working sizes follow the frame. Clamping would trade sharpness for oracle
-  parity; not done. The C1 GPU-comp review is closed.
-- **2026-10-15 (03:27–03:58 EDT run): U0.2 owed Opus review (hand-off scale, display layer).** Fixed: an MP4 with a clean aperture (`clap`) handed
-  off at a scale had its full-size crop box cut from the smaller picture (wrong part and aspect, or ignored): such sources now hand
-  off unscaled (`GopCache::crops`; test `a_clean_aperture_keeps_the_hand_off_unscaled`, failed before); `with_handoff_scale` now
-  restores the thread's scale with a drop guard, so a caught panic can't leave later decoders scaled (test
-  `a_panic_inside_restores_the_scale`, failed before). Codecs tests + clippy green. Left in HANDOFF: comp items in `handoff_scales`,
-  `quiesce` vs live decode threads, a Send / Sync comment, a nit.
-- **2026-10-15 (03:27–03:58 EDT run): U0.2 review finding 2.** `handoff_scales` skipped comp clips (`resolve_media` is None for a comp), so an
-  export could hand off a 6.2K clip at the fitted V1 clip's ~0.52 while a comp also read it at full size (soft comp). Now media a
-  comp's Media In reads (items, nests, comps inside, bounded depth) keeps full size, and a comp reading a track keeps the whole
-  sequence at full size. Test `media_a_comp_reads_keeps_full_size` (item and track sources); render 360 green, clippy green.
-- **2026-10-15 (03:27–03:58 EDT run): U0.2 review finding 4 (exit vs decoders in flight).** `quiesce()` / the exit hook waited only for display
-  opens and the 4:2:2 probe; a playback / export thread could still be inside `vaBeginPicture … vaEndPicture` when the drivers' exit
-  handlers ran (the U0.2.4 heap-corruption pattern). Each picture submit (decode, video processing, encode) now holds the `Busy`
-  guard: exit waits for one in flight (≤ 3 s) and refuses new ones (the front end recovers). New test binary `va_exit.rs` (fails
-  without the guards; diagnostic `va::work_refused_while_exiting`); platform tests green on AMD, VA tests green on Intel, clippy green.
-  Also: `va::Display` Send / Sync comment corrected (finding 5). LEAN all run (U 48 / L 42).
-- **2026-10-15 03:57 EDT: U0.2.3 owed (v).** `two_gpus_keep_the_colours_of_one` with Intel as the primary device: colours kept (mean chroma shift 0.06), PSNR bound
-  missed (2.15 dB vs 0.5) because the second lane is then AMD's weaker encoder; recorded in HANDOFF, no code change.
-- **2026-10-15 04:08 EDT: U0.2 owed 4 finished (exit vs surface work).** `vaSyncSurface`, image reads / writes, DMA-BUF exports, new / spare surfaces
-  and coded-buffer maps outside a picture submit now hold the `Busy` exit guard as well, so exit waits for them and refuses new
-  ones. Test binary `va_exit_sync.rs` (failed without the guards), green on AMD and Intel; platform tests, clippy green.
-  MINIMAL all run (U 49 / L 28; 5-hour fresh window).
-- **2026-10-15 04:27 EDT: C1 owed: Bézier handles on comp masks.** The Compositor's Mask-node overlay on the Program monitor now draws the two
-  handles of each smooth point; dragging one bends the curve with the other mirrored (Alt: one handle alone), and Alt-click on a
-  point toggles smooth ⇄ corner, each one `comp.setMasks` undo step. The tangent and toggle maths moved to
-  `MaskVertex::set_tangent` / `MaskPath::toggle_smooth` (project; unit test) and `masks.moveVertex` / `masks.toggleVertexSmooth` use
-  them (no indexing). UI test `compositor_panel_{premiere,resolve}` drags a handle (failed before: nothing grabbed). Guide
-  `compositor.masks` updated. Project / engine mask + coach tests, comp UI test, clippy green. MINIMAL all run (U 49 / L 28).
-- **2026-10-15 04:32 EDT: C1 owed: add / delete points on comp masks.** Ctrl-click (Cmd on macOS) on a comp mask's edge adds a point (in every
-  keyframe of an animated path), on a point deletes it (≥ 3 kept), one undo step each. The topology code of `masks.addVertex` /
-  `removeVertex` moved to `Mask::add_vertex` / `remove_vertex` (project, `get` instead of indexing) and both commands use it. UI test
-  extended (Alt-click → corner, Ctrl-click add, Ctrl-click delete); guide `compositor.masks` updated. Tests, clippy green. MINIMAL.
-- **2026-10-15 04:33 EDT: U0.2 review nit 6.** `va::Display::open`'s keep-alive list cap is now the named `KEPT_MAX` (64) and a display past it
-  logs a warning that it is not kept open (it would be terminated on drop, the U0.2.4 hazard) instead of being skipped silently.
-  Platform lib tests, clippy green. MINIMAL.
-- **2026-10-15 04:38 EDT: 6.7b polish + log archive (scheduled run, MINIMAL, U 49 / L 29, 5-hour 3 / L5 11).** Progress log: all but the newest
-  20 entries moved to `docs/fork/PROGRESS-LOG-ARCHIVE.md` (97 entries). Temporal NR rows (Effect Controls / Inspector and the
-  Color Noise tab) now read **Luma / Chroma / Frames / Motion** under their "Temporal NR" heading instead of "Temporal NR luma" …,
-  which overflowed the 104 px label column (owed since 6.7b); automation ids unchanged; guide `color/noise.md` updated. UI tests
-  `tnr coach` 23, engine coach 64, clippy green. Keyframe markers: next entry.
-- **2026-10-15 04:41 EDT: 6.7b polish: Temporal NR keyframe markers in the Effect Controls / Inspector lane (MINIMAL).** An animated TNR
-  row shows its keyframes as diamonds in the lane on that row (`tnr.<param>.keyframe.<mediaTime>`, click → `playhead.set`);
-  not draggable (no `tnr.moveKeyframe` command yet; noted in the guide). `tnr_ui` asserts the marker (failed before);
-  id patterns `tnr.*`, `tnr.*.keyframe.*`. UI tests `tnr` 2, coach_ids, clippy green.
-- **2026-10-15 04:49 EDT: 6.7b polish: TNR lane keyframes draggable (MINIMAL).** New command `tnr.moveKeyframe {clip?, param, mediaTime, to}`
-  (one undo step; a keyframe already at `to` is replaced, as `effects.moveKeyframe`; missing keyframe / not animated / bad
-  ticks refused; engine test) and the Effect Controls / Inspector lane diamonds drag with it (frame-snapped, as an effect's
-  keyframe). `tnr_ui` drags one and undoes it; es / zh-cn rows; guide `color/noise.md`. Engine 865, UI `tnr` 2, i18n,
-  clippy green. (Looked at and left: `ph.clamp(it.start, it.end() - Tick(1))` on zero-length clips is safe:
-  `Tick::clamp` is max / min, it never panics.)
-- **2026-10-15 04:56 EDT: Phase 6 owed: `cache.claimFolder` (MINIMAL; weekly U 49 / L 29, 5-hour 4 / L5 16).** Render cache files of no known
-  project (from before the index, or a damaged index) were never deleted; the new command makes them the current project's
-  (another project's files stay theirs; no folder → refused), `cache.status` reports `unknownFiles`, and Settings ▸ Media
-  Cache ▸ Render Cache shows **Claim Files of No Known Project** (`settings.renderCache.claimFolder`) while there are any.
-  Engine test `claim_folder_takes_only_files_of_no_known_project`; es / zh-cn rows; guide `render-cache.md`. Engine
-  render_cache 17 + coach 64, UI cache / settings / guide, i18n, clippy, fmt green.
-- **2026-10-15 05:12 EDT: U0.2 owed (5): unchecked VA-API drivers refused (MINIMAL; weekly U 49 / L 29, 5-hour 5 / L5 20).**
-  `crates/platform/src/va.rs` `open_raw` refuses drivers whose vendor string isn't Mesa Gallium or Intel iHD (the `Send` /
-  `Sync` impls rest on the driver's per-display lock), so i965 / nvidia-vaapi-driver decode in software;
-  `FILMCRAFT_VAAPI_ANY_DRIVER=1` overrides (Q36, guide `hardware.md`). Test `only_drivers_checked_for_thread_safety_are_shared`;
-  platform tests, clippy, fmt, engine coach 64 green.
-- **2026-10-15 05:21 EDT: C2 design note (MINIMAL; weekly U 50 / L 29, 5-hour 7 / L5 25).** `docs/fork/DESIGN-C2.md`:
-  `Grade` gains ADR 0007 `edges` + `output` + a node `kind` (serde default; empty edges = today's serial chain, compiled
-  exactly as now), virtual source id 0, ports for RGB / key, Outside = a correction node with an inverted key input,
-  schema v19, branches compile to one `FxOp::GradeGraph` program (C1-style slots, CPU oracle first, new WGSL only for
-  mix / channel / key passes), commands, lanes. ADR 0004 / 0007 point to it. Housekeeping: removed the merged
-  `claude/sweet-grothendieck-f3dace` worktree (no diff vs hevc-vaapi) and the stale `target/agent-ai1*` dirs (13.5 GB).
-- **2026-10-15 05:45 EDT (scheduled run, MINIMAL: weekly U 50 / L ≈ 29, 5-hour 8 / L5 ≈ 30; no subagents):** AI3.3b GPU
-  inference step 1: `filmcraft-llm` feature `gpu` (wgpu 30, backends from the app as for `filmcraft-gpu`), `gpu::GpuContext`
-  (high-performance adapter, uncaptured errors → `LlmError`, never a panic) with a Q4_K × f32 matvec kernel
-  (`gpu_matvec.wgsl`, one 64-thread workgroup per row, rows past 32 768 wrap to y; blocks 152 B on the GPU = GGUF 144 B with
-  scales unpacked). Tests `q4k_matvec_matches_the_cpu` (vs `dequantize_q4k`, ≤ 1e-5 relative, 3 / 64×8 / 70 001 rows) and
-  `q4k_matvec_refuses_bad_shapes`: green on the RX 6700 XT (RADV) and the Intel iGPU (`MESA_VK_DEVICE_SELECT`). Not timed yet. Then step (a): Q6_K matvec (`matvec_q6k` entry, 212 B blocks), `GpuMatrix` / `GpuContext::matvec` for both; test
-  `q6k_matvec_matches_the_cpu` green on AMD + Intel.
-  Timing (ignored `q4k_matvec_speed`, release, 11 008 × 2 048 Q4_K, synthetic): GPU round trip (upload x, dispatch, read back)
-  0.39 ms on the RX 6700 XT, 10.5 ms on the Intel iGPU, CPU `kquant::matvec_q4k` 0.22 ms: per-call overhead dominates, so the
-  GPU path must keep activations on the GPU and submit a whole layer at once (step (c)/(d)); the Intel kernel needs work
-  (byte reads). **Order fix:** §1a.79 (05:20) puts the H group (owed PC checks, tags h264-1/2/3, build, publish) before
-  AI3's acceptance; this run switched to it at 05:45 (HANDOFF's next-step heading was stale). Owner's 05:43 message
-  recorded under §1a.79.
-- **2026-10-15 05:55 EDT (scheduled run, §1a.79 (1) H group; weekly U 50 / L ≈ 29, 5-hour 11, owner: no MINIMAL for this
-  work):** owed PC checks, all synthetic: **H3** `ffmpeg_free` (release, ffmpeg off PATH) on the RX 6700 XT: hardware /
-  software / no-driver setups, every picture identical to the software decoder ✓. **H2** perf on the i5-11600K: 4K 10-bit 4:2:2
-  Long-GOP 7.7 fps (1 thread) / 36.5 (12), Intra 632 Mbit/s 3.2 / 21.5, 1080i MBAFF 27.9 / 155.2 ✓. **In-app** (release
-  app, ffmpeg off PATH, control channel, 1/2 res, `perf.stats` diff over 12 s): **1080i MBAFF 29.97: 360 shown, 0 dropped on
-  AMD and on Intel, all on VA-API** (H1's zero-drop bar ✓). 4K 10-bit 4:2:2 H.264 (software only; no GPU decodes it): plays,
-  9–24 of 25 fps shown over 5 runs (6–65 % dropped, very variable; decode ~24 ms per frame on average but p95 decode jobs
-  500–600 ms): H2's bar is "plays, fps recorded" ✓; proxies recommended for it (same as HEVC 4:2:2), the burstiness is an
-  open problem for later (HANDOFF). H2.7's profile of the −2.3 % 8-bit 4:2:0 slowdown: not done (within run-to-run noise
-  of these numbers; left as an open problem, not an acceptance item). Opus fresh-context review of A2 started (for
-  `audio-2`).
-- **2026-10-15 08:35 EDT (same run): H group + audio-2 accepted.** `cargo xtask ci` (4421 s): fmt, clippy ok; tests 3983 / 3987 passed,
-  the 4 failures all `filmcraft-platform::vaapi` timeouts on the AMD card: its video decoder (VCN) went into
-  "Fence fallback timer expired on ring vcn_dec_0" at 06:40 during ci (every hardware decode waits ~0.5 s; a VCN page
-  fault followed at 07:28; never before in 3 days of logs), so AMD VA-API tests crawl until a reboot (**OWNER-QUESTIONS
-  Q37**). The same `vaapi` binary on the Intel iGPU: 24 / 24 in 90 s; `filmcraft-platform` on the Dell CI
-  (`test-filmcraft-platform-vcn1`): PASS. Opus fresh-context review of A2 (A2.1–A2.3, A2.8–A2.9): 1 blocking (a hostile
-  checkpoint with thousands of entries over one deflate-bomb storage kept a full copy each: out of memory) fixed in
-  `a8c708b9` with test `many_entries_over_one_storage_are_not_copied_each`, plus findings 4 / 5 / 6 / 8 / 9 / 11 (sums,
-  spans, spawn failure, negative record points, waveform range, DeepFilterNet NOTICE); voice 27 + engine voice 24 green,
-  clippy clean; findings 2 / 3 / 7 / 10 owed (HANDOFF). Tags `h264-1`, `h264-2`, `h264-3`, `audio-2` on this commit.
+- **2026-10-16 13:47 EDT (scheduled run, LEAN): Opus review of local copies (2a–2c); all blocking findings fixed.** Blocking: (1) the cache lock was held across share stats (render threads could wait up to 8 s): the copier now picks its file on the worker, stats never under the lock, and the index keeps a running byte total (no stat of every entry every 5 s); the pool checks the index before asking the share; (2) the new UI tick had taken over `tick_media_refresh`'s `#[cfg(not(wasm32))]` and docs (UI wasm build broken): moved, UI wasm check green. Also fixed: a source rewritten during the copy is re-stat'ed after sync and not kept; a cache swap stops the running copy and the worker adopts into the cache the pool holds now (same folder only); `enforce` keeps an entry whose file can't be deleted; a copy stopped for playback resumes from its `.part`; the last copy is used only when the share is unreachable (a file gone from a working share is offline); `touch` saved; the copier rests 30 s after finding nothing; test shares get their own sources. New tests: resume, restat, missing-on-working-share vs unreachable. Engine lib 941, UI lib 186, clippy, wasm (engine + UI) green. Owed: free-disk floor (Q49, platform statvfs).
+- **2026-10-16 13:50 EDT (scheduled run, LEAN): S1 item 2: NET ✓ badge.** A share clip whose local copy of the version the last media look stamped is listed shows **NET ✓** ("…; plays from its local copy"); index only, no file call on the UI thread (`NetCache::lookup_listed`). UI test extended; i18n, clippy green. Guide updated.
+- **2026-10-16 13:56 EDT (scheduled run, LEAN): S1 item 5d (part): one-file `.fcpackage`.** `package::zip_folder` (zip 7, already an engine dep, pure Rust; every entry **stored**, large-file, manifest first, `.part` + sync + rename), `read_zip_manifest`, `unzip_package` (only the manifest and listed files, each capped at its listed size + 1 so verify sees any difference, safe paths only). `projects.package` `format: "file"` (folder made, zipped, removed; existing file refused); `projects.import` / `importPackage` of a `.fcpackage` (reserved folder, unpack → verify → relink; any failure removes it). Tests: zip round trip, unsafe / unlisted entries skipped, end-to-end package file → originals deleted → import relinked, damaged file leaves nothing. Engine lib 944, clippy green. Guide updated.
+- **2026-10-16 14:12 EDT (scheduled run, LEAN: weekly U 82 / L 48 → MINIMAL by the line, LEAN floor §1a.96; 5-hour 25 / L5 75): order fixed: §1a.97 / §1a.98 come before S1 5d** (the last runs kept going with S1; HANDOFF corrected). **AI4.5b-late item 1 done: tinylm learns SmolLM3.** `tinylm.py`: family `smollm3` (`no_rope_layers` per layer: identity rotation where 0), sharded checkpoints, built in the target dtype (a 3B model allocated as float32 first ran the 12 GB GPU out of memory). `llm_quantize` converts `smollm3` (Llama layout, q / k permuted to interleaved pairs; refuses any NoPE pattern but every 4th layer, which FilmCraft's forward assumes). New `llm_greedy` example (greedy ids through FilmCraft's forward) + `parity_lm.py`: SmolLM3-3B base → our Q8_0 GGUF (3.27 GB, `models/tuned/smollm3-base-q8`) vs tinylm bf16 on the RX 6700 XT: **5 / 5 prompts agree on their first 8 tokens** (3 on all 32; the other two part at near-ties after 13 / 27 tokens, Q8_0 rounding), synthetic. Needs `HSA_OVERRIDE_GFX_VERSION=10.3.0` outside `run.sh`. Q45: the embedding model download was refused by the session's auto-mode safety check → **OWNER-QUESTIONS Q51** (licence checked: bge-small-en-v1.5, MIT, rev 5c38ec7c…); the encoder and hybrid search are being built so the keep / drop measurement runs once the model is there.
+- **2026-10-16 14:22 EDT (scheduled run, LEAN): Q45 search by meaning, code done (measurement owed: model download, Q51).** `filmcraft_llm::embed::Embedder` (Opus leaf builder): BERT forward pass of our own (word + position + type embeddings, post-norm layers, erf GELU, [CLS] pooling, L2 norm; the last layer computes only the [CLS] row), config / safetensors (F32 / F16 / BF16, `bert.` prefix optional) / tokenizer as hostile input with caps (600 M weights); parity with candle's `BertModel` on a tiny random model ≤ 1e-4 (a tanh-GELU mutation fails it), hostile-file tests. Engine `coach_meaning.rs`: `SearchMode` Words / Meaning / Mixed, `coach_ask::retrieve_in` + `coach_assist::retrieve_with_picture_in` (reciprocal rank fusion, K 60; scores = best word score × relevance share from the word score or the cosine above `COS_FLOOR` 0.5, provisional), section vectors cached next to the model (`guide-vectors.bin`, keyed by revision + every text, exact-size / NaN checks), eval `ai_pool::search_by_meaning_coverage` (ignored: words vs meaning vs mixed, creative coverage@6, questions with ≥ 2 plan sections, lookup hits). **Default stays Words** until the eval runs. Opus review: blocking: the builder's commit carried 2.4 GB of a nested `target/` (`.gitignore` now also ignores `target/` at any depth; only the 5 source files taken); fixed: rank-based scores would have switched off the pick prompt's relevance filters (now cosine / word shares), all-NaN meaning list falls back to words, `REVISION` read capped, token-id span checked on 32-bit. Owed before the default changes: build the vectors in a background job (first use embeds every section on the caller's thread), tune `COS_FLOOR` on real cosines. llm embed tests 4 / 4, engine coach_meaning 2, ai_pool 11, clippy (engine ± llm), wasm green.
+- **2026-10-16 14:23 EDT (scheduled run, LEAN): AI4.5b-late item 2 done: assistant training data.** `crates/engine/examples/assist_traindata.rs`: each pool training pair's prompt is the app's own Pick prompt (default style, no on-screen context) in SmolLM3's template; target = keys of offered steps from the pair's sources that share words with an answer part (≥ 25 % of the step's words), best 6, in the answer's order; skipped: questions also held out, pairs whose sources weren't offered (328), no matching step (57). Split by family (FNV, seed 1): **750 train / 88 val** (`~/Apps/filmcraft-train/runs/assist-data-v1`, not in git), targets of 1–6 keys (279 / 116 / 167 / 131 / 66 / 79). `train.py`: uses a row's exact `prompt` when given, sharded bases, best adapter saved to `best-lora.pt` on every improvement. Item 3 started: LoRA r16 on the RX 6700 XT (batch 2 × 8, max-len 1600, 2 epochs, ≤ 90 min) → `models/tuned/smollm3-assist-v1`.
+- **2026-10-16 15:13 EDT (scheduled run, LEAN; while the tune trains on the GPU): S1 item 5d (part): packages carry the Gallery stills.** Project Manager collect (and so `projects.package`) copies the stills' PNGs from the project's stills folder into the new project's (missing ones left out; counted in the estimate); a package's project takes the receiver's scratch disks (the sender's are cleared), so its stills sit in `FilmCraft Stills/<name>/` inside the package and are found after import. LUTs and title fonts already travel inside the project file, voice-over takes are media items. Test `a_package_carries_the_gallery_stills` (scratch-disk stills → package → import → found). Guide `network-storage.package` (first wording cost a pool lookup, 826 < 827; reworded, floor kept). Engine lib 945, ai_pool 11, clippy green. Left in 5d: user WGSL effects a project uses, caption sidecar files, trim to used ranges, estimate + one-file choice on the home screen.
+- **2026-10-16 15:20 EDT (scheduled run, LEAN): S1 item 5d (part): packages carry the user shader effects they use.** `projects.package` puts the `.wgsl` files of the `user.*` effects the project uses (every `"effect"` id in the project's JSON, bounded walk) into `Effects/` (unused ones stay home); import installs them into this computer's Effects folder, never replacing a file of the same name (logged); opening a project that uses a not-yet-registered user effect reloads the Effects folder. The packaging session now gets this computer's data folder (`prefs_path`; it had none, so effects were never found). Test `a_package_carries_the_user_effects_it_uses`. Guide updated. Engine lib 946, ai_pool 11, clippy, wasm green. Left in 5d: caption sidecar files, trim to used ranges, estimate + one-file choice on the home screen.
+- **2026-10-16 15:29 EDT (scheduled run, LEAN): S1 item 5d (part): estimate and one-file package on the home screen.** Package runs a `dryRun` first and the status line says **Packaging {name} (about 1.4 GB)**; tile menu **Package as One File…** (`projects.menu.package-file`, `format: "file"`); **Import Package** now picks a file: the `.fcpackage`, or a package folder's `manifest.json` (stands for its folder, `package_pick`). es / zh-cn / fr / ja rows; unit tests for the pick and the size text. Captions need nothing (they live in the project file). Guide `network-storage.package`: two rewordings to keep the pool's stills lookup (each edit alone passed, together they pushed `pool-c4-apply-still` out; the stills folder is now described without its name). Engine lib 946, UI lib 188, ai_pool 11, clippy, wasm green. **Left in 5d: trim to used ranges without re-encoding.**
+- **2026-10-16 16:06 EDT (scheduled run, LEAN): S1 item 5d: packages trimmed to the used parts without re-encoding** (the S1 step in progress when §1a.99 arrived; S1's remaining items now wait until after the XPS pause). `filmcraft_isobmff::trim_mp4` (Opus leaf lane): stream copy of MP4 / MOV to a presentation-time range: video from the sync sample before the first shown frame through the last shown one (start sample must be IDR (H.264) / IDR·CRA·BLA (HEVC), bounded step-back over leading pictures, open-GOP I pictures lose their sync flag), AAC / MP3 2-frame pre-roll, PCM exact (8 MB blocks), timecode shifted, edit lists hide pre-roll, `TrimReport.origin` exact; refuses fragmented / multi-entry / complex edit lists / other audio codecs (→ copied whole). Tests vs ffmpeg / ffprobe oracles: sample bytes equal, framemd5 equal over the range, durations within a frame, H.264 B-frames + open GOP, HEVC CRA step-back, PCM MOV, timecode, hostile and a 200 k-sample hang case. Opus review: nothing blocking; its 4 hardening items fixed. Engine: Project Manager collect `trim` (+ `handles`), `projects.package` passes `trim` / `handles`; a cut clip's uses shift by the origin, its proxy is dropped; anything not cut is copied whole (logged). Test `collect_with_trim_cuts_media_without_re_encoding` (same pixels, smaller file). Guide: new section `network-storage.package-trim` (moving it out of the package section kept the pool lookups at 827). FEATURE-QUEUE row (§1a.100). isobmff 10 trim + all, engine lib 947, ai_pool 11, clippy, wasm, layers green.
+- **2026-10-16 16:00 EDT (Dell lane, FEATURE-POOL, scheduled run; weekly over its line: no subagents, small steps):** first seven FEATURE-QUEUE rows done: S1.1 network-storage check (11 held-out + 3 coach / 13 pairs), S1.2 local copies (14 + 2 / 13), S1.3 share time limits (10 + 1 / 10), S1.4 safe saves (9 + 1 / 9), S1.5 packages (13 + 2 / 13), AI5 rate / share (10 + 1 / 11), AI4 picture look (13 + 1 / 11); 0 families (no honest creative use). 76 / 80 new questions retrieve, all 11 coach pass; floors raised to the measured counts (coach 128 → 139, recall@5 827 → 903, creative coverage 556 → 558, measured, not from this work), recall 904 → 903 on purpose (`feat-pk-trim-gap` made untrue by package trimming). 8 recipe spot checks on the Dell (headless CLI) all as written. Search by meaning: `guide wanted`. `pool/FEATURE-READ.md` (35 random pairs) + OWNER-QUESTIONS Q52 (FYI).
+- **2026-10-16 16:35 EDT (scheduled run, LEAN): AI4.5b-late item 3 done (LoRA) + Q45 coverage measured.** Tune: SmolLM3-3B LoRA r16 on the RX 6700 XT, 750 / 88 pairs, val loss 1.265 → **0.602** at step 60 (time cap 90 min, 1.28 epochs, still falling), merged → `models/tuned/smollm3-assist-v1`, our converter → Q4_K mix 1.83 GB (`smol3-assist-v1-q4k.gguf`, sha256 bfc6e09c…), catalogue entry `filmcraft-assistant-smol3-v1-q4k` (local; `is_tuned` also knows the `filmcraft-assistant-` prefix), `FILMCRAFT_ASSIST_SEARCH` picks the search for measuring. **Search by meaning (model on disk, Q51 answered), retrieval only, synthetic:** words 559 / 1550 creative coverage@6, 139 / 608 questions with ≥ 2 plan sections, 900 / 912 lookup hits; meaning alone 545 / 131 / 768 (worse); plain RRF mix 625 / 173 / 869 (−31 lookups); meaning weight 0.5 / 0.3: −23 / −18 lookups; keeping the word top 3: −6; **top 3 + any word section ≥ 0.45 of the best word score kept: 575 / 150 / 900 (+16 coverage, +11 questions, no lookup loss)**, 0.5 / 0.55: +26 / +32 but −1 lookup each. Mixed is set up that way (`WORD_KEEP` 3, `WORD_KEEP_SHARE` 0.45); the default stays Words until the real assistant runs on it (AI3 87-question set, daily sample, a 60-question creative sample, 0 invented). Real-model evals (untuned / tuned / mixed) started in the background.
+- **2026-10-16 16:25 EDT (Dell lane, FEATURE-POOL, scheduled run; weekly 84 % over its line 50: no subagents, small steps):** row "S1.5 packages … trim" done as `feature-project-package-trim` (8 held-out + 1 coach / 8 pairs / 0 families; network-storage.package-trim only, since the size estimate, One File and Import Package parts were already in `feature-project-package`). All 8 retrieve, coach 1 / 1; floors to the measured counts: coach 139 → 140, recall@5 903 → 911, creative coverage 558 → 559. Spot check 9 on the Dell (new fixture pt.fcproj, 2 s of a 10 s 25 fps MP4): `projects.package` with `trim: true` kept a 4.40 s H.264 file (30-frame handles, no re-encode); its dry-run estimate (447 KB vs 1.0 MB whole) came in under the real 569 KB (keyframe lead-in), and pair 4 says so. `file.projectManager`'s own `trim` is not in the guide, so no question names it. The row went straight from `queued` to `done` (one run), with no `in progress (lane)` commit in between.
+- **2026-10-16 16:40 EDT (scheduled run, LEAN): guide for search by meaning (the Dell lane's "guide wanted").** `color.coach.assistant-search` ("Assistant retrieval by meaning"): words by default, the optional embedding model (bge-small-en-v1.5, MIT, models folder), the Mixed rule (word top 3 first), `FILMCRAFT_ASSIST_SEARCH`, default only if measured answers improve with no lookup lost. Three rewordings to keep the pool floors (the generic first draft cost a lookup and a creative point; the word "still" alone pushed `pool-c4-apply-still` out again: that question sits on the edge). FEATURE-QUEUE row back to `queued`. ai_pool 11, coach lib 97 green.
+- **2026-10-16 17:08 EDT (scheduled run, LEAN): AI4.5b-late item 4 + §1a.98 decisions (real assistant on the RX 6700 XT, pick style, synthetic).** AI3 advanced set (87): untuned Words **85**, tuned Words 82, untuned Mixed 84. Daily sample (147, 59 creative): untuned Words **69** (creative 5), tuned 57 (creative 0), Mixed 67 (creative 6). Creative sample (60): untuned Words 5, tuned 0, Mixed 6. 0 invented in all nine runs. **Tune v1 rejected** (worse on every set): it answers with keys from one section only (mean 1.0 section, 1.9 keys vs untuned 11.7 / 19.7), because its targets were mostly one-section (279 / 838 single keys; Q46's "best matches to the answer" rule): creative answers need ≥ 2 sections (`CREATIVE_MIN_CITED`). Catalogue entry removed; files kept in `models/tuned/smollm3-assist-v1`. **v2 (when the order comes back to it):** targets with at least one step from every source section the prompt offers, then best matches, ordered as the answer does; more epochs (val still falling at the 90-min cap); feature-pool pairs (§1a.100). **Mixed not made the default:** +1 creative but −1 on AI3 and −2 on daily (§1a.98: no cost allowed); stays as `FILMCRAFT_ASSIST_SEARCH=mixed`. Defaults unchanged: untuned `smollm3-3b-q4km` + Words. Next (§1a.102): the rest of S1 to acceptance.
+- **2026-10-16 17:05 EDT (Dell lane, FEATURE-POOL, scheduled run; weekly 85 % over its line 50: no subagents, small steps):** requeued row "Assistant search by meaning" done as `feature-assistant-search` from `color.coach.assistant-search` (7 held-out + 1 coach / 6 pairs / 0 families): 6 / 7 retrieve (`feat-asr-resolve` misses), coach 0 / 1 (`feat-asr-c-meaning`, the header's own `when` phrase, finds nothing; kept). Pool recall@5 floor 911 → 917 (measured); coach 140, creative coverage 559 unchanged; daily sample re-run (147 + 3). `ai_pool` 11 / 11 and `coach_assist` lib tests green on the Dell. No spot check (the embedding model isn't on the Dell); no fresh-context review subagent (weekly over its line; data-only diff, self-checked: overlap ≤ 0.44). Row went straight from `queued` to `done` in one commit (no separate in-progress commit for a one-run row). FYI for the guide in HANDOFF: how the model is installed and the no-model fallback aren't written.
+- **2026-10-16 17:13 EDT (scheduled run, LEAN): S1 item 5 (plan wording): a package from a newer FilmCraft warns instead of failing.** A project schema newer than this build: the package is checked and imported without relinking (logged) and `file.open` gives the "update FilmCraft" message; a newer manifest format is still refused. Test `a_package_from_a_newer_filmcraft_imports_and_opening_says_update`. Guide sentence (two longer wordings each cost a pool lookup). **Q50:** sshfs is installed now; a user FUSE mount of the Dell (`dell:~/fc-share` → `~/fc-share`, `fuse.sshfs` = network share) works without sudo, so the runner does S1's real-share acceptance itself. Engine lib 948, ai_pool 11, clippy, wasm green.
+- **2026-10-16 18:08 EDT (scheduled run, LEAN): S1 real-share acceptance passed (sshfs to the Dell, synthetic media).** `crates/engine/tests/s1_real_share.rs` (Opus leaf lane; one command mounts `dell:~/fc-share`, kills / freezes / remounts sshfs, cleans up): media + project on the share (6.2K + 1080p frames bit-exact with local decode; save / reopen on the share); local copies (6.2K copy 16.5 MB at 77 MB/s, frame from the copy bit-exact); network pulled mid-playback (42 frames at 24 fps, slowest 0.007 s, limit 10 s; offline 0.10 s later; the copied clip keeps playing from its copy); pulled mid-save (fails at once, "kept on this computer", the local copy opens with the edit); reconnect (remount 0.5 s, back online 0.13 s later by itself, save works); frozen server (save fails at the 8 s limit). **Bug found and fixed:** `FsServices::write_file` had no network time limit (a save on a frozen share hung forever): share writes now go through `netfs::share_call`; regression test `writes_on_a_share_have_the_network_time_limit`. Cosmetic: the frozen-save error repeats the path. Run: `FILMCRAFT_S1_SHARE=~/fc-share fc-cargo.sh test --release -p filmcraft-engine --test s1_real_share -- --ignored --nocapture --test-threads=1`. Engine lib 949, clippy, wasm green. Next: `cargo xtask ci`, tag `storage-1`, build, publish (§1a.101/102).
+- **2026-10-16 17:50 EDT (Dell lane, FEATURE-POOL, scheduled run; weekly 85 % over its line 51: no subagents, small steps):** row "S1.5 import: a package from a newer FilmCraft" done as `feature-project-package-newer` (3 held-out + 1 coach / 3 pairs incl. 1 chain / 0 families: one guide sentence, few honest questions). All 3 retrieve, coach 1 / 1; floors to the measured counts: coach 140 → 141, recall@5 917 → 920; creative coverage 559 unchanged; daily sample re-run (147 + 3). The old held-out `feat-pk-newer-version` said "refused" and was updated to the new behaviour. `ai_pool` 11 / 11, fmt and `coach_assist` lib tests green on the Dell. No spot check (a future-schema project is only built by the engine test); no review subagent (weekly over its line; data-only diff plus two floor constants, self-checked). Row `queued` → `done` in one commit.
+- **2026-10-16 19:14 EDT (scheduled run, LEAN): S1 accepted, tag `storage-1` (00ef28a0), build ready; publish owed (Q53).** `cargo xtask ci` green (60 min: fmt, clippy, tests 3546 s, timed tests, doctests, layers, assets, wasm). Build `~/Apps/filmcraft-builds/storage-1/` (filmcraft + filmcraft-cli, NOTES.md; `latest` → storage-1; launcher valid). Real-share acceptance passed earlier this run (sshfs to the Dell). **Publish (§1a.101/102) refused by the session's auto-mode safety check** ("create public surface") at the snapshot step: nothing pushed to cachyos, `.fork-publish-hold` unchanged, OWNER-QUESTIONS **Q53** (steps for doing it by hand). Next (§1a.102, §2b): **UPD** (§1a.77, mocked GitHub replies; live check after the next real release), then XPS pre-laptop, then the pause. Run ends here (phase end, §1a.92 reason 2).
+- **2026-10-16 19:56 EDT (scheduled run, LEAN floor: weekly 86 % vs line 51, 5-hour 25 % vs 81): UPD items 1–4 built (update check, prompt, one-click install, Settings ▸ Updates, guide), synthetic / mocked.** Engine `update.rs` (generic): GitHub release list parser (only the channel's published `fork-*` releases; download links must be exactly `https://github.com/<repo>/releases/download/<tag>/<name>`; reply capped 2 MB, notes 20 k chars), `newer()` (running tag newest → nothing; older release → newest; held build → newest only if published after the build was made; unknown age → never), daily `due()`, background check under `catch_unwind`, `UpdatePrefs` (`update.check` on by default, `lastCheck`, `explained`, `previous`), commands `app.update.check / status / setEnabled / install / rollback`. `update_install.rs`: `SHA256SUMS` check, own bounded tar reader (regular files + folders under one top folder only; links / devices / `..` / absolute refuse the archive; GNU long names, pax skipped, POSIX-only prefix, 755/644 modes, fsync), unpack to `.<tag>.unpack` → `<builds>/<tag>` → atomic `latest` swap; failures and interruptions leave the running build untouched (leftovers cleared at the next install); only builds with a `latest` link beside them update themselves (Flatpak / source builds get "Open the Release Page"). Fork-only part: `fork_update.rs` (channel `dawgon2/filmcraft-cachyos`, `fork-`), feature `fork-update` in `apps/filmcraft` (FORK-ONLY.md). Speech crate: `https_get` (capped, 60 s) and `https_download_to` (60 s to reply, 30 min overall). UI: `panels/update_prompt.rs` (bottom-right window: notes, what the check sends on first show, Update / Later / Don't check, progress, Restart Now → spawns the new build after `on_exit`), Settings ▸ Updates (check on/off, state line, Check Now, Roll Back to …). Guide `updates.md` (5 sections, not keyword-indexed; wording tuned so the pool floors hold: 141 / 920 / 559). Opus review: 7 findings (no download time limit, `..` URL redirect, repeat installs, GNU magic, leftovers / fsync, wiring, re-published old tags), all fixed except the last (known limit: `newer()` trusts `published_at` order). Tests: engine update 25 (incl. a recorded, trimmed real API reply `update_tests_github.json`), install (good / bad checksum / interrupted / truncated / size differs / no sums / no tarball / bad tag / link / `..` / other top / no program / empty / not gzip / twice / leftovers / GNU), UI `updates_ui` 3 (screenshots looked at: prompt, installed, settings, manual). Engine lib 970, ai_pool 11, ui-egui lib 188 + settings / coach / updates UI, clippy, wasm, layers, assets green. Release procedure (§1a.33) now uploads `SHA256SUMS`; Q53 note. Owed: one real update between two fork releases (needs a publish with `SHA256SUMS`: Q53). Next: `cargo xtask ci`, tag `update-1`, build, publish (§1a.101/102).
+- **2026-10-16 20:19 EDT (Dell lane, FEATURE-POOL, scheduled run; weekly 86 % over its line 52: no subagents, small steps, self-review only):** row "UPD" done as `feature-updates` (14 held-out / 12 pairs incl. 2 chains / 0 families) from updates.why / install / settings / rollback: what the check sends, offline, Update / Later / Don't check, SHA256SUMS and the one-step `latest` switch, interrupted downloads, Restart Now with unsaved work, Release Page for packaged builds, Check Now, Roll Back and being offered the newer build again, `app.update.*`. All 14 retrieve (recall@5 floor 920 → 934). No keyword-coach questions: Ask the coach skips updates.md on purpose (coach_ask.rs), so two drafted ones could never pass and were dropped (coach stays 141 / 202). The queue's `updates.commands` section doesn't exist (the `app.update.*` line sits under updates.rollback). Not asked (the guide doesn't say): how often the check runs if FilmCraft stays open for days, what `app.update.status` returns. No spot check (needs api.github.com and an installed build line). Dell: fmt, `ai_pool` 11 / 11, `coach_assist` 33 / 33.
+- **2026-10-16 20:45 EDT (scheduled run, LEAN floor): UPD accepted (synthetic), tag `update-1` (71937dc9), build ready; publish owed (Q53).** `cargo xtask ci` green (41 min: fmt, clippy, tests 2398 s, timed tests, doctests, layers, assets, wasm); one wasm unused-variable warning of mine fixed after (fmt / wasm / clippy re-run green). Merged the Dell lane's FEATURE-POOL.updates sets (14 held-out / 12 pairs): ai_pool green, recall@5 934 / 958 (all 14 retrieve). Build `~/Apps/filmcraft-builds/update-1/` (filmcraft + filmcraft-cli, NOTES.md; `latest` → update-1; launcher valid). **Publish not retried:** Q53 (last run's refused publish) is still unanswered, so `update-1` joins the owed list there (with `SHA256SUMS`). Owed for UPD: one real update between two releases that carry `SHA256SUMS`. CLOUD-QUEUE: 30 marked done, 35 UPD-NO-DOWNGRADE added (review #7). Next: **XPS** pre-laptop (§1a.99 a–f), then the pause. Run ends here (phase end, §1a.92 reason 2).
+- **2026-10-16 20:57 EDT (scheduled run, LEAN floor: weekly 87 % vs line 52 → MINIMAL by the line, LEAN floor §1a.96; 5-hour 2 % vs L5 15): XPS a (GPU choice), synthetic / fake adapter lists.** Upstream re-checked (§1a.34): its `graphics.rs` changes since our merge base are Windows-only (duplicate-driver pick, DX12 fallback); nothing to take for Linux hybrids. New `filmcraft_gpu::adapter_pick`: `GpuPref` (Auto / `power-saving` / `performance` / PCI ids) + `pick_adapter(pref, adapters, driver_override)`, the one rule for the window selector, the interop device, `headless_device_on(None)` and `ExportRenderer` (was: wgpu default adapter for the export renderer, HighPerformance for headless). Auto follows `DRI_PRIME` / `__NV_PRIME_RENDER_OFFLOAD` / `MESA_VK_DEVICE_SELECT` (driver's first GPU), else discrete (provisional: the laptop runs measure Auto on battery). Settings ▸ Playback ▸ Graphics device lists Power saving (integrated GPU) / Performance (discrete GPU) (es / zh-cn strings). VA-API node order by maker: AMD, Intel, other, NVIDIA (was NVIDIA before Intel), so the XPS decodes on the Arc iGPU whatever the node numbers. Tests: XPS 16 layouts in both Vulkan orders + llvmpipe, desktop layout, hostile values, env overrides, node ranking. gpu / platform / ui-egui graphics tests, i18n, clippy, fmt, layers, wasm green. Guide linux.gpu + hardware.switches; FEATURE-QUEUE row queued. Not done in (a): not waking a sleeping dGPU (the window's Vulkan instance enumerates every ICD at start anyway; the probe records runtime_status before / after start so the laptop run can tell); Power saving doesn't yet steer VA-API's `prefer_gpu` (only PCI choices do).
+- **2026-10-16 21:01 EDT (scheduled run, LEAN floor): XPS b part 1: NVENC presets P1–P7 from Export ▸ Encoder speed** (was P5 always). `nvenc::Config.preset` / `Params.preset`; `nv_preset`: Driver default P5, Speed P1, Balanced P4, Quality P7 (VA-API level `l` of 7 → `8 − l`). P1 / P2 / P3 / P6 / P7 GUIDs from NVIDIA's published header values as recalled (the header isn't on this machine; not in `abi_tests` yet): a preset the driver refuses falls back to P5 inside `Session::initialize`, so a wrong GUID costs only the speed choice; regenerate the ABI expectations on the laptop (owed, XPS-SETUP). Tests: preset mapping, distinct GUIDs, odd values → P5; platform nvenc tests, clippy, fmt green (no NVIDIA GPU here: driver runs owed). Self-reviewed (small change inside an existing `unsafe` block: re-zero the boxed preset struct, call again). Guide export.hevc (Encoder speed, NVENC presets).
+- **2026-10-16 21:05 EDT (scheduled run, LEAN floor): XPS b part 2: NVENC H.265 on Linux in the Auto order.** `hevc_export::open_encoder`: `nvenc_place(choice, render vendor, probe)`: Auto + an NVENC HEVC encoder + exports rendering on NVIDIA (`adapter_pick::chosen_vendor`, the GPU `choose` picks, listed once) → NVENC first; Auto otherwise → after the VA-API encoders, before x265 (`HevcEncoder::new_with(.., x265: false)`); Hardware (VA-API) / Software (x265) → never. `nvenc::export::linux_hevc_encoder`: 8-bit 4:2:0 BT.709 SDR only (10-bit / HDR / 4:2:2 stay on VA-API / x265; NVENC Main 10 on Linux owed to the laptop). **Mid-stream NVENC → VA-API switch not built:** replaying NVENC's in-flight pictures needs copies of up to ~9 frames (~0.9 GB at 6.2K RGBA) and a second parameter-set family in one MP4; an NVENC failure ends the export with a message naming it (upstream's behaviour), guide says so; revisit with the laptop if NVENC proves flaky. Tests: placement (pure); platform nvenc + hevc_export lib tests, `--test hevc_export` (10, VA-API / ffmpeg / x265 on this AMD PC: unchanged), clippy, fmt, wasm green. Self-reviewed (no new `unsafe`). Guide export.hevc.
+- **2026-10-16 21:07 EDT (scheduled run, LEAN floor): XPS c: NVDEC behind the iGPU's VA-API.** Found: on Linux `register` put NVDEC in front of VA-API whenever NVIDIA's driver answers, so the XPS would decode 4:2:0 on the RTX 4050, not the Arc iGPU (§1a.99 a: NVDEC only when the iGPU can't). Now NVDEC is registered behind VA-API when another GPU decodes through VA-API (`nvdec_in_front`), in front only without one or with `FILMCRAFT_NVDEC_FIRST=1`; the hardware-backend label stays VA-API then. Capabilities: already read from the driver (`Display::supports` over vaQueryConfigProfiles / entrypoints; 4:2:2 via `for_hevc_422`, NVDEC declines chroma ≠ 4:2:0), so (c) needed no new query; the Dell's 6.1b tests are the stand-in (unchanged code path, not re-run). Test `nvdec_goes_behind_another_gpus_va_api`; platform clippy / fmt green. Guide linux.gpu + hardware.switches (`FILMCRAFT_NVDEC_FIRST`).
+- **2026-10-16 21:20 EDT (Dell lane, FEATURE-POOL, scheduled run; weekly 87 % over its line 53: no subagents, small steps, self-review only):** the four XPS rows done: XPS a `feature-gpu-rule` (11 held-out + 1 coach / 10 pairs: kinds of GPU, a missing kind uses the other, exports on the same GPU, Export engines still splits, `__NV_PRIME_RENDER_OFFLOAD`, render nodes by maker, restart, `graphics.listDevices`); XPS b `feature-nvenc-presets` (4 / 5: P5 / P1 / P4 / P7, unknown → P5) and `feature-nvenc-linux` (8 / 6 incl. 1 gap: NVENC 10-bit on Linux "still to be checked", 1 task with linux.gpu); XPS c `feature-nvdec-order` (4 / 3). 27 held-out + 1 coach / 24 pairs, 0 families (no creative goal in GPU / encoder choices). Dell: fmt OK, `ai_pool` 11 / 11, `coach_assist` 33 / 33. All 27 retrieve; recall@5 960 / 985 (floor 934 → 960); `feat-pl-igpu-speed` (AI4 row, "only Intel graphics, how long does a picture look take") now misses retrieval because the new GPU guide text outranks color.coach.assistant: a guide change, not a pool change. Coach 141 / 203 (floor 141 kept): `feat-gpu-c-power-saving` lands on hardware.switches, kept as a miss. No spot checks (the Dell has one GPU and no NVIDIA card). Daily sample re-run (147 pool + 3 owner ids from 75 batches).
+- **2026-10-16 21:26 EDT (scheduled run, LEAN floor): XPS d (laptop limits), synthetic.** (1) Decoded-frame GPU budget from the decoding GPU's real memory: `filmcraft_codecs::decode_memory_from` (cards' vendor + `mem_info_vram_total`, RAM): a card with ≥ 1 GiB of its own → as before (¼, 512 MiB–32 GiB); an Intel / AMD iGPU sharing RAM → ⅛ of RAM, 512 MiB–4 GiB (the XPS: 32 GB → 4 GiB; was the 2 GiB unknown default since neither Arc nor NVIDIA's driver reports sysfs VRAM); this desktop unchanged (Dedicated 12 GB). (2) Battery: `filmcraft_engine::power` reads `/sys/class/power_supply` (UPower's source, no D-Bus on the UI thread; cached 10 s): on battery = a discharging battery and no Mains / USB online. New Settings ▸ Playback ▸ **Lower playback resolution on battery** (`playback.batteryPreview`, off by default): playing renders one Playback Resolution step lower (`PlaybackRes::lower`); paused / exports unchanged. (3) Suspend inhibit while exporting: already there (L1.7 `wanted_inhibit`: busy jobs inhibit suspend), nothing to add. (4) HiDPI / NVIDIA Wayland quirks: nothing testable without the laptop; listed for the laptop test list (e). Guide: retrieval floors moved twice (my linux.gpu laptop wording took `feat-pl-igpu-speed`; a new hardware section took 2 creative questions via "laptop" / "nothing"): fixed by a clarifying phrase in color.coach.assistant ("such as Intel's built-in graphics"), folding the battery text into linux.gpu and a hardware.switches row, dropping "(laptops)" from the label; ai_pool green at the old floors. Tests: decode memory (desktop / XPS / APU / hostile), power states, `lower`; codecs / engine / ui-egui (monitor_view, i18n, settings, guide ids) tests, clippy, fmt, wasm green. es / zh-cn strings.
+- **2026-10-16 21:29 EDT (scheduled run, LEAN floor): XPS e: runbook + probe; battery fix.** `docs/fork/XPS-SETUP.md`: what to install (nvidia-open + nvidia-utils, intel-media-driver, vulkan-intel, libva-utils, vulkan-tools, ssh like the Dell, repo + craft-fonts + clips), the probe, and the 18-item laptop test list (GPU choice incl. runtime-D3 wake check, NVENC incl. regenerating the P1/P2/P3/P6/P7 ABI expectations and Main 10 on Linux, decode on Intel incl. Intel → NVIDIA DMA-BUF, VRAM / battery / inhibit, HiDPI 1.5× / 2×, NVIDIA Wayland, benchmarks on battery / AC; then 8.6c / 8.6d and `xps-1`). `tools/fork/xps-probe.sh`: read-only report (GPUs with PCI ids / driver / node, runtime power state before and after the driver queries, power supplies, NVIDIA driver / modeset, env overrides, vainfo per node, vulkaninfo, nvidia-smi, scaling; optional probe tests via fc-cargo). Dry run on this desktop: fine, and it showed the Logitech mouse as `hidpp_battery_0 type=Battery` → **bug fixed in `power::on_battery_from`**: supplies with `scope` `Device` (a mouse's / headset's battery) are ignored, so a desktop with a discharging mouse battery never counts as on battery (regression test).
+- **2026-10-16 21:45 EDT (Dell lane, FEATURE-POOL, scheduled run; weekly 87 % over its line 53: no subagents, self-review only):** XPS d row done: `feature-battery-igpu` (8 held-out + 1 coach / 8 pairs, 0 families: Lower playback resolution on battery, off by default, stopped / export stay full, back within ~10 s; integrated-GPU decoded frames ⅛ of shared RAM ≤ 4 GB, Memory override; the lid caveat on export suspend). All 8 retrieve, coach 1 / 1; floors coach 141 → 142, recall@5 960 → 969 (969 / 993). No spot check (the Dell has no battery). Queue empty.
+- **2026-10-16 23:04 EDT (scheduled run, LEAN floor; weekly 87 % vs line ≈ 54, 5-hour ≈ 10 %): XPS pre-laptop accepted (synthetic), build ready, paused (§1a.99 f / §1a.102).** `cargo xtask ci` green at 5210abfb (36 min: fmt, clippy, tests 2107 s, timed, doctests, layers, assets, wasm; the first run caught `power.rs` naming `std::time::Instant`, fixed to `web_time` in a15dbf33). Build `~/Apps/filmcraft-builds/xps-pre/` (filmcraft + filmcraft-cli, NOTES.md; `latest` → xps-pre; launcher valid); not tagged, not published (Q53 still owed for the earlier tags). `.fork-paused` created with `dell-lane: feature-pool`: the main runner stops; the Dell lane only does queued FEATURE-POOL rows. Resume when the owner says the laptop is ready (delete `.fork-paused`): start at docs/fork/XPS-SETUP.md §3.

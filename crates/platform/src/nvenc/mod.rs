@@ -88,6 +88,8 @@ pub struct Config {
     pub sar: Option<(u32, u32)>,
     /// Allow one B-frame between references when the encoder and the profile support it.
     pub bframes: bool,
+    /// Preset 1 (fastest) to 7 (best quality); 5 is NVENC's and FilmCraft's default (fork XPS b).
+    pub preset: u8,
 }
 
 /// One encoded picture in decoding order.
@@ -151,6 +153,7 @@ pub fn hevc_available() -> bool {
             level: None,
             sar: None,
             bframes: false,
+            preset: 5,
         };
         let result = Nvenc::new(&probe);
         if let Err(why) = &result {
@@ -204,6 +207,7 @@ pub fn hevc_hdr_available() -> bool {
             level: None,
             sar: None,
             bframes: false,
+            preset: 5,
         };
         let result = Nvenc::with_signal(&probe, &Signal::default());
         if let Err(why) = &result {
@@ -301,6 +305,7 @@ impl Nvenc {
             level,
             sar: cfg.sar,
             bframes,
+            preset: cfg.preset,
         };
         session.initialize(&params, RING)?;
         let params = session.sequence_params()?;
@@ -642,6 +647,20 @@ pub fn split_hevc_parameter_sets(data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u
 
 #[cfg(test)]
 mod tests {
+    /// Fork XPS b: the seven presets are distinct and an odd value means P5.
+    #[test]
+    fn presets_map_to_their_guids_and_odd_values_to_p5() {
+        use super::ffi::{NV_ENC_PRESET_P4_GUID, NV_ENC_PRESET_P5_GUID};
+        let all: Vec<u128> = (1..=7).map(|p| super::session::preset_guid(p).to_u128()).collect();
+        for (i, a) in all.iter().enumerate() {
+            assert!(all.iter().skip(i + 1).all(|b| b != a), "P{} is unique", i + 1);
+        }
+        assert_eq!(super::session::preset_guid(4).to_u128(), NV_ENC_PRESET_P4_GUID.to_u128());
+        for odd in [0, 5, 8, 255] {
+            assert_eq!(super::session::preset_guid(odd).to_u128(), NV_ENC_PRESET_P5_GUID.to_u128(), "{odd}");
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -739,6 +758,7 @@ mod tests {
             level: None,
             sar: None,
             bframes: false,
+            preset: 5,
         };
         let caps = |ten_bit| Caps { ten_bit, max_bframes: 2, min_size: (130, 128), max_size: (8192, 8192) };
         assert!(check_caps(&caps(true), &cfg(Profile::HevcMain10)).is_ok());

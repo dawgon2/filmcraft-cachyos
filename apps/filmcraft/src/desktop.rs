@@ -23,7 +23,7 @@
 pub use linux::*;
 
 /// The desktop file id (without `.desktop`) the taskbar and notifications refer to.
-pub const DESKTOP_ID: &str = "ai.storyteller.filmcraft";
+pub const DESKTOP_ID: &str = "io.github.dawgon2.Revolution"; // fork rebrand, FORK-PLAN §1a.103
 
 /// `file://` URI of an absolute path, percent-encoding everything but unreserved characters and
 /// `/` (RFC 3986; what FileManager1 and `text/uri-list` expect).
@@ -405,7 +405,7 @@ mod linux {
         let mut hints: HashMap<&str, Value<'_>> = HashMap::new();
         hints.insert("desktop-entry", Value::from(DESKTOP_ID));
         hints.insert("urgency", Value::U8(if job.ok { 1 } else { 2 }));
-        proxy.call("Notify", &("FilmCraft", 0u32, DESKTOP_ID, summary.as_str(), body.as_str(), actions, hints, -1i32))
+        proxy.call("Notify", &("Revolution", 0u32, DESKTOP_ID, summary.as_str(), body.as_str(), actions, hints, -1i32))
     }
 
     /// Follow `ActionInvoked` on its own thread: "Show in Folder" reveals the exported file.
@@ -496,7 +496,7 @@ mod linux {
                 Err(e) => {
                     // no portal: the screensaver interface keeps the screen awake (not suspend)
                     let cookie = Proxy::new(conn, "org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver")
-                        .and_then(|p| p.call::<_, _, u32>("Inhibit", &("FilmCraft", reason.as_str())));
+                        .and_then(|p| p.call::<_, _, u32>("Inhibit", &("Revolution", reason.as_str())));
                     match cookie {
                         Ok(c) => self.screensaver = Some(c),
                         Err(e2) => warned.once("inhibit", &format!("{e}; {e2}")),

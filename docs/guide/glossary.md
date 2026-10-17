@@ -1,6 +1,6 @@
 # Glossary
 
-**[Standard] [Resolve-style] [FilmCraft] [Fork]** · plain-language meanings of the words this
+**[Standard] [Resolve-style] [Revolution] [Fork]** · plain-language meanings of the words this
 guide uses, with what Resolve and Premiere call the same thing
 
 Each entry says what the word means, why it matters to you, and where to find it in this fork.
@@ -37,7 +37,7 @@ saying where the idea comes from (see [README](README.md#where-each-feature-come
 
 A way a camera stores brightness so that very dark and very bright parts both fit in the file.
 It squeezes highlights and shadows together, so straight out of the camera a log clip looks
-grey and flat. That is expected: it is raw material, not a finished picture. FilmCraft turns it
+grey and flat. That is why a camera records a picture that looks worse at first: it is raw material, not a finished picture. Revolution turns it
 back into a normal-looking picture once it knows which log curve the camera used (for the
 X-M5, **F-Log2**). See [colour management](color/color-management.md).
 
@@ -103,7 +103,7 @@ did. Today every node in this fork is serial; parallel and layer nodes are plann
 
 > id: glossary.wheel | does: a round control that pushes colour towards a hue and sets brightness | resolve: color wheel | premiere: Lumetri color wheel | when: balancing shadows, midtones, highlights | see: color.primaries.panel
 
-**[Resolve-style] [FilmCraft]**
+**[Resolve-style] [Revolution]**
 
 A round control that pushes the picture's colour towards a hue (drag the dot) and its
 brightness up or down (the slider under it). There are four: **Lift** (shadows), **Gamma**
@@ -117,7 +117,7 @@ brightness up or down (the slider under it). There are four: **Lift** (shadows),
 
 > id: glossary.curve | does: a graph that maps input to output brightness, hue or saturation | resolve: curves | premiere: Lumetri curves | when: shaping contrast or one colour | see: color.curves.why
 
-**[Resolve-style] [FilmCraft]**
+**[Resolve-style] [Revolution]**
 
 A graph that maps input to output: drag a point up and that brightness (or hue, or saturation)
 comes out higher. The custom curve shapes contrast; the hue and saturation curves change one
@@ -161,7 +161,8 @@ can judge whether two shots match. **Split** shows them side by side instead. Bo
 
 A selection of part of the picture made **by its colour or brightness**, for example "the skin"
 or "the sky", so a node changes only that part. This fork makes keys with the **qualifier**
-(the Qualifier tab {ui:grade.tab.qualifier}). See [secondaries](color/secondaries.md).
+(the Qualifier tab {ui:grade.tab.qualifier}). The difference from a window: a key selects by
+colour, a window by a shape you draw; the two can be combined. See [secondaries](color/secondaries.md).
 
 - Resolve: key, made with a qualifier. Premiere: HSL Secondary key in Lumetri.
 
@@ -222,12 +223,12 @@ Set on a node with **Grain strength** {ui:grade.param.grain.strength}. See
 
 > id: glossary.proxy | does: a smaller copy of a clip used while editing | cmd: media.createProxies, media.toggleProxies | resolve: proxy media | premiere: proxy | when: heavy footage | see: proxies.what
 
-**[FilmCraft]**
+**[Revolution]**
 
 A smaller, easier-to-decode copy of a clip used while editing, so playback stays smooth; the
 export still uses the original. Clip ▸ Proxy ▸ **Create Proxies…** (`media.createProxies`)
 makes them and View ▸ **Toggle Proxies** (`media.toggleProxies`) switches between proxies and
-originals. FilmCraft also makes them on its own, in the background, for 4K and larger long-GOP
+originals. Revolution also makes them on its own, in the background, for 4K and larger long-GOP
 clips ([automatic proxies](proxies.md#automatic-proxies)).
 
 - Resolve: proxy media / optimized media. Premiere: proxy.
@@ -236,11 +237,13 @@ clips ([automatic proxies](proxies.md#automatic-proxies)).
 
 > id: glossary.render-cache | does: finished frames of part of a sequence saved to disk for smooth playback | cmd: sequence.renderInToOut, sequence.deleteRenderFiles | resolve: render cache | premiere: preview files | when: heavy sections that stutter | see: render-cache.why
 
-**[FilmCraft]**
+**[Revolution]**
 
 Finished frames of part of a sequence saved to disk, so a heavy section (many effects, a big
 grade) plays back without being worked out again every time. Sequence ▸ **Render In to Out**
 (`sequence.renderInToOut`) fills it for the marked range and **Delete Render Files**
-(`sequence.deleteRenderFiles`) throws it away. A smarter automatic cache is planned for Phase 6.
+(`sequence.deleteRenderFiles`) throws it away. **[Fork]** The automatic render cache also does
+this on its own: while you are idle it renders heavy stretches in the background and stops the
+moment you play, scrub or export ([render-cache.md](render-cache.md)).
 
 - Resolve: render cache. Premiere: rendering previews (render files).

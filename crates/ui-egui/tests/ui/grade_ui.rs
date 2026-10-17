@@ -394,7 +394,14 @@ fn ai_explanations_setting_and_checked_badge() {
     // Settings ▸ Color ▸ AI explanations: off by default; the switch applies on OK
     d.ok("ui.menu.invoke", json!({"id": "app.settings.color"}));
     d.frames(3);
-    for id in ["settings.color.ai.enabled", "settings.color.ai.model", "settings.color.ai.download", "settings.color.ai.remove"] {
+    for id in [
+        "settings.color.ai.enabled",
+        "settings.color.ai.model",
+        "settings.color.ai.download",
+        "settings.color.ai.remove",
+        "settings.color.ai.vision.download",
+        "settings.color.ai.vision.remove",
+    ] {
         assert!(d.element(id).is_some(), "{id} missing: {:?}", d.ids("settings.color"));
     }
     assert_eq!(d.exec("prefs.get", json!({"key": "color.ai.enabled"})), json!(false));
@@ -434,9 +441,12 @@ fn ai_settings_show_local_tuned_models_without_download() {
     d.exec("ai.select", json!({"model": local}));
     d.frames(3);
     assert_eq!(d.exec("ai.models", json!({}))["selected"], json!(local));
-    assert!(d.harness.get_by_label("Download").accesskit_node().is_disabled(), "no download for a local model");
-    assert!(d.harness.query_by_label_contains("Built on this computer (FilmCraft fine-tune of").is_some());
-    assert!(d.harness.query_by_label_contains("downloaded from https://").is_none());
+    // (the first Download is the assistant model's; the Picture model row has its own)
+    let download = d.harness.get_all_by_label("Download").next().expect("the assistant model's Download");
+    assert!(download.accesskit_node().is_disabled(), "no download for a local model");
+    assert!(d.harness.query_by_label_contains("Built on this computer (Revolution fine-tune of").is_some());
+    // only the Picture model row (always a download) names a download source
+    assert!(d.harness.query_all_by_label_contains("downloaded from https://").count() <= 1);
 }
 
 /// GRADE-PLAN G2c: Primaries ▸ WB picker arms a crosshair; a click in the Program picture

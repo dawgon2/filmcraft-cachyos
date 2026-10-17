@@ -26,7 +26,7 @@ heading = "5. Match a wide shot and a close-up"
 [[question]]
 q = "my log footage looks flat"
 page = "color/color-management.md"
-heading = "Tell FilmCraft what the clip is (input)"
+heading = "Tell Revolution what the clip is (input)"
 
 [[question]]
 q = "how do I add grain"
@@ -94,9 +94,9 @@ page = "color/color-management.md"
 heading = "Why"
 
 [[question]]
-q = "how do I tell FilmCraft my clip is F-Log2?"
+q = "how do I tell Revolution my clip is F-Log2?"
 page = "color/color-management.md"
-heading = "Tell FilmCraft what the clip is (input)"
+heading = "Tell Revolution what the clip is (input)"
 
 [[question]]
 q = "how do I add more contrast?"

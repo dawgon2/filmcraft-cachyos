@@ -139,7 +139,7 @@ mod linux {
     impl Instance {
         /// A closing app takes no files (the launch then starts its own window).
         fn refuse_while_closing(&self) -> zbus::fdo::Result<()> {
-            if self.shared.is_closing() { Err(zbus::fdo::Error::Failed("FilmCraft is closing".into())) } else { Ok(()) }
+            if self.shared.is_closing() { Err(zbus::fdo::Error::Failed("Revolution is closing".into())) } else { Ok(()) }
         }
     }
 
@@ -180,7 +180,7 @@ mod linux {
         });
         match sent {
             Ok(()) => {
-                log::info!("FilmCraft is already running: the files went to that window");
+                log::info!("Revolution is already running: the files went to that window");
                 Start::HandedOff
             }
             Err(e) => {
@@ -189,7 +189,7 @@ mod linux {
                     use std::io::Write;
                     let _ = writeln!(std::io::stderr(), "hand-off failed: {e}");
                 }
-                log::warn!("the running FilmCraft didn't answer ({e}); starting another one");
+                log::warn!("the running Revolution didn't answer ({e}); starting another one");
                 Start::Run(None)
             }
         }
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn bus_names_are_valid_and_stable() {
-        assert_eq!(bus_name(Path::new("/x"), true), "ai.storyteller.filmcraft");
+        assert_eq!(bus_name(Path::new("/x"), true), "io.github.dawgon2.Revolution");
         let a = bus_name(Path::new("/home/u/.local/share/filmcraft-fork"), false);
         assert_eq!(a, bus_name(Path::new("/home/u/.local/share/filmcraft-fork"), false));
         assert_ne!(a, bus_name(Path::new("/home/u/.local/share/filmcraft-other"), false));
@@ -214,7 +214,7 @@ mod tests {
         }
         // hostile folder names still give a valid name
         let weird = bus_name(Path::new("/tmp/\u{0}/../ä b.c"), false);
-        assert!(weird.starts_with("ai.storyteller.filmcraft.d") && weird.len() == "ai.storyteller.filmcraft.d".len() + 16);
+        assert!(weird.starts_with("io.github.dawgon2.Revolution.d") && weird.len() == "io.github.dawgon2.Revolution.d".len() + 16);
     }
 
     #[test]

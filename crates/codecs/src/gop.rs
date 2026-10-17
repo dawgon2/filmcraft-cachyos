@@ -426,6 +426,63 @@ pub fn auto_vram_budget(vram: Option<u64>) -> usize {
     vram.filter(|v| *v > 0).map_or(2 << 30, |v| usize::try_from((v / 4).clamp(512 << 20, 32 << 30)).unwrap_or(2 << 30))
 }
 
+/// Where this computer's hardware-decoded frames live (fork XPS d).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecodeMemory {
+    /// A card with its own memory of this size (amdgpu's `mem_info_vram_total`).
+    Dedicated(u64),
+    /// An integrated GPU sharing the system's RAM of this size (Intel iGPUs, AMD APUs with a
+    /// small carve-out; the XPS 16's Arc iGPU, which decodes there while NVIDIA's card reports
+    /// nothing in sysfs).
+    Shared(u64),
+    Unknown,
+}
+
+/// [`DecodeMemory`] from the DRM cards' `(PCI vendor, VRAM size)` and the installed RAM: a card
+/// with at least 1 GiB of its own memory, else an Intel or AMD GPU sharing the RAM, else unknown.
+pub fn decode_memory_from(cards: &[(Option<u32>, Option<u64>)], ram: Option<u64>) -> DecodeMemory {
+    if let Some(v) = cards.iter().filter_map(|c| c.1).filter(|v| *v >= 1 << 30).max() {
+        return DecodeMemory::Dedicated(v);
+    }
+    let shared_gpu = cards.iter().any(|c| matches!(c.0, Some(0x8086 | 0x1002)));
+    match ram.filter(|r| *r > 0) {
+        Some(r) if shared_gpu => DecodeMemory::Shared(r),
+        _ => DecodeMemory::Unknown,
+    }
+}
+
+/// [`decode_memory_from`] on this computer's `/sys/class/drm/card*` (unknown elsewhere).
+pub fn decode_memory() -> DecodeMemory {
+    let cards: Vec<(Option<u32>, Option<u64>)> = std::fs::read_dir("/sys/class/drm")
+        .map(|d| {
+            d.flatten()
+                .filter(|c| {
+                    c.file_name().to_str().is_some_and(|n| n.strip_prefix("card").is_some_and(|k| !k.is_empty() && k.bytes().all(|b| b.is_ascii_digit())))
+                })
+                .take(16)
+                .map(|c| {
+                    let dev = c.path().join("device");
+                    let vendor = std::fs::read_to_string(dev.join("vendor")).ok().and_then(|v| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).ok());
+                    let vram = std::fs::read_to_string(dev.join("mem_info_vram_total")).ok().and_then(|v| v.trim().parse::<u64>().ok());
+                    (vendor, vram)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    decode_memory_from(&cards, installed_ram())
+}
+
+/// The automatic budget for decoded frames: [`auto_vram_budget`] on a card's own memory; on an
+/// integrated GPU an eighth of the RAM (512 MiB–4 GiB: the frames compete with the rest of the
+/// system for that memory); 2 GiB when unknown.
+pub fn auto_vram_budget_for(m: DecodeMemory) -> usize {
+    match m {
+        DecodeMemory::Dedicated(v) => auto_vram_budget(Some(v)),
+        DecodeMemory::Shared(ram) => usize::try_from((ram / 8).clamp(512 << 20, 4 << 30)).unwrap_or(2 << 30),
+        DecodeMemory::Unknown => auto_vram_budget(None),
+    }
+}
+
 /// Set the process-wide budget for decoded frames in GPU memory (bytes, at least 128 MiB).
 pub fn configure_vram(budget: usize) {
     Pool::global().vram_budget.store(budget.max(128 << 20), Ordering::Relaxed);
@@ -520,7 +577,7 @@ impl Pool {
                 std::env::var("FILMCRAFT_VRAM_CACHE_MB")
                     .ok()
                     .and_then(|v| v.parse::<usize>().ok())
-                    .map_or_else(|| auto_vram_budget(installed_vram()), |mb| mb.saturating_mul(1 << 20)),
+                    .map_or_else(|| auto_vram_budget_for(decode_memory()), |mb| mb.saturating_mul(1 << 20)),
             ),
         }
     }
@@ -1920,6 +1977,30 @@ mod tests {
         assert_eq!(auto_vram_budget(Some(12 << 30)), 3 << 30);
         assert_eq!(auto_vram_budget(None), 2 << 30);
         assert_eq!(auto_vram_budget(Some(1 << 30)), 512 << 20);
+    }
+
+    /// Fork XPS d: the budget follows the memory the decoding GPU really has.
+    #[test]
+    fn decode_memory_of_desktop_laptop_and_odd_systems() {
+        const GB: u64 = 1 << 30;
+        let (amd, intel, nvidia) = (Some(0x1002), Some(0x8086), Some(0x10de));
+        // this desktop: RX 6700 XT 12 GB + UHD 770
+        assert_eq!(decode_memory_from(&[(intel, None), (amd, Some(12 * GB))], Some(32 * GB)), DecodeMemory::Dedicated(12 * GB));
+        // the XPS 16: Arc iGPU + RTX 4050 (nothing in sysfs), 32 GB RAM
+        let xps = decode_memory_from(&[(intel, None), (nvidia, None)], Some(32 * GB));
+        assert_eq!(xps, DecodeMemory::Shared(32 * GB));
+        assert_eq!(auto_vram_budget_for(xps), 4 << 30);
+        // an APU's 512 MB carve-out is shared memory, not a card
+        assert_eq!(decode_memory_from(&[(amd, Some(GB / 2))], Some(16 * GB)), DecodeMemory::Shared(16 * GB));
+        assert_eq!(auto_vram_budget_for(DecodeMemory::Shared(16 * GB)), 2 << 30);
+        assert_eq!(auto_vram_budget_for(DecodeMemory::Shared(2 * GB)), 512 << 20);
+        // NVIDIA alone, nothing known, hostile sizes
+        assert_eq!(decode_memory_from(&[(nvidia, None)], Some(32 * GB)), DecodeMemory::Unknown);
+        assert_eq!(decode_memory_from(&[], None), DecodeMemory::Unknown);
+        assert_eq!(decode_memory_from(&[(intel, None)], Some(0)), DecodeMemory::Unknown);
+        assert_eq!(auto_vram_budget_for(DecodeMemory::Unknown), 2 << 30);
+        assert_eq!(auto_vram_budget_for(DecodeMemory::Shared(u64::MAX)), 4 << 30);
+        assert_eq!(auto_vram_budget_for(DecodeMemory::Dedicated(u64::MAX)), 32 << 30);
     }
 
     #[test]

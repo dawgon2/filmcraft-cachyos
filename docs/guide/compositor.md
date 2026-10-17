@@ -36,12 +36,13 @@ Every edit to a comp is one undo step, like any other edit. `comp.params` lists 
 kind of node has.
 
 If you know Resolve: the idea is the Fusion page's node graph, much smaller: no 3D, particles or
-scripting. If you know Premiere: there is no node compositing there; a comp clip is closest to a
+scripting (a flat clip can still be tilted in perspective with the 3D Rotate effect,
+[effects.md](effects.md)). If you know Premiere: there is no node compositing there; a comp clip is closest to a
 nested sequence whose layers you wire yourself.
 
 ## Making a comp
 
-> id: compositor.make | does: opens the Compositor panel and makes a comp clip on the timeline | ui: comp.newClip | cmd: comp.newClip, comp.open | resolve: New Fusion Clip, Open in Fusion page | premiere: — | when: starting a composite from nothing | see: compositor.basics, compositor.convert
+> id: compositor.make | does: opens the Compositor panel and makes a comp clip on the timeline | ui: comp.newClip | cmd: comp.newClip, comp.open | resolve: New Fusion Clip, Open in Fusion page | premiere: — | when: starting a composite from nothing; wiring nodes together and unplugging them | see: compositor.basics, compositor.convert
 
 1. Open the panel: **Window ▸ Compositor** (`window.panel.Compositor`), or the **Compositing**
    workspace (**Window ▸ Workspaces ▸ Compositing**, `window.workspace.compositing`), which
@@ -93,8 +94,9 @@ These have no button in the Compositor panel yet. Run them from the command pale
 control channel or the MCP tools; each is one undo step. `comp` can be left out to use the
 selected comp clip.
 
-1. See the comp first: `comp.get` lists its nodes, connections, output node, size, frame
-   rate and length, plus the order the nodes run in and, if the graph can't run, why.
+1. See the comp first (all of these are commands only, with no button yet): `comp.get` lists
+   its nodes, connections, output node, size, frame rate and length, plus the order the nodes
+   run in and, if the graph can't run, why.
 2. Size, frame rate, length: `comp.setSize` with any of `width`, `height`, `fps`, `duration`
    (in ticks). A new comp starts at the sequence's size.
 3. Which clip a **Media In** node reads: `comp.setSource` with `node` and either `item` (a
@@ -103,7 +105,8 @@ selected comp clip.
 4. Name a node: `comp.labelNode` with `node` and `label` (long names are cut). The name shows
    on the canvas; it doesn't change the picture.
 
-Unlike Resolve, there is no composition settings dialog and no rename field on the node yet.
+- **Revolution:** no composition settings dialog and no rename field on the node yet (unlike
+  Resolve).
 
 ## Looking at one node's output [Resolve-style]
 
@@ -115,7 +118,7 @@ see what one node outputs.
 1. Put the playhead over the comp clip and open its comp in the Compositor.
 2. Double-click a node (or right-click it ▸ **View**, or pick it in the **Show** menu at the top
    right of the canvas, `comp.viewer`). The Program monitor now shows that node's output, at the
-   comp's size.
+   comp's size. Viewing a node changes only what the monitor shows, not the finished comp.
 3. To go back to the finished picture, pick **Show: Media Out** (or send `comp.view` with no
    node).
 
@@ -145,10 +148,10 @@ button for it in the Compositor yet.
 
 ## A Mask node's masks [Fork]
 
-> id: compositor.masks | does: adds, inverts, reshapes (points, Bézier handles, added / deleted points) and deletes the shapes of a Mask node | cmd: comp.setMasks | resolve: Polygon / Ellipse / Rectangle mask nodes on the Fusion page | premiere: the mask buttons in Effect Controls | when: keeping only part of the picture in a comp | see: compositor.inspector
+> id: compositor.masks | does: adds, inverts, reshapes (points, Bézier handles, added / deleted points) and deletes the shapes of a Mask node | cmd: comp.setMasks | resolve: Polygon / Ellipse / Rectangle mask nodes on the Fusion page | premiere: the mask buttons in Effect Controls | when: keeping only part of the picture in a comp; a person in front of text, a clone of yourself, a split screen | see: compositor.inspector
 
 A Mask node keeps its input only inside its shapes (or outside, when a shape is inverted).
-Unlike Resolve's Fusion page, where each shape is its own node, one FilmCraft Mask node holds a
+Unlike Resolve's Fusion page, where each shape is its own node, one Revolution Mask node holds a
 list of up to sixteen shapes, like the masks of a Premiere effect.
 
 1. Select the Mask node. Under the canvas is a **Masks** row with **Add ellipse**
@@ -239,4 +242,4 @@ Both can be built in one go with the command batch kept in the repository as
     another comp's Media In reads.
 
 Resolve's Fusion page renders on the graphics card too; where its render cache keeps whole
-frames, FilmCraft keeps only the unchanging parts of a comp and redraws the rest.
+frames, Revolution keeps only the unchanging parts of a comp and redraws the rest.

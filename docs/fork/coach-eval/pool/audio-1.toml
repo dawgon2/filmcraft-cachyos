@@ -1,0 +1,516 @@
+# AI-POOL batch audio-1: audio.md, essential-sound.md, mixing.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-a1-traffic-voice"
+kind = "approach"
+q = "interview recorded next to a busy road, the traffic noise keeps changing, what removes it?"
+sources = ["audio.voice-isolation"]
+must = ["Voice Isolation: a trained model that follows noise changing moment to moment", "drop it on the voice clip (Audio Effects ▸ Noise Reduction/Restoration)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-vi-processed"
+kind = "tweak"
+q = "after voice isolation the voice sounds a bit robotic"
+sources = ["audio.voice-isolation"]
+must = ["lower Amount to about 70–85 %: it mixes some original back in and hides artefacts"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-a1-vi-music"
+kind = "pro-practice"
+q = "should I put voice isolation on the music track too?"
+sources = ["audio.voice-isolation"]
+must = ["no: it keeps speech only and removes music and effects", "use it on voice tracks only"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-vi-install"
+kind = "multi-step"
+q = "how do I install the voice isolation model?"
+sources = ["audio.voice-isolation"]
+must = ["Settings ▸ Audio ▸ Voice isolation ▸ Download (about 8 MB, checked against its checksum)", "Remove deletes it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-vi-offline"
+kind = "multi-step"
+q = "my edit machine has no internet, can I still install the DeepFilterNet model?"
+sources = ["audio.voice-isolation"]
+must = ["copy DeepFilterNet3.zip (or its checkpoint) from the DeepFilterNet repository", "install it with audio.voiceIsolate.installFile (path); a wrong checksum is refused"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-vi-no-model"
+kind = "pro-practice"
+q = "what happens to Voice Isolation on a computer without the model?"
+sources = ["audio.voice-isolation"]
+must = ["it quietly works as DeNoise (100 % = 40 dB reduction), so the project still plays and exports", "same for sequences not at 48 kHz"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-vi-cpu"
+kind = "pro-practice"
+q = "how heavy is voice isolation on the CPU, can I use it on six tracks live?"
+sources = ["audio.voice-isolation"]
+must = ["about a third of one (slow) core per track on the measured CPU; stereo costs about one channel", "with many tracks avoid fast shuttling or bounce the cleaned dialogue"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-vi-sync"
+kind = "pro-practice"
+q = "does voice isolation add latency that puts my audio out of sync?"
+sources = ["audio.voice-isolation"]
+must = ["it looks 20 ms ahead (40 ms in all)", "playback and export compensate, so the clip stays in sync"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-fan-noise"
+kind = "approach"
+q = "steady air conditioner hiss under a voice recorded in a quiet room, which tool?"
+sources = ["audio.voice-isolation", "audio.manual-voice-cleanup"]
+must = ["DeNoise (Reduce Noise) suits steady noise and changes the voice least", "Voice Isolation is for noise that changes"]
+must_not = ["claims one tool is always right"]
+style = "pro"
+
+[[question]]
+id = "pool-a1-order"
+kind = "pro-practice"
+q = "what order should voice effects go in?"
+sources = ["audio.manual-voice-cleanup", "audio.voice-isolation"]
+must = ["restoration first (rumble, noise, hum, esses), then level (dynamics), tone (EQ), loudness last", "noise reduction works best on the raw voice; compression after it doesn't pump noise back up"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-rumble"
+kind = "tweak"
+q = "low boomy rumble from someone bumping the desk"
+sources = ["audio.manual-voice-cleanup", "essential-sound.controls"]
+must = ["Reduce Rumble at about 3 (66 Hz), 4 (78 Hz) if it still booms", "a voice has nothing useful below about 70 Hz"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-a1-hum"
+kind = "tweak"
+q = "there's a constant low hum in my recording, I'm in the US"
+sources = ["audio.manual-voice-cleanup"]
+must = ["DeHum at the mains frequency: 60 Hz in the Americas (50 Hz most elsewhere)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-esses"
+kind = "tweak"
+q = "her s sounds are really harsh"
+sources = ["audio.manual-voice-cleanup", "essential-sound.controls"]
+must = ["DeEss at 3–6"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-a1-loudness-target"
+kind = "pro-practice"
+q = "what loudness should I deliver at for YouTube vs broadcast?"
+sources = ["audio.manual-voice-cleanup"]
+must = ["YouTube and most streaming: −14 LUFS", "broadcast: −23 LUFS (EBU R128) or −24 LKFS (ATSC A/85)", "true peak ceiling −1 dBTP"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-noise-leave"
+kind = "pro-practice"
+q = "should I always remove the background noise in the pauses?"
+sources = ["audio.manual-voice-cleanup"]
+must = ["noise only heard in the pauses (more than ~40 dB under the voice) can be left", "fix only what you hear"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-cleanup-what"
+kind = "tool"
+q = "what exactly does Clean Up Voice change?"
+sources = ["audio.cleanup-voice"]
+must = ["measures the clip, then sets Reduce Rumble, Voice Isolation (or Reduce Noise), DeEss, Dynamics and loudness at −14 LUFS with true peak under −1 dBTP", "one undo step; every slider stays yours"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-cleanup-hum"
+kind = "tweak"
+q = "Clean Up Voice ran but there's still hum"
+sources = ["audio.cleanup-voice", "audio.manual-voice-cleanup"]
+must = ["it leaves hum, reverb and EQ alone: add DeHum yourself"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-cleanup-background"
+kind = "tool"
+q = "does Clean Up Voice freeze the app while it works?"
+sources = ["audio.cleanup-voice"]
+must = ["no: it runs in the background and shows in the job list where it can be stopped", "a stopped clean-up changes nothing"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-cleanup-agent"
+kind = "tool"
+q = "can a script get Clean Up Voice's suggested settings without applying them?"
+sources = ["audio.cleanup-voice"]
+must = ["audio.cleanupVoice with apply: false", "target, ceiling, isolate and wait options"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-vo-record"
+kind = "multi-step"
+q = "record narration straight onto the timeline while watching the picture"
+sources = ["audio.voiceover-record"]
+must = ["pick the mic in Voice-Over Record Settings", "park the playhead (or set In / Out to punch in), press the track's record button", "stop: a mono WAV is written, imported and placed"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-punch-in"
+kind = "approach"
+q = "I only need to redo one line of my voice-over"
+sources = ["audio.voiceover-record", "audio.voiceover-takes"]
+must = ["set In and Out over the line and punch in: recording covers only that range", "match level and room to the takes around it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-takes"
+kind = "tool"
+q = "I recorded the same line four times, how do I pick the best one?"
+sources = ["audio.voiceover-takes"]
+must = ["select the clip: Essential Sound shows Takes with waveforms", "Use puts a take in place, keeping the clip's processing"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-takes-wordbyword"
+kind = "pro-practice"
+q = "I want to build one line from the best words of several takes"
+sources = ["audio.voiceover-takes"]
+must = ["record each take on its own track and cut between them on the timeline", "the Takes list is for whole-line choices"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-types"
+kind = "tool"
+q = "why should I set an audio type on my clips?"
+sources = ["essential-sound.types"]
+must = ["Dialogue, Music, SFX or Ambience each show the controls that suit them", "each control drives an ordinary effect visible in Effect Controls"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-clear-type"
+kind = "tweak"
+q = "how do I undo all the essential sound stuff on a clip"
+sources = ["essential-sound.types"]
+must = ["Clear Audio Type removes the type and its effects"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-a1-podcast"
+kind = "tool"
+q = "quick podcast-style voice preset?"
+sources = ["essential-sound.presets"]
+must = ["Dialogue preset Podcast Voice (Browse tab)", "a preset never changes the matched loudness or clip volume"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-a1-automatch-targets"
+kind = "pro-practice"
+q = "why does Auto-Match put my dialogue at -23 and not -14?"
+sources = ["essential-sound.loudness"]
+must = ["Auto-Match targets balance clips against each other (Dialogue −23, Music −25, SFX −21, Ambience −30 LUFS)", "the delivery level of the whole mix is a separate step"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-reverb-room"
+kind = "tweak"
+q = "the voice sounds echoey, recorded in a big empty room"
+sources = ["essential-sound.controls"]
+must = ["Reduce Reverb (drives DeReverb) in Dialogue ▸ Repair"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-phone-eq"
+kind = "tool"
+q = "make the voice sound like it's on a telephone"
+sources = ["essential-sound.controls", "essential-sound.presets"]
+must = ["EQ with the Telephone preset (or the Phone Call dialogue preset)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-a1-ducking"
+kind = "multi-step"
+q = "automatically lower the music whenever someone talks"
+sources = ["essential-sound.ducking"]
+must = ["on the Music clip turn Ducking on, duck against Dialogue", "set sensitivity, reduction (−15 dB default) and fades, then Generate Keyframes", "the result is ordinary Volume keyframes"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-ducking-gaps"
+kind = "tweak"
+q = "auto ducking pumps the music up in every tiny pause"
+sources = ["essential-sound.ducking"]
+must = ["adjust the sensitivity and regenerate", "or ride the music fader yourself"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-remix"
+kind = "multi-step"
+q = "my song is 3:40 and the video is 2:15, can the song be shortened musically?"
+sources = ["essential-sound.remix"]
+must = ["Clip ▸ Remix ▸ Enable Remix analyses the beats", "set the length in Remix Properties; intro and real ending stay", "Revert Remix undoes it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-remix-refused"
+kind = "tweak"
+q = "remix refuses to make my music longer"
+sources = ["essential-sound.remix"]
+must = ["a remix never pushes or trims the next clip: it refuses if the longer version would run into it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-track-mixer"
+kind = "tool"
+q = "where's the mixer with faders for each track?"
+sources = ["mixing.track-mixer"]
+must = ["Window ▸ Audio Track Mixer (on the Fairlight page in the Resolve workflow)", "strips per track, submix and the Mix: fader, pan, Mute, Solo, Record arm"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-limiter-master"
+kind = "approach"
+q = "put a limiter on the whole mix"
+sources = ["mixing.inserts"]
+must = ["a track insert on the Mix strip (mixer.addInsert)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-a1-pre-post"
+kind = "pro-practice"
+q = "pre-fader or post-fader insert, what's the difference?"
+sources = ["mixing.inserts"]
+must = ["pre-fader effects see the track before its volume, post-fader after it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-dialogue-bus"
+kind = "multi-step"
+q = "I want one fader that controls all three dialogue tracks"
+sources = ["mixing.submixes"]
+must = ["Add Audio Submix Track (S1)", "set each dialogue track's output to S1"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-shared-reverb"
+kind = "approach"
+q = "one reverb shared by several tracks"
+sources = ["mixing.submixes"]
+must = ["put a reverb insert on a submix and add sends from the tracks to it"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-touch-latch"
+kind = "pro-practice"
+q = "Touch or Latch automation, which should I use to ride the music?"
+sources = ["mixing.automation"]
+must = ["Touch writes only while held and glides back", "Latch keeps the last value until playback stops: for moves that should hold", "beginners usually start with Touch"]
+must_not = ["claims one mode is always right"]
+style = "pro"
+
+[[question]]
+id = "pool-a1-write-overwrote"
+kind = "tweak"
+q = "my second Write pass overwrote all my automation"
+sources = ["mixing.automation"]
+must = ["after a Write pass the strip switches to Touch (Settings ▸ Audio)", "Write records every control from the start of playback"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-a1-lanes"
+kind = "tool"
+q = "can an agent draw a precise volume fade on a track?"
+sources = ["mixing.keyframes"]
+must = ["mixer.writeAutomation writes (time, value) points in one step", "lanes such as volume, pan, mute, send.<n>.level, fx.<slot>.<parameter>"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-a1-clip-mixer"
+kind = "approach"
+q = "I want my volume rides to move with the clip when I re-edit"
+sources = ["mixing.clip-mixer", "mixing.clip-or-track"]
+must = ["use the Audio Clip Mixer: it writes the clip's own Volume / Panner keyframes, which travel with the clip", "track automation stays in place on the timeline"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-a1k-vi"
+q = "voice isolation"
+kind = "what-for"
+origin = "agent"
+page = "audio.md"
+heading = "Voice Isolation"
+status = "covered"
+facts = ["DeepFilterNet3", "Amount"]
+
+[[coach]]
+id = "pool-a1k-enhance"
+q = "enhance speech"
+kind = "premiere-word"
+origin = "agent"
+page = "audio.md"
+heading = "Voice Isolation"
+alt = [{ page = "essential-sound.md", heading = "Repair, Clarity and Creative" }]
+status = "covered"
+facts = ["Voice Isolation"]
+
+[[coach]]
+id = "pool-a1k-rumble"
+q = "remove rumble from a voice"
+kind = "how"
+origin = "agent"
+page = "audio.md"
+heading = "Cleaning up a voice by hand"
+alt = [{ page = "essential-sound.md", heading = "Repair, Clarity and Creative" }]
+status = "covered"
+facts = ["Reduce Rumble at about 3"]
+
+[[coach]]
+id = "pool-a1k-cleanup"
+q = "one button to fix all my interview voices"
+kind = "how"
+origin = "agent"
+page = "audio.md"
+heading = "Clean Up Voice (one click)"
+status = "covered"
+facts = ["Clean Up Voice"]
+
+[[coach]]
+id = "pool-a1k-voiceover"
+q = "record a voiceover"
+kind = "how"
+origin = "agent"
+page = "audio.md"
+heading = "Recording a voice-over"
+status = "covered"
+facts = ["record button", "pre-roll"]
+
+[[coach]]
+id = "pool-a1k-takes"
+q = "pick a voice over take"
+kind = "how"
+origin = "agent"
+page = "audio.md"
+heading = "Reviewing voice-over takes"
+status = "covered"
+facts = ["Takes", "Use"]
+
+[[coach]]
+id = "pool-a1k-types"
+q = "audio types dialogue music sfx"
+kind = "what-for"
+origin = "agent"
+page = "essential-sound.md"
+heading = "Audio types"
+status = "covered"
+facts = ["Dialogue, Music, SFX, Ambience"]
+
+[[coach]]
+id = "pool-a1k-automatch"
+q = "make all my clips equally loud"
+kind = "how"
+origin = "agent"
+page = "essential-sound.md"
+heading = "Loudness and Auto-Match"
+status = "covered"
+facts = ["Auto-Match"]
+
+[[coach]]
+id = "pool-a1k-duck"
+q = "duck music under dialogue"
+kind = "how"
+origin = "agent"
+page = "essential-sound.md"
+heading = "Ducking music under dialogue"
+status = "covered"
+facts = ["Generate Keyframes"]
+
+[[coach]]
+id = "pool-a1k-remix"
+q = "remix music to length"
+kind = "how"
+origin = "agent"
+page = "essential-sound.md"
+heading = "Fitting music to a length: Remix"
+status = "covered"
+facts = ["Enable Remix"]
+
+[[coach]]
+id = "pool-a1k-submix"
+q = "submix track"
+kind = "how"
+origin = "agent"
+page = "mixing.md"
+heading = "Submixes and sends"
+status = "covered"
+facts = ["Add Audio Submix Track"]
+
+[[coach]]
+id = "pool-a1k-automation"
+q = "latch touch write automation"
+kind = "what-for"
+origin = "agent"
+page = "mixing.md"
+heading = "Automation: recording mixer moves while playing"
+status = "covered"
+facts = ["Touch, Latch, Write"]
+
+[[coach]]
+id = "pool-a1k-fairlight"
+q = "fairlight mixer"
+kind = "resolve-word"
+origin = "agent"
+page = "mixing.md"
+heading = "The Audio Track Mixer"
+status = "covered"
+facts = ["Audio Track Mixer"]

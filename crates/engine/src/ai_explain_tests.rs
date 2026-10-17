@@ -245,7 +245,7 @@ fn ai_commands_list_select_and_switch() {
         let id = e["id"].as_str().unwrap();
         let local = filmcraft_llm::models::find(id).unwrap().is_local();
         assert_eq!(e["local"], json!(local), "{e}");
-        assert_eq!(e["tuned"], json!(id.starts_with(filmcraft_llm::models::TUNED_PREFIX)), "{e}");
+        assert_eq!(e["tuned"], json!(filmcraft_llm::models::find(id).is_some_and(filmcraft_llm::ModelInfo::is_tuned)), "{e}");
     }
     assert!(list.iter().any(|e| e["local"] == true), "the tuned explainers are local for now");
 
@@ -452,4 +452,62 @@ fn a_newer_prefetch_supersedes_and_a_request_adopts() {
     go.store(true, std::sync::atomic::Ordering::Relaxed);
     let a = s.execute("ai.explanation", json!({"key": second, "wait": true})).unwrap();
     assert_eq!(a["state"], "done", "{a}");
+}
+
+/// AI4 acceptance: a broken picture-model folder (missing, garbage or truncated files) makes the
+/// look fail with an error, so the assistant answers without it; it never panics.
+#[cfg(feature = "llm")]
+#[test]
+fn a_corrupt_picture_model_fails_the_look_without_a_crash() {
+    use crate::coach_assist::PictureInput;
+    const CONFIG: &str = r#"{"architectures":["Qwen3VLForConditionalGeneration"],"tie_word_embeddings":true,
+        "text_config":{"hidden_size":64,"intermediate_size":128,"num_hidden_layers":1,"num_attention_heads":2,"num_key_value_heads":1,
+        "head_dim":32,"rms_norm_eps":1e-6,"rope_theta":5000000,"vocab_size":32,"rope_scaling":{"mrope_interleaved":true,"mrope_section":[6,5,5]}},
+        "vision_config":{"deepstack_visual_indexes":[0],"depth":1,"hidden_act":"gelu_pytorch_tanh","hidden_size":32,"in_channels":3,
+        "intermediate_size":64,"num_heads":2,"num_position_embeddings":16,"out_hidden_size":64,"patch_size":16,"spatial_merge_size":2,"temporal_patch_size":2}}"#;
+    let shard = |header_len: u64, rest: &[u8]| {
+        let mut v = header_len.to_le_bytes().to_vec();
+        v.extend_from_slice(rest);
+        v
+    };
+    let index = r#"{"weight_map":{"model.visual.patch_embed.proj.weight":"model-00001-of-00001.safetensors","model.language_model.embed_tokens.weight":"model-00001-of-00001.safetensors"}}"#;
+    let cases: Vec<(&str, Vec<(&str, Vec<u8>)>)> = vec![
+        ("empty", vec![]),
+        ("garbage config", vec![("config.json", b"\x00\xff not json".to_vec())]),
+        ("garbage index", vec![("config.json", CONFIG.into()), ("model.safetensors.index.json", b"{\"weight_map\": 7".to_vec())]),
+        (
+            "index escapes the folder",
+            vec![("config.json", CONFIG.into()), ("model.safetensors.index.json", index.replace("model-00001-of-00001", "../../etc/passwd").into_bytes())],
+        ),
+        (
+            "header longer than the file",
+            vec![("config.json", CONFIG.into()), ("model.safetensors.index.json", index.into()), ("model-00001-of-00001.safetensors", shard(1 << 40, b"{}"))],
+        ),
+        (
+            "garbage header",
+            vec![("config.json", CONFIG.into()), ("model.safetensors.index.json", index.into()), ("model-00001-of-00001.safetensors", shard(9, b"not json!"))],
+        ),
+        (
+            "garbage text model",
+            vec![
+                ("config.json", CONFIG.into()),
+                ("model.safetensors.index.json", index.into()),
+                ("model-00001-of-00001.safetensors", shard(2, b"{}")),
+                ("text-own-q8_0.gguf", b"GGUF\x03\x00\x00\x00 truncated".to_vec()),
+            ],
+        ),
+    ];
+    let picture = PictureInput { rgb: vec![0.5; 32 * 32 * 3], w: 32, h: 32 };
+    for (name, files) in cases {
+        let dir = std::env::temp_dir().join(format!("filmcraft-vl-corrupt-{}-{}", std::process::id(), name.replace(' ', "-")));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        for (f, bytes) in files {
+            std::fs::write(dir.join(f), bytes).expect("write");
+        }
+        let looker = crate::ai_explain::looker_at(dir.clone()).expect("a looker in llm builds");
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| looker.look(&picture, "is it too dark?")));
+        assert!(matches!(r, Ok(Err(_))), "{name}: {r:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

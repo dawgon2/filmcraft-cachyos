@@ -1,0 +1,282 @@
+# AI-POOL batch start-1: getting-started.md, pages.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-s1-install-ways"
+kind = "approach"
+q = "how do I get Revolution running on my Linux PC?"
+sources = ["getting-started.install", "linux.install"]
+must = ["a ready-made build: download the release .tar.gz, unpack, start it (nothing system-wide)", "or from source with rustup: cargo run --release -p filmcraft"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-requirements"
+kind = "pro-practice"
+q = "what graphics card does Revolution need?"
+sources = ["getting-started.install"]
+must = ["one that supports Vulkan (most AMD, Intel, NVIDIA from the last ten years)", "VA-API video engine for smooth HEVC / H.264 when present; otherwise software decoding, proxies help"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-licence"
+kind = "pro-practice"
+q = "do I need an account or a licence key?"
+sources = ["getting-started.install"]
+must = ["no: no installer, no sign-in, no licence key"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-japanese-ui"
+kind = "tweak"
+q = "Japanese text shows as boxes in my source build"
+sources = ["getting-started.install", "graphics.fonts"]
+must = ["build with CRAFT_FONTS_DIR set to a clone of the craft-fonts repository"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-s1-back-to-premiere"
+kind = "multi-step"
+q = "I prefer Premiere's layout, how do I switch back from Resolve?"
+sources = ["getting-started.workflow"]
+must = ["Edit ▸ Preferences ▸ General ▸ Workflow: Premiere Pro (applies at once)", "your previous keyboard preset and theme come back; the page bar disappears"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-s1-shortcuts-lost"
+kind = "pro-practice"
+q = "will switching workflow lose my custom shortcuts?"
+sources = ["getting-started.workflow"]
+must = ["no: unsaved key edits are saved as a preset first (\"<name> (before Resolve)\" / \"DaVinci Resolve Compatible (edited)\")", "saved presets are never overwritten; if saving fails the switch is refused"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-s1-terms"
+kind = "tool"
+q = "the guide says Sequence but my menu says Timeline, are they the same?"
+sources = ["getting-started.workflow"]
+must = ["yes: the Resolve workflow uses Resolve's words (Timeline = Sequence, Media Pool = Project panel, Inspector = Effect Controls …)", "only the words change; commands and projects are the same"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-theme"
+kind = "tweak"
+q = "can I use the Resolve dark theme in the Premiere workflow?"
+sources = ["getting-started.workflow"]
+must = ["yes: Settings ▸ Appearance ▸ Dark Theme or View ▸ Appearance ▸ Resolve", "a theme you pick yourself follows you across workflow switches"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-resolve-keys"
+kind = "tool"
+q = "which Resolve shortcuts does Revolution copy?"
+sources = ["getting-started.workflow"]
+must = ["only keys Blackmagic documents publicly (e.g. Alt+S, Shift+S, Ctrl+D, Shift+D, Ctrl+Alt+G, Shift+2/4/6/7/8)", "Ctrl in place of Cmd; the shortcuts dialog shows the full list"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-s1-window-frame"
+kind = "approach"
+q = "I want my normal KDE window frame back instead of Revolution's"
+sources = ["getting-started.workflow", "linux.window"]
+must = ["Settings ▸ General ▸ the window frame choice below Workflow: System (the desktop's frame)", "applies on OK"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-camera-settings"
+kind = "approach"
+q = "which X-M5 recording settings should I use for editing in Revolution?"
+sources = ["getting-started.import-xm5"]
+must = ["H.265 4:2:0 10-bit for most work (decodes on the AMD engine, smooth 6.2K)", "4:2:2 10-bit for green screen and strong colour work (slower path)", "6.2K open gate for reframing; 16:9 for straight-to-YouTube"]
+must_not = ["claims one setting is always right"]
+style = "beginner"
+
+[[question]]
+id = "pool-s1-open-gate-seq"
+kind = "pro-practice"
+q = "what sequence size for 6.2K open gate footage going to YouTube?"
+sources = ["getting-started.import-xm5"]
+must = ["a 4K 16:9 (3840 × 2160) sequence, clips scaled to fill (Scale to Frame Size), reframe with Motion ▸ Position", "or 6240 × 4160 to keep the whole frame for vertical and photo-style exports"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-s1-xm5-workflow"
+kind = "multi-step"
+q = "from SD card to grading, what's the order with X-M5 footage?"
+sources = ["getting-started.import-xm5"]
+must = ["copy the card with the verified copy, format only after", "import the copy; F-Log2 looks flat (Interpret Footage if wrong)", "let proxies build; make the sequence and set DaVinci Wide Gamut before grading"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-why-smooth"
+kind = "approach"
+q = "why does 6.2K play smoothly here but not in other apps on my machine?"
+sources = ["getting-started.hardware", "hardware.why"]
+must = ["decoding, display, the grade and H.265 export run on the AMD card and its video engine, with fallbacks"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-page-what"
+kind = "approach"
+q = "are the Resolve pages separate programs like in Resolve?"
+sources = ["pages.what"]
+must = ["no: each page is a built-in workspace over the same project, timeline and undo history", "only the panel layout changes"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-s1-cut-page"
+kind = "gap"
+q = "where's the Cut page?"
+sources = ["pages.what"]
+must = ["not shown yet: Revolution has no Cut layout (dual timeline)"]
+must_not = ["invents a Cut page"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-s1-page-keys"
+kind = "tool"
+q = "keyboard shortcuts to jump between pages"
+sources = ["pages.what", "getting-started.workflow"]
+must = ["with the Resolve keys: Shift+2 Media, Shift+4 Edit, Shift+6 Color, Shift+7 Fairlight, Shift+8 Deliver"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-s1-fairlight-page"
+kind = "tool"
+q = "what's on the Fairlight page?"
+sources = ["pages.panels"]
+must = ["a small viewer and meters with the loudness readout on top; Tools and the Timeline; the Mixer (and Essential Sound) on the right"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-missing-panels"
+kind = "gap"
+q = "where are Resolve's Index, Sound Library and Lightbox?"
+sources = ["pages.panels"]
+must = ["no Revolution panel yet, so their buttons are left out"]
+must_not = ["invents these panels"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-s1-toolbar-inspector"
+kind = "tool"
+q = "how do I show the Inspector on the Edit page?"
+sources = ["pages.toolbar"]
+must = ["click Inspector in the page's toolbar: it opens on the right; click again to hide"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-s1-more-room"
+kind = "tweak"
+q = "I want the viewers and timeline to use the full width on the Edit page"
+sources = ["pages.toolbar"]
+must = ["click Media Pool in the toolbar to hide it; click again to bring it back"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-deliver-steps"
+kind = "multi-step"
+q = "render my timeline on the Deliver page"
+sources = ["pages.deliver"]
+must = ["Deliver in the page bar; set File Name, Location and Preset in Render Settings", "choose the Range", "Render now, or Add to Render Queue then Start Render"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-save-layout"
+kind = "multi-step"
+q = "I rearranged the Edit page, how do I keep it that way?"
+sources = ["pages.layout"]
+must = ["Window ▸ Workspaces ▸ Save Changes to this Workspace", "Reset to Saved Layout undoes unsaved changes"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-s1-layout-switch"
+kind = "pro-practice"
+q = "if I switch workflow will I lose my rearranged page layouts?"
+sources = ["pages.layout"]
+must = ["no: switching keeps each workflow's layout as you left it, unsaved changes included"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-s1k-install"
+q = "how do i install filmcraft"
+kind = "how"
+origin = "agent"
+page = "getting-started.md"
+heading = "Install"
+status = "covered"
+facts = ["ready-made build", "cargo run --release -p filmcraft"]
+
+[[coach]]
+id = "pool-s1k-premiere-layout"
+q = "switch to the premiere layout"
+kind = "how"
+origin = "agent"
+page = "getting-started.md"
+heading = "Choose your workflow: Premiere or Resolve"
+status = "covered"
+facts = ["Workflow: Premiere Pro"]
+
+[[coach]]
+id = "pool-s1k-open-gate"
+q = "open gate 6.2k sequence size"
+kind = "how"
+origin = "agent"
+page = "getting-started.md"
+heading = "Import X-M5 clips"
+status = "covered"
+facts = ["3840 × 2160 or 6240 × 4160"]
+
+[[coach]]
+id = "pool-s1k-page-bar"
+q = "page bar"
+kind = "resolve-word"
+origin = "agent"
+page = "pages.md"
+heading = "What a page is"
+status = "covered"
+facts = ["Media, Edit, Fusion, Color, Fairlight, Deliver"]
+
+[[coach]]
+id = "pool-s1k-toolbar"
+q = "hide a panel with the page toolbar"
+kind = "how"
+origin = "agent"
+page = "pages.md"
+heading = "Show and hide panels from the toolbar"
+status = "covered"
+facts = ["click the toolbar button"]
+
+[[coach]]
+id = "pool-s1k-render-queue"
+q = "render queue"
+kind = "resolve-word"
+origin = "agent"
+page = "pages.md"
+heading = "Deliver: render settings and the render queue"
+status = "covered"
+facts = ["Add to Render Queue", "Start Render"]

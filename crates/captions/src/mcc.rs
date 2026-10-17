@@ -531,7 +531,7 @@ pub fn write_with(doc: &Document, drop_frame: bool, cea608: bool, cea708: bool) 
     let dtv = if cea708 { schedule_708(doc) } else { BTreeMap::new() };
     let mut out = String::from("File Format=MacCaption_MCC V1.0\n\n");
     out.push_str("///////////////////////////////////////////////////////////////////////////////////\n");
-    out.push_str("// Closed captions written by FilmCraft: SMPTE ST 334-2 caption distribution packets\n");
+    out.push_str("// Closed captions written by Revolution: SMPTE ST 334-2 caption distribution packets\n");
     out.push_str("// carrying CEA-608 field 1 and CEA-708 service 1 data, one packet per frame.\n");
     out.push_str("///////////////////////////////////////////////////////////////////////////////////\n\n");
     let n = doc.cues.len() as u64;
@@ -544,7 +544,7 @@ pub fn write_with(doc: &Document, drop_frame: bool, cea608: bool, cea708: bool) 
         (h >> 20) & 0xfff,
         h.rotate_left(29) & 0xffff_ffff_ffff
     ));
-    out.push_str("Creation Program=FilmCraft\n");
+    out.push_str("Creation Program=Revolution\n");
     out.push_str(&format!("Time Code Rate={}\n\n", if drop_frame { "30DF" } else { "30" }));
     let first = f1.keys().next().copied().into_iter().chain(dtv.keys().next().copied()).min();
     let last = f1.keys().next_back().copied().into_iter().chain(dtv.keys().next_back().copied()).max();

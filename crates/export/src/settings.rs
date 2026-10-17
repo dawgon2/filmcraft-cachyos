@@ -472,7 +472,7 @@ impl ExportMetadata {
                 .filter(|(_, s)| !s.trim().is_empty())
                 .map(|(k, s)| (k.to_string(), s.trim().to_string()))
                 .collect();
-        v.push(("©too".into(), format!("FilmCraft {}", env!("CARGO_PKG_VERSION"))));
+        v.push(("©too".into(), format!("Revolution {}", env!("CARGO_PKG_VERSION"))));
         v
     }
 }

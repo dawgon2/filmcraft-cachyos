@@ -1,0 +1,174 @@
+# AI-POOL batch glossary-1: glossary.md (plain meanings; the original sets already ask most
+# "what is X" questions, so these ask why it matters and the Resolve / Premiere names).
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-y1-log-why"
+kind = "approach"
+q = "why would a camera record a picture that looks worse?"
+sources = ["glossary.log"]
+must = ["log keeps very dark and very bright parts in the file by squeezing them together", "it's raw material, turned back into a normal picture once the log curve is known"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-y1-gamut-outside"
+kind = "pro-practice"
+q = "what happens to F-Gamut colours that Rec. 709 can't show?"
+sources = ["glossary.gamut", "color.color-management.output"]
+must = ["they have to be brought inside: this fork folds them in gently instead of cutting them off"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-y1-working-space-premiere"
+kind = "tool"
+q = "what does Premiere call the working space?"
+sources = ["glossary.working-space"]
+must = ["the sequence's working colour space (Resolve: timeline colour space)"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-y1-node-premiere"
+kind = "node-role"
+q = "coming from Premiere, what's the closest thing to a node?"
+sources = ["glossary.node"]
+must = ["one Lumetri Color effect on a clip", "a node is one step of a grade, one job per node, switchable on its own"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-y1-serial-order"
+kind = "node-role"
+q = "why does the order of serial nodes change the result?"
+sources = ["glossary.serial-node"]
+must = ["each node sees what the earlier ones already did"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-y1-wheels-names"
+kind = "tool"
+q = "Premiere has shadows / midtones / highlights wheels, what are they called here?"
+sources = ["glossary.wheel", "color.primaries.panel"]
+must = ["Lift (shadows), Gamma (mid-tones), Gain (highlights), plus Offset for everything"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-y1-curve-one-colour"
+kind = "approach"
+q = "make only the blues less saturated with a curve"
+sources = ["glossary.curve", "color.curves.limits"]
+must = ["a hue vs saturation curve does one colour range at a time", "on a node only Y / R / G / B exist; use Lumetri Color's curves"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-y1-still-premiere"
+kind = "tool"
+q = "Premiere has nothing like a gallery still, what's the closest?"
+sources = ["glossary.still"]
+must = ["the comparison view's reference frame", "a still is a saved frame plus the grade on its clip"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-y1-key-vs-window"
+kind = "approach"
+q = "what's the difference between a key and a window?"
+sources = ["glossary.key", "glossary.window"]
+must = ["a key selects by colour or brightness (the qualifier)", "a window selects by shape (circle, rectangle, gradient) and can be tracked"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-y1-matte-check"
+kind = "tweak"
+q = "quickest way to see if my selection is clean"
+sources = ["glossary.matte"]
+must = ["look at the matte: Qualifier ▸ View ▸ Matte (white acts, black doesn't, grey partly)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-y1-lut-whole-grade"
+kind = "pro-practice"
+q = "can I just use a LUT as my whole grade?"
+sources = ["glossary.lut", "color.finishing.lut"]
+must = ["a LUT can't adapt to the shot: best as one step in a node, not the whole grade", "balance on an earlier node first"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-y1-grain-why"
+kind = "approach"
+q = "what's the point of adding grain on purpose?"
+sources = ["glossary.grain"]
+must = ["hides banding, makes a heavy grade feel less digital, ties shots from different cameras together"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-y1-proxy-export"
+kind = "pro-practice"
+q = "if a clip has a proxy, which one does the export use?"
+sources = ["glossary.proxy", "proxies.what"]
+must = ["the export always uses the original"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-y1-render-cache-premiere"
+kind = "tool"
+q = "what does Premiere call the render cache?"
+sources = ["glossary.render-cache"]
+must = ["preview files / render files (rendering previews)"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-y1-sequence-timeline"
+kind = "tool"
+q = "is a timeline the same thing as a sequence?"
+sources = ["getting-started.workflow"]
+must = ["yes: Resolve-workflow wording says timeline, Premiere's says sequence"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-y1k-gamut"
+q = "what does gamut mean"
+kind = "what-for"
+origin = "agent"
+page = "glossary.md"
+heading = "Gamut"
+alt = [{ page = "color/color-management.md", heading = "Why" }]
+status = "covered"
+facts = ["range of colours"]
+
+[[coach]]
+id = "pool-y1k-serial"
+q = "serial vs parallel nodes"
+kind = "what-for"
+origin = "agent"
+page = "glossary.md"
+heading = "Serial node"
+alt = [{ page = "color/nodes.md", heading = "Later: parallel and layer nodes (C2)" }]
+status = "covered"
+facts = ["each node sees the one before"]
+
+[[coach]]
+id = "pool-y1k-key"
+q = "what is a key in grading"
+kind = "what-for"
+origin = "agent"
+page = "glossary.md"
+heading = "Key"
+alt = [{ page = "color/secondaries.md", heading = "The qualifier: select by colour" }]
+status = "covered"
+facts = ["selection by colour or brightness"]

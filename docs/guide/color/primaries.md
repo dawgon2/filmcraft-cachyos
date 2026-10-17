@@ -8,12 +8,13 @@
 
 **[Resolve-style]**
 
-Primaries change the whole picture, or whole brightness ranges of it. Do them first; fine work on
+Primaries change the whole picture, or whole brightness ranges of it. Do these whole-picture
+fixes first, before the skin or any one colour; fine work on
 one colour (secondaries, G2) comes after.
 
 ## The panel
 
-> id: color.primaries.panel | does: Lift, Gamma, Gain and Offset wheels, contrast, pivot, saturation, temperature and tint | ui: grade.wheel.*, grade.param.*, grade.tab.primaries | cmd: grade.setParam | resolve: Primaries Color Wheels | premiere: Lumetri Color Wheels | when: balancing and shaping a shot | see: color.primaries.white-balance
+> id: color.primaries.panel | does: Lift, Gamma, Gain and Offset wheels, contrast, pivot, saturation, temperature and tint | ui: grade.wheel.*, grade.param.*, grade.tab.primaries | cmd: grade.setParam | resolve: Primaries Color Wheels | premiere: Lumetri Color Wheels | when: balancing and shaping a shot; making it black and white | see: color.primaries.white-balance
 
 **[Resolve-style]**
 
@@ -62,7 +63,7 @@ every control of the node to neutral. The node's LUT menu sits under the bottom 
 
 ## White balance picker and Auto balance
 
-> id: color.primaries.white-balance | does: removes a colour cast by picking something neutral, or automatically | ui: grade.wb.pick, grade.wb.auto | cmd: grade.wb.pick, grade.wb.auto | resolve: Highlight / white balance picker, Auto Balance | premiere: Lumetri WB Selector | when: orange, blue, green or magenta casts | see: color.primaries.panel
+> id: color.primaries.white-balance | does: removes a colour cast by picking something neutral, or automatically | ui: grade.wb.pick, grade.wb.auto | cmd: grade.wb.pick, grade.wb.auto | resolve: Highlight / white balance picker, Auto Balance | premiere: Lumetri WB Selector | when: orange, blue, green or magenta casts; nothing grey or white to pick, balance it by itself | see: color.primaries.panel
 
 **[Resolve-style]**
 
@@ -94,7 +95,7 @@ highlights. When a cast is stronger than the sliders reach (±100), they stop at
 the limit and the status line says the cast is only partly removed: balance the rest with the
 **Gain** or **Offset** wheel. Keyframed Temperature / Tint get a keyframe at the playhead.
 
-Difference from Resolve: FilmCraft's picker and Auto balance only move this node's Temperature
+Difference from Resolve: Revolution's picker and Auto balance only move this node's Temperature
 and Tint (two controls in linear light, see the sliders above); Resolve's tools may spread the
 correction differently, so the numbers won't match between the two applications.
 
@@ -122,11 +123,12 @@ Dragging a control is one undo step no matter how long you drag.
 
 **[Fork]**
 
-`grade.setParam` sets one parameter (`param`, `value`); `grade.params` lists every parameter with
+From a script or an agent, `grade.setParam` sets one parameter of a node (`param`, `value`; a
+node's contrast is `contrast`); `grade.params` lists every parameter with
 its range; `grade.get` returns the whole grade. `grade.toggleAnimation` turns keyframes on for a
 parameter at a time; the panel has no keyframe button yet and shows the value at the playhead.
-Values read from a file are clamped to the ranges above. `grade.wb.pick` (`x`, `y`, optionally `x2`, `y2`: 0…1
-of the frame; a point samples a 5 × 5 pixel spot, two corners a box) and `grade.wb.auto` solve the
+Values read from a file are clamped to the ranges above. `grade.wb.pick` runs the white balance picker for an agent or script on a
+point or a box of the frame (`x`, `y`, optionally `x2`, `y2`: 0…1 of the frame; a point samples a 5 × 5 pixel spot, two corners a box) and `grade.wb.auto` solve the
 node's Temperature and Tint and return them, with `clamped` and a `message` when the sliders hit
 their limit.
 
@@ -145,8 +147,8 @@ colour-boost / mid-detail sliders yet.
 
 > id: color.primaries.premiere | does: how the node grader relates to Lumetri's wheels and sliders | premiere: Lumetri Color | when: you come from Premiere | see: color.lumetri.what
 
-**[FilmCraft]**
+**[Revolution]**
 
-Lumetri's wheels and sliders are a separate tool (**[FilmCraft]**) that lives in the clip's
+Lumetri's wheels and sliders are a separate tool (**[Revolution]**) that lives in the clip's
 effect stack. Nodes run before the effect stack, so a node grade and Lumetri can be combined.
 See [lumetri.md](lumetri.md) for when to use which.

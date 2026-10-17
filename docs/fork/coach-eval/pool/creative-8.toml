@@ -1,0 +1,326 @@
+# AI-POOL batch creative-8 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families, weighted to editing craft, subtitles and voice. Ten new families: sound
+# leading into a scene (J-cut), hiding interview cuts, silent gaps in dialogue, a concert multicam,
+# a match cut, cinematic letterbox bars, an old-film countdown intro, subtitles in two languages, an
+# AI narration draft, recording my own voice-over. `must` = plan sub-goals from the guide's own text.
+# No admitted-gap family in this batch. Held-out only.
+
+# --- sound-leads-scene ---
+
+[[question]]
+id = "pool-cr8-jcut"
+kind = "creative"
+family = "sound-leads-scene"
+q = "hear the next scene's sound before we see it, like in movies"
+sources = ["practice.editing.j-l-cuts", "timeline.in-out"]
+must = ["a J-cut: the next clip's audio starts before its picture", "trim only the audio side of the edit with linked selection off (sequence.linkedSelection), or set split In / Out in the Source monitor (markers.markSplitAudioIn and pairs)", "keep sync afterwards: move a clip's audio and video together"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-lcut"
+kind = "creative"
+family = "sound-leads-scene"
+q = "keep her voice going while we cut to his reaction"
+sources = ["practice.editing.j-l-cuts", "editing.trimming"]
+must = ["an L-cut: the picture cuts to the reaction while the audio carries on", "with linked selection off, roll only the video side of the edit earlier"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr8-split-source"
+kind = "creative"
+family = "sound-leads-scene"
+q = "set up split edits from the source monitor before cutting them in"
+sources = ["timeline.in-out", "trimming.source-monitor", "practice.editing.j-l-cuts"]
+must = ["set separate audio and video In / Out in the Source monitor (markers.markSplitAudioIn, markSplitVideoOut and pairs)", "then Insert or Overwrite places the J / L cut directly"]
+must_not = []
+style = "pro"
+
+# --- hide-interview-cuts ---
+
+[[question]]
+id = "pool-cr8-broll"
+kind = "creative"
+family = "hide-interview-cuts"
+q = "I cut bits out of my interview and you can see the jumps, how do I hide them"
+sources = ["practice.editing.b-roll", "timeline.targeting", "practice.editing.jump-cuts"]
+must = ["B-roll on V2 over the cuts, video only, while the voice continues on A1", "target V2 and turn off source audio (timeline.setTargeting), then Overwrite (source.overwrite)", "or punch in on alternate cuts; pick B-roll that shows what's said"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-broll-morph"
+kind = "creative"
+family = "hide-interview-cuts"
+q = "smooth out a jump cut in a talking head without b-roll"
+sources = ["practice.editing.jump-cuts", "effects.transitions", "practice.youtube.pattern-interrupt"]
+must = ["a punch-in (Motion Scale 110–120 %) on the second part softens the jump", "or a very short dissolve on the edit; vary the device so the jumps don't feel nervous"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr8-broll-sloppy"
+kind = "creative"
+family = "hide-interview-cuts"
+q = "b roll over interview without killing the interview audio"
+sources = ["practice.editing.b-roll", "timeline.targeting"]
+must = ["place B-roll video only on V2: turn off source audio patching (timeline.setTargeting) before Overwrite", "the interview stays on V1 / A1"]
+must_not = []
+style = "sloppy"
+
+# --- silent-gaps-dialogue ---
+
+[[question]]
+id = "pool-cr8-roomtone"
+kind = "creative"
+family = "silent-gaps-dialogue"
+q = "when I cut out bits of dialogue the background noise drops to silence and it sounds weird"
+sources = ["practice.editing.room-tone", "essential-sound.types", "practice.audio.crossfades"]
+must = ["lay room tone on its own audio track under the gaps, typed Ambience", "short crossfades at the edits (sequence.applyAudioTransition)", "room tone from the same location: record it on set"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-roomtone-none"
+kind = "creative"
+family = "silent-gaps-dialogue"
+q = "forgot to record room tone, where do I get some"
+sources = ["practice.editing.room-tone", "practice.audio.ambience-beds", "media.clips"]
+must = ["copy a few seconds of quiet between lines from the same recording and loop it under the gaps", "room tone from another location changes the colour of the noise"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr8-roomtone-pro"
+kind = "creative"
+family = "silent-gaps-dialogue"
+q = "dialogue edit: fill, ambience bed, crossfades — what's the Revolution way"
+sources = ["practice.editing.room-tone", "practice.audio.ambience-beds", "practice.audio.crossfades"]
+must = ["a continuous ambience bed under the scene, room tone on its own track", "a few frames of crossfade on every audio cut; long ones on dialogue make words overlap"]
+must_not = []
+style = "pro"
+
+# --- concert-multicam ---
+
+[[question]]
+id = "pool-cr8-concert"
+kind = "creative"
+family = "concert-multicam"
+q = "I filmed a concert with three cameras, how do I cut between them"
+sources = ["editing.multicam", "trimming.multicam", "practice.editing.sync-sound"]
+must = ["sync the angles by their audio and make a multicam clip", "play it and cut between angles live in the multicam monitor; audio follows one source", "fix cuts afterwards like any edit"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-concert-audio"
+kind = "creative"
+family = "concert-multicam"
+q = "multicam of a gig but I want the desk recording as the audio, not the cameras"
+sources = ["editing.multicam", "practice.editing.sync-sound", "media.clips"]
+must = ["sync the desk recording with the cameras by waveform (clip.synchronize by audio, or Merge Clips)", "use the desk audio for the whole sequence rather than following the camera angles"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr8-concert-keys"
+kind = "creative"
+family = "concert-multicam"
+q = "switch camera angles with number keys while it plays"
+sources = ["trimming.multicam", "command-reference.multicam"]
+must = ["in the multicam monitor, the camera number keys cut to that angle while playing (switching or cutting by number)", "page through cameras when there are more than the grid shows"]
+must_not = []
+style = "sloppy"
+
+# --- match-cut ---
+
+[[question]]
+id = "pool-cr8-matchcut"
+kind = "creative"
+family = "match-cut"
+q = "match cut from a spinning coin to a spinning planet"
+sources = ["practice.editing.cut-on-action", "effects.opacity", "effects.apply"]
+must = ["cut at the same moment of the motion in both shots; fine-tune frame by frame with a rolling edit", "line the shapes up: lower the top clip's Opacity temporarily to see both, then Motion Position / Scale to match"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr8-matchcut-door"
+kind = "creative"
+family = "match-cut"
+q = "cut as she opens the door so she steps out somewhere else"
+sources = ["practice.editing.cut-on-action", "editing.trimming"]
+must = ["cut in the middle of the movement so the cut hides in the motion", "roll the edit frame by frame (tool.rolling, trim.forward / backward); mismatched hands or positions break it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-matchcut-sound"
+kind = "creative"
+family = "match-cut"
+q = "sound match cut, scream turns into a train whistle"
+sources = ["practice.editing.j-l-cuts", "practice.audio.crossfades"]
+must = ["the scream's audio leads into the whistle: overlap the sounds with a short crossfade at the cut", "the picture cut sits on the sound change (split the audio and video edits)"]
+must_not = []
+style = "sloppy"
+
+# --- cinematic-letterbox ---
+
+[[question]]
+id = "pool-cr8-bars"
+kind = "creative"
+family = "cinematic-letterbox"
+q = "add black bars on top and bottom for a cinematic look"
+sources = ["media.generated", "effects.opacity", "edit-menu.sequence-settings"]
+must = ["a black Color Matte (or Black Video) on the top track with a rectangle mask on Opacity, Inverted, so only the bars stay", "or change the sequence's frame size to a wide ratio (sequence.settings) so the export itself is wide"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-bars-reframe"
+kind = "creative"
+family = "cinematic-letterbox"
+q = "2.39 bars cut off heads in some shots"
+sources = ["effects.apply", "practice.delivery.vertical"]
+must = ["reposition each shot under the bars with Motion Position", "open-gate footage leaves room to reframe"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr8-bars-pro"
+kind = "creative"
+family = "cinematic-letterbox"
+q = "baked-in letterbox matte vs a true 2.39 deliverable"
+sources = ["edit-menu.sequence-settings", "media.generated", "practice.delivery.master"]
+must = ["a true wide deliverable: a sequence at that frame size (sequence.settings)", "a matte over 16:9 keeps a 16:9 file with black bars: easy on platforms, but the bars are encoded"]
+must_not = []
+style = "pro"
+
+# --- old-film-countdown ---
+
+[[question]]
+id = "pool-cr8-countdown"
+kind = "creative"
+family = "old-film-countdown"
+q = "start my video with an old film countdown 5 4 3 2 1"
+sources = ["media.generated", "practice.looks.film-curve", "color.finishing.grain"]
+must = ["File ▸ New ▸ Universal Counting Leader makes the countdown", "age it with grain and a film-style curve"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-countdown-vintage"
+kind = "creative"
+family = "old-film-countdown"
+q = "countdown leader then fade into a sepia home movie"
+sources = ["media.generated", "effects.transitions", "practice.looks.faded-blacks"]
+must = ["the Universal Counting Leader first, a dissolve into the movie", "sepia: lifted blacks, warm tint, low saturation, grain"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr8-countdown-beep"
+kind = "creative"
+family = "old-film-countdown"
+q = "countdown with the 2-pop beep for sync"
+sources = ["media.generated", "practice.editing.sync-sound"]
+must = ["the Universal Counting Leader from File ▸ New, which counts down", "line up a sound on its last count (or bars and tone for a test signal)"]
+must_not = []
+style = "pro"
+
+# --- bilingual-subtitles ---
+
+[[question]]
+id = "pool-cr8-bilingual"
+kind = "creative"
+family = "bilingual-subtitles"
+q = "subtitles in English and Spanish that viewers can switch between"
+sources = ["text.captions", "practice.delivery.captions"]
+must = ["one caption track per language (C1, C2): from the transcript or imported .srt / .vtt files (captions.import)", "export each as SRT / WebVTT (captions.export) next to the video rather than burned in, so viewers switch them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-bilingual-burn"
+kind = "creative"
+family = "bilingual-subtitles"
+q = "burn in spanish subs for instagram but keep english as a file for youtube"
+sources = ["practice.delivery.captions", "text.captions", "export-queue.queue"]
+must = ["burn in only for autoplaying social clips; the YouTube upload gets an SRT / VTT file", "queue both exports (one with burn-in) in the export queue"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr8-bilingual-translate"
+kind = "creative"
+family = "bilingual-subtitles"
+q = "I have a translated srt from a translator, how do I line it up and style it"
+sources = ["text.captions", "media.import"]
+must = ["import the .srt (File ▸ Import or captions.import): it arrives as a new caption track", "edit timing and text in the Text panel's Captions tab; style the track"]
+must_not = []
+style = "pro"
+
+# --- ai-narration-draft ---
+
+[[question]]
+id = "pool-cr8-tts"
+kind = "creative"
+family = "ai-narration-draft"
+q = "I don't like my voice, can the app read my script out loud for the video"
+sources = ["text.narration", "text.narration-vs-recording"]
+must = ["Text to Speech panel: write the script, pick a voice, pitch and pace, Preview, then Create (tts.create) places a narration clip", "trade-off: it sounds synthetic with little control over emphasis; Natural voices are a one-time download"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-tts-music"
+kind = "creative"
+family = "ai-narration-draft"
+q = "AI narration over background music, music should dip under it"
+sources = ["text.narration", "essential-sound.ducking", "essential-sound.types"]
+must = ["create the narration clip (tts.create), type it Dialogue", "the music clip typed Music with Ducking against Dialogue, Generate Keyframes (essentialSound.generateDucking)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr8-tts-scratch"
+kind = "creative"
+family = "ai-narration-draft"
+q = "scratch VO with TTS to time the cut, then replace with the real read"
+sources = ["text.narration-vs-recording", "text.narration", "audio.voiceover-record"]
+must = ["cut to a text-to-speech draft for timing; edit a line later with tts.edit, the clip keeps its place", "then record the real voice over the same timing (audio.voiceover.start) and clean it up"]
+must_not = []
+style = "pro"
+
+# --- record-own-voiceover ---
+
+[[question]]
+id = "pool-cr8-vo"
+kind = "creative"
+family = "record-own-voiceover"
+q = "record my own narration straight into the timeline"
+sources = ["audio.voiceover-record", "audio.cleanup-voice"]
+must = ["pick the microphone in Voice-Over Record Settings (audio.voiceover.settings); park the playhead or set In / Out to punch in", "click the track's record button (audio.voiceover.start); pre-roll and countdown beeps, then stop", "Clean Up Voice on the recording"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr8-vo-takes"
+kind = "creative"
+family = "record-own-voiceover"
+q = "recorded the same line five times, how do I pick the best"
+sources = ["audio.voiceover-takes", "audio.voiceover-record"]
+must = ["every recording at the same point is kept as a take; select the clip and Essential Sound shows Takes", "Use puts a take in place; the clip's processing moves to the take you pick"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr8-vo-punch"
+kind = "creative"
+family = "record-own-voiceover"
+q = "punch in to re-record one sentence in the middle of the VO"
+sources = ["audio.voiceover-record", "timeline.in-out", "audio.voiceover-takes"]
+must = ["set In and Out around the sentence: recording covers only that range, with pre-roll so you hear the lead-in", "the earlier version stays as a take"]
+must_not = []
+style = "pro"

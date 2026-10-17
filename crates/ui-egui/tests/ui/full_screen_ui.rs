@@ -139,7 +139,7 @@ fn project_manager_buttons_and_x(workflow: Workflow) {
     assert!(!d.shows("window.maximize") && !d.shows("window.close"), "{workflow:?}: no maximise / close on the Project Manager");
     // its × quits FilmCraft (runs `app.quit`, which asks about unsaved changes first)
     let x = d.harness.state().auto.previous.iter().find(|e| e.id == "projects.close.x").map(|e| e.label.clone());
-    assert_eq!(x.as_deref(), Some("Quit FilmCraft"), "{workflow:?}");
+    assert_eq!(x.as_deref(), Some("Quit Revolution"), "{workflow:?}");
 }
 
 #[test]
@@ -155,13 +155,13 @@ fn project_manager_in_resolve() {
 fn filmcraft_menu(workflow: Workflow) {
     let mut d = Driver::new(workflow);
     let items = filmcraft_ui_egui::menus::menu_items(d.harness.state());
-    let app: Vec<&str> = items.iter().filter(|i| i.path == vec!["FilmCraft".to_string()]).map(|i| i.id.as_str()).collect();
+    let app: Vec<&str> = items.iter().filter(|i| i.path == vec!["Revolution".to_string()]).map(|i| i.id.as_str()).collect();
     assert_eq!(app, ["app.preferences", "app.quit"], "{workflow:?}");
     d.ok("engine.execute", json!({"command": "app.preferences", "params": {}}));
     d.frames(2);
     assert!(d.harness.state().ui.settings.is_some(), "{workflow:?}: Preferences… opens Settings");
     if d.harness.state().in_window_menu() {
-        assert!(d.shows("menu.FilmCraft"), "{workflow:?}: the FilmCraft menu left of File");
+        assert!(d.shows("menu.Revolution"), "{workflow:?}: the Revolution menu left of File");
     }
 }
 

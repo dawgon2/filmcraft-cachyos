@@ -54,6 +54,14 @@ fn hostile_files_are_refused_before_anything_is_written() {
     assert!(s.execute("audio.voiceIsolate.installFile", json!({"path": ckpt})).is_err());
     assert!(s.execute("audio.voiceIsolate.installFile", json!({"path": dir.join("absent.ckpt")})).is_err());
     assert!(s.execute("audio.voiceIsolate.installFile", json!({})).is_err());
+    // a huge "release" is refused by its size, before it is read
+    let big = dir.join("big").join("DeepFilterNet3.zip");
+    std::fs::create_dir_all(big.parent().unwrap()).unwrap();
+    std::fs::File::create(&big).unwrap().set_len(8 << 30).unwrap();
+    let t0 = std::time::Instant::now();
+    let e = s.execute("audio.voiceIsolate.installFile", json!({"path": big})).unwrap_err().to_string();
+    assert!(e.contains("not the DeepFilterNet3 release") && e.contains("bytes"), "{e}");
+    assert!(t0.elapsed() < std::time::Duration::from_secs(2), "not hashed");
     assert_eq!(s.execute("audio.voiceIsolate.status", json!({})).unwrap()["installed"], before);
     std::fs::remove_dir_all(&dir).ok();
 }

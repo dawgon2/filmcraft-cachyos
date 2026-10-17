@@ -1,0 +1,322 @@
+# AI-POOL batch graphics-1: graphics.md, packs.md.
+# Held-out test questions (README.md beside this file). Written from the guide's text.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "pool-g1-new-title"
+kind = "multi-step"
+q = "how do I add a simple title over my shot?"
+sources = ["graphics.layers"]
+must = ["park the playhead, Graphics and Titles ▸ New Layer ▸ Text (graphics.newText, Ctrl+T)", "a 5 s graphic clip lands on the first free track above the picture", "type into it in the Program monitor"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-shape"
+kind = "tool"
+q = "draw a rectangle behind my lower third text"
+sources = ["graphics.layers", "graphics.arrange"]
+must = ["New Layer ▸ Rectangle (graphics.newRectangle)", "send it backward / to back so it sits behind the text"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-g1-logo-file"
+kind = "tool"
+q = "put my logo PNG on top of the video as a graphic layer"
+sources = ["graphics.layers"]
+must = ["New Layer ▸ From file… (graphics.newFromFile) imports and places the picture"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-text-resolve"
+kind = "pro-practice"
+q = "where's Text+ from Resolve?"
+sources = ["graphics.layers", "graphics.text"]
+must = ["graphic clips with text layers: Graphics and Titles ▸ New Layer ▸ Text", "style it in Essential Graphics / Effect Controls"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "pool-g1-one-word-bold"
+kind = "tool"
+q = "make one word in my title a different colour"
+sources = ["graphics.text"]
+must = ["graphics.setCharStyle on that range of characters"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-point-paragraph"
+kind = "pro-practice"
+q = "when I drag the text box handles the text stretches instead of wrapping"
+sources = ["graphics.text"]
+must = ["it's point text: switch to paragraph text (graphics.setTextType) so the text wraps in a box"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-g1-font-size-keys"
+kind = "tool"
+q = "keyboard shortcut to make the title bigger"
+sources = ["graphics.text"]
+must = ["graphics.fontSizeUp / fontSizeDown with a text layer selected (Shift for five steps)"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-g1-center"
+kind = "tool"
+q = "center my title exactly in the frame"
+sources = ["graphics.arrange"]
+must = ["Align to the frame (graphics.alignFrame.… horizontal / vertical centre)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-distribute"
+kind = "tool"
+q = "space three icons evenly across the screen"
+sources = ["graphics.arrange"]
+must = ["Distribute horizontally (by centres) or distribute the space between them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-lower-third-box"
+kind = "approach"
+q = "the box behind my lower third should grow with longer names"
+sources = ["graphics.responsive"]
+must = ["pin the box's edges to the text layer (graphics.pin): it grows and shrinks with the name"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-protected-time"
+kind = "pro-practice"
+q = "when I make my animated title longer the intro animation slows down"
+sources = ["graphics.responsive"]
+must = ["set protected time (graphics.setResponsiveTime): the first and last seconds keep their animation, only the middle stretches"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-g1-credits"
+kind = "multi-step"
+q = "scrolling end credits"
+sources = ["graphics.responsive"]
+must = ["a roll (graphics.setRoll) on the graphic: credits scroll up, optionally starting and ending off screen"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-g1-template-apply"
+kind = "tool"
+q = "are there ready-made lower thirds?"
+sources = ["graphics.templates"]
+must = ["Essential Graphics ▸ Browse: apply a template (graphics.template.apply) at the playhead", "edit what the template lets you in Essential Graphics ▸ Edit"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-mogrt"
+kind = "gap"
+q = "can I import my .mogrt files from Premiere?"
+sources = ["graphics.templates"]
+must = ["no: Adobe .mogrt files are refused without being opened", "Revolution templates are .fcgt"]
+must_not = ["claims mogrt works"]
+style = "premiere-words"
+
+[[question]]
+id = "pool-g1-make-template"
+kind = "multi-step"
+q = "turn my lower third into a template where only the name can be changed"
+sources = ["graphics.templates"]
+must = ["select the graphic clip, Export As Motion Graphics Template (graphics.template.export)", "pick which properties stay editable (only the name)", "saved as .fcgt in your data folder"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-g1-template-or-copy"
+kind = "approach"
+q = "same title in every episode, template or just copy-paste the clip?"
+sources = ["graphics.templates", "graphics.source"]
+must = ["a template for a design used many times (only chosen properties editable)", "copy-paste for a one-off (every copy separate)", "a source graphic when all must stay identical (one edit changes all)"]
+must_not = ["claims one is always right"]
+style = "beginner"
+
+[[question]]
+id = "pool-g1-source-graphic"
+kind = "tool"
+q = "I have a logo bug on 40 clips, can I change it once for all of them?"
+sources = ["graphics.source"]
+must = ["Upgrade to Source Graphic (graphics.upgradeToSourceGraphic): every clip of that item shares the layers"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-caption-to-graphic"
+kind = "tool"
+q = "I want to animate one caption like a title"
+sources = ["graphics.source"]
+must = ["Upgrade Caption to Graphic (graphics.upgradeCaption) turns it into a graphic clip with a text layer"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-g1-missing-font"
+kind = "tweak"
+q = "a font from the project is missing on this computer"
+sources = ["graphics.fonts"]
+must = ["graphics.fonts.used lists the fonts the graphics use", "Replace Fonts in Projects swaps one font for another everywhere"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-japanese"
+kind = "pro-practice"
+q = "Japanese characters in my Latin font title show up anyway, from where?"
+sources = ["graphics.fonts"]
+must = ["characters a font doesn't have are drawn with a fallback font, character by character", "builds with craft-fonts include fonts for Japanese"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-g1-pack-what"
+kind = "approach"
+q = "how do I move all my presets, LUTs and title templates to my new laptop?"
+sources = ["packs.what", "packs.make"]
+must = ["a look pack (.fcpack) bundles effect presets, LUTs and graphics templates in one file", "Export Look Pack… then Import Look Pack… on the other machine"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-pack-select"
+kind = "tool"
+q = "export a look pack with only two of my LUTs"
+sources = ["packs.make"]
+must = ["packs.export with the names in luts (and presets, templates)", "an empty selection is refused"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-g1-lut-folder"
+kind = "tool"
+q = "I downloaded a folder of 50 cube LUTs, how do I add them all?"
+sources = ["packs.make"]
+must = ["Import LUT Folder… (lut.importFolder): every .cube / .3dl in the folder, one undo step", "unreadable files are skipped and listed"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-pack-luts-where"
+kind = "tweak"
+q = "I imported a pack but the LUTs aren't in my other project"
+sources = ["packs.open"]
+must = ["LUTs go into the current project's LUT library: open the project you want them in first", "presets and templates go into your own library"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-g1-pack-overwrite"
+kind = "pro-practice"
+q = "will importing someone's pack overwrite my presets with the same name?"
+sources = ["packs.open"]
+must = ["never: a same-named preset or template arrives as Name (2)", "an identical LUT is reused instead of added twice"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-g1-pack-safety"
+kind = "pro-practice"
+q = "is it safe to open a look pack from a stranger?"
+sources = ["packs.open"]
+must = ["Revolution checks it first: only presets, LUTs and templates with plain names, size limits, every LUT and template must read", "if anything is wrong nothing from that part is added"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "pool-g1k-title"
+q = "make a title"
+kind = "how"
+origin = "agent"
+page = "graphics.md"
+heading = "Graphic clips and their layers"
+status = "covered"
+facts = ["New Layer ▸ Text"]
+
+[[coach]]
+id = "pool-g1k-text-style"
+q = "change the font of my text layer"
+kind = "how"
+origin = "agent"
+page = "graphics.md"
+heading = "Text"
+alt = [{ page = "graphics.md", heading = "Fonts" }]
+status = "covered"
+facts = ["graphics.set"]
+
+[[coach]]
+id = "pool-g1k-align"
+q = "align layers to the frame"
+kind = "how"
+origin = "agent"
+page = "graphics.md"
+heading = "Arranging and aligning"
+status = "covered"
+facts = ["graphics.alignFrame"]
+
+[[coach]]
+id = "pool-g1k-roll"
+q = "roll and crawl credits"
+kind = "how"
+origin = "agent"
+page = "graphics.md"
+heading = "Responsive design: pins, protected time, rolls"
+status = "covered"
+facts = ["graphics.setRoll"]
+
+[[coach]]
+id = "pool-g1k-mogrt"
+q = "motion graphics template"
+kind = "premiere-word"
+origin = "agent"
+page = "graphics.md"
+heading = "Templates"
+status = "covered"
+facts = [".fcgt", "Export As Motion Graphics Template"]
+
+[[coach]]
+id = "pool-g1k-source"
+q = "one logo bug shared by every clip so editing it updates all"
+kind = "premiere-word"
+origin = "agent"
+page = "graphics.md"
+heading = "Source graphics and upgrading captions"
+status = "covered"
+facts = ["every clip shares the layers"]
+
+[[coach]]
+id = "pool-g1k-pack"
+q = "share my looks as one file"
+kind = "how"
+origin = "agent"
+page = "packs.md"
+heading = "What a look pack is"
+alt = [{ page = "packs.md", heading = "Making a pack" }]
+status = "covered"
+facts = [".fcpack"]
+
+[[coach]]
+id = "pool-g1k-import-pack"
+q = "import a look pack"
+kind = "how"
+origin = "agent"
+page = "packs.md"
+heading = "Opening a pack"
+status = "covered"
+facts = ["Import Look Pack…"]

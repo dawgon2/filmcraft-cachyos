@@ -1,0 +1,168 @@
+# AI4 item 2b acceptance fixtures: synthetic frames for the `needs_clip` questions.
+#
+# Each `[[look]]` draws a small synthetic frame (display RGB 0..1) that sets up the situation a
+# `needs_clip` question is about, and says what a right look at it must mention and must not claim.
+# `crates/engine/tests/look_fixtures.rs` renders them, runs a `PictureLooker` with
+# `coach_assist::look_prompt(question)`, and scores the reply:
+#   - `must`: a list of word groups; the reply names at least one word of every group
+#     (case-insensitive, whole words; a group may hold a short phrase);
+#   - `must_not`: words whose presence means something was invented (incl. the synthetic training
+#     scenes' wording, "backdrop" / "interview" / "table lamp" / "log footage", where the frame has none:
+#     tune v1 collapsed onto those templates, 2026-10-16) (a cast the frame doesn't
+#     have, a bright frame called dark …).
+# The frame: `background` (flat) or `top` / `bottom` (a vertical gradient, `steps` > 1 quantises it
+# into visible bands), then `rects` drawn in order ([x, y, w, h] as fractions of the frame), then
+# `noise` (± amplitude, deterministic). Synthetic, CPU-only; the real Qwen3-VL score is a PC run.
+
+[[look]]
+id = "look-wb-shade"
+question = "pool-c2-wb-shade"
+background = [0.30, 0.40, 0.58]
+rects = [
+  { at = [0.08, 0.55, 0.40, 0.22], rgb = [0.78, 0.86, 0.98] }, # the "white" car, gone blue
+  { at = [0.0, 0.78, 1.0, 0.22], rgb = [0.22, 0.28, 0.38] },   # road in shade
+]
+must = [["blue", "bluish", "cool", "cold", "cyan"]]
+must_not = ["orange", "warm", "yellow", "tungsten", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-tungsten"
+question = "pool-c7-tungsten-blue"
+background = [0.62, 0.42, 0.20]
+rects = [
+  { at = [0.62, 0.15, 0.12, 0.18], rgb = [1.0, 0.86, 0.55] }, # the lamp
+  { at = [0.20, 0.35, 0.22, 0.45], rgb = [0.78, 0.50, 0.30] }, # a person-ish warm shape
+]
+must = [["orange", "warm", "yellow", "amber", "tungsten"]]
+must_not = ["cool", "bluish", "cold", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-blown-sky"
+question = "pool-c7-blown-sky"
+top = [1.0, 1.0, 1.0]
+bottom = [0.97, 0.98, 1.0]
+rects = [{ at = [0.0, 0.62, 1.0, 0.38], rgb = [0.20, 0.32, 0.14] }] # dark green land
+must = [["white", "bright", "overexposed", "blown", "washed"], ["sky"]]
+must_not = ["blue sky", "night", "dark sky", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-banded-sky"
+question = "pool-c5-banding-sky"
+top = [0.18, 0.36, 0.70]
+bottom = [0.62, 0.74, 0.88]
+steps = 7
+rects = [{ at = [0.0, 0.80, 1.0, 0.20], rgb = [0.25, 0.22, 0.18] }]
+must = [["sky", "gradient"], ["band", "bands", "banding", "stripes", "steps", "bars", "layers"]]
+must_not = ["night", "orange", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-underexposed"
+question = "typo-to-dark"
+background = [0.04, 0.04, 0.05]
+rects = [{ at = [0.35, 0.30, 0.30, 0.45], rgb = [0.10, 0.08, 0.07] }]
+must = [["dark", "underexposed", "dim", "black", "low light"]]
+must_not = ["bright", "overexposed", "blown", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-noisy-shadows"
+question = "pool-c6-why-noisy"
+background = [0.16, 0.15, 0.15]
+noise = 0.12
+rects = [{ at = [0.55, 0.20, 0.25, 0.50], rgb = [0.45, 0.35, 0.30] }]
+must = [["noise", "noisy", "grain", "grainy", "speckled", "speckles", "specks"]]
+must_not = ["overexposed", "blown", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-green-lut"
+question = "pool-c5-lut-balance-first"
+background = [0.30, 0.52, 0.28]
+rects = [
+  { at = [0.0, 0.0, 1.0, 0.35], rgb = [0.55, 0.75, 0.55] },
+  { at = [0.40, 0.40, 0.20, 0.40], rgb = [0.55, 0.62, 0.38] },
+]
+must = [["green", "greenish"]]
+must_not = ["magenta", "purple", "pink", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-screen-glow"
+question = "pool-r10-screens"
+background = [0.06, 0.05, 0.05]
+rects = [
+  { at = [0.30, 0.25, 0.40, 0.28], rgb = [0.55, 0.75, 1.0] }, # the glowing screen
+  { at = [0.25, 0.53, 0.50, 0.05], rgb = [0.15, 0.15, 0.16] }, # the keyboard deck
+]
+must = [["blue", "bluish", "cyan"], ["screen", "rectangle", "monitor", "laptop", "display"]]
+must_not = ["orange", "daylight", "sunny", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-flat-bw"
+question = "pool-r3-bw-flat"
+background = [0.42, 0.42, 0.42]
+rects = [
+  { at = [0.15, 0.30, 0.25, 0.50], rgb = [0.47, 0.47, 0.47] }, # "red" shirt
+  { at = [0.60, 0.30, 0.25, 0.50], rgb = [0.47, 0.47, 0.47] }, # "green" shirt
+]
+must = [["grey", "gray", "black and white", "monochrome", "greyscale", "grayscale"], ["flat", "low contrast", "dull", "similar", "same", "identical"]]
+must_not = ["colourful", "colorful", "vivid", "saturated", "backdrop", "interview", "table lamp"]
+
+[[look]]
+id = "look-sky-and-water"
+question = "pool-c7-sky-water"
+top = [0.30, 0.50, 0.85]
+bottom = [0.55, 0.70, 0.92]
+rects = [
+  { at = [0.0, 0.48, 1.0, 0.10], rgb = [0.35, 0.40, 0.25] }, # far shore
+  { at = [0.0, 0.58, 1.0, 0.42], rgb = [0.15, 0.35, 0.60] }, # blue water
+]
+must = [["blue"], ["water", "lake", "sea", "ocean", "river"]]
+must_not = ["orange", "night", "dark", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-sunset"
+question = "pool-r1-keep-sunset-warm"
+top = [0.55, 0.30, 0.35]
+bottom = [1.0, 0.62, 0.25]
+rects = [{ at = [0.0, 0.75, 1.0, 0.25], rgb = [0.10, 0.07, 0.06] }] # dark land
+must = [["orange", "warm", "golden", "amber", "red", "pink"]]
+must_not = ["blue sky", "midday", "overcast", "cool", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-washed-out"
+question = "pool-r10-auto-wrong"
+background = [0.55, 0.55, 0.53]
+rects = [
+  { at = [0.10, 0.20, 0.30, 0.55], rgb = [0.62, 0.58, 0.55] },
+  { at = [0.55, 0.30, 0.30, 0.45], rgb = [0.50, 0.53, 0.56] },
+]
+must = [["flat", "low contrast", "washed", "faded", "grey", "gray", "muted", "dull"]]
+must_not = ["vivid", "saturated", "dark", "contrasty", "backdrop", "interview", "table lamp"]
+
+[[look]]
+id = "look-grey-clouds"
+question = "pool-r10-grey-clouds"
+background = [0.68, 0.68, 0.68]
+rects = [{ at = [0.0, 0.65, 1.0, 0.35], rgb = [0.25, 0.30, 0.18] }]
+must = [["grey", "gray", "flat", "overcast", "dull"], ["sky", "clouds", "cloudy"]]
+must_not = ["blue sky", "sunny", "sunset", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-neon-sign"
+question = "pool-c5-softclip-hue"
+background = [0.05, 0.04, 0.06]
+rects = [
+  { at = [0.25, 0.30, 0.50, 0.08], rgb = [1.0, 0.10, 0.75] },
+  { at = [0.25, 0.48, 0.50, 0.08], rgb = [0.10, 0.95, 1.0] },
+]
+must = [["pink", "magenta", "purple", "cyan", "blue", "turquoise"], ["dark", "black", "night"]]
+must_not = ["daylight", "sunny", "overexposed", "backdrop", "interview", "table lamp", "log footage"]
+
+[[look]]
+id = "look-flat-log"
+question = "pool-c2-flog2-steps"
+background = [0.42, 0.43, 0.42]
+rects = [
+  { at = [0.30, 0.15, 0.30, 0.70], rgb = [0.50, 0.46, 0.43] }, # the interviewee, low-sat
+  { at = [0.0, 0.0, 0.20, 1.0], rgb = [0.36, 0.38, 0.40] },
+]
+must = [["flat", "low contrast", "washed", "grey", "gray", "muted", "dull", "desaturated"]]
+must_not = ["vivid", "saturated", "contrasty", "high contrast"]

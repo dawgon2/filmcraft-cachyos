@@ -268,7 +268,7 @@ fn workflow_switch_loads_resolve_keys_and_restores_the_previous_preset() {
     let mut t = premiere_session();
     t.execute("settings.setWorkflow", json!({"workflow": "resolve"})).unwrap();
     t.execute("settings.setWorkflow", json!({"workflow": "premiere"})).unwrap();
-    assert_eq!(t.shortcuts.preset, "FilmCraft Default");
+    assert_eq!(t.shortcuts.preset, "Revolution Default");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -316,7 +316,7 @@ fn a_failed_save_refuses_the_switch() {
     assert!(s.shortcuts.modified);
     assert!(s.execute("settings.setWorkflow", json!({"workflow": "resolve"})).is_err());
     assert_eq!(s.prefs.workflow, settings::Workflow::Premiere);
-    assert_eq!(s.shortcuts.preset, "FilmCraft Default");
+    assert_eq!(s.shortcuts.preset, "Revolution Default");
     assert_eq!(s.shortcuts.primary("markers.add").as_deref(), Some("Cmd+Alt+J"), "edits untouched");
     // and the same on the way back
     let mut t = premiere_session();

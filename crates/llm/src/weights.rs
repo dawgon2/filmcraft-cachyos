@@ -22,7 +22,7 @@ const Q4_K: u32 = 12;
 const Q6_K: u32 = 14;
 
 #[derive(Clone, Debug, PartialEq)]
-enum Data {
+pub(crate) enum Data {
     F32(Vec<f32>),
     Q8_0(Vec<BlockQ8_0>),
     Q4K(Vec<BlockQ4K>),
@@ -109,6 +109,12 @@ impl Weight {
             return Err(err(format!("tensor {}: non-finite value", w.name)));
         }
         Ok(w)
+    }
+
+    /// The loaded values (for the GPU upload).
+    #[cfg(feature = "gpu")]
+    pub(crate) fn data(&self) -> &Data {
+        &self.data
     }
 
     fn elements(&self) -> usize {

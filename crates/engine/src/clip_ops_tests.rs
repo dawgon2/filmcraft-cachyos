@@ -394,6 +394,34 @@ fn modify_timecode_and_reset() {
     assert!(s.execute("clip.modifyTimecode", json!({})).is_err());
 }
 
+/// Keyframes set on a frame hold with Hold Filters off land where the renderer reads them
+/// (`effect_time_at`), so the effect animates through the hold (freeze, then the colour drains).
+/// They used to be placed at the held frame's media time and collapse into one keyframe.
+#[test]
+fn keyframes_on_a_frame_hold_animate_through_it() {
+    let mut s = demo();
+    let rate = s.sequence_rate();
+    let c = v1(&s)[1].clone();
+    select(&mut s, &[c.id.0]);
+    s.execute("clip.frameHoldOptions", json!({"holdOn": "in"})).unwrap();
+    assert!(!clip(&s, c.id.0).hold_filters);
+    let (a, b) = (c.start + rate.tick_of(2), c.start + rate.tick_of(12));
+    let set = |s: &mut crate::Session, t: Tick, v: f64| {
+        s.execute("effects.setParam", json!({"clip": c.id.0, "effect": "opacity", "param": "opacity", "value": v, "time": t.0, "keyframe": true})).unwrap()
+    };
+    set(&mut s, a, 100.0);
+    let r = set(&mut s, b, 0.0);
+    assert_eq!(r["keyframes"], 2, "two keyframes, not one on the held frame");
+    let it = clip(&s, c.id.0);
+    let e = it.effect("opacity").unwrap();
+    let at = |t: Tick| e.f64_at("opacity", it.effect_time_at(t));
+    assert!((at(a) - 100.0).abs() < 1e-6 && at(b).abs() < 1e-6, "{} {}", at(a), at(b));
+    // the animation toggle and keyframe navigation use the same clock
+    s.execute("playhead.set", json!({"time": b.0})).unwrap();
+    s.execute("effects.toggleAnimation", json!({"clip": c.id.0, "effect": "opacity", "param": "opacity"})).unwrap();
+    assert!(!clip(&s, c.id.0).effect("opacity").unwrap().params["opacity"].is_animated());
+}
+
 #[test]
 fn frame_hold_options_add_frame_hold_and_hold_segment() {
     let mut s = demo();

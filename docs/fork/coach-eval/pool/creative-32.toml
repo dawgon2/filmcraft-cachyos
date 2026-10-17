@@ -1,0 +1,229 @@
+# AI-POOL batch creative-32 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families: a night drive faked from day, polaroid photos dropping in, a
+# headphone point-of-view sound, cross-cutting a chase, a dusty western look, a green "Matrix"
+# tint, a sensor dust spot. `must` = plan sub-goals from the guide's own text. Admitted-gap family:
+# sensor-dust-spot (no paint / clone tool). Held-out only.
+
+# --- car-night-drive ---
+
+[[question]]
+id = "pool-cr32-drive"
+kind = "creative"
+family = "car-night-drive"
+q = "car interior shot in daylight, make it look like driving at night with street lights passing over the faces"
+sources = ["practice.grading.day-for-night", "effects.opacity", "media.generated"]
+must = ["day-for-night on the shot: darker, cooler, less saturated", "a warm Color Matte above with Blend Mode Screen (or Overlay) and a feathered mask, its Opacity keyframed up and down so light sweeps past"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr32-drive-windows"
+kind = "creative"
+family = "car-night-drive"
+q = "the windows still show bright daytime outside"
+sources = ["color.secondaries.windows", "color.secondaries.qualifier", "practice.grading.day-for-night"]
+must = ["a window (shape) or a luma qualifier on the car windows on its own node, Gain far down and cooler", "tracked if the camera moves"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr32-drive-sound"
+kind = "creative"
+family = "car-night-drive"
+q = "night drive sound design so it feels real"
+sources = ["practice.audio.ambience-beds", "essential-sound.types"]
+must = ["a continuous road / engine ambience bed under the scene, typed Ambience", "passing-car whooshes as SFX timed to the light sweeps"]
+must_not = []
+style = "pro"
+
+# --- polaroid-photo-drop ---
+
+[[question]]
+id = "pool-cr32-polaroid"
+kind = "creative"
+family = "polaroid-photo-drop"
+q = "photos dropping onto the screen like polaroids with white borders"
+sources = ["effects.shape-move", "effects.keyframes", "media.generated"]
+must = ["each photo on its own track with Rounded Crop's Border Width / Color (white, Roundness 0) or a white Color Matte behind it", "Scale from large to its size and a little Rotation keyframed, eased, with a Drop Shadow"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr32-polaroid-tilt"
+kind = "creative"
+family = "polaroid-photo-drop"
+q = "polaroids should tilt in perspective as they land on a table"
+sources = ["effects.shape-move", "effects.keyframes"]
+must = ["3D Rotate (X / Y Rotation, Perspective) keyframed from tilted to flat as the photo lands", "Drop Shadow Distance shrinking as it lands"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr32-polaroid-many"
+kind = "creative"
+family = "polaroid-photo-drop"
+q = "30 photos dropping one after another, dont want to animate each by hand"
+sources = ["effects.presets", "practice.titles.templates"]
+must = ["animate one, save its effects as a preset with Anchor to In Point (presets.save)", "apply the preset to each photo (presets.apply), staggered on the timeline"]
+must_not = []
+style = "sloppy"
+
+# --- headphone-pov-sound ---
+
+[[question]]
+id = "pool-cr32-headphones"
+kind = "creative"
+family = "headphone-pov-sound"
+q = "when she puts on headphones the music gets loud and clear, when she takes them off it's faint"
+sources = ["mixing.clip-mixer", "mixing.inserts", "effects.keyframes"]
+must = ["the music's level keyframed up when they go on and down when they come off (Audio Clip Mixer, clipMixer.set)", "the off part muffled with an EQ cutting the highs"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr32-headphones-split"
+kind = "creative"
+family = "headphone-pov-sound"
+q = "headphone POV: room sound drops away while the song plays"
+sources = ["practice.audio.ambience-beds", "mixing.clip-mixer"]
+must = ["the room ambience bed lowered while the headphones are on", "brought back when they come off"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr32-headphones-cut"
+kind = "creative"
+family = "headphone-pov-sound"
+q = "sound switch should happen exactly when the headphones touch her ears"
+sources = ["timeline.markers", "mixing.keyframes"]
+must = ["a marker on that frame (markers.add)", "the level change keyframed on the marker, short so it reads as a switch"]
+must_not = []
+style = "sloppy"
+
+# --- cross-cutting-chase ---
+
+[[question]]
+id = "pool-cr32-chase"
+kind = "creative"
+family = "cross-cutting-chase"
+q = "cut between the runner and the person chasing him to build tension"
+sources = ["practice.editing.pacing", "practice.editing.cut-on-action", "practice.editing.music-beat"]
+must = ["alternate the two lines of action, cutting on movement", "shots getting shorter as they close in; cuts on the music's beats"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr32-chase-sound"
+kind = "creative"
+family = "cross-cutting-chase"
+q = "cross-cut chase: sound jumps every cut"
+sources = ["practice.editing.j-l-cuts", "practice.audio.ambience-beds"]
+must = ["J and L cuts so each side's sound leads or trails the picture", "one continuous music or ambience bed under both lines"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr32-chase-versions"
+kind = "creative"
+family = "cross-cutting-chase"
+q = "try a faster cut of the chase without losing the first version"
+sources = ["practice.editing.versions", "practice.editing.pacing"]
+must = ["duplicate the sequence before tightening", "tighten in passes, watching it in real time"]
+must_not = []
+style = "sloppy"
+
+# --- dusty-western-look ---
+
+[[question]]
+id = "pool-cr32-western"
+kind = "creative"
+family = "dusty-western-look"
+q = "make my desert footage look like a dusty old western"
+sources = ["practice.looks.bleach-bypass", "practice.looks.golden-hour", "practice.grading.grain-finish"]
+must = ["warm, yellow-orange balance with contrast up", "saturation about 40–60 % with a slight highlight shoulder (bleach-bypass style)", "grain on the last node"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr32-western-skin"
+kind = "creative"
+family = "dusty-western-look"
+q = "western look turns the faces grey"
+sources = ["practice.looks.bleach-bypass", "practice.grading.qualify-skin"]
+must = ["protect skin a little with a skin qualifier on its own node", "or less desaturation overall"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr32-western-overlay"
+kind = "creative"
+family = "dusty-western-look"
+q = "gritty western bleach bypass without a layer mixer"
+sources = ["practice.looks.bleach-bypass", "effects.opacity"]
+must = ["a desaturated duplicate on V2 with the Overlay blend mode", "or on the look node: saturation down, contrast up"]
+must_not = []
+style = "resolve-words"
+
+# --- green-matrix-look ---
+
+[[question]]
+id = "pool-cr32-matrix"
+kind = "creative"
+family = "green-matrix-look"
+q = "green tinted look like the Matrix"
+sources = ["practice.grading.split-tone", "practice.looks.cool-thriller", "practice.grading.look-node"]
+must = ["on a look node, push shadows and midtones towards green (Lift / Gamma) and keep contrast up", "skin restrained, not fully green; dial the look's strength"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr32-matrix-office"
+kind = "creative"
+family = "green-matrix-look"
+q = "only the office scenes should be green, the outside normal"
+sources = ["practice.node-trees.groups", "practice.grading.look-node"]
+must = ["an Adjustment Layer with the green look over the office scenes only (file.newAdjustmentLayer)", "or the look node pasted only onto those clips"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr32-matrix-lumetri"
+kind = "creative"
+family = "green-matrix-look"
+q = "matrix green in lumetri"
+sources = ["color.lumetri.panel", "practice.grading.split-tone"]
+must = ["Lumetri's Color Wheels: shadows and midtones towards green, highlights a little less", "Creative saturation down slightly, contrast up"]
+must_not = []
+style = "premiere-words"
+
+# --- sensor-dust-spot (admitted gap) ---
+
+[[question]]
+id = "pool-cr32-dust"
+kind = "creative"
+family = "sensor-dust-spot"
+q = "there's a dust spot from my sensor in the sky of every shot, how do I remove it"
+sources = ["tracking.follow", "practice.editing.clean-plate"]
+must = ["no paint / clone (healing) tool yet", "a small Gaussian Blur inside a feathered mask over the spot (tracked if the camera moves)", "or a clean patch from a copy of the shot, offset and masked over it"]
+must_not = ["a healing brush or clone tool in Revolution"]
+style = "beginner"
+
+[[question]]
+id = "pool-cr32-dust-preset"
+kind = "creative"
+family = "sensor-dust-spot"
+q = "same dust spot on 40 clips, fix them all at once"
+sources = ["effects.presets", "tracking.follow"]
+must = ["fix one clip (blur in a mask at the spot), save the effect with its mask as a preset (presets.save)", "apply to the others (presets.apply): mask positions come along; the spot is in the same place on the sensor"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr32-dust-busy"
+kind = "creative"
+family = "sensor-dust-spot"
+q = "dust spot over a detailed background, blur shows"
+sources = ["practice.editing.clean-plate", "effects.opacity"]
+must = ["blur shows on detail: use a patch from a clean frame or a nearby clean area, masked and feathered over the spot", "Revolution has no content-aware fill; check frame by frame"]
+must_not = []
+style = "sloppy"

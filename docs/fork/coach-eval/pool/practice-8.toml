@@ -1,0 +1,147 @@
+# AI-POOL batch practice-8: practice/titles.md. No note had a held-out question yet: the main
+# question per note plus pitfalls where the note has a sharp one.
+
+[[question]]
+id = "pool-r8-title-duration"
+kind = "approach"
+q = "how many seconds should a title stay on screen?"
+sources = ["practice.titles.reading-time"]
+must = ["roughly the time it takes to read it aloud twice, never under about two seconds for a short line", "protected intro / outro (graphics.setResponsiveTime) keep the animation when you trim"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r8-white-on-sky"
+kind = "tool"
+q = "white text disappears over the bright sky"
+sources = ["practice.titles.contrast"]
+must = ["a soft shadow or a stroke on the text layer (graphics.set), or a shape behind it pinned to the text (graphics.pin)"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r8-thin-flicker"
+kind = "pro-practice"
+q = "my thin font flickers on the uploaded video"
+sources = ["practice.titles.contrast"]
+must = ["thin fonts over moving footage flicker after compression: use a heavier weight or a stroke / box"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r8-type-system"
+kind = "approach"
+q = "how many fonts should a branded series use?"
+sources = ["practice.titles.type-system"]
+must = ["one font for titles, one for body text, three sizes, the same colours", "build the set once as graphics templates (graphics.template.export) and share them in a look pack"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r8-mogrt"
+kind = "multi-step"
+q = "make my lower third a mogrt where only the name and job title can be edited"
+sources = ["practice.titles.templates"]
+must = ["Export As Motion Graphics Template with the name and role as editable properties", "apply with graphics.template.apply, edit with graphics.template.set"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "pool-r8-long-name"
+kind = "multi-step"
+q = "the box behind my lower third doesn't grow when the name is longer"
+sources = ["practice.titles.lower-third"]
+must = ["pin the box shape to the text layer (graphics.pin), left-aligned text (graphics.alignTextLeft), inside the safe margins", "test with the longest name"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r8-margins"
+kind = "tool"
+q = "how far from the frame edge should text sit, and how do I place it there exactly?"
+sources = ["practice.titles.safe-margins"]
+must = ["about 5–10 % from each edge", "align to the frame (graphics.alignFrame.left …) and nudge inwards (graphics.nudgeRight5), or Program monitor guides"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r8-robotic-move"
+kind = "tweak"
+q = "my title slide-in looks robotic"
+sources = ["practice.titles.easing"]
+must = ["linear moves look mechanical: Ease In / Ease Out or Bezier on the keyframes (effects.setInterpolation)", "very long eases look sluggish"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r8-pops-off"
+kind = "pro-practice"
+q = "the lower third eases in nicely but then just vanishes"
+sources = ["practice.titles.in-out"]
+must = ["give it a matching exit: keyframe Position or Opacity at both ends", "protect both ends with responsive time so trims keep the animation"]
+must_not = []
+style = "follow-up"
+
+[[question]]
+id = "pool-r8-credits"
+kind = "multi-step"
+q = "scrolling end credits"
+sources = ["practice.titles.credits"]
+must = ["a paragraph text layer with Roll (graphics.setRoll), starting and ending off screen", "the clip's length sets the speed; too fast is unreadable"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r8-label-follow"
+kind = "tool"
+q = "make an arrow follow the product as the camera moves"
+sources = ["practice.titles.callouts"]
+must = ["Attach to Track on the graphic's Motion (tracking.attach), Position only for the steadiest result"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r8-japanese"
+kind = "tool"
+q = "vertical Japanese title text"
+sources = ["practice.titles.vertical-text"]
+must = ["graphics.newVerticalText; characters a Latin font lacks fall back to a CJK font automatically"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r8-word-highlight"
+kind = "gap"
+q = "can captions highlight each word automatically as it's spoken, like the Shorts style?"
+sources = ["practice.titles.kinetic-captions"]
+must = ["automatic word-by-word highlighting isn't offered yet", "by hand: upgrade the caption to a graphic (graphics.upgradeCaption) and colour the active word with graphics.setCharStyle"]
+must_not = ["Revolution highlights words automatically"]
+style = "gap"
+
+[[question]]
+id = "pool-r8-logo-update"
+kind = "tool"
+q = "our logo changed and it's in 40 places in the edit"
+sources = ["practice.titles.logo-bug"]
+must = ["Upgrade to Source Graphic (graphics.upgradeToSourceGraphic) so every use updates together"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-r8-brand-tint"
+kind = "pro-practice"
+q = "the brand colour in my title looks off after I added the film look"
+sources = ["practice.titles.colour"]
+must = ["graphics shouldn't go through the creative grade: keep them on tracks above the graded clips", "an adjustment layer with a look above the titles tints them too"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r8-too-much-text"
+kind = "approach"
+q = "my explainer graphics are full paragraphs, is that ok?"
+sources = ["practice.titles.fewer-words"]
+must = ["one idea per graphic, key words or numbers; the voice says the rest", "otherwise viewers read instead of watching"]
+must_not = []
+style = "beginner"

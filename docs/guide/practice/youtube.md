@@ -1,7 +1,7 @@
 # Practice notes: YouTube and social video
 
 **[Standard]** · how creators commonly cut, finish and publish online video, one technique per
-note, with the FilmCraft way. Written in our own words from common practice (AI-PLAN AI3 item 0a,
+note, with the Revolution way. Written in our own words from common practice (AI-PLAN AI3 item 0a,
 0c); none of it is a rule: audiences and channels differ.
 
 ## A strong first seconds
@@ -12,7 +12,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 - **Common practice:** show or say what the viewer gets in the first few seconds; logos and intros
   later or never.
-- **FilmCraft:** move the best moment to the start (`edit.cut` / `edit.pasteInsert`), or a
+- **Revolution:** move the best moment to the start (`edit.cut` / `edit.pasteInsert`), or a
   subsequence teaser (`sequence.makeSubsequence`).
 - **Pitfalls:** promising something the video doesn't deliver.
 
@@ -22,7 +22,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** the result shot first, then a short title from a template
+- **Revolution:** the result shot first, then a short title from a template
   (`graphics.template.apply`).
 
 ## Pattern interrupts against drop-off
@@ -31,7 +31,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** alternate scale 100 % / 115 % on jump cuts (Motion ▸ Scale), B-roll on V2,
+- **Revolution:** alternate scale 100 % / 115 % on jump cuts (Motion ▸ Scale), B-roll on V2,
   a lower third or a callout that tracks its object ([tracking.md](../tracking.md)).
 - **Pitfalls:** constant zooms are tiring; vary the device.
 
@@ -41,7 +41,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** in a 4K sequence, 6.2K open-gate footage can be scaled up to about 160 % with no
+- **Revolution:** in a 4K sequence, 6.2K open-gate footage can be scaled up to about 160 % with no
   loss (Motion ▸ Scale), and Position recentres the face.
 - **Pitfalls:** punching in on footage that's already the sequence size softens it.
 
@@ -51,7 +51,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** captions from the transcript (`transcript.createCaptions` with short `maxChars`
+- **Revolution:** captions from the transcript (`transcript.createCaptions` with short `maxChars`
   and one line), styled big with a stroke (`captions.setStyle`), burned in at export; or
   **Upgrade Caption to Graphic** for word-by-word styling (`graphics.upgradeCaption`).
 - **Pitfalls:** captions under the platform's buttons; keep them in the middle third.
@@ -64,7 +64,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 - **Common practice:** leave the bottom fifth and the right edge clear on vertical video; keep key
   text near the centre.
-- **FilmCraft:** drag guides into the Program monitor to mark the clear zones; check with the
+- **Revolution:** drag guides into the Program monitor to mark the clear zones; check with the
   exported file on a phone.
 
 ## Chapters from markers
@@ -73,7 +73,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** a marker at each chapter start (`markers.add`, or `markers.addChapter`) named for
+- **Revolution:** a marker at each chapter start (`markers.add`, or `markers.addChapter`) named for
   the chapter, **Export Markers as CSV…** (`markers.exportCsv`), then paste the times and names
   into the description (the first must be 0:00).
 - **Pitfalls:** chapters shorter than ten seconds are ignored by YouTube.
@@ -84,7 +84,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** **Export Frame** (`file.exportFrame`) from the graded timeline at full resolution.
+- **Revolution:** **Export Frame** (`file.exportFrame`) from the graded timeline at full resolution.
 - **Pitfalls:** a frame with motion blur; pick a still moment or shoot a dedicated photo.
 
 ## Consistent loudness across uploads
@@ -93,7 +93,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** Clean Up Voice at −14 LUFS on the voice clips, music ducked under it, a limiter on
+- **Revolution:** Clean Up Voice at −14 LUFS on the voice clips, music ducked under it, a limiter on
   the Mix, check the meter.
 
 ## Batch exports: master, upload and vertical
@@ -102,7 +102,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** add each to the export queue (`export.queue.add`) and start it
+- **Revolution:** add each to the export queue (`export.queue.add`) and start it
   (`export.queue.start`) when you leave the computer.
 
 ## Re-use a template project
@@ -111,7 +111,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** **Save as Template…** (`file.saveAsTemplate`) on a finished, emptied project;
+- **Revolution:** **Save as Template…** (`file.saveAsTemplate`) on a finished, emptied project;
   **New Project from Template** for each episode; graphics templates and look packs for the
   rest ([packs.md](../packs.md)).
 
@@ -121,7 +121,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** a folder structure on disk with clear names, imported per project; search bins by
+- **Revolution:** a folder structure on disk with clear names, imported per project; search bins by
   name or label inside the project (`file.newSearchBin`).
 
 ## Screen recordings: sharp and readable
@@ -130,7 +130,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** a sequence at the recording's size and frame rate (`file.newSequenceFromClip`),
+- **Revolution:** a sequence at the recording's size and frame rate (`file.newSequenceFromClip`),
   zooms with Motion ▸ Scale keyframes (ease in / out), constant-quality export so text stays sharp.
 - **Pitfalls:** variable-frame-rate recordings drift out of sync; record at a constant rate.
 
@@ -142,7 +142,7 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 - **Common practice:** licensed libraries or your own music; keep the licence file with the
   project; don't rely on "fair use" for background music.
-- **FilmCraft:** fit the licensed track's length with **Remix** (`clip.remix`) rather than cutting
+- **Revolution:** fit the licensed track's length with **Remix** (`clip.remix`) rather than cutting
   it badly.
 
 ## Review before publishing
@@ -151,5 +151,5 @@ note, with the FilmCraft way. Written in our own words from common practice (AI-
 
 **[Standard]**
 
-- **FilmCraft:** send the export to your phone (KDE Connect, [linux.md](../linux.md)) and watch it
+- **Revolution:** send the export to your phone (KDE Connect, [linux.md](../linux.md)) and watch it
   through with sound on and off.

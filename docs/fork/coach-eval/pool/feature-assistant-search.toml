@@ -1,0 +1,86 @@
+# FEATURE-POOL batch feature-assistant-search (FEATURE-QUEUE row: Assistant search by meaning, Words /
+# Meaning / Mixed, env `FILMCRAFT_ASSIST_SEARCH`, no setting yet, default Words while measured).
+# Sources: color/coach.md (color.coach.assistant-search). Held-out test questions, written from the
+# guide's text (README.md beside this file). No creative family: a search option, not a technique.
+# The section is short (three steps), so the set is small. The guide doesn't say how the embedding
+# model gets onto the computer or what happens without it (the code keeps the word search), so no
+# question asks either (HANDOFF FEATURE-POOL: guide wanted, FYI).
+# Recipe spot check: none possible on the Dell (the embedding model isn't downloaded there; the
+# ignored test `search_by_meaning_coverage` needs it).
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-asr-wordings"
+kind = "tool"
+q = "Does the Assistant only find answers when I use the exact words the guide uses?"
+sources = ["color.coach.assistant-search"]
+must = ["by default it ranks guide sections by shared words, like Ask the coach", "an optional embedding model can also rank them by meaning, still being measured"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-asr-turn-on"
+kind = "tool"
+q = "How do I switch on the Assistant's search by meaning?"
+sources = ["color.coach.assistant-search"]
+must = ["start Revolution with FILMCRAFT_ASSIST_SEARCH=mixed (or meaning, or words)", "it needs the embedding model (bge-small-en-v1.5) on this computer"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-asr-mixed"
+kind = "tool"
+q = "In Mixed mode, how are the word ranking and the meaning ranking combined?"
+sources = ["color.coach.assistant-search"]
+must = ["the word ranking's best three sections stay first", "meaning fills the rest"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-asr-first-slow"
+kind = "tweak"
+q = "turned on FILMCRAFT_ASSIST_SEARCH and the first answer took forever, broken?"
+sources = ["color.coach.assistant-search"]
+must = ["no: the first answer prepares every guide section once, which takes minutes", "later starts reuse that"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-asr-model"
+kind = "tool"
+q = "Which model does search by meaning use, and how much disk space and what licence?"
+sources = ["color.coach.assistant-search"]
+must = ["BAAI bge-small-en-v1.5", "MIT", "about 130 MB", "models folder embed/bge-small-en-v1.5"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-asr-default"
+kind = "tool"
+q = "Why isn't search by meaning on by default?"
+sources = ["color.coach.assistant-search"]
+must = ["it is still being measured", "it becomes the default only if the Assistant's measured answers improve with no lookups lost"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-asr-resolve"
+kind = "tool"
+q = "Is there anything like this smart help search in Resolve or Premiere?"
+sources = ["color.coach.assistant-search"]
+must = ["no: Resolve and Premiere have no built-in assistant", "this is a Revolution fork feature"]
+must_not = []
+style = "resolve-words"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-asr-c-meaning"
+q = "can the assistant understand other wordings"
+kind = "how"
+origin = "agent"
+page = "color/coach.md"
+heading = "Assistant retrieval by meaning"
+status = "covered"
+facts = ["FILMCRAFT_ASSIST_SEARCH", "by meaning"]

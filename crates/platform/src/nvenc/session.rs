@@ -159,6 +159,21 @@ pub struct Params {
     pub sar: Option<(u32, u32)>,
     /// B-frames between references (0 or 1).
     pub bframes: u32,
+    /// NVENC preset 1 (fastest) to 7 (best quality); P5 when out of range (fork XPS b).
+    pub preset: u8,
+}
+
+/// The GUID of preset `p` (1 fastest … 7 best quality); anything else: P5, the default.
+pub fn preset_guid(p: u8) -> Guid {
+    match p {
+        1 => NV_ENC_PRESET_P1_GUID,
+        2 => NV_ENC_PRESET_P2_GUID,
+        3 => NV_ENC_PRESET_P3_GUID,
+        4 => NV_ENC_PRESET_P4_GUID,
+        6 => NV_ENC_PRESET_P6_GUID,
+        7 => NV_ENC_PRESET_P7_GUID,
+        _ => NV_ENC_PRESET_P5_GUID,
+    }
 }
 
 /// An input buffer locked for writing: NV12 (or P010) rows go to `data` at `pitch` bytes per row, the
@@ -308,7 +323,7 @@ impl Session {
         })
     }
 
-    /// Configure the encoder (preset P5, high quality tuning, the settings' rate control) and
+    /// Configure the encoder (preset `p.preset`, P5 by default, high quality tuning, the settings' rate control) and
     /// create `ring` pairs of input / output buffers.
     pub fn initialize(&mut self, p: &Params, ring: usize) -> Result<(), String> {
         if p.ten_bit && p.codec != Codec::Hevc {
@@ -343,7 +358,17 @@ impl Session {
             let mut preset: Box<NV_ENC_PRESET_CONFIG> = Box::new(std::mem::zeroed());
             preset.version = NV_ENC_PRESET_CONFIG_VER;
             preset.presetCfg.version = NV_ENC_CONFIG_VER;
-            let s = preset_fn(self.enc, p.codec.guid(), NV_ENC_PRESET_P5_GUID, NV_ENC_TUNING_INFO_HIGH_QUALITY, &mut *preset);
+            let mut preset_used = preset_guid(p.preset);
+            let mut s = preset_fn(self.enc, p.codec.guid(), preset_used, NV_ENC_TUNING_INFO_HIGH_QUALITY, &mut *preset);
+            if s != NV_ENC_SUCCESS && matches!(p.preset, 1..=4 | 6..=7) {
+                // a preset this driver doesn't know: the default one (fork XPS b)
+                log::info!("NVENC preset P{} refused ({s}); using P5", p.preset);
+                preset_used = NV_ENC_PRESET_P5_GUID;
+                *preset = std::mem::zeroed();
+                preset.version = NV_ENC_PRESET_CONFIG_VER;
+                preset.presetCfg.version = NV_ENC_CONFIG_VER;
+                s = preset_fn(self.enc, p.codec.guid(), preset_used, NV_ENC_TUNING_INFO_HIGH_QUALITY, &mut *preset);
+            }
             if s != NV_ENC_SUCCESS {
                 return Err(status("reading the encoder preset", s, self.enc, self.api));
             }
@@ -427,7 +452,7 @@ impl Session {
             let mut init: Box<NV_ENC_INITIALIZE_PARAMS> = Box::new(std::mem::zeroed());
             init.version = NV_ENC_INITIALIZE_PARAMS_VER;
             init.encodeGUID = p.codec.guid();
-            init.presetGUID = NV_ENC_PRESET_P5_GUID;
+            init.presetGUID = preset_used;
             init.encodeWidth = p.width;
             init.encodeHeight = p.height;
             let (sn, sd) = p.sar.unwrap_or((1, 1));

@@ -13,7 +13,7 @@ DaVinci Resolve (the fork's default); the Premiere workflow keeps its header and
 
 Resolve splits the work into pages: bring media in, cut, grade, mix, deliver. Each page puts the
 panels for one job on screen and hides the rest, so a beginner always sees a short list of tools
-and a pro switches jobs with one key. In FilmCraft a page is a **built-in workspace**: the same
+and a pro switches jobs with one key. In Revolution a page is a **built-in workspace**: the same
 project, the same timeline and one undo history behind every page, only the panel layout changes.
 
 ### The window
@@ -33,8 +33,9 @@ project, the same timeline and one undo history behind every page, only the pane
 
 ### If you know Resolve
 
-Resolve's Cut page is not shown yet: FilmCraft has no Cut layout (the dual timeline). The
-Fusion page holds FilmCraft's much smaller node compositor ([compositor.md](compositor.md)), not
+- **Revolution:** no Cut page yet: there is no Cut layout (the dual timeline).
+
+The Fusion page holds Revolution's much smaller node compositor ([compositor.md](compositor.md)), not
 Fusion itself. The Photo page is not planned. Unlike Resolve, the menus
 and the pages are one window's furniture: closing a panel on one page doesn't close it on the
 others, and every page's layout can be changed and saved (below).
@@ -43,7 +44,7 @@ others, and every page's layout can be changed and saved (below).
 
 > id: pages.panels | does: which panels each page shows and what Resolve calls them | ui: page.*, pageBar.* | resolve: Media Pool, Inspector, Fairlight mixer | premiere: Project panel, Effect Controls, Audio Track Mixer | when: looking for a panel on a page | see: pages.toolbar
 
-**[Resolve-style]** layouts, built from **[FilmCraft]** panels
+**[Resolve-style]** layouts, built from **[Revolution]** panels
 
 Resolve's panel names are used in this workflow (see "Terminology follows the workflow" in
 [getting-started.md](getting-started.md)): Media Pool is the Project panel, Inspector is Effect
@@ -58,10 +59,10 @@ Controls, Mixer is the Audio Track Mixer.
 | Fairlight | Fairlight Page | a small viewer and the meters with the loudness readout across the top; Tools and the Timeline; the Mixer (and Essential Sound) on the right | Media Pool, Effects, Markers / Mixer, Audio Meters, Metadata, Inspector |
 | Deliver | Deliver Page | Render Settings down the left; the Timeline Viewer and the Render Queue over the Timeline | Render Settings / Render Queue |
 
-Differences from Resolve: the Edit page keeps FilmCraft's narrow Tools strip beside the timeline
+Differences from Resolve: the Edit page keeps Revolution's narrow Tools strip beside the timeline
 (Resolve puts the tools in a bar over it); the Fairlight page's top strip shows the Mix meters,
 not one meter per track (the per-track meters are in the Mixer); Resolve's Index, Sound Library,
-Keyframes, ADR, LUTs and Lightbox have no FilmCraft panel yet, so their buttons are left out.
+Keyframes, ADR, LUTs and Lightbox have no Revolution panel yet, so their buttons are left out.
 
 ## Show and hide panels from the toolbar
 
@@ -92,11 +93,11 @@ opens it on the right. Hiding the last panel of a page is refused (the status ba
 
 > id: pages.deliver | does: render settings and a render queue on the Deliver page | ui: export.*, page.deliver | cmd: export.queue.start, file.exportMedia, page.deliver | resolve: Deliver page render settings and queue | premiere: Export mode, Adobe Media Encoder queue | when: turning the timeline into files, several at once | see: pages.what
 
-**[Resolve-style]** layout, **[FilmCraft]** export settings
+**[Resolve-style]** layout, **[Revolution]** export settings
 
 ### Why
 
-The Deliver page is where a finished timeline becomes a file. The settings are FilmCraft's export
+The Deliver page is where a finished timeline becomes a file. The settings are Revolution's export
 settings ([export.md](export.md)), the same ones File ▸ Export ▸ Media shows; in the Resolve
 workflow that menu item (and Ctrl+M, `mode.export`) opens the Deliver page.
 
@@ -119,7 +120,7 @@ the Timeline Viewer; the Summary box is replaced by the estimated file size unde
 
 > id: pages.layout | does: moves and resizes panels on a page and saves or resets the layout | cmd: window.workspace.saveChanges, window.workspace.reset, window.workspace.delete | resolve: Workspace ▸ Reset UI Layout | premiere: Workspaces ▸ Save Changes / Reset | when: making a page fit your screen and habits | see: pages.toolbar
 
-**[FilmCraft]** workspaces, **[Fork]** page layouts
+**[Revolution]** workspaces, **[Fork]** page layouts
 
 ### Why
 

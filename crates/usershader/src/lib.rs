@@ -193,7 +193,7 @@ const FORBIDDEN: &[(&str, &str)] = &[
     ("override ", "pipeline overrides"),
     ("enable ", "`enable` directives"),
     ("requires ", "`requires` directives"),
-    ("fx_", "names starting with fx_ (FilmCraft's own)"),
+    ("fx_", "names starting with fx_ (Revolution's own)"),
 ];
 
 /// Parse and validate an effect file. `name_hint` names it when it has no `@effect` line (the
@@ -282,7 +282,7 @@ fn unpack(k: &ParamKind, i: usize) -> String {
 /// Lines of [`compose`]'s prelude before the user's first line (for mapping naga's line numbers).
 fn prelude(fx: &UserEffect, storage_format: &str) -> String {
     let mut p = String::from(
-        "// FilmCraft user effect prelude (ADR 0006)\n\
+        "// Revolution user effect prelude (ADR 0006)\n\
          struct FxUniform { size: vec4<f32>, pv: array<vec4<f32>, 16>, };\n\
          @group(0) @binding(0) var<uniform> fx_u: FxUniform;\n\
          @group(0) @binding(1) var fx_src: texture_2d<f32>;\n",
@@ -328,7 +328,7 @@ pub fn compose(fx: &UserEffect, storage_format: &str) -> String {
         m.push('\n');
     }
     m.push_str(
-        "// ---- FilmCraft entry point\n\
+        "// ---- Revolution entry point\n\
          @compute @workgroup_size(16, 16)\n\
          fn fx_user_main(@builtin(global_invocation_id) fx_id: vec3<u32>) {\n\
              let fx_s = vec2<u32>(textureDimensions(fx_src));\n\

@@ -1,13 +1,13 @@
 # Keying
 
-**[FilmCraft] [Fork]** · making part of a picture transparent so another picture shows through
+**[Revolution] [Fork]** · making part of a picture transparent so another picture shows through
 (green screen, a bright sky, a logo on black); written for Phase Y3.1 (keys on the graphics card)
 
 ## What a key is, and why
 
 > id: keying.what | does: makes parts of a clip see-through by colour or brightness | resolve: 3D Keyer, Qualifier as a key | premiere: Ultra Key | when: green screen, sky replacement, overlays | see: keying.ultra-key
 
-**[FilmCraft]**
+**[Revolution]**
 
 A **key** decides, pixel by pixel, how see-through a clip is, from what the pixel looks like. The
 classic use is a **green screen**: you film someone in front of an evenly lit green backdrop, key
@@ -17,7 +17,7 @@ is keyed out shows the track below.
 The see-through amount is called the **matte** (or alpha): white = solid, black = gone, grey =
 partly see-through (hair, motion blur, glass). A good key is mostly about a clean matte.
 
-FilmCraft has three keyers, all in **Effects ▸ Video Effects ▸ Keying**:
+Revolution has three keyers, all in **Effects ▸ Video Effects ▸ Keying**:
 
 | Keyer | Keys out | Good for | Trade-off |
 |---|---|---|---|
@@ -27,13 +27,13 @@ FilmCraft has three keyers, all in **Effects ▸ Video Effects ▸ Keying**:
 
 If you know Premiere: these are the same effects with the same names and controls. If you know
 Resolve: Resolve keys in the Color page (the qualifiers and the 3D / HSL / Luma keyers in a node)
-or in Fusion (Delta Keyer); FilmCraft's keyers are effects on the clip instead, like Premiere's.
+or in Fusion (Delta Keyer); Revolution's keyers are effects on the clip instead, like Premiere's.
 
 ## Keying a green screen with Ultra Key
 
 > id: keying.ultra-key | does: removes a green or blue backdrop with Ultra Key | cmd: effects.apply | resolve: 3D Keyer / Delta Keyer (Fusion) | premiere: Ultra Key | when: a subject filmed in front of a green screen | see: keying.check, keying.cleanup
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Put the background on **Video 1** and the green-screen clip on **Video 2**, above it.
 2. Apply **Ultra Key** to the green-screen clip: drag it from Effects ▸ Video Effects ▸ Keying onto
@@ -51,7 +51,7 @@ setting produced, so fix the key colour first.
 
 > id: keying.check | does: shows the key's matte in black and white to find holes and edges | resolve: Highlight / show matte | premiere: Ultra Key Output ▸ Alpha Channel | when: before cleaning up a key | see: keying.cleanup
 
-**[FilmCraft]**
+**[Revolution]**
 
 Set Ultra Key's **Output** to **Alpha Channel**: the Program monitor shows the key's alpha in
 black and white instead of the picture (Premiere and Resolve users may know this as "show
@@ -71,7 +71,7 @@ foreground colours with the spill removed but nothing keyed, to judge spill on i
 
 > id: keying.cleanup | does: choke, soften and spill controls that fix outlines and green tinge | resolve: Matte Finesse, Despill | premiere: Ultra Key Matte Cleanup and Spill Suppression | when: green edges, hair, reflections on the subject | see: keying.check
 
-**[FilmCraft]**
+**[Revolution]**
 
 - **Choke** shrinks the matte inwards, trimming a thin green outline. Small values (5–20) are
   usually enough; large values eat into hair.
@@ -92,16 +92,17 @@ normal.
 
 > id: keying.luma-color | does: keys by brightness (Luma Key) or by one colour (Color Key) | cmd: effects.apply | resolve: Luma Keyer, HSL qualifier as a key | premiere: Luma Key, Color Key | when: titles on black, a bright sky, a simple flat backdrop | see: keying.what
 
-**[FilmCraft]**
+**[Revolution]**
 
 **Luma Key** removes pixels by brightness. **Cutoff** is the brightness at and below which a pixel
 is fully gone; **Threshold** the brightness at and above which it is fully kept; between them it
 fades. Typical use: a white logo on black, Cutoff ≈ 10, Threshold ≈ 30.
 
 **Color Key** removes one colour: **Key Color** with the eyedropper, **Color Tolerance** for how
-far from that colour still goes, **Edge Feather** to soften the edge. Unlike Premiere, **Edge
-Thin** does nothing yet (FilmCraft's Color Key has never used it); use Ultra Key's Choke when you
-need to trim an edge.
+far from that colour still goes, **Edge Feather** to soften the edge.
+
+- **Revolution:** no working **Edge Thin** yet: unlike Premiere, the slider does nothing
+  (Revolution's Color Key has never used it); use Ultra Key's Choke when you need to trim an edge.
 
 ## On the graphics card
 

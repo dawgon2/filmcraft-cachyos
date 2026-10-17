@@ -26,18 +26,18 @@ pub const MAX_BUDGET_CHARS: usize = 64_000;
 pub const SECTIONS: usize = 6;
 /// How many of the best sections may go in with their full text.
 pub const FULL_TEXT: usize = 1;
-/// Longest grade facts / on-screen text taken, in characters.
+/// Longest grade facts / on-screen text taken, in characters (each field, and all of them together).
 pub const MAX_CONTEXT_CHARS: usize = 3_000;
 /// Longest full section text taken, in characters.
 const MAX_BODY_CHARS: usize = 4_000;
 
-const SYSTEM: &str = "You are FilmCraft's editing and grading assistant. \
+const SYSTEM: &str = "You are Revolution's editing and grading assistant. \
 Answer the user's question using the guide sections given. \
-FilmCraft steps, buttons, panels, menus and commands may come only from those sections; never invent one. \
+Revolution steps, buttons, panels, menus and commands may come only from those sections; never invent one. \
 Cite the sections you used by their id in square brackets, like [color.nodes.why]. \
 Advice the sections don't state is allowed only on a line starting with \"General advice:\". \
 If the sections don't cover the question, say you don't know and name the closest section. \
-If a section says something is not in FilmCraft yet, say so and describe no steps for it. \
+If a section says something is not in Revolution yet, say so and describe no steps for it. \
 Name buttons, panels and shortcuts only as the sections write them. \
 Give options with their trade-offs, not one right way. Keep it short and plain: at most 6 steps, no headings.";
 
@@ -50,12 +50,70 @@ pub struct AssistContext {
     pub selection: Option<String>,
     /// The current grade's facts (the node explainer's JSON, G2.10).
     pub grade_facts_json: Option<String>,
+    /// The frame under the playhead, measured (AI4.1b: `picture_facts` sheets before / after the grade).
+    pub picture_facts: Option<String>,
+    /// AI4.2: what the vision model saw in the frame, asked with the question (item 2b).
+    pub picture_seen: Option<String>,
+    /// AI4.2: the frame for the vision model to look at in the background (taken when asked).
+    pub picture: Option<Arc<PictureInput>>,
+    /// AI4.2b: the shot the frame belongs to (clip and its state), so a look is remembered for
+    /// later questions about the same shot that don't ask for a fresh look.
+    pub shot: Option<u64>,
     /// A follow-up: the question asked just before (AI3.5); retrieval reads both questions.
     pub previous_question: Option<String>,
     /// The assistant's checked answer to [`AssistContext::previous_question`].
     pub previous_answer: Option<String>,
     /// Free answers, or only the guide's own steps picked by the model (owner question Q35 (b)).
     pub style: AssistStyle,
+}
+
+/// A small frame for the vision model: display RGB in 0..=1, row by row
+/// ([`crate::grade_tools::program_frame_rgb`]).
+#[derive(Clone)]
+pub struct PictureInput {
+    pub rgb: Vec<f32>,
+    pub w: usize,
+    pub h: usize,
+}
+
+impl std::fmt::Debug for PictureInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PictureInput({} × {})", self.w, self.h)
+    }
+}
+
+/// Looks at a frame with the question in mind and says in a sentence or two what bears on it
+/// (AI-PLAN AI4 items 2 / 2b). Blocking: called on the assistant's background thread.
+pub trait PictureLooker: Send + Sync {
+    fn look(&self, picture: &PictureInput, question: &str) -> std::result::Result<String, String>;
+}
+
+/// Pixels the frame is rendered at for the vision model (≈ 512 × 512: ~256 picture tokens).
+pub const LOOK_PIXELS: u64 = 1 << 18;
+/// Longest description kept from the vision model.
+const MAX_SEEN_CHARS: usize = 600;
+/// Looks remembered ([`AssistJobs`]).
+const MAX_LOOKS: usize = 8;
+
+/// The look cache's key: the frame's pixels (as 8-bit) and size, and the question.
+fn look_key(p: &PictureInput, question: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (p.w, p.h, question.trim()).hash(&mut h);
+    for v in &p.rgb {
+        ((v.clamp(0.0, 1.0) * 255.0).round() as u8).hash(&mut h);
+    }
+    h.finish()
+}
+
+/// The vision model's instruction: what matters for grading, about this question, nothing made up.
+pub fn look_prompt(question: &str) -> String {
+    format!(
+        "A colourist is asking about this video frame: \"{}\". In one or two plain sentences, describe only what you can see \
+         that bears on that question (light sources and their colour and direction, skin, sky, practical lights, time of day, \
+         interior or exterior, exposure). Don't give advice and don't guess what you can't see.",
+        chars(question.trim(), MAX_QUESTION_CHARS)
+    )
 }
 
 /// How the model answers (AI3.6, OWNER-QUESTIONS Q35).
@@ -116,6 +174,26 @@ fn chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
+/// A guide step cut to at most `max` characters at the end of a sentence or a table row, with " …"
+/// where something was left out (a step cut mid-word read as a broken answer, AI3.6 lane E).
+fn cut_step(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let head = chars(s, max.saturating_sub(2));
+    // after ". " or between two table rows ("… | | …"); not too early, else at a word
+    let end = [head.rfind(". ").map(|i| i.saturating_add(1)), head.rfind("| |").map(|i| i.saturating_add(1))]
+        .into_iter()
+        .flatten()
+        .max()
+        .filter(|e| *e >= head.len() / 3)
+        .or_else(|| head.rfind(' '))
+        .unwrap_or(head.len());
+    let mut out = head.get(..end).unwrap_or(head.as_str()).trim_end().to_string();
+    out.push_str(" …");
+    out
+}
+
 /// One section as the prompt carries it: id, heading, header line, numbered steps, and the full
 /// text when `full`.
 fn section_block(r: &Retrieved, full: bool) -> String {
@@ -126,7 +204,7 @@ fn section_block(r: &Retrieved, full: bool) -> String {
     }
     let steps = coach_ask::numbered_list(&r.section.body);
     for (n, st) in steps.iter().take(coach_ask::MAX_STEPS).enumerate() {
-        out.push_str(&format!("{}. {}\n", n.saturating_add(1), chars(st, coach_ask::MAX_STEP_TEXT)));
+        out.push_str(&format!("{}. {}\n", n.saturating_add(1), cut_step(st, coach_ask::MAX_STEP_TEXT)));
     }
     if full || steps.is_empty() {
         let body = if full { r.section.body.as_str() } else { r.section.body.split("\n\n").next().unwrap_or("") };
@@ -148,8 +226,9 @@ fn gap_line(r: &Retrieved) -> Option<String> {
         if l.starts_with("planned:") {
             return true;
         }
-        // "FilmCraft: not yet …", "FilmCraft: no outside node yet; …", "… are not yet built"
-        let Some(rest) = l.strip_prefix("filmcraft:") else { return false };
+        // "Revolution: not yet …", "Revolution: no outside node yet; …", "… are not yet built"
+        // ("FilmCraft:" in text written before the fork rebrand, FORK-PLAN §1a.103)
+        let Some(rest) = l.strip_prefix("revolution:").or_else(|| l.strip_prefix("filmcraft:")) else { return false };
         let clause = rest.split([';', '.']).next().unwrap_or("");
         let words: Vec<&str> = clause.split(|c: char| !c.is_alphanumeric()).collect();
         words.contains(&"yet") && (words.contains(&"no") || words.contains(&"not"))
@@ -172,10 +251,39 @@ const GAP_SCORE: f64 = 0.7;
 /// How many of the best sections may state the gap.
 const GAP_SECTIONS: usize = 1;
 
-/// The gap the best sections state (the best of the first three that score nearly as well).
-fn gap_of(found: &[Retrieved]) -> Option<(String, String)> {
+/// Words that say nothing about which feature a gap line is about.
+const GAP_IGNORE: [&str; 7] = ["revolution", "filmcraft", "yet", "resolv", "premier", "plan", "use"];
+
+/// Whether a gap line is about the question: they share a word (stemmed, stop words and
+/// [`GAP_IGNORE`] left out). A section can then mark a gap in passing ("**FilmCraft:** no
+/// Cut page yet") without telling every other question about it that a feature is missing.
+/// How many of the gap clause's words the question must share at least: a third of a long
+/// clause ("no subtract picker and no 3D / RGB / luma-only qualifier mode yet"), all of a
+/// shorter one.
+const GAP_WORDS: usize = 2;
+
+/// Only the gap's own clause counts ("no Edge Thin yet" of "FilmCraft: no Edge Thin yet: use
+/// Ultra Key's Choke"), not the workaround after it.
+fn gap_matches(gap: &str, question: &str) -> bool {
+    let rest = gap.split_once(':').map_or(gap, |(_, r)| r);
+    let clause = rest.split([':', ';', '.']).next().unwrap_or(rest);
+    let mut words: Vec<String> = coach_ask::tokenize(clause, 400).into_iter().filter(|w| !GAP_IGNORE.contains(&w.as_str())).collect();
+    words.sort_unstable();
+    words.dedup();
+    // a bare "not yet (planned: …)" names nothing: the whole section is the gap
+    let q = coach_ask::tokenize(question, MAX_QUESTION_CHARS);
+    let need = GAP_WORDS.max(words.len().div_ceil(3)).min(words.len());
+    words.iter().filter(|w| q.contains(w)).count() >= need
+}
+
+/// The gap the best section states, when its gap line is about the question.
+fn gap_of(found: &[Retrieved], question: &str) -> Option<(String, String)> {
     let top = found.first()?.score;
-    found.iter().take(GAP_SECTIONS).filter(|r| r.score >= GAP_SCORE * top).find_map(|r| gap_line(r).map(|g| (source_id(r), g)))
+    found
+        .iter()
+        .take(GAP_SECTIONS)
+        .filter(|r| r.score >= GAP_SCORE * top)
+        .find_map(|r| gap_line(r).filter(|g| gap_matches(g, question)).map(|g| (source_id(r), g)))
 }
 
 /// The prompt for `question`, at most `budget_chars` characters in all (clamped to
@@ -185,12 +293,19 @@ pub fn assistant_prompt(question: &str, ctx: &AssistContext, budget_chars: usize
     let budget = budget_chars.min(MAX_BUDGET_CHARS);
     let question = filmcraft_llm::sanitize(&chars(question.trim(), MAX_QUESTION_CHARS));
     let mut context = String::new();
-    for (label, v) in [("Page", &ctx.page), ("Selected", &ctx.selection), ("Current grade (facts)", &ctx.grade_facts_json)] {
+    for (label, v) in [
+        ("Page", &ctx.page),
+        ("Selected", &ctx.selection),
+        ("Current grade (facts)", &ctx.grade_facts_json),
+        ("Picture (seen)", &ctx.picture_seen),
+        ("Picture (measured)", &ctx.picture_facts),
+    ] {
         if let Some(v) = v.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
             context.push_str(&format!("{label}: {}\n", chars(v, MAX_CONTEXT_CHARS)));
         }
     }
-    let context = filmcraft_llm::sanitize(&context);
+    // (all of it together is capped too: a long selection must not crowd out the guide sections)
+    let context = filmcraft_llm::sanitize(&chars(&context, MAX_CONTEXT_CHARS));
     let mut head = if context.is_empty() { String::new() } else { format!("On screen:\n{context}\n") };
     let prev = |v: &Option<String>| v.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(|v| filmcraft_llm::sanitize(&chars(v, MAX_PREVIOUS_CHARS)));
     let previous_question = prev(&ctx.previous_question);
@@ -208,11 +323,11 @@ pub fn assistant_prompt(question: &str, ctx: &AssistContext, budget_chars: usize
     let mut sources = Vec::new();
     // a follow-up ("and how do I undo that?") is about the earlier question's topic too
     let query = previous_question.as_ref().map_or_else(|| question.clone(), |pq| format!("{pq} {question}"));
-    let found = coach_ask::retrieve(&query, SECTIONS.min(MAX_RETRIEVE));
-    let gap = gap_of(&found);
+    let found = retrieve_with_picture(&query, &question, ctx.picture_facts.as_deref(), SECTIONS.min(MAX_RETRIEVE));
+    let gap = gap_of(&found, &query);
     let gap_note = gap.as_ref().map(|(id, g)| {
         filmcraft_llm::sanitize(&format!(
-            "Important, what FilmCraft doesn't have yet [{id}]: {g}\nSay this first, then give only the workaround the sections describe. Describe no steps for what is missing.\n\n"
+            "Important, what Revolution doesn't have yet [{id}]: {g}\nSay this first, then give only the workaround the sections describe. Describe no steps for what is missing.\n\n"
         ))
     });
     left = left.saturating_sub(gap_note.as_ref().map_or(0, |n| n.chars().count()));
@@ -238,10 +353,10 @@ pub fn assistant_prompt(question: &str, ctx: &AssistContext, budget_chars: usize
 
 // ---------- pick-the-steps answers (AI3.6, Q35 (b)) ----------
 
-const PICK_SYSTEM: &str = "You are FilmCraft's editing and grading assistant. \
+const PICK_SYSTEM: &str = "You are Revolution's editing and grading assistant. \
 You answer only by choosing steps from the guide sections given. Every step has a key such as A1 or B3. \
 Reply with the keys of the steps that answer the question, in the order to do them, at most 6, separated by spaces. \
-A step that answers a yes / no question by saying what FilmCraft does counts as an answer. \
+A step that answers a yes / no question by saying what Revolution does counts as an answer. \
 Write nothing else. If no step answers the question, reply NONE.";
 
 /// Most new tokens for a list of step keys.
@@ -267,6 +382,8 @@ pub struct PickStep {
     pub text: String,
     /// Its section's retrieval score as a share of the best section's (0..=1).
     pub relevance: f64,
+    /// A step of a numbered procedure (a recipe), not a bullet or a paragraph.
+    pub numbered: bool,
 }
 
 /// A pick-the-steps prompt: like [`AssistPrompt`], plus the keyed steps.
@@ -276,9 +393,11 @@ pub struct PickPrompt {
     pub steps: Vec<PickStep>,
 }
 
-/// The steps a section offers: its numbered steps, or its first paragraph as one step.
-fn section_steps(r: &Retrieved) -> Vec<String> {
+/// The steps a section offers: its numbered steps (true), or its first paragraph as one step
+/// (or one per bullet).
+fn section_steps(r: &Retrieved) -> (Vec<String>, bool) {
     let mut steps = coach_ask::numbered_list(&r.section.body);
+    let numbered = !steps.is_empty();
     if steps.is_empty() {
         let para = r.section.body.split("\n\n").map(str::trim).find(|p| !p.is_empty() && !p.starts_with('<') && !p.starts_with('#')).unwrap_or("");
         if para.starts_with("- ") || para.starts_with("* ") {
@@ -298,7 +417,56 @@ fn section_steps(r: &Retrieved) -> Vec<String> {
             steps.push(para.to_string());
         }
     }
-    steps.into_iter().take(PICK_STEPS).map(|s| chars(s.split_whitespace().collect::<Vec<_>>().join(" ").as_str(), coach_ask::MAX_STEP_TEXT)).collect()
+    let steps =
+        steps.into_iter().take(PICK_STEPS).map(|s| cut_step(s.split_whitespace().collect::<Vec<_>>().join(" ").as_str(), coach_ask::MAX_STEP_TEXT)).collect();
+    (steps, numbered)
+}
+
+/// The best section is a clear winner when its retrieval score is at least this many times every
+/// other section's. A reply that picks nothing from a clear winner gets the winner's steps instead
+/// ([`answer_picks`]): the small model otherwise prefers a familiar weaker recipe (the owner's "lamp
+/// light blue, room natural" got the whole-picture cooling steps instead of the one-light recipe).
+/// Offering the winner alone was tried: the model then named keys of sections it wasn't given.
+pub const DOMINANT_RATIO: f64 = 1.35;
+
+/// Sections that push the picture one way in colour; a question that clearly wants the other way
+/// never gets them (the owner's "make the light blue" follow-up once got the warm recipe's "towards
+/// orange" steps, because it said "less orange").
+const WARMING_SECTIONS: [&str; 1] = ["color.recipes.warm"];
+const COOLING_SECTIONS: [&str; 2] = ["color.recipes.cool", "color.recipes.warm-to-blue"];
+const WARM_WORDS: [&str; 8] = ["orange", "warm", "warmer", "warmth", "amber", "golden", "yellow", "tungsten"];
+const COOL_WORDS: [&str; 7] = ["blue", "bluer", "cool", "cooler", "colder", "cold", "teal"];
+/// A colour word right after one of these is one the asker wants less of ("less orange", "too
+/// warm"). "not" / "no" / "nowhere" are left out: "not blue enough", "nowhere near blue" want more.
+const LESS_WORDS: [&str; 5] = ["less", "too", "without", "reduce", "remove"];
+
+/// Which way in colour `text` wants to go: `Some(true)` cooler, `Some(false)` warmer, `None` when
+/// it doesn't say or says both equally.
+fn wants_cooler(text: &str) -> Option<bool> {
+    let words: Vec<String> = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).take(400).collect();
+    let (mut cool, mut warm) = (0_i32, 0_i32);
+    for (i, w) in words.iter().enumerate() {
+        let less = i.checked_sub(1).and_then(|j| words.get(j)).is_some_and(|p| LESS_WORDS.contains(&p.as_str()));
+        if COOL_WORDS.contains(&w.as_str()) {
+            if less { warm = warm.saturating_add(1) } else { cool = cool.saturating_add(1) }
+        } else if WARM_WORDS.contains(&w.as_str()) {
+            if less { cool = cool.saturating_add(1) } else { warm = warm.saturating_add(1) }
+        }
+    }
+    match cool.cmp(&warm) {
+        std::cmp::Ordering::Greater => Some(true),
+        std::cmp::Ordering::Less => Some(false),
+        std::cmp::Ordering::Equal => None,
+    }
+}
+
+/// Whether section `id` pushes the picture against the way `query` wants to go.
+fn against_the_asked_colour(id: &str, query: &str) -> bool {
+    match wants_cooler(query) {
+        Some(true) => WARMING_SECTIONS.contains(&id),
+        Some(false) => COOLING_SECTIONS.contains(&id),
+        None => false,
+    }
 }
 
 /// The pick-the-steps prompt for `question` (same retrieval, context and gap note as
@@ -311,13 +479,13 @@ pub fn pick_prompt(question: &str, ctx: &AssistContext, budget_chars: usize) -> 
         || filmcraft_llm::sanitize(&chars(question.trim(), MAX_QUESTION_CHARS)),
         |pq| filmcraft_llm::sanitize(&format!("{} {}", chars(pq, MAX_PREVIOUS_CHARS), chars(question.trim(), MAX_QUESTION_CHARS))),
     );
-    let found = coach_ask::retrieve(&query, SECTIONS.min(MAX_RETRIEVE));
+    let found = retrieve_with_picture(&query, question, ctx.picture_facts.as_deref(), SECTIONS.min(MAX_RETRIEVE));
     // the free prompt's head (context, earlier exchange) and tail (gap note, question) are reused
     let (head, rest) = free.user.split_once("Guide sections:").unwrap_or(("", free.user.as_str()));
     let asked = rest.rfind("Question: ").and_then(|i| rest.get(i..)).unwrap_or("");
     let tail = match &free.gap {
         Some((id, g)) => filmcraft_llm::sanitize(&format!(
-            "Note, FilmCraft doesn't have this yet [{id}]: {g}\nPick only steps of the workaround the sections describe, or NONE.\n\n{asked}"
+            "Note, Revolution doesn't have this yet [{id}]: {g}\nPick only steps of the workaround the sections describe, or NONE.\n\n{asked}"
         )),
         None => asked.to_string(),
     };
@@ -329,10 +497,11 @@ pub fn pick_prompt(question: &str, ctx: &AssistContext, budget_chars: usize) -> 
     let best = found.iter().map(|r| r.score).fold(0.0_f64, f64::max);
     for (r, letter) in found.iter().zip(letters) {
         let id = source_id(r);
-        let texts = section_steps(r);
+        let (texts, numbered) = section_steps(r);
         let relevance = if best > 0.0 && r.score.is_finite() { (r.score / best).clamp(0.0, 1.0) } else { 1.0 };
-        // a section whose picks `parse_picks` would drop only costs prefill time
-        if texts.is_empty() || relevance < PICK_MIN_RELEVANCE {
+        // a section whose picks `parse_picks` would drop only costs prefill time; one pushing the
+        // colour against what was asked would contradict the answer
+        if texts.is_empty() || relevance < PICK_MIN_RELEVANCE || against_the_asked_colour(&id, &query) {
             continue;
         }
         let mut b = format!("[{id}] {} ({})\n", r.section.heading, r.section.page);
@@ -340,11 +509,35 @@ pub fn pick_prompt(question: &str, ctx: &AssistContext, budget_chars: usize) -> 
         for (n, t) in texts.iter().enumerate() {
             let key = format!("{letter}{}", n.saturating_add(1));
             b.push_str(&format!("{key}: {t}\n"));
-            keyed.push(PickStep { key, source: id.clone(), text: t.clone(), relevance });
+            keyed.push(PickStep { key, source: id.clone(), text: t.clone(), relevance, numbered });
         }
         let b = filmcraft_llm::sanitize(&b);
         let n = b.chars().count().saturating_add(1);
         if n > left {
+            // the best section comes anyway, with as many of its steps as fit (a long on-screen
+            // context must not swap it for a short, weaker one); others that don't fit are left out
+            if !sources.is_empty() {
+                continue;
+            }
+            let mut cut = format!("[{id}] {} ({})\n", r.section.heading, r.section.page);
+            let mut kept = Vec::new();
+            for k in keyed {
+                let line = format!("{}: {}\n", k.key, k.text);
+                if filmcraft_llm::sanitize(&format!("{cut}{line}")).chars().count().saturating_add(1) > left {
+                    break;
+                }
+                cut.push_str(&line);
+                kept.push(k);
+            }
+            if kept.is_empty() {
+                continue;
+            }
+            let cut = filmcraft_llm::sanitize(&cut);
+            left = left.saturating_sub(cut.chars().count().saturating_add(1));
+            blocks.push_str(&cut);
+            blocks.push('\n');
+            sources.push(id);
+            steps.extend(kept);
             continue;
         }
         left = left.saturating_sub(n);
@@ -381,6 +574,203 @@ fn picked_keys<'a>(reply: &str, steps: &'a [PickStep]) -> Vec<&'a PickStep> {
         }
     }
     out
+}
+
+/// Most lines a picked answer shows once [`answer_picks`] has completed its recipes and notes.
+pub const PICK_ANSWER_MAX: usize = 10;
+/// A picked section scoring at least this share of the best section is completed by
+/// [`answer_picks`]; weaker ones (padding, mostly) keep only the steps picked.
+pub const COMPLETE_MIN_RELEVANCE: f64 = 0.85;
+/// When a section scoring at least [`COMPLETE_MIN_RELEVANCE`] was picked, picks from sections
+/// below this share of the best go (padding from far weaker sections).
+pub const KEEP_MIN_RELEVANCE: f64 = 0.55;
+/// Sections about the app in general (the desktop, the hardware, words, keys, the coach itself):
+/// picks from them are dropped when the best section is about something else.
+/// (`getting-started` is not one: its import steps answered the input colour space of
+/// `adv-match-cams`.)
+const GENERAL_FAMILIES: [&str; 6] = ["linux", "hardware", "glossary", "shortcuts", "pages", "color.coach"];
+
+/// The family of a section id: `color.coach` for the coach's page, else the page's first part.
+fn family(id: &str) -> &str {
+    if id.starts_with("color.coach.") || id == "color.coach" {
+        return "color.coach";
+    }
+    id.split(['.', '#']).next().unwrap_or(id)
+}
+
+/// The guide's broad areas, by section id prefix (longest first wins): a pick from another area
+/// than the best section's is padding unless it matches well (AI3.6 lane E: a relink answer
+/// ending with glow and roll-off lines, a scene-look answer with voice-over takes).
+const AREAS: [(&str, &str); 36] = [
+    ("practice.grading", "grade"),
+    ("practice.looks", "grade"),
+    ("practice.node-trees", "grade"),
+    ("practice.mixed-cameras", "grade"),
+    ("practice.delivery", "deliver"),
+    ("practice.youtube", "edit"),
+    ("practice.editing", "edit"),
+    ("practice.workflow", "edit"),
+    ("practice.audio", "audio"),
+    ("practice.titles", "comp"),
+    ("color", "grade"),
+    ("packs", "grade"),
+    ("compositor", "comp"),
+    ("keying", "comp"),
+    ("tracking", "comp"),
+    ("shader-effects", "comp"),
+    ("graphics", "comp"),
+    ("effects", "comp"),
+    ("editing", "edit"),
+    ("trimming", "edit"),
+    ("timeline", "edit"),
+    ("edit-menu", "edit"),
+    ("text", "edit"),
+    ("media", "edit"),
+    ("file-menu", "edit"),
+    ("command-reference", "edit"),
+    ("cards", "edit"),
+    ("projects", "edit"),
+    ("audio", "audio"),
+    ("essential-sound", "audio"),
+    ("mixing", "audio"),
+    ("export", "deliver"),
+    ("export-queue", "deliver"),
+    ("render-cache", "deliver"),
+    ("proxies", "deliver"),
+    ("hardware", "deliver"),
+];
+/// Areas whose sections often answer together (delivery settings sit beside grading and editing).
+const NEAR_AREAS: [(&str, &str); 3] = [("grade", "deliver"), ("edit", "deliver"), ("edit", "audio")];
+
+/// The broad area of a section id ([`AREAS`]); `None` for the general pages.
+fn area(id: &str) -> Option<&'static str> {
+    AREAS
+        .iter()
+        .filter(|(prefix, _)| id == *prefix || id.strip_prefix(prefix).is_some_and(|r| r.starts_with('.') || r.starts_with('#')))
+        .max_by_key(|(prefix, _)| prefix.len())
+        .map(|(_, a)| *a)
+}
+
+/// Whether sections of areas `a` and `b` can answer one question together.
+fn near(a: Option<&str>, b: Option<&str>) -> bool {
+    a == b || NEAR_AREAS.iter().any(|(x, y)| (a == Some(*x) && b == Some(*y)) || (a == Some(*y) && b == Some(*x)))
+}
+
+/// A practice note bullet's label ("**Pitfalls:** …" → "pitfalls"), lower case.
+fn note_label(text: &str) -> Option<String> {
+    let t = text.trim_start().strip_prefix("**")?;
+    let (label, _) = t.split_once(":**")?;
+    (label.chars().count() <= 30).then(|| label.trim().to_lowercase())
+}
+
+/// Whether a note line only says how another app does it, or the goal: left out when the note is
+/// completed (the model may still pick it).
+fn side_line(text: &str) -> bool {
+    note_label(text).is_some_and(|l| l == "goal" || l.contains("resolve") || l.contains("premiere"))
+}
+
+/// The section that is a clear winner among the offered steps ([`DOMINANT_RATIO`]), if any.
+fn clear_winner(steps: &[PickStep]) -> Option<&str> {
+    let winner = steps.iter().find(|s| s.relevance >= 1.0)?;
+    let runner_up = steps.iter().filter(|s| s.source != winner.source).map(|s| s.relevance).fold(0.0_f64, f64::max);
+    (runner_up.is_finite() && runner_up * DOMINANT_RATIO <= 1.0).then_some(winner.source.as_str())
+}
+
+/// The answer's steps for a model reply (AI3.6 lane E): [`parse_picks`], then
+/// - picks from a general section (Linux, hardware, glossary, the coach's own page …) go when the
+///   best section is of another family;
+/// - when a section scoring at least [`COMPLETE_MIN_RELEVANCE`] was picked, picks from sections
+///   below [`KEEP_MIN_RELEVANCE`] go, and so do picks below [`COMPLETE_MIN_RELEVANCE`] from an
+///   area ([`AREAS`]) that doesn't answer with the best section's;
+/// - a section scoring at least [`COMPLETE_MIN_RELEVANCE`], and the best-scoring section picked,
+///   is completed: a recipe from the step before its first picked one to its end, in order
+///   (answers used to stop a step short or start mid-recipe, or skip the step a pick builds on); a
+///   practice note with its own lines (FilmCraft, Why, Pitfalls …, not how Resolve / Premiere do
+///   it, not the goal); a plain bullet list whole. Completion only uses the lines the model's own
+///   picks leave free.
+///
+/// At most [`PICK_ANSWER_MAX`] lines. (Dropping the "Goal:" / "Why:" lines of weak sections was
+/// tried: it took out 4 lines of the 85-case run, one of them the only expected source.)
+pub fn answer_picks<'a>(reply: &str, steps: &'a [PickStep]) -> Vec<&'a PickStep> {
+    let mut picks = parse_picks(reply, steps);
+    // a clear winner the reply ignored: its first step (completed below to the whole recipe)
+    if let Some(first) = clear_winner(steps).and_then(|w| steps.iter().find(|s| s.source == w))
+        && !picks.iter().any(|p| p.source == first.source)
+    {
+        picks = vec![first];
+    }
+    let best = steps.iter().find(|s| s.relevance >= 1.0).or(steps.first()).map(|s| family(&s.source));
+    let general = |s: &PickStep| best.is_some_and(|b| family(&s.source) != b && GENERAL_FAMILIES.contains(&family(&s.source)));
+    if picks.iter().any(|s| !general(s)) {
+        picks.retain(|s| !general(s));
+    }
+    // far weaker sections' picks, and other areas' picks that don't match well, go when a
+    // well-matching section was picked
+    if picks.iter().any(|s| s.relevance >= COMPLETE_MIN_RELEVANCE) {
+        let best_area = steps.iter().find(|s| s.relevance >= 1.0).or(steps.first()).map(|s| area(&s.source));
+        let off =
+            |s: &PickStep| s.relevance < KEEP_MIN_RELEVANCE || (s.relevance < COMPLETE_MIN_RELEVANCE && best_area.is_some_and(|b| !near(b, area(&s.source))));
+        if picks.iter().any(|s| !off(s)) {
+            picks.retain(|s| !off(s));
+        }
+    }
+    let mut out: Vec<&PickStep> = Vec::new();
+    let mut done: Vec<&str> = Vec::new();
+    let picked = |s: &PickStep| picks.iter().any(|p| p.key == s.key);
+    // the picks themselves always fit; completion only uses the lines left over
+    let mut spare = PICK_ANSWER_MAX.saturating_sub(picks.len().min(PICK_ANSWER_MAX));
+    // the best-matching section picked is completed too, however it scores
+    let top = picks.iter().map(|s| s.relevance).filter(|r| r.is_finite()).fold(f64::NEG_INFINITY, f64::max);
+    for p in &picks {
+        if out.iter().any(|o| o.key == p.key) {
+            continue;
+        }
+        let strong = p.relevance >= COMPLETE_MIN_RELEVANCE || p.relevance >= top;
+        if !strong || done.contains(&p.source.as_str()) {
+            if !done.contains(&p.source.as_str()) {
+                out.push(p);
+            }
+            continue;
+        }
+        done.push(&p.source);
+        let section: Vec<&PickStep> = steps.iter().filter(|s| s.source == p.source).collect();
+        let more: Vec<&PickStep> = if p.numbered {
+            // from the step before the first one picked: a step builds on the one before it
+            let first = section.iter().position(|s| picked(s)).unwrap_or(0);
+            section.into_iter().skip(first.saturating_sub(1)).collect()
+        } else {
+            section.into_iter().filter(|s| picked(s) || !side_line(&s.text)).collect()
+        };
+        for s in more {
+            if out.iter().any(|o| o.key == s.key) {
+                continue;
+            }
+            if picked(s) {
+                out.push(s);
+            } else if spare > 0 {
+                spare = spare.saturating_sub(1);
+                out.push(s);
+            }
+        }
+    }
+    out.truncate(PICK_ANSWER_MAX);
+    out
+}
+
+/// The first letters of a line, lower case, without its step number, punctuation or link
+/// targets: two lines with the same start say the same thing ("FilmCraft: not yet (planned:
+/// [color/nodes.md](…))" and "2. FilmCraft: not yet (planned: color/nodes.md …").
+fn same_start(text: &str) -> String {
+    let mut plain = String::new();
+    let mut rest = text;
+    // "[label](target)" → "label"
+    while let Some(i) = rest.find("](") {
+        plain.push_str(rest.get(..i).unwrap_or(""));
+        rest = rest.get(i.saturating_add(2)..).unwrap_or("");
+        rest = rest.find(')').and_then(|j| rest.get(j.saturating_add(1)..)).unwrap_or("");
+    }
+    plain.push_str(rest);
+    plain.chars().filter(|c| c.is_alphanumeric()).skip_while(|c| c.is_ascii_digit()).flat_map(char::to_lowercase).take(24).collect()
 }
 
 /// The answer text the picked steps make: one guide step per line with its section's citation.
@@ -425,6 +815,334 @@ pub struct AssistAnswer {
     /// The lesson that shows the model's answer ("Show me"), as (id, title).
     pub lesson: Option<(String, String)>,
     pub coach: Option<coach_ask::Answer>,
+    /// AI4.1d: measured facts of the frame that fit the question ([`picture_note`]), shown as
+    /// "On this frame (measured)"; written by FilmCraft, never by the model.
+    pub seen: Vec<String>,
+}
+
+/// Most lines of [`picture_note`].
+pub const MAX_SEEN: usize = 3;
+
+/// AI4.1d (provisional, owner question Q40): the measured facts of `sheet`
+/// ([`filmcraft_render::picture_facts`] text, as `current_picture_facts` writes it) that fit
+/// `question`, for the answer's "On this frame (measured)" lines. FilmCraft writes them, not the
+/// model: a pick answer only chooses guide steps, and a fact the model rewrote could be wrong.
+/// The current state (after the grade) is used; a general "fix my shot" question gets exposure
+/// and white balance. Empty when nothing fits or there is no sheet.
+pub fn picture_note(question: &str, sheet: Option<&str>) -> Vec<String> {
+    const TOPICS: [(&str, &[&str]); 5] = [
+        (
+            "Exposure:",
+            &[
+                "dark",
+                "bright",
+                "expos",
+                "clipped",
+                "clipping",
+                "blown",
+                "highlight",
+                "shadow",
+                "black",
+                "crush",
+                "contrast",
+                "flat",
+                "underexp",
+                "overexp",
+                "too light",
+                "white sky",
+            ],
+        ),
+        (
+            "White balance:",
+            &[
+                "white balance",
+                "wb",
+                "warm",
+                "cool",
+                "cold",
+                "blue",
+                "orange",
+                "yellow",
+                "green",
+                "magenta",
+                "tint",
+                "cast",
+                "temperature",
+                "neutral",
+                "kelvin",
+            ],
+        ),
+        ("Saturation:", &["saturat", "vivid", "muted", "colourful", "colorful", "washed", "dull", "punch"]),
+        ("Skin-tone colours", &["skin", "face", "faces", "people", "person", "portrait", "interview"]),
+        ("clip \"", &["log", "f-log", "flog", "slog", "v-log", "input transform"]),
+    ];
+    const GENERAL: [&str; 7] = ["fix", "correct", "balance", "look right", "look better", "what's wrong", "what is wrong"];
+    let Some(sheet) = sheet else { return Vec::new() };
+    let q = format!(" {} ", question.to_lowercase().replace('\u{2019}', "'"));
+    let has = |w: &str| {
+        // whole-word for short words ("wb", "log", "cool"), substring for stems
+        if w.len() <= 4 { q.split(|c: char| !c.is_alphanumeric() && c != '-').any(|t| t == w) } else { q.contains(w) }
+    };
+    let mut wanted: Vec<&str> = TOPICS.iter().filter(|(_, ws)| ws.iter().any(|w| has(w))).map(|(p, _)| *p).collect();
+    if wanted.is_empty() && GENERAL.iter().any(|w| has(w)) {
+        wanted = vec!["Exposure:", "White balance:"];
+    }
+    // the current state: the block after the grade when there is one
+    let current = sheet.rsplit_once("after the grade:\n").map_or(sheet, |(_, a)| a);
+    let mut out = Vec::new();
+    for p in wanted {
+        let line = if p.starts_with("clip") {
+            sheet
+                .lines()
+                .next()
+                .filter(|l| l.starts_with(p))
+                .and_then(|l| l.split_once(" (source "))
+                .map(|(_, r)| format!("Source: {}", r.split_once("),").map_or(r, |(a, _)| a).trim_end_matches(')')))
+        } else {
+            current.lines().find(|l| l.starts_with(p)).map(str::to_string)
+        };
+        if let Some(l) = line.filter(|l| !out.contains(l)) {
+            out.push(chars(&l, 300));
+        }
+        if out.len() >= MAX_SEEN {
+            break;
+        }
+    }
+    out
+}
+
+/// Most problem phrases [`picture_terms`] adds to a retrieval query.
+pub const MAX_PICTURE_TERMS: usize = 3;
+
+/// AI4.5a: the frame's clear problems in `sheet` (the current state, as [`picture_note`] reads it)
+/// as guide words ("warm cast white balance", "clipped highlights", …), worst first, at most
+/// [`MAX_PICTURE_TERMS`], for the retrieval query: a picture question is often vague ("the client
+/// says it's muddy") and the fact sheet names what the guide sections are about. Small deviations
+/// add nothing; no sheet or an unreadable one gives an empty string.
+pub fn picture_terms(sheet: Option<&str>) -> String {
+    let Some(sheet) = sheet else { return String::new() };
+    let current = sheet.rsplit_once("after the grade:\n").map_or(sheet, |(_, a)| a);
+    let line = |p: &str| current.lines().find(|l| l.starts_with(p)).unwrap_or("");
+    // the number right before `unit` in `l` ("2.1 stops", "18% clipped")
+    let num_before = |l: &str, unit: &str| -> f32 {
+        l.find(unit)
+            .and_then(|i| l.get(..i))
+            .and_then(|h| h.trim_end().rsplit(|c: char| c.is_whitespace() || c == '(').next())
+            .and_then(|n| n.trim_end_matches('%').parse::<f32>().ok())
+            .filter(|n| n.is_finite())
+            .unwrap_or(0.0)
+    };
+    // (severity, words)
+    let mut found: Vec<(f32, &str)> = Vec::new();
+    let exp = line("Exposure:");
+    let clipped = num_before(exp, "% clipped");
+    let crushed = num_before(exp, "% crushed");
+    let mids = num_before(exp, " stops above") - num_before(exp, " stops below");
+    let contrast = exp.split_once("contrast").map_or(0.0, |(_, r)| num_before(r, " stops"));
+    if clipped >= 2.0 {
+        found.push((clipped / 2.0, "clipped highlights soft clip"));
+    }
+    if crushed >= 2.0 {
+        found.push((crushed / 2.0, "crushed blacks black point"));
+    }
+    if mids <= -1.0 {
+        found.push((-mids * 3.0, "dark underexposed raise exposure"));
+    } else if mids >= 1.0 {
+        found.push((mids * 3.0, "bright overexposed lower exposure"));
+    }
+    if contrast > 0.0 && contrast < 3.0 {
+        found.push((3.0 - contrast + 1.0, "flat low contrast"));
+    }
+    let wb = line("White balance:");
+    let cast = wb.split_once(" look ").map_or("", |(_, r)| r);
+    let strength = if cast.starts_with("slightly") {
+        1.0
+    } else if cast.starts_with("very") {
+        4.0
+    } else {
+        2.5
+    };
+    if cast.contains("warm") {
+        found.push((strength, "warm orange cast white balance"));
+    } else if cast.contains("cool") {
+        found.push((strength, "cool blue cast white balance"));
+    }
+    if cast.contains("green") || cast.contains("magenta") {
+        found.push((strength, "green magenta tint white balance"));
+    }
+    let sat = line("Saturation:");
+    if sat.contains("low") {
+        found.push((1.5, "muted saturation"));
+    } else if sat.contains("high") {
+        found.push((1.5, "oversaturated saturation"));
+    }
+    let skin = line("Skin-tone colours");
+    if skin.contains("° towards") && num_before(skin, "°") >= 5.0 {
+        found.push((num_before(skin, "°") / 5.0, "skin tone skin line"));
+    }
+    found.sort_by(|a, b| b.0.total_cmp(&a.0));
+    found.iter().take(MAX_PICTURE_TERMS).map(|(_, w)| *w).collect::<Vec<_>>().join(" ")
+}
+
+/// Sections of the plain retrieval [`retrieve_with_picture`] always keeps first.
+const PICTURE_KEEP: usize = 3;
+
+/// Whether `question` talks about the frame on screen ("this shot", "it's muddy", "faces look
+/// purple"), so the measured facts may say what it is about.
+fn asks_about_the_frame(question: &str) -> bool {
+    const FRAME: [&str; 15] =
+        ["this", "shot", "here", "frame", "footage", "picture", "image", "looks", "look", "it's", "he's", "she's", "muddy", "lifeless", "wrong"];
+    let l = question.to_lowercase().replace('\u{2019}', "'");
+    let mut words = l.split(|c: char| !c.is_alphanumeric() && c != '\'').filter(|w| !w.is_empty());
+    words.any(|w| FRAME.contains(&w)) || !picture_note(question, Some("Exposure:\nWhite balance:\nSaturation:\nSkin-tone colours")).is_empty()
+}
+
+/// AI4.5a (provisional, measured on the AI-POOL picture questions: top-5 hits 3 → 8 / 10; with an
+/// unrelated sheet attached the other pool questions keep 766–771 of 781): [`coach_ask::retrieve`]
+/// for `query`, and when `question` is about the frame and `sheet` names clear problems
+/// ([`picture_terms`]), the plain result's best [`PICTURE_KEEP`] followed by what the query plus
+/// those words finds, then the rest of the plain result; `k` sections at most.
+///
+/// AI4.5c.2: a question that uses creative words ([`TECHNIQUES`]) also gets the best section for
+/// the techniques they call for, after the first [`SUB_GOAL_KEEP`]; not when the fact sheet
+/// already steered the result (that would push its sections out). Splitting the question into
+/// sub-goals is off ([`SPLIT_SUB_GOALS`]).
+pub fn retrieve_with_picture(query: &str, question: &str, sheet: Option<&str>, k: usize) -> Vec<coach_ask::Retrieved> {
+    retrieve_with_picture_in(crate::coach_meaning::default_mode(), query, question, sheet, k)
+}
+
+/// [`retrieve_with_picture`] with a chosen ranking ([`coach_ask::retrieve_in`]; fork §1a.98).
+pub fn retrieve_with_picture_in(
+    mode: crate::coach_meaning::SearchMode,
+    query: &str,
+    question: &str,
+    sheet: Option<&str>,
+    k: usize,
+) -> Vec<coach_ask::Retrieved> {
+    let plain = coach_ask::retrieve_in(mode, query, k);
+    let terms = picture_terms(sheet);
+    if terms.is_empty() || !asks_about_the_frame(question) {
+        return with_sub_goals(mode, plain, question, k);
+    }
+    let mut seen = coach_ask::retrieve_in(mode, &format!("{query} {terms}"), k);
+    // the longer query scores higher: put its scores on the plain query's scale, or the pick
+    // prompt's relevance filter (a share of the best score) drops the plain query's own best
+    // sections (the Ask box's "fix skin with a qualifier" lost the skin recipe this way)
+    let best = |v: &[coach_ask::Retrieved]| v.iter().map(|r| r.score).filter(|x| x.is_finite()).fold(0.0_f64, f64::max);
+    let (pb, sb) = (best(&plain), best(&seen));
+    if pb > 0.0 && sb > 0.0 {
+        for r in &mut seen {
+            r.score *= pb / sb;
+        }
+    }
+    let mut out: Vec<coach_ask::Retrieved> = plain.iter().take(PICTURE_KEEP).cloned().collect();
+    for r in seen.into_iter().chain(plain.into_iter().skip(PICTURE_KEEP)) {
+        if out.len() >= k {
+            break;
+        }
+        if !out.iter().any(|o| std::ptr::eq(o.section, r.section)) {
+            out.push(r);
+        }
+    }
+    out
+}
+
+/// Sections of the whole-question result kept first when sub-goals add theirs.
+const SUB_GOAL_KEEP: usize = 3;
+/// Whether a question is split into [`sub_goals`] for retrieval. Off since 2026-10-16: on the
+/// creative held-out set (646 plan sections in the pool's `creative-*` batches) the split cost
+/// coverage (305 with it, 310 without; the 2026-10-15 gain, 6 → 8 / 21, was on the one batch it was
+/// tuned on), while the [`TECHNIQUES`] lookup on the whole question still pays (298 without it).
+/// Lookup questions: 821 hits either way.
+const SPLIT_SUB_GOALS: bool = false;
+/// At most this many sub-goals are looked up (bounded work for a long, hostile question).
+const MAX_SUB_GOALS: usize = 6;
+
+/// The parts of `question` that ask for different things, split at "and", "then", "with", "so",
+/// "but", "instead" and punctuation; parts with fewer than two words of three letters or more
+/// are dropped. Fewer than two parts → empty (a single goal needs no splitting).
+pub fn sub_goals(question: &str) -> Vec<String> {
+    const JOINS: [&str; 7] = [" and ", " then ", " with ", " so ", " but ", " instead ", " while "];
+    let mut text = format!(" {} ", chars(question, MAX_QUESTION_CHARS).to_lowercase());
+    for c in [',', ';', '.', '?', '!', ':'] {
+        text = text.replace(c, " | ");
+    }
+    for j in JOINS {
+        text = text.replace(j, " | ");
+    }
+    let parts: Vec<String> = text
+        .split('|')
+        .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|p| p.split(' ').filter(|w| w.chars().filter(|c| c.is_alphanumeric()).count() >= 3).count() >= 2)
+        .take(MAX_SUB_GOALS)
+        .collect();
+    if parts.len() < 2 { Vec::new() } else { parts }
+}
+
+/// Creative words (what a shot should look like) → the techniques the guide names for them, used
+/// only for sub-goal lookups (AI4.5c.2, provisional: measured on `pool/creative-1.toml`; later
+/// creative batches are the honest check). Each side is matched as whole lowercase words.
+const TECHNIQUES: &[(&str, &str)] = &[
+    ("ghost translucent transparent see-through faded", "opacity blend mode merge"),
+    ("remove erase person object", "mask track"),
+    ("shake earthquake wobble jitter handheld", "keyframes position motion"),
+    ("freeze frozen", "frame hold"),
+    ("drain desaturate colourless colorless grey gray", "saturation keyframes"),
+    ("clone twice twins double", "mask merge comp"),
+    ("night", "day for night"),
+    ("stormy storm clouds overcast", "sky darken"),
+    ("screen monitor tv", "corner pin track surface"),
+    ("subtitle subtitles word words karaoke", "captions transcript"),
+    ("glow dreamy", "blur"),
+];
+
+/// `goal` plus the [`TECHNIQUES`] its words call for.
+fn with_techniques(goal: &str) -> String {
+    let mut words: HashSet<&str> = goal.split(|c: char| !c.is_alphanumeric() && c != '-').collect();
+    // (a green / blue screen is keying, not a screen in the shot; the AI3 eval lost
+    // `adv-comp-key-over-bg` to the screen-replacement recipe)
+    if goal.contains("green screen") || goal.contains("blue screen") {
+        words.remove("screen");
+    }
+    let mut out = goal.to_string();
+    for (when, add) in TECHNIQUES {
+        if when.split(' ').any(|w| words.contains(w)) {
+            out.push(' ');
+            out.push_str(add);
+        }
+    }
+    out
+}
+
+/// `found` with each sub-goal's best section not already in it, after its first
+/// [`SUB_GOAL_KEEP`]; then the rest of `found`; `k` sections at most. A single-goal question that
+/// uses creative words ([`TECHNIQUES`]) is looked up once more with their techniques.
+fn with_sub_goals(mode: crate::coach_meaning::SearchMode, found: Vec<coach_ask::Retrieved>, question: &str, k: usize) -> Vec<coach_ask::Retrieved> {
+    let mut goals = if SPLIT_SUB_GOALS { sub_goals(question) } else { Vec::new() };
+    if goals.is_empty() {
+        let q = chars(question, MAX_QUESTION_CHARS).to_lowercase();
+        if with_techniques(&q) == q {
+            return found;
+        }
+        goals.push(q);
+    }
+    let mut out: Vec<coach_ask::Retrieved> = found.iter().take(SUB_GOAL_KEEP).cloned().collect();
+    let mut extra: Vec<coach_ask::Retrieved> = Vec::new();
+    for g in &goals {
+        let got = coach_ask::retrieve_in(mode, &with_techniques(g), SUB_GOAL_KEEP.saturating_add(1));
+        if let Some(r) = got.into_iter().find(|r| !out.iter().chain(&extra).any(|o| std::ptr::eq(o.section, r.section))) {
+            extra.push(r);
+        }
+    }
+    for r in extra.into_iter().chain(found.into_iter().skip(SUB_GOAL_KEEP)) {
+        if out.len() >= k {
+            break;
+        }
+        if !out.iter().any(|o| std::ptr::eq(o.section, r.section)) {
+            out.push(r);
+        }
+    }
+    out
 }
 
 /// Whether a grounded answer opens by saying the guide doesn't cover the question.
@@ -463,6 +1181,7 @@ pub fn answer_streaming(
     };
     let pick = ctx.style == AssistStyle::Pick;
     let coach = |sources: Vec<String>, why: AssistFallback| AssistAnswer {
+        seen: Vec::new(),
         sources,
         grounded: None,
         fallback: Some(why),
@@ -487,14 +1206,14 @@ pub fn answer_streaming(
     let mut stopped = false;
     let mut watch = |t: &str| {
         // a pick reply is keys: the preview shows the steps they name
-        let go = if pick { on_text(&picked_text(&parse_picks(t, &steps))) } else { on_text(t) };
+        let go = if pick { on_text(&picked_text(&answer_picks(t, &steps))) } else { on_text(t) };
         stopped |= !go;
         go
     };
     let text = match backend.generate_streaming(model, &prompt.system, &prompt.user, opts, &mut watch) {
         Ok(_) if stopped => return coach(prompt.sources, AssistFallback::Error("stopped before the answer was finished".into())),
         Ok(t) if pick => {
-            let picks = parse_picks(&t, &steps);
+            let picks = answer_picks(&t, &steps);
             if picks.is_empty() && prompt.gap.is_none() {
                 // "NONE": the guide's closest section, and the keyword coach's answer with it
                 let closest = prompt.sources.first().cloned().unwrap_or_default();
@@ -518,6 +1237,9 @@ pub fn answer_streaming(
             t.contains("not yet") || t.contains("doesn't have") || t.contains("does not have") || t.contains("not available")
         });
         if !said {
+            // a picked step that is this same statement goes (it read twice, AI3.6 re-read)
+            let same = same_start(gap);
+            g.lines.retain(|l| same_start(&l.text) != same);
             g.lines.insert(0, coach_ask::GroundedLine { text: format!("{gap} [{id}]"), general: false, ui: Vec::new(), commands: Vec::new() });
             if !g.cited.contains(id) {
                 g.cited.insert(0, id.clone());
@@ -532,7 +1254,7 @@ pub fn answer_streaming(
     let dont_know = prompt.gap.is_none() && says_dont_know(&g);
     let coach = dont_know.then(|| coach_ask::ask(question, checks));
     let lesson = if dont_know { None } else { coach_ask::lesson_for(question, if g.cited.is_empty() { &prompt.sources } else { &g.cited }) };
-    AssistAnswer { sources: prompt.sources, grounded: Some(g), fallback: None, dont_know, lesson, coach }
+    AssistAnswer { seen: Vec::new(), sources: prompt.sources, grounded: Some(g), fallback: None, dont_know, lesson, coach }
 }
 
 // ---------- jobs and commands (AI3.3d) ----------
@@ -563,6 +1285,7 @@ impl AssistAnswer {
             "dontKnow": self.dont_know,
             "lesson": self.lesson.as_ref().map(|(id, title)| json!({"id": id, "title": title})),
             "coach": self.coach.as_ref().map(coach_ask::Answer::to_json),
+            "seen": self.seen,
         })
     }
 }
@@ -579,6 +1302,18 @@ pub struct AssistJobs {
     gate: Arc<Mutex<()>>,
     /// A backend for tests; `None`: the process's real model backend.
     pub backend: Option<Arc<dyn ExplainBackend>>,
+    /// A picture looker for tests; `None`: the installed vision model, if any (AI4.2).
+    pub looker: Option<Arc<dyn PictureLooker>>,
+    /// The last few looks by (frame content, question): asking again about the same frame
+    /// doesn't wait for the vision model again.
+    looks: Arc<Mutex<std::collections::VecDeque<(u64, String)>>>,
+    /// AI4.2b: the latest look per shot ([`AssistContext::shot`]), newest last.
+    shot_looks: Arc<Mutex<std::collections::VecDeque<(u64, String)>>>,
+    /// AI4.1c: the last picture fact sheet and its key (clip, frame, the clip's state, the
+    /// pipeline), so asking again on the same frame doesn't render it again.
+    pub(crate) picture_cache: Mutex<Option<(u64, String)>>,
+    /// AI5: each question with its context, rating and correction, for `coach.shareExample`.
+    pub records: crate::coach_share::ShareRecords,
 }
 
 impl std::fmt::Debug for AssistJobs {
@@ -610,9 +1345,43 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Keeps `seen` as the shot's latest look (one per shot, at most [`MAX_LOOKS`] shots).
+fn remember_shot_look(l: &mut std::collections::VecDeque<(u64, String)>, shot: u64, seen: &str) {
+    l.retain(|(k, _)| *k != shot);
+    while l.len() >= MAX_LOOKS {
+        l.pop_front();
+    }
+    l.push_back((shot, seen.to_string()));
+}
+
+/// Whether `question` points at the shot itself ("what would you do with this shot?", "the
+/// footage feels wrong") rather than only using "this" for a control: then a look already made
+/// of the shot is worth handing on. Narrower than [`asks_about_the_frame`] on purpose.
+fn refers_to_the_shot(question: &str) -> bool {
+    const SHOT: [&str; 10] = ["shot", "frame", "footage", "picture", "image", "looks", "look", "muddy", "lifeless", "scene"];
+    let l = question.to_lowercase();
+    l.split(|c: char| !c.is_alphanumeric()).any(|w| SHOT.contains(&w))
+}
+
 impl AssistJobs {
+    /// AI4.2b: the latest look of `shot`, if the vision model has looked at it.
+    pub(crate) fn shot_look(&self, shot: u64) -> Option<String> {
+        lock(&self.shot_looks).iter().rev().find(|(k, _)| *k == shot).map(|(_, v)| v.clone())
+    }
+
     /// Start answering; the id to ask [`AssistJobs::result`] with. Errors when too many wait.
-    fn start(&mut self, snap: Snapshot, model: &'static filmcraft_llm::ModelInfo, question: String, ctx: AssistContext) -> std::result::Result<u64, String> {
+    /// The looker questions use: the test one, else the installed vision model.
+    pub(crate) fn looker(&self) -> Option<Arc<dyn PictureLooker>> {
+        self.looker.clone().or_else(crate::ai_explain::real_looker)
+    }
+
+    fn start(
+        &mut self,
+        snap: Snapshot,
+        model: &'static filmcraft_llm::ModelInfo,
+        question: String,
+        mut ctx: AssistContext,
+    ) -> std::result::Result<u64, String> {
         let mut entries = lock(&self.entries);
         if entries.values().filter(|e| e.is_none()).count() >= MAX_PENDING {
             return Err(format!("{MAX_PENDING} questions are already being answered; wait for one"));
@@ -627,6 +1396,7 @@ impl AssistJobs {
         let backend = self.backend.clone().or_else(|| crate::ai_explain::real_backend().map(|b| b as Arc<dyn ExplainBackend>));
         let Some(backend) = backend else {
             let a = snap.with(|c| AssistAnswer {
+                seen: Vec::new(),
                 sources: assistant_prompt(&question, &ctx, DEFAULT_BUDGET_CHARS).sources,
                 grounded: None,
                 fallback: Some(AssistFallback::NotReady("this build can't run a model (built without the `llm` feature)".into())),
@@ -634,16 +1404,40 @@ impl AssistJobs {
                 lesson: None,
                 coach: Some(coach_ask::ask(&question, c)),
             });
+            let mut a = a;
+            a.seen = picture_note(&question, ctx.picture_facts.as_deref());
             entries.insert(id, Some(a));
             return Ok(id);
         };
         entries.insert(id, None);
         drop(entries);
         let (store, partial, gate) = (self.entries.clone(), self.partial.clone(), self.gate.clone());
+        let looker = ctx.picture.is_some().then(|| self.looker()).flatten();
+        let looks = self.looks.clone();
+        let shot_looks = self.shot_looks.clone();
         let spawned = std::thread::Builder::new().name("filmcraft-assist".into()).spawn(move || {
             let _turn = lock(&gate);
             if !lock(&store).contains_key(&id) {
                 return; // forgotten while it waited
+            }
+            // AI4.2: the vision model looks at the frame with the question first (its failure
+            // only means no "seen" line)
+            if let (Some(pic), Some(looker)) = (ctx.picture.take(), looker) {
+                let key = look_key(&pic, &question);
+                let cached = lock(&looks).iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
+                ctx.picture_seen = cached.or_else(|| {
+                    let seen = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| looker.look(&pic, &question)));
+                    let text = Some(chars(seen.ok()?.ok()?.trim(), MAX_SEEN_CHARS)).filter(|t| !t.is_empty())?;
+                    let mut l = lock(&looks);
+                    if l.len() >= MAX_LOOKS {
+                        l.pop_front();
+                    }
+                    l.push_back((key, text.clone()));
+                    Some(text)
+                });
+                if let (Some(shot), Some(seen)) = (ctx.shot, ctx.picture_seen.as_ref()) {
+                    remember_shot_look(&mut lock(&shot_looks), shot, seen);
+                }
             }
             // a question forgotten while it waited or ran stops the model
             let mut preview = |t: &str| {
@@ -657,7 +1451,9 @@ impl AssistJobs {
                 snap.with(|c| answer_streaming(backend.as_ref(), model, &question, &ctx, c, &mut preview))
             }));
             lock(&partial).remove(&id);
-            let a = r.unwrap_or_else(|_| AssistAnswer {
+            let seen = picture_note(&question, ctx.picture_facts.as_deref());
+            let mut a = r.unwrap_or_else(|_| AssistAnswer {
+                seen: Vec::new(),
                 sources: Vec::new(),
                 grounded: None,
                 fallback: Some(AssistFallback::Error("the assistant stopped unexpectedly".into())),
@@ -665,6 +1461,7 @@ impl AssistJobs {
                 lesson: None,
                 coach: snap.with(|c| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| coach_ask::ask(&question, c))).ok()),
             });
+            a.seen = seen;
             // (a forgotten question stays forgotten)
             if let Some(slot) = lock(&store).get_mut(&id) {
                 *slot = Some(a);
@@ -716,10 +1513,23 @@ fn assist_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     let q = p.get("question").and_then(Value::as_str).ok_or_else(|| bad("coach.assist", "need `question` (text)"))?;
     let model_id = p.get("model").and_then(Value::as_str).unwrap_or(ASSIST_MODEL);
     let model = filmcraft_llm::models::find(model_id).ok_or_else(|| bad("coach.assist", format!("unknown model `{}`", chars(model_id, 80))))?;
+    // (AI4.1a: `context: "auto"` fills what the caller didn't give from the session: the
+    // selection and the current grade node's measured facts; the panel and the Ask box use it)
+    let auto = match p.get("context").and_then(Value::as_str) {
+        None | Some("none") => false,
+        Some("auto") => true,
+        Some(_) => return Err(bad("coach.assist", "`context` is `auto` or `none`")),
+    };
     let ctx = AssistContext {
         page: opt_text(p, "page"),
-        selection: opt_text(p, "selection"),
-        grade_facts_json: opt_text(p, "gradeFacts"),
+        selection: opt_text(p, "selection").or_else(|| auto.then(|| crate::grade_tools::selection_text(s)).flatten().map(|v| chars(&v, MAX_CONTEXT_CHARS))),
+        grade_facts_json: opt_text(p, "gradeFacts")
+            .or_else(|| auto.then(|| crate::grade_tools::current_grade_facts(s)).flatten().map(|v| chars(&v, MAX_CONTEXT_CHARS))),
+        picture_facts: opt_text(p, "pictureFacts")
+            .or_else(|| auto.then(|| crate::grade_tools::current_picture_facts(s)).flatten().map(|v| chars(&v, MAX_CONTEXT_CHARS))),
+        picture_seen: None,
+        picture: None,
+        shot: auto.then(|| crate::grade_tools::current_shot_key(s)).flatten(),
         previous_question: opt_text(p, "previousQuestion"),
         previous_answer: opt_text(p, "previousAnswer"),
         style: match p.get("style").and_then(Value::as_str) {
@@ -727,8 +1537,24 @@ fn assist_cmd(s: &mut Session, p: &Value) -> Result<Value> {
             Some(v) => AssistStyle::parse(v).ok_or_else(|| bad("coach.assist", "`style` is `free` or `pick`"))?,
         },
     };
+    // AI4.2: with a vision model installed and a question about the picture (one the measured
+    // facts speak to: exposure, colour, skin, …), the frame goes along for it to look at
+    // (rendered small here; the looking happens on the assistant's thread)
+    let mut ctx = ctx;
+    let about_picture = ctx.picture_facts.as_deref().is_some_and(|f| !picture_note(q, Some(f)).is_empty());
+    if auto && about_picture && s.assist.looker().is_some() {
+        ctx.picture = crate::grade_tools::program_frame_rgb(s, LOOK_PIXELS).map(|(rgb, w, h)| Arc::new(PictureInput { rgb, w, h }));
+    } else if auto && refers_to_the_shot(q) {
+        // AI4.2b: a question about the shot that the measured facts don't speak to ("what
+        // would you do with this shot?") gets the shot's last look, if there is one; it never
+        // waits for a fresh look (provisional design: reuse instead of a generic description)
+        ctx.picture_seen = ctx.shot.and_then(|k| s.assist.shot_look(k));
+    }
     let snap = Snapshot::of(s);
+    let mut record = crate::coach_share::ShareRecord::new(&chars(q, MAX_QUESTION_CHARS), &ctx);
+    record.private = Some(Arc::new(crate::coach_share::Private::of(s)));
     let id = s.assist.start(snap, model, chars(q, MAX_QUESTION_CHARS), ctx).map_err(|e| bad("coach.assist", e))?;
+    s.assist.records.insert(id, record);
     Ok(json!({"id": id, "model": model.id}))
 }
 
@@ -798,8 +1624,11 @@ pub struct EvalScore {
     /// Lines with unknown controls / commands / labels plus citations of sections not sent:
     /// any of them fails the case (AI-PLAN AI3 accept: "any invented one fails the case").
     pub invented: usize,
-    /// `gap` cases: the answer says the feature isn't there yet (None for other kinds).
+    /// `gap` cases, and `creative` cases whose plan has a step FilmCraft can't do yet: the answer
+    /// says so (None for other cases).
     pub states_gap: Option<bool>,
+    /// `creative` cases: how many of the plan's sections the answer cites (None for other kinds).
+    pub plan_cited: Option<usize>,
     pub auto_pass: bool,
     /// Why it failed, in a few words (empty when it passed).
     pub why: Vec<&'static str>,
@@ -809,7 +1638,8 @@ pub struct EvalScore {
 
 /// Whether a line says a feature isn't in FilmCraft yet.
 fn says_gap(text: &str) -> bool {
-    const SAYS: [&str; 7] = ["not yet", "not available", "doesn't have", "does not have", "isn't available", "planned", "not in filmcraft"];
+    const SAYS: [&str; 8] =
+        ["not yet", "not available", "doesn't have", "does not have", "isn't available", "planned", "not in revolution", "not in filmcraft"];
     let t = text.to_lowercase().replace('\u{2019}', "'");
     // "FilmCraft: no outside node yet; …": a clause with both "no" and "yet"
     let no_yet = t.split([';', '.', ',']).any(|c| {
@@ -819,7 +1649,24 @@ fn says_gap(text: &str) -> bool {
     no_yet || SAYS.iter().any(|w| t.contains(w))
 }
 
-/// Scores one answer against its case (AI3.6).
+/// Fewest plan sections a `creative` answer must cite (AI-PLAN AI4 item 5c.3): a creative goal
+/// is a plan built from several tools, so one matching section isn't enough (fewer when the plan
+/// itself has fewer sections).
+pub const CREATIVE_MIN_CITED: usize = 2;
+
+/// [`says_gap`], a plain "can't" / "no built-in", or a clause with a negation and "yet" ("they don't
+/// change playback yet"): how creative plans admit a missing step.
+fn says_creative_gap(text: &str) -> bool {
+    const SAYS: [&str; 5] = ["can't", "cannot", "no built-in", "not possible", "isn't possible"];
+    let t = text.to_lowercase().replace('\u{2019}', "'");
+    let negated_yet = t.split([';', '.', ',']).any(|c| {
+        let w: Vec<&str> = c.split(|ch: char| !ch.is_alphanumeric() && ch != '\'').collect();
+        w.contains(&"yet") && w.iter().any(|x| *x == "not" || *x == "no" || x.ends_with("n't"))
+    });
+    negated_yet || says_gap(&t) || SAYS.iter().any(|w| t.contains(w))
+}
+
+/// Scores one answer against its case (AI3.6; `creative` cases as plans, AI4 item 5c.3).
 pub fn score_case(case: &EvalCase, a: &AssistAnswer) -> EvalScore {
     let mut s = EvalScore { id: case.id.clone(), review: case.must.clone(), ..EvalScore::default() };
     let Some(g) = a.grounded.as_ref() else {
@@ -831,7 +1678,21 @@ pub fn score_case(case: &EvalCase, a: &AssistAnswer) -> EvalScore {
         s.why.push("said it doesn't know");
     }
     s.cites_source = g.cited.iter().any(|c| case.sources.contains(c));
-    if !s.cites_source {
+    if case.kind == "creative" {
+        let cited = case.sources.iter().filter(|src| g.cited.contains(*src)).count();
+        s.plan_cited = Some(cited);
+        if cited < CREATIVE_MIN_CITED.min(case.sources.len()).max(1) {
+            s.why.push("the plan cites fewer than two of its sections");
+        }
+        // a plan with a step FilmCraft can't do expects the answer to say so, anywhere in it
+        if case.must.iter().any(|m| says_creative_gap(m)) {
+            let said = g.lines.iter().any(|l| says_creative_gap(&l.text));
+            s.states_gap = Some(said);
+            if !said {
+                s.why.push("didn't say which step Revolution can't do yet");
+            }
+        }
+    } else if !s.cites_source {
         s.why.push("no expected source cited");
     }
     s.invented = g.removed_lines.saturating_add(g.invented_citations.len());
@@ -861,6 +1722,10 @@ pub struct EvalSummary {
     pub invented_cases: usize,
     /// Auto-pass rate in percent (0 when there are no cases).
     pub percent: f64,
+    /// `creative` cases among `cases`, and how many of them passed: scored apart from lookup
+    /// questions (AI4 item 5c.3).
+    pub creative_cases: usize,
+    pub creative_pass: usize,
 }
 
 pub fn summarize(scores: &[EvalScore]) -> EvalSummary {
@@ -874,6 +1739,8 @@ pub fn summarize(scores: &[EvalScore]) -> EvalSummary {
         cites_source: count(&|s| s.cites_source),
         invented_cases: count(&|s| s.invented > 0),
         percent: if cases == 0 { 0.0 } else { auto_pass as f64 * 100.0 / cases as f64 },
+        creative_cases: count(&|s| s.plan_cited.is_some()),
+        creative_pass: count(&|s| s.plan_cited.is_some() && s.auto_pass),
     }
 }
 
@@ -884,7 +1751,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Ask the Assistant",
             menu: &[],
             shortcut: None,
-            params: r#"{"question":str,"page":str?,"selection":str?,"gradeFacts":str?,"model":str?,"previousQuestion":str?,"previousAnswer":str?,"style":str?}"#,
+            params: r#"{"question":str,"page":str?,"selection":str?,"gradeFacts":str?,"pictureFacts":str?,"context":str?,"model":str?,"previousQuestion":str?,"previousAnswer":str?,"style":str?}"#,
             enabled: always,
             run: assist_cmd,
             journal: false,

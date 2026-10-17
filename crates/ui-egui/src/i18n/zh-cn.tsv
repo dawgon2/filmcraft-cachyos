@@ -8,8 +8,8 @@
 #
 # 净室实现：每条译文均由英文含义直接译出，使用通用的中文视频剪辑术语（剪辑、时间轴、序列、
 #   轨道、关键帧……）。未参考或复制任何专有本地化资源、字符串表或产品界面。产品与技术名称
-#   （FilmCraft、ArtCraft、Lumetri、ProRes、LUFS……）保留原文拼写。
-	About FilmCraft	关于 FilmCraft
+#   （Revolution、ArtCraft、Lumetri、ProRes、LUFS……）保留原文拼写。
+	About Revolution	关于 Revolution
 	Add Audio Submix Track	添加音频子混音轨道
 	Add Caption at Playhead	在播放头处添加字幕
 	Add Chapter Marker…	添加章节标记…
@@ -35,7 +35,7 @@
 	Apply Default Transitions to Selection	对所选对象应用默认过渡
 	Apply Video Transition	应用视频过渡
 	Arrange	排列
-	ArtCraft Website	ArtCraft 官网
+	Based on FilmCraft (Original Project)	基于 FilmCraft（原项目）
 	Assembly	组装
 	Attach Proxies…	附加代理文件…
 	Audio Channels…	音频声道…
@@ -130,9 +130,9 @@
 	File	文件
 	File…	文件…
 	Fill frame	填满帧
-	FilmCraft Help…	FilmCraft 帮助…
-	FilmCraft on GitHub	GitHub 上的 FilmCraft
-	FilmCraft on getartcraft.com	getartcraft.com 上的 FilmCraft
+	Revolution Help…	Revolution 帮助…
+	Revolution on GitHub	GitHub 上的 Revolution
+	Source Code on GitHub	GitHub 上的源代码
 	Find Next	查找下一个
 	Find…	查找…
 	Fit	适配
@@ -179,7 +179,7 @@
 	Installed: it loads the first time the Voice Isolation effect plays.	已安装：首次播放人声分离效果时加载。
 	Installed: the Voice Isolation effect uses this model.	已安装：人声分离效果使用此模型。
 	Interpret Footage…	解释素材…
-	Join the ArtCraft Discord…	加入 ArtCraft Discord…
+	Revolution Releases…	Revolution 版本发布…
 	Keyboard Shortcuts…	键盘快捷键…
 	Label	标签
 	Labels…	标签…
@@ -191,7 +191,7 @@
 	Lift	提升
 	Light	浅
 	Not installed: the Voice Isolation effect works as DeNoise until you download the model.	未安装：下载模型之前，人声分离效果将作为降噪工作。
-	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download.	可选且离线：本机上的一个小型神经网络（约 8 MB）为人声分离音频效果将语音与噪声分开。它从不随 FilmCraft 捆绑，仅在您点击“下载”时从其发布者处下载。
+	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with Revolution and is downloaded from its publisher only when you click Download.	可选且离线：本机上的一个小型神经网络（约 8 MB）为人声分离音频效果将语音与噪声分开。它从不随 Revolution 捆绑，仅在您点击“下载”时从其发布者处下载。
 	Remove Voice Isolation Model	删除人声分离模型
 	Resolve	Resolve
 	Link	链接
@@ -308,7 +308,7 @@
 	Select Previous Graphic	选择上一个图形
 	Select Previous Layer	选择上一个图层
 	Selection Follows Playhead	选择跟随播放头
-	Selection as FilmCraft Project…	将所选对象另存为 FilmCraft 项目…
+	Selection as Revolution Project…	将所选对象另存为 Revolution 项目…
 	Selection…	所选对象…
 	Send Backward	下移一层
 	Send to Back	置于底层
@@ -379,7 +379,6 @@
 	Master volume: use the Audio Track Mixer	主音量：请使用音频轨道混音器调整
 	Search	搜索
 	Quick Export	快速导出
-	Join the ArtCraft Discord (discord.gg/artcraft)	加入 ArtCraft Discord（discord.gg/artcraft）
 	Cancel	取消
 	OK	确定
 	Interpret Footage	解释素材
@@ -418,8 +417,8 @@
 	Delete Audio Tracks	删除音频轨道
 	All Empty Tracks	所有空轨道
 	Version {version}	版本 {version}
-	A clean-room, pure-Rust non-linear video editor. Part of the ArtCraft family.	一款净室实现的纯 Rust 非线性视频编辑器，属于 ArtCraft 家族。
-	Join the ArtCraft Discord	加入 ArtCraft Discord
+	A pure-Rust non-linear video editor. Based on FilmCraft by the ArtCraft team and community.	一款纯 Rust 非线性视频编辑器，基于 ArtCraft 团队与社区开发的 FilmCraft。
+	Get the newest release	获取最新版本
 	Source code on GitHub	GitHub 上的源代码
 	Report an issue	报告问题
 	MIT OR Apache-2.0. Fonts: Inter, Noto Serif and JetBrains Mono (SIL OFL 1.1).	MIT 或 Apache-2.0。字体：Inter、Noto Serif 与 JetBrains Mono（SIL OFL 1.1）。
@@ -439,8 +438,8 @@
 	No background jobs.	无后台任务。
 	Recover Unsaved Changes	恢复未保存的更改
 	Untitled	未命名
-	FilmCraft was closed while “{name}” had unsaved changes.	FilmCraft 在“{name}”存在未保存的更改时被关闭。
-	FilmCraft quit unexpectedly while “{name}” had unsaved changes.	FilmCraft 在“{name}”存在未保存的更改时意外退出。
+	Revolution was closed while “{name}” had unsaved changes.	Revolution 在“{name}”存在未保存的更改时被关闭。
+	Revolution quit unexpectedly while “{name}” had unsaved changes.	Revolution 在“{name}”存在未保存的更改时意外退出。
 	Recover unsaved changes from {when}?	恢复 {when} 的未保存更改吗？
 	The project had not been saved yet.	该项目尚未保存。
 	{n} sessions have unsaved changes:	{n} 个会话存在未保存的更改：
@@ -460,7 +459,6 @@
 	Bars and Tone	彩条与音调
 	SMPTE HD bars with 1 kHz reference tone	带 1 kHz 参考音调的 SMPTE HD 彩条
 	Community	社区
-	Join us on Discord	在 Discord 上加入我们
 	OMF Export Settings	OMF 导出设置
 	AAF Export Settings	AAF 导出设置
 	OMF Title:	OMF 标题：
@@ -969,7 +967,7 @@
 	Label Colors	标签颜色
 	Decoded frames held for the monitors and thumbnails: {used} of {budget}.	为监视器和缩略图保留的解码帧：{used} / {budget}。
 	Decoded source frames shared by all clips: {used} of {budget}, up to {decoders} live decoders.	所有剪辑共享的已解码源帧：{used} / {budget}，最多 {decoders} 个活动解码器。
-	FilmCraft keeps the rest of the RAM free for other applications.	FilmCraft 将剩余内存留给其他应用程序。
+	Revolution keeps the rest of the RAM free for other applications.	Revolution 将剩余内存留给其他应用程序。
 	not available in this session	在当前会话中不可用
 	Currently: {loc} — {files} file(s), {size}	当前：{loc} — {files} 个文件，{size}
 	 ({ch} output channels)	 （{ch} 个输出通道）
@@ -1078,7 +1076,7 @@
 	Video Frame	视频帧
 	Pin To	固定到
 	Pinned Edges	固定边
-	FilmCraft Graphics Template	FilmCraft 图形模板
+	Revolution Graphics Template	Revolution 图形模板
 	{n} Font	{n} 字体
 	{n} Size	{n} 大小
 	{n} Color	{n} 颜色
@@ -1088,7 +1086,7 @@
 	Export As Motion Graphics Template	导出为动态图形模板
 	Category:	分类：
 	Editable properties:	可编辑属性：
-	Saved as a FilmCraft graphics template (.fcgt) in your templates folder.	已作为 FilmCraft 图形模板（.fcgt）保存到你的模板文件夹。
+	Saved as a Revolution graphics template (.fcgt) in your templates folder.	已作为 Revolution 图形模板（.fcgt）保存到你的模板文件夹。
 	Exported graphics template to {path}	已将图形模板导出到 {path}
 	Replace Fonts in Projects	替换项目中的字体
 	Fonts used in the project:	项目中使用的字体：
@@ -1249,6 +1247,8 @@
 	(RGB) Output White Level	（RGB）输出白电平
 	+ Cmd	+ Cmd
 	+ Opt	+ Opt
+	+ Ctrl	+ Ctrl
+	+ Alt	+ Alt
 	10 Bit Black Point	10 位黑点
 	10 Bit White Point	10 位白点
 	105mm Prime	105mm 定焦
@@ -1458,7 +1458,7 @@
 	Center of Sphere	球体中心
 	Cents	音分
 	Change to Color	更改为颜色
-	Changes are copied in the background a moment after each edit. If FilmCraft quits unexpectedly, they are offered the next time it starts.	每次编辑后，更改会在后台稍后复制。如果 FilmCraft 意外退出，下次启动时会提示恢复。
+	Changes are copied in the background a moment after each edit. If Revolution quits unexpectedly, they are offered the next time it starts.	每次编辑后，更改会在后台稍后复制。如果 Revolution 意外退出，下次启动时会提示恢复。
 	Channel	通道
 	Channel Blur	通道模糊
 	Channel Mix	通道混合
@@ -1831,7 +1831,7 @@
 	Hard Limiter	硬限制器
 	Hard Mix	硬混合
 	Hardware decoding	硬件解码
-	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	硬件解码：自动模式对支持的流使用系统视频解码器（macOS 上为 VideoToolbox，Windows 上为 Media Foundation，Linux 上对 H.264 和 HEVC 使用 VA-API），其余情况或硬件失败时回退到 FilmCraft 自带的解码器。已打开的媒体会保留其解码器，直到重新打开。
+	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API for H.264 and HEVC on Linux) for the streams it supports, and Revolution's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	硬件解码：自动模式对支持的流使用系统视频解码器（macOS 上为 VideoToolbox，Windows 上为 Media Foundation，Linux 上对 H.264 和 HEVC 使用 VA-API），其余情况或硬件失败时回退到 Revolution 自带的解码器。已打开的媒体会保留其解码器，直到重新打开。
 	Head Size	头部大小
 	Heart	心形
 	Height	高度
@@ -2101,7 +2101,7 @@
 	Night	夜景
 	No Motion	无运动
 	No Scroll	不滚动
-	No plugins are installed. Changes will take effect the next time you start FilmCraft.	未安装任何插件。更改将在下次启动 FilmCraft 时生效。
+	No plugins are installed. Changes will take effect the next time you start Revolution.	未安装任何插件。更改将在下次启动 Revolution 时生效。
 	Noise	噪点
 	Noise & Grain	噪点与颗粒
 	Noise (Legacy)	噪点（旧版）
@@ -2532,7 +2532,7 @@
 	Template Properties	模板属性
 	Text Animator	文本动画器
 	Text Color	文本颜色
-	The media cache holds render previews of unsaved projects and other files FilmCraft can recreate. Deleting them is always safe; FilmCraft rebuilds them as needed.	媒体缓存保存未保存项目的渲染预览，以及其他 FilmCraft 可重建的文件。删除它们始终安全；FilmCraft 会在需要时重新构建。
+	The media cache holds render previews of unsaved projects and other files Revolution can recreate. Deleting them is always safe; Revolution rebuilds them as needed.	媒体缓存保存未保存项目的渲染预览，以及其他 Revolution 可重建的文件。删除它们始终安全；Revolution 会在需要时重新构建。
 	Thickness	厚度
 	Tile Gradient	平铺渐变
 	Tilt	倾斜
@@ -2742,7 +2742,7 @@
 	System Compatibility Report	系统兼容性报告
 	no GPU adapter: the CPU compositor is used	无 GPU 适配器：使用 CPU 合成器
 	Avid Log Exchange	Avid Log Exchange
-	FilmCraft Project	FilmCraft 项目
+	Revolution Project	Revolution 项目
 	{name} Selection.fcproj	{name} Selection.fcproj
 	{name} (Simplified)	{name}（简化）
 	Find in:	查找位置：
@@ -2884,7 +2884,7 @@
 	Start Queue	启动队列
 	Stop	停止
 	Clear Finished	清除已完成
-	Not supported by FilmCraft's encoders yet	FilmCraft 的编码器尚不支持
+	Not supported by Revolution's encoders yet	Revolution 的编码器尚不支持
 	Sequence name	序列名称
 	Folder	文件夹
 	Preset	预设
@@ -2969,7 +2969,7 @@
 	Drag a clip to slide it between its neighbours.	拖动剪辑以在其相邻剪辑之间滑动。
 	Drag to scroll the timeline.	拖动以滚动时间轴。
 	Click to zoom in; Opt-click to zoom out.	单击以放大；Opt-单击以缩小。
-	FilmCraft hit an error	FilmCraft 遇到错误
+	Revolution hit an error	Revolution 遇到错误
 	Details: {path}	详细信息：{path}
 	Opened {url}	已打开 {url}
 	(empty)	（空）
@@ -3223,7 +3223,7 @@
 	QuickTime, ProRes 4444 (4:4:4) with alpha channel, 24-bit 48 kHz PCM	QuickTime，ProRes 4444 (4:4:4)，带 Alpha 通道，24 位 48 kHz PCM
 	QuickTime, ProRes 4444 XQ (4:4:4), 24-bit 48 kHz PCM	QuickTime，ProRes 4444 XQ (4:4:4)，24 位 48 kHz PCM
 	QuickTime, ProRes 422, 24-bit 48 kHz PCM	QuickTime，ProRes 422，24 位 48 kHz PCM
-	Quit FilmCraft	退出 FilmCraft
+	Quit Revolution	退出 Revolution
 	Rate Stretch Tool	速率伸缩工具
 	Razor Tool	剃刀工具
 	Rectangle Tool	矩形工具
@@ -3523,8 +3523,8 @@
 	Composite in Linear Color	在线性色彩中合成
 	Auto Tone Map Media (HDR and log into SDR)	自动色调映射媒体（HDR 与 log 映射至 SDR）
 	Configure…	配置…
-	Not supported in FilmCraft yet	FilmCraft 尚不支持
-	FilmCraft always composites in linear light	FilmCraft 始终在线性光中合成
+	Not supported in Revolution yet	Revolution 尚不支持
+	Revolution always composites in linear light	Revolution 始终在线性光中合成
 	Loop marked range	循环标记范围
 	Play Source	播放源
 	Source Play/Stop	源播放/停止
@@ -3639,7 +3639,7 @@
 	Explain Grade	解释调色
 	Pick Qualifier Colour	拾取限定器颜色
 # fork (cloud I18N-1): entries that had es but no zh-cn
-	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	硬件解码：“自动”对系统支持的流使用系统的视频解码器（macOS 上为 VideoToolbox，Windows 上为 Media Foundation，Linux 上 H.264 和 HEVC 使用 VA-API 或 NVDEC），其余情况或硬件出错时使用 FilmCraft 自己的解码器。已打开的媒体在重新打开前保持原来的解码器。
+	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and Revolution's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	硬件解码：“自动”对系统支持的流使用系统的视频解码器（macOS 上为 VideoToolbox，Windows 上为 Media Foundation，Linux 上 H.264 和 HEVC 使用 VA-API 或 NVDEC），其余情况或硬件出错时使用 Revolution 自己的解码器。已打开的媒体在重新打开前保持原来的解码器。
 	Ripple Trim In	波纹修剪入点
 	Ripple Trim Out	波纹修剪出点
 	Roll Edit	滚动编辑
@@ -3729,9 +3729,9 @@
 	This build can't run AI models (built without the `llm` feature): the plain template is shown.	此版本无法运行 AI 模型（构建时未启用 `llm` 功能）：将显示普通模板。
 	This build isn't optimised for AVX2: an explanation takes 15–30 s instead of about 5 s.	此版本未针对 AVX2 优化：一次解释需要 15–30 秒，而不是约 5 秒。
 	Model downloads are not available in this build.	此版本不支持下载模型。
-	Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead.	可选且离线：本机上的小型语言模型会用通俗的语言改写节点解释器测得的事实。它从不随 FilmCraft 一起提供，只有在你点击“下载”时才会从发布者处下载。每段文字都会与测得的事实进行核对；未通过核对时，将改为显示普通的模板句子。
-	Most stock models fail the strict check. The FilmCraft-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used.	大多数现成模型无法通过严格核对。专为 FilmCraft 调优的解说模型几乎每次都能通过；目前它们在这台电脑上构建，发布后即可下载。在你选择模型之前，会使用已安装的最佳调优解说模型。
-	{name}: {size}, licence {licence}. Built on this computer (FilmCraft fine-tune of {base}); not downloadable yet.	{name}：{size}，许可证 {licence}。在这台电脑上构建（基于 {base} 的 FilmCraft 微调）；暂不可下载。
+	Optional and offline: a small language model on this computer rewrites the node explainer's measured facts in plain words. It is never bundled with Revolution and is downloaded from its publisher only when you click Download. Every text is checked against the measured facts; when it doesn't pass, the plain template sentence is shown instead.	可选且离线：本机上的小型语言模型会用通俗的语言改写节点解释器测得的事实。它从不随 Revolution 一起提供，只有在你点击“下载”时才会从发布者处下载。每段文字都会与测得的事实进行核对；未通过核对时，将改为显示普通的模板句子。
+	Most stock models fail the strict check. The Revolution-tuned explainers pass it almost every time; they are built on this computer for now and can be downloaded once they are published. Until you choose a model, the best tuned explainer installed is used.	大多数现成模型无法通过严格核对。专为 Revolution 调优的解说模型几乎每次都能通过；目前它们在这台电脑上构建，发布后即可下载。在你选择模型之前，会使用已安装的最佳调优解说模型。
+	{name}: {size}, licence {licence}. Built on this computer (Revolution fine-tune of {base}); not downloadable yet.	{name}：{size}，许可证 {licence}。在这台电脑上构建（基于 {base} 的 Revolution 微调）；暂不可下载。
 	checked	已核对
 	Written by the local AI model and checked against the measured facts.	由本地 AI 模型撰写，并已与测得的事实核对。
 	Writing a plain-language version…	正在撰写通俗版本…
@@ -3899,7 +3899,7 @@
 	Off (reduce motion)	关闭（减少动态效果）
 	Media keys and the desktop's media controls	媒体键和桌面媒体控制
 	Window title bar	窗口标题栏
-	FilmCraft (like DaVinci Resolve)	FilmCraft（类似 DaVinci Resolve）
+	Revolution (like DaVinci Resolve)	Revolution（类似 DaVinci Resolve）
 	System (desktop title bar)	系统（桌面标题栏）
 	Minimize	最小化
 	Maximize	最大化
@@ -3957,7 +3957,7 @@
 	In the window	在窗口中
 	Preferences…	首选项…
 	Untitled project: File ▸ Save As keeps it	未命名项目：文件 ▸ 另存为可保留它
-	FilmCraft	FilmCraft
+	Revolution	Revolution
 	Project Manager full screen	项目管理器全屏
 	discrete	独立显卡
 	integrated	集成显卡
@@ -3966,7 +3966,10 @@
 	other	其他
 	List Graphics Devices	列出图形设备
 	{gpu} (not found: Auto)	{gpu}（未找到：自动）
+	Power saving (integrated GPU)	节能（集成显卡）
+	Performance (discrete GPU)	高性能（独立显卡）
 	Graphics device (takes effect at the next start)	图形设备（下次启动时生效）
+	Lower playback resolution on battery	使用电池时降低播放分辨率
 	Audio mixing stopped after an error: playing without sound	音频混音因错误而停止：正在无声播放
 	No sound: the audio output could not start ({why})	无声音：音频输出无法启动（{why}）
 	No sound: the audio output keeps changing its sample rate (check Settings ▸ Audio Hardware)	无声音：音频输出的采样率不断变化（请检查“设置 ▸ 音频硬件”）
@@ -4026,12 +4029,12 @@
 	Mask Opacity	遮罩不透明度
 	Mask Expansion	遮罩扩展
 	View Node	查看节点
-	Also ask the assistant (slow: runs on this computer)	同时询问 AI 助手（较慢：在本机运行）
+	Also ask the assistant (runs on this computer)	同时询问 AI 助手（在本机运行）
 	The assistant is reading the guide…	AI 助手正在阅读指南…
 	Assistant	AI 助手
 	Not checked against the guide yet.	尚未与指南核对。
 	The assistant can't run here yet (its model isn't installed or this build has none), so the guide's answer above is all there is.	AI 助手暂时无法在此运行（模型未安装或此版本不含模型），因此只有上方指南的回答。
-	The assistant's answer named things FilmCraft doesn't have, so it was left out; the guide's answer above is checked.	AI 助手的回答提到了 FilmCraft 没有的内容，已被省略；上方指南的回答已经过核对。
+	The assistant's answer named things Revolution doesn't have, so it was left out; the guide's answer above is checked.	AI 助手的回答提到了 Revolution 没有的内容，已被省略；上方指南的回答已经过核对。
 	The assistant couldn't answer this time; the guide's answer above still stands.	AI 助手这次无法回答；上方指南的回答仍然有效。
 	Sources: {list}	来源：{list}
 	{n} lines left out: they named controls, commands or shortcuts the guide doesn't have.	省略了 {n} 行：它们提到了指南中没有的控件、命令或快捷键。
@@ -4041,8 +4044,8 @@
 	The assistant says the guide doesn't cover this; the guide's closest answer is above.	助手表示指南未涉及此问题；上方是指南中最接近的答案。
 	Show me: {title}	演示给我看：{title}
 # fork §1a.78: coach buttons in the page bar, Assistant panel
-	Answers come from FilmCraft's guide and run on this computer.	回答来自 FilmCraft 的指南，并在这台电脑上生成。
-	Ask how to do something in FilmCraft: grading, editing, audio, compositing, export…	询问如何在 FilmCraft 中完成某件事：调色、剪辑、音频、合成、导出…
+	Answers come from Revolution's guide and run on this computer.	回答来自 Revolution 的指南，并在这台电脑上生成。
+	Ask how to do something in Revolution: grading, editing, audio, compositing, export…	询问如何在 Revolution 中完成某件事：调色、剪辑、音频、合成、导出…
 	Ask the assistant…	询问 AI 助手…
 	Ask the guide how to do something.	向指南询问如何完成某件事。
 	Chat with the assistant: a panel you can float anywhere or dock beside any panel.	与 AI 助手对话：此面板可浮动在任意位置，或停靠在任意面板旁。
@@ -4052,11 +4055,78 @@
 	Step-by-step lessons.	分步课程。
 	Stopped.	已停止。
 	The assistant can't run here yet (its model isn't installed or this build has none). The guide's answer:	AI 助手暂时无法在此运行（未安装其模型，或此版本不包含模型）。指南的回答：
+	Set up the assistant's model (Settings ▸ Color)	设置 AI 助手的模型（设置 ▸ 颜色）
 	The assistant couldn't answer this time. The guide's answer:	AI 助手这次未能回答。指南的回答：
 	The assistant says the guide doesn't cover this; the guide's closest answer:	AI 助手表示指南未涉及此内容；指南中最接近的回答：
-	The assistant's answer named things FilmCraft doesn't have, so it was left out. The guide's answer:	AI 助手的回答提到了 FilmCraft 没有的内容，因此已省略。指南的回答：
+	The assistant's answer named things Revolution doesn't have, so it was left out. The guide's answer:	AI 助手的回答提到了 Revolution 没有的内容，因此已省略。指南的回答：
 	There's no panel to open the Assistant beside.	没有可在其旁打开 AI 助手的面板。
 	e.g. how do I make the sky bluer without changing skin?	例如：如何让天空更蓝而不改变肤色？
 	Claim Files of No Known Project	认领无已知项目的文件
 	Claimed {n} render cache file(s)	已认领 {n} 个渲染缓存文件
 	Claim Render Cache Files of No Known Project	认领无已知项目的渲染缓存文件
+	On this frame (measured):	当前帧（实测）：
+	Picture model	图像模型
+	Download picture model	下载图像模型
+	Remove picture model	移除图像模型
+	not installed	未安装
+	Helpful	有帮助
+	Not helpful	没有帮助
+	Help improve the Assistant…	帮助改进助手…
+	What should it have said? (optional)	它本应怎么说？（可选）
+	Help improve the Assistant	帮助改进助手
+	This is exactly what would be shared or saved. Names of your project, clips, files and folders, your user name and network addresses are replaced.	这正是将要分享或保存的内容。项目、剪辑、文件和文件夹的名称、你的用户名和网络地址都会被替换。
+	Include the grade's settings	包含调色设置
+	Include the measured picture facts	包含测得的画面数据
+	Include a small frame from my footage (saved as an image)	包含我素材中的一小帧（保存为图像）
+	I agree: it will be public on GitHub and used to train and improve Revolution's Assistant, including models released openly. It holds nothing private.	我同意：它将在 GitHub 上公开，并用于训练和改进 Revolution 的助手，包括公开发布的模型。其中不含任何私人内容。
+	Open on GitHub	在 GitHub 上打开
+	Tick that you agree first.	请先勾选同意。
+	Save example…	保存示例…
+	Save the same text (and the frame, if ticked) to a folder. No agreement needed.	将相同的文本（以及勾选的帧）保存到文件夹。无需同意。
+	Too long for a link: the GitHub page asks for the file. Use Save example… and drag the file into the issue.	内容太长，无法放入链接：GitHub 页面会要求提供文件。请使用“保存示例…”，然后把文件拖到该问题中。
+	Opened on GitHub. A frame can't go in a link: use Save example… and drag the image into the issue.	已在 GitHub 上打开。帧无法放入链接：请使用“保存示例…”，然后把图像拖到该问题中。
+	Opened on GitHub. Check it there and submit it with your account.	已在 GitHub 上打开。请在那里检查并用你的账户提交。
+	Saved as {path}	已保存为 {path}
+	Project file: on a network share ({fs}, {source})	项目文件：位于网络共享（{fs}，{source}）
+	Project file: on a local disk	项目文件：位于本地磁盘
+	Clips on network shares: {n} of {total}	网络共享上的剪辑：{n} / {total}
+	On a network share: {share}	位于网络共享：{share}
+	{n} clip(s) went offline: their files can't be reached	{n} 个剪辑已离线：无法访问其文件
+	{n} clip(s) are back online	{n} 个剪辑已恢复在线
+	Packaging {name}	正在打包 {name}
+	Packaging {name} (about {size})	正在打包 {name}（约 {size}）
+	Revolution package (.fcpackage or manifest.json)	Revolution 包（.fcpackage 或 manifest.json）
+	Package as One File…	打包为单个文件…
+	Package	打包
+	Import Package	导入项目包
+	Package…	打包…
+	Automatic (clips of the open project)	自动（打开项目中的剪辑）
+	Local copies of clips on network shares	网络共享上剪辑的本地副本
+	Local copies size limit	本地副本大小上限
+	Network Copies	网络副本
+	Local copy of {name} ready: it now plays from this computer	{name} 的本地副本已就绪：现在从本机播放
+	Couldn't copy {name} from the network share: {error}	无法从网络共享复制 {name}：{error}
+	On a network share: {share}; plays from its local copy	位于网络共享：{share}；从本地副本播放
+	Update available	有可用更新
+	Update available: {current} → {new}	有可用更新：{current} → {new}
+	What the check sends: one request to GitHub (api.github.com) asking for the newest release. GitHub sees your IP address; nothing else is sent: no usage data, no identifiers.	检查会发送什么：向 GitHub（api.github.com）发送一次请求，询问最新版本。GitHub 会看到你的 IP 地址；不会发送其他任何内容：没有使用数据，没有标识符。
+	Downloading and checking the new build. You can keep working.	正在下载并校验新版本。你可以继续工作。
+	Installed. Revolution starts the new build when you restart it; the old build is kept, so you can roll back in Settings ▸ Updates.	已安装。重新启动 Revolution 后将运行新版本；旧版本会保留，你可以在“设置 ▸ 更新”中回退。
+	Restart Now	立即重启
+	Later	稍后
+	The update didn't install (nothing was changed): {error}	更新未安装（未做任何更改）：{error}
+	Update	更新
+	Open the Release Page	打开发布页面
+	Don't check for updates	不检查更新
+	Revolution won't check for updates. Turn it back on in Settings ▸ Updates.	Revolution 将不再检查更新。可在“设置 ▸ 更新”中重新开启。
+	Updates	更新
+	Check for updates every day	每天检查一次更新
+	This build doesn't check for updates.	此版本不检查更新。
+	Checking…	正在检查…
+	Up to date ({current}).	已是最新（{current}）。
+	The last check didn't get an answer: {error}	上次检查未得到回复：{error}
+	This build: {current}. Not checked yet in this session.	此版本：{current}。本次会话尚未检查。
+	Check Now	立即检查
+	Roll Back to {build}	回退到 {build}
+	The launcher starts {build} again from the next start.	下次启动起，启动器将再次运行 {build}。
+	Installed {new}: restart Revolution to use it.	已安装 {new}：重新启动 Revolution 即可使用。

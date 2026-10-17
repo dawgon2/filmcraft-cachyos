@@ -1,6 +1,6 @@
 # The render cache
 
-**[Resolve-style] [Fork]** · how FilmCraft renders heavy stretches of the timeline in the
+**[Resolve-style] [Fork]** · how Revolution renders heavy stretches of the timeline in the
 background so they play smoothly, what the colours of the render bar mean, and the settings
 
 ## Why
@@ -47,7 +47,7 @@ Proxies (Phase 6.2) are made before cache files when both are waiting.
 
 > id: render-cache.bar | does: the coloured bar under the ruler shows what is cached, waiting or too heavy | resolve: render cache indicator line | premiere: render bar | when: reading the timeline's playback state | see: render-cache.correct
 
-**[FilmCraft] [Fork]**
+**[Revolution] [Fork]**
 
 The thin bar under the timeline ruler:
 
@@ -92,7 +92,7 @@ encoder is not available, pieces are ProRes 422 HQ files instead (larger, same q
 
 The files live in the project's preview folder (next to the project, in
 `FilmCraft Previews/<project name>/`; for an unsaved project, in the media cache). Deleting them is
-always safe: FilmCraft renders them again.
+always safe: Revolution renders them again.
 
 ## Settings and commands
 
@@ -102,10 +102,10 @@ always safe: FilmCraft renders them again.
 
 1. Open **Settings ▸ Media Cache** (`app.settings.mediaCache`) and scroll to **Render Cache**.
 2. Choose **Render cache** {ui:settings.mediaCache.renderCache} (`cache.setMode`):
-   **Smart** (default: red, yellow and graded stretches), **All** (every stretch, even ones that
-   play as they are) or **Off** (nothing new is cached; files already rendered are still used).
+   **Smart** (default: red, yellow and graded stretches), **All** (renders everything: every stretch, even simple clips
+   that play as they are) or **Off** (nothing new is cached; files already rendered are still used).
 3. Set **Render cache size limit** {ui:settings.mediaCache.renderCacheGb} (GB, 20 by default). Above
-   it, FilmCraft deletes cache files that no sequence of the project uses first, then the ones
+   it, Revolution deletes cache files that no sequence of the project uses first, then the ones
    playback used longest ago (down to 90 % of the limit), but never the pieces of the sequence
    you have open. If those alone don't fit, the cache stops and the status line says the size
    limit is reached (`cache.status` reports `limitReached`): raise the limit or press

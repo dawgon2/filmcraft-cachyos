@@ -262,6 +262,7 @@ impl Coordinator {
         }
         loop {
             let Some(&chunk) = self.chunks.get(self.next) else {
+                self.show_progress(done);
                 self.finish();
                 return Ok(None);
             };
@@ -296,6 +297,8 @@ impl Coordinator {
             while let Ok(ev) = self.rx.try_recv() {
                 self.handle(ev)?;
             }
+            // events drained here count for the progress too (else a fast run could end at 0)
+            self.show_progress(done);
             self.retire_slow_lanes();
             match self.rx.recv_timeout(POLL) {
                 Ok(ev) => {

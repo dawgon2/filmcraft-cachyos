@@ -419,10 +419,10 @@ mod tests {
     #[test]
     fn the_filmcraft_menu_comes_first_with_a_line_above_quit() {
         let mut t = Tree::default();
-        t.rebuild(&[item("file.save", &["File"]), item("app.preferences", &["FilmCraft"]), item("app.quit", &["FilmCraft"])]);
+        t.rebuild(&[item("file.save", &["File"]), item("app.preferences", &["Revolution"]), item("app.quit", &["Revolution"])]);
         let root = t.nodes.get(&0).expect("root");
-        let first = t.nodes.get(&root.children[0]).expect("FilmCraft");
-        assert_eq!(first.label, "FilmCraft");
+        let first = t.nodes.get(&root.children[0]).expect("Revolution");
+        assert_eq!(first.label, "Revolution");
         let kinds: Vec<(bool, Option<String>)> = first.children.iter().filter_map(|c| t.nodes.get(c)).map(|n| (n.separator, n.command.clone())).collect();
         assert_eq!(kinds, [(false, Some("app.preferences".into())), (true, None), (false, Some("app.quit".into()))]);
         let sep = first.children[1];

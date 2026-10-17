@@ -1,0 +1,327 @@
+# AI-POOL batch creative-18 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families, weighted to sound tricks and edit structures: a seamless loop, a wipe
+# by something passing the lens, kinetic typography (partial), a movie trailer, an Instagram story,
+# sound that travels left to right, an echoing voice, a pitched voice, muffled sound from the next
+# room, text stuck on a wall. `must` = plan sub-goals from the guide's own text (audio effect names
+# and settings from the effect reference and the effect's controls). Family with a partial gap:
+# kinetic-typography (no text animator presets; keyframes by hand). Held-out only.
+
+# --- seamless-loop ---
+
+[[question]]
+id = "pool-cr18-loop"
+kind = "creative"
+family = "seamless-loop"
+q = "make a short clip loop perfectly so you can't see where it restarts"
+sources = ["effects.transitions", "editing.cutting", "practice.editing.cut-on-action"]
+must = ["pick an end point that matches the start (same position or motion), cut there", "or overlap: put the clip's end over its start with a Cross Dissolve so the loop point blends"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-loop-music"
+kind = "creative"
+family = "seamless-loop"
+q = "looping background video for a website, plus a music loop that matches"
+sources = ["effects.transitions", "essential-sound.remix", "practice.audio.crossfades"]
+must = ["video: a matching cut point or a dissolve from the end into the start", "music: Remix to the loop's length, crossfade the seam"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr18-loop-boomerang"
+kind = "creative"
+family = "seamless-loop"
+q = "boomerang forward backward loop"
+sources = ["media.clips", "edit-menu.clipboard"]
+must = ["copy the clip, paste it after itself and set the copy reversed (Speed / Duration, reverse)", "repeat the pair for longer loops"]
+must_not = []
+style = "sloppy"
+
+# --- object-wipe-transition ---
+
+[[question]]
+id = "pool-cr18-wipe-walk"
+kind = "creative"
+family = "object-wipe-transition"
+q = "transition where someone walks right past the camera and the next scene appears behind them"
+sources = ["effects.opacity", "effects.keyframes", "practice.editing.cut-on-action"]
+must = ["the next scene on the track below, the first shot above with a mask on Opacity whose edge follows the person's edge frame by frame (mask path keyframes)", "or simply cut on the frame the person fills the lens"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-wipe-pole"
+kind = "creative"
+family = "object-wipe-transition"
+q = "wipe transition as the camera pans past a pole"
+sources = ["effects.opacity", "tracking.what", "effects.keyframes"]
+must = ["a mask on the outgoing shot's Opacity with its edge keyframed (or tracked) along the pole", "the cut hides inside the dark pole if the next shot also starts behind something"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr18-wipe-hand"
+kind = "creative"
+family = "object-wipe-transition"
+q = "hand covers the lens transition"
+sources = ["practice.editing.cut-on-action", "editing.cutting"]
+must = ["end the first shot as the hand covers the lens, start the next as it uncovers; cut at the darkest frame", "match the direction of the hand in both"]
+must_not = []
+style = "sloppy"
+
+# --- kinetic-typography (partial gap) ---
+
+[[question]]
+id = "pool-cr18-kinetic"
+kind = "creative"
+family = "kinetic-typography"
+q = "kinetic typography where words fly in as the voice says them"
+sources = ["graphics.text", "effects.keyframes", "text.transcripts"]
+must = ["the transcript has each word's time: place a text layer or graphic per word / phrase at those times", "animate each in with Position / Scale / Opacity keyframes, eased", "no ready-made text animation presets for this: it is keyframed by hand (save a move as a preset to reuse)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-kinetic-preset"
+kind = "creative"
+family = "kinetic-typography"
+q = "same pop-in animation on 60 words, kinetic type"
+sources = ["effects.presets", "graphics.templates"]
+must = ["animate one, save it as a preset with keyframes anchored to the In point (presets.save), apply to each word clip", "or a template graphic with the word editable"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr18-kinetic-beat"
+kind = "creative"
+family = "kinetic-typography"
+q = "lyric words slamming in on the beat with a shake"
+sources = ["timeline.markers", "effects.stylize", "effects.keyframes"]
+must = ["markers on the beats; each word's clip starts on one, scaling in fast", "Camera Shake (or a Scale bump) on the hit"]
+must_not = []
+style = "sloppy"
+
+# --- movie-trailer ---
+
+[[question]]
+id = "pool-cr18-trailer"
+kind = "creative"
+family = "movie-trailer"
+q = "cut a dramatic movie trailer for my short film"
+sources = ["practice.editing.music-beat", "media.generated", "practice.titles.in-out"]
+must = ["structure: a quiet opening, rising middle, fast montage at the end; cut to the music's phrases and hits (markers, Snap)", "title cards on black (Black Video + text) between sections, with matching in / out", "boom hits and silences: SFX on the cuts, a moment of silence before the title"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-trailer-sound"
+kind = "creative"
+family = "movie-trailer"
+q = "trailer braams and whooshes, how do I make them hit hard"
+sources = ["essential-sound.types", "practice.audio.master-limiter", "practice.audio.headroom"]
+must = ["hits typed SFX on their own track, lined up on the cuts", "keep headroom until the end, a limiter on the Mix holds peaks under the ceiling; loud isn't louder after the platform turns it down"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr18-trailer-flash"
+kind = "creative"
+family = "movie-trailer"
+q = "fast flash cuts at the end of the trailer"
+sources = ["effects.transitions", "editing.cutting", "practice.editing.music-beat"]
+must = ["very short shots (a few frames) cut to the beats", "Dip to White / Dip to Black flashes between some of them"]
+must_not = []
+style = "sloppy"
+
+# --- instagram-story ---
+
+[[question]]
+id = "pool-cr18-story"
+kind = "creative"
+family = "instagram-story"
+q = "make an Instagram story with text and stickers from my horizontal clips"
+sources = ["practice.delivery.vertical", "graphics.layers", "practice.youtube.safe-areas"]
+must = ["a 1080 × 1920 sequence, clips repositioned (Motion Position or Auto Reframe)", "text and shape / image stickers as graphics, kept out of the top and bottom zones the app covers"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-story-segments"
+kind = "creative"
+family = "instagram-story"
+q = "story has to be split into 15 second pieces"
+sources = ["timeline.in-out", "export-queue.queue"]
+must = ["mark In / Out around each 15-second piece and add each to the export queue (export only the marked range)", "or cut the sequence at 15 s steps and export each part"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr18-story-music"
+kind = "creative"
+family = "instagram-story"
+q = "story with music that ends right at the end of each segment"
+sources = ["essential-sound.remix", "practice.audio.crossfades"]
+must = ["Remix the song to the segment length so it ends on its real ending", "a short fade at the cut points"]
+must_not = []
+style = "pro"
+
+# --- moving-sound-pan ---
+
+[[question]]
+id = "pool-cr18-pan"
+kind = "creative"
+family = "moving-sound-pan"
+q = "make the car sound move from left to right as it drives across the screen"
+sources = ["mixing.clip-mixer", "mixing.automation", "practice.audio.pan-dialogue"]
+must = ["keyframe the clip's Panner from left to right over the pass (the clip mixer's pan writes Panner keyframes)", "or record the pan move live with track automation", "keep dialogue centred; pan effects like this"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-pan-wide"
+kind = "creative"
+family = "moving-sound-pan"
+q = "ambience feels narrow, make it wider and surround the viewer"
+sources = ["essential-sound.controls", "effect-reference.audio"]
+must = ["Ambience type ▸ Stereo Width (or the Stereo Expander effect)", "keep voices centred and narrow"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr18-pan-headphones"
+kind = "creative"
+family = "moving-sound-pan"
+q = "ASMR video where the sound goes around your head"
+sources = ["mixing.clip-mixer", "effect-reference.audio"]
+must = ["Panner keyframes moving left / right for a stereo version", "a Binauralizer (Ambisonics) effect exists for ambisonic sources; most ASMR is recorded binaural already"]
+must_not = []
+style = "sloppy"
+
+# --- voice-echo-repeat ---
+
+[[question]]
+id = "pool-cr18-echo"
+kind = "creative"
+family = "voice-echo-repeat"
+q = "make my voice echo like I'm shouting into a canyon"
+sources = ["effect-reference.audio", "effects.apply", "essential-sound.controls"]
+must = ["the Delay effect (Audio Effects ▸ Delay and Echo): Delay time for the gap, Feedback for how many repeats, Mix for how loud", "or Multitap Delay for several echoes; add a little Reverb for space"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-echo-last"
+kind = "creative"
+family = "voice-echo-repeat"
+q = "echo only on the last word of the line"
+sources = ["effect-reference.audio", "editing.cutting"]
+must = ["cut the audio clip before the last word (razor, sequence.addEdit) and put the Delay only on that piece", "or keyframe the Delay's Mix up for the last word"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr18-echo-tail"
+kind = "creative"
+family = "voice-echo-repeat"
+q = "the echo gets cut off when the clip ends"
+sources = ["effect-reference.audio", "mixing.inserts"]
+must = ["the repeats need room: extend the clip's end (trim it out over silence) so the echo tail can ring out", "or put the delay on the track (mixing insert) so it continues past the clip"]
+must_not = []
+style = "pro"
+
+# --- pitched-voice ---
+
+[[question]]
+id = "pool-cr18-chipmunk"
+kind = "creative"
+family = "pitched-voice"
+q = "chipmunk voice effect"
+sources = ["effect-reference.audio", "effects.apply"]
+must = ["Pitch Shifter (Audio Effects ▸ Time and Pitch) with Semi-tones up (e.g. +7 to +12), timing unchanged", "speeding the clip up raises pitch too but shortens it"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-monster"
+kind = "creative"
+family = "pitched-voice"
+q = "deep scary monster voice"
+sources = ["effect-reference.audio", "essential-sound.controls"]
+must = ["Pitch Shifter Semi-tones down (−5 to −12)", "add Reverb (and a little Distortion) for size"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr18-anon"
+kind = "creative"
+family = "pitched-voice"
+q = "disguise an interviewee's voice for anonymity"
+sources = ["effect-reference.audio", "tracking.follow"]
+must = ["Pitch Shifter a few semitones down or up (with Cents to fine-tune)", "blur the face with a tracked mask (tracking.blurRegion); note that pitch shifting alone can be reversed, so heavier processing is safer for real anonymity"]
+must_not = []
+style = "pro"
+
+# --- muffled-next-room ---
+
+[[question]]
+id = "pool-cr18-muffled"
+kind = "creative"
+family = "muffled-next-room"
+q = "make the party music sound like it's coming from the next room"
+sources = ["effect-reference.audio", "essential-sound.controls", "mixing.clip-or-track"]
+must = ["an EQ cutting the highs strongly (Parametric Equalizer or Graphic Equalizer) and lowering the level", "a little room reverb; type it Music or SFX"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-muffled-door"
+kind = "creative"
+family = "muffled-next-room"
+q = "door opens and the muffled music becomes clear"
+sources = ["effect-reference.audio", "effects.keyframes"]
+must = ["keyframe the EQ (high cut) away and the level up at the door's opening", "or two copies of the music, muffled and clear, with a crossfade at the door"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr18-muffled-underwater"
+kind = "creative"
+family = "muffled-next-room"
+q = "underwater muffled sound when the camera dips under"
+sources = ["effect-reference.audio", "essential-sound.controls"]
+must = ["cut the highs hard with an EQ and add a little reverb / chorus while under", "switch at the dip (cut or keyframes)"]
+must_not = []
+style = "sloppy"
+
+# --- text-on-wall ---
+
+[[question]]
+id = "pool-cr18-wall"
+kind = "creative"
+family = "text-on-wall"
+q = "title text that looks painted on the wall in my shot and stays there as the camera moves"
+sources = ["tracking.screen", "graphics.text", "effects.opacity"]
+must = ["the title graphic on V2 with Corner Pin set to an area of the wall, Track Surface follows the camera move", "a blend mode (Multiply / Overlay) lets the wall's texture through"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr18-wall-floor"
+kind = "creative"
+family = "text-on-wall"
+q = "chapter title lying on the floor in perspective"
+sources = ["tracking.screen", "effects.shape-move"]
+must = ["Corner Pin the title onto the floor area (track it if the camera moves)", "or 3D Rotate with X Rotation and Perspective for a static shot"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr18-wall-shadow"
+kind = "creative"
+family = "text-on-wall"
+q = "text on the wall should get covered when someone walks in front"
+sources = ["tracking.screen", "effects.opacity", "tracking.what"]
+must = ["the pinned text under a copy of the shot masked to the person (tracked mask), so they pass in front", "Corner Pin's track survives the person crossing one corner"]
+must_not = []
+style = "sloppy"

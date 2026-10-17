@@ -115,6 +115,19 @@ let bytes = w.finish_faststart()?.into_inner(); // or finish() for moov-at-end
   `flush_fragment()` then writes `moof` (`mfhd`, `traf` with default-base-is-moof `tfhd`, `tfdt` v1,
   `trun` with per-sample duration, size, flags and composition offset) followed by `mdat`.
 
+## Trimming (stream copy)
+
+`trim::trim_mp4(src, start, end, out)` writes a faststart MP4 (MOV for QuickTime input) holding only
+the samples needed to present `[start, end)`, copied byte for byte. Times are `PresentationTime
+{ value, timescale }` on the edit-adjusted timeline (any timescale, e.g. `Tick`). Video keeps the
+decode-order run from the sync sample before the first shown frame to the last frame shown before
+`end` (one GOP further back when a shown frame is a leading picture); AAC/MP3 add two frames of
+pre-roll; PCM is cut at exact audio frames; timecode start frames advance by the frames cut; an edit
+list hides the pre-roll. The start snaps back to the video frame on screen at `start`. Subtitle and
+unknown tracks are dropped and listed in the `TrimReport`. Fragmented files, several sample entries,
+complex edit lists and other audio codecs are refused with `TrimError::Unsupported`
+(`copy_whole_file_instead()`). `TrackConfig::matrix` carries the source rotation.
+
 ## Tests
 - Unit tests cover the box reader and hand-built `stbl` edge cases (stz2, co64, ctts v1, empty edits,
   64-bit and size-0 boxes, uuid/wide/skip), codec config round-trips, and allocation guards.

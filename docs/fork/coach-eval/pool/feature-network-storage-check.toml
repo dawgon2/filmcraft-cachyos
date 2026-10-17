@@ -1,0 +1,137 @@
+# FEATURE-POOL batch feature-network-storage-check (FEATURE-QUEUE row S1.1: clips on network shares,
+# NET badge, Project Settings storage line). Sources: network-storage.md (network-storage.why,
+# network-storage.check). Held-out test questions, written from the guide's text (README.md beside this
+# file). No creative family: the feature is a status display, not a technique a creative goal uses.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-ns1-clip-on-nas"
+kind = "tool"
+q = "how can I tell if a clip is sitting on my NAS?"
+sources = ["network-storage.check"]
+must = ["a grey NET badge next to the clip in the Project panel (list and icon view)", "hover the badge to see the share, e.g. On a network share: //nas/media (cifs)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns1-project-file-smb"
+kind = "tool"
+q = "Where does Revolution show whether the project file itself is stored on an SMB share?"
+sources = ["network-storage.check"]
+must = ["File ▸ Project Settings ▸ General (file.projectSettings.general)", "first line: Project file: on a local disk / on a network share, with type and server"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns1-media-pool-shared"
+kind = "tool"
+q = "does the media pool flag clips that live on shared storage?"
+sources = ["network-storage.check"]
+must = ["yes: a grey NET badge on the clip in the Media Pool (Project panel), list and icon view", "hover shows which share"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-ns1-just-mounted"
+kind = "tweak"
+q = "i just mounted the share but the NET thing isnt showing on my clips yet"
+sources = ["network-storage.check"]
+must = ["Revolution re-reads the mount table every few seconds", "a share you mount or unmount shows up shortly after"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-ns1-why-care"
+kind = "approach"
+q = "why should I care whether my project lives on a network drive?"
+sources = ["network-storage.why"]
+must = ["reading over the network is slower than a local disk", "the share can stop answering when the server sleeps or the Wi-Fi drops", "saving over it isn't always as safe as on a local disk"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns1-mount-kinds"
+kind = "tool"
+q = "Which kinds of mounts count as a network share? Is sshfs or an rclone mount included?"
+sources = ["network-storage.why"]
+must = ["SMB / CIFS, NFS, sshfs, rclone", "GNOME / Plasma network folders (kio-fuse, gvfs)"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns1-script-list"
+kind = "tool"
+q = "From a script, how do I find out which clips in the project are on network storage?"
+sources = ["network-storage.check"]
+must = ["run media.storage (optionally with an item id)", "it returns the project file's storage, every file clip's storage and a networkItems count", "kind is local, network or unknown"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns1-asleep-hang"
+kind = "tool"
+q = "Will checking where my files live freeze Revolution while the NAS is asleep?"
+sources = ["network-storage.why"]
+must = ["no: it looks only at the system's mount table, never at the file itself", "the answer comes at once even while the server is down"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns1-not-linux"
+kind = "gap"
+q = "On macOS or Windows, does media.storage say whether a clip is local or on a share?"
+sources = ["network-storage.check"]
+must = ["not yet: kind is unknown on systems other than Linux for now"]
+must_not = ["claims it detects shares on macOS or Windows"]
+style = "gap"
+
+[[question]]
+id = "feat-ns1-premiere-label"
+kind = "tool"
+q = "In the Project panel some of my footage has a little NET label, what is that?"
+sources = ["network-storage.check"]
+must = ["the clip's file is on a network share", "hover it to see which share and its type"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "feat-ns1-count-clips"
+kind = "tool"
+q = "is there one place that tells me how many of my clips depend on the server?"
+sources = ["network-storage.check"]
+must = ["Project Settings ▸ General: Clips on network shares: 3 of 12 (projectSettings.storage.clips)", "the line appears only if some clips are on shares"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-ns1-c-where-project"
+q = "where do I see if the project file is on a network share"
+kind = "where"
+origin = "agent"
+page = "network-storage.md"
+heading = "Check where your project and clips are"
+status = "covered"
+facts = ["File ▸ Project Settings ▸ General", "Project file: on a network share (cifs, //nas/media)"]
+
+[[coach]]
+id = "feat-ns1-c-net-badge"
+q = "what is the NET badge for"
+kind = "what-for"
+origin = "agent"
+page = "network-storage.md"
+heading = "Check where your project and clips are"
+status = "covered"
+facts = ["marks a clip on a network share", "hover shows the share"]
+
+[[coach]]
+id = "feat-ns1-c-why-nas"
+q = "why does it matter where a file lives on a NAS"
+kind = "why"
+origin = "agent"
+page = "network-storage.md"
+heading = "Why it matters where a file lives"
+status = "covered"
+facts = ["slower than a local disk", "can stop answering", "saving is not always as safe"]

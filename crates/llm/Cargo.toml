@@ -40,6 +40,7 @@ log = { workspace = true, optional = true }
 # The previous inference path, kept as the test oracle (and for the llm_quantize tool).
 candle-core = { version = "0.9", default-features = false }
 candle-transformers = { version = "0.9", default-features = false }
+candle-nn = { version = "0.9", default-features = false }
 wgpu = { version = "30", features = ["wgsl", "metal", "vulkan", "dx12", "gles"] }
 
 [[example]]

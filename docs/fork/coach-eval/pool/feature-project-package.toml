@@ -1,0 +1,145 @@
+# FEATURE-POOL batch feature-project-package (FEATURE-QUEUE row S1.5: project packages, Package /
+# Import Package, `.fcpackage`, size estimate, stills + shader effects carried). Sources:
+# network-storage.md (network-storage.package). Held-out test questions, written from the guide's text
+# (README.md beside this file). No creative family: a hand-over tool, not a technique.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-pk-send-editor"
+kind = "tool"
+q = "How do I send a whole project, with all its footage, to another editor?"
+sources = ["network-storage.package"]
+must = ["on the Project Manager home screen select the project and click Package (projects.package), or right-click the tile ▸ Package…", "pick a destination folder; Revolution makes <project name> package/ with the project file, every media file and manifest.json"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pk-collect-files"
+kind = "tool"
+q = "Is there an equivalent of Project Manager ▸ Collect Files and Copy?"
+sources = ["network-storage.package"]
+must = ["Package on the Project Manager home screen (projects.package)", "it also writes a manifest with a SHA-256 checksum for every file, so the receiver can check nothing is missing or damaged"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "feat-pk-dra"
+kind = "tool"
+q = "how do I export a project archive like a .dra so I can hand it over as one file"
+sources = ["network-storage.package"]
+must = ["Package as One File… in the project tile's menu (projects.menu.package-file), or projects.package with format file", "it writes one <project name>.fcpackage"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-pk-proxies"
+kind = "tool"
+q = "Are proxies included when I package a project?"
+sources = ["network-storage.package"]
+must = ["only if chosen (proxies: true)", "the manifest lists what was left out on purpose: the render cache, downloaded AI models, proxies unless chosen"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pk-luts-fonts"
+kind = "tool"
+q = "Will my imported LUTs, title fonts and voice-over takes survive the trip to another computer?"
+sources = ["network-storage.package"]
+must = ["imported LUTs and title fonts are stored inside the project file, so they travel", "voice-over takes are ordinary clips, so they are packaged like other media"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pk-shaders"
+kind = "tool"
+q = "What happens to my custom WGSL shader effects when I package and someone imports the project?"
+sources = ["network-storage.package"]
+must = ["the ones the project uses go into Effects/ in the package; unused ones stay home", "on import they are added to the receiver's Effects folder; one with the same file name is never replaced"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pk-damaged"
+kind = "tweak"
+q = "import package says the package is incomplete (damaged: clip.mov) what do i do"
+sources = ["network-storage.package"]
+must = ["the import checked every file against the manifest and stopped; nothing was copied", "ask the sender for a new copy of the named files"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-pk-size-first"
+kind = "tool"
+q = "Can I find out how big a package will be before I make it?"
+sources = ["network-storage.package"]
+must = ["scripts: projects.package with dryRun: true writes nothing and returns estimateBytes", "the home screen shows that size in the status line while it packages"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pk-disk-full"
+kind = "tool"
+q = "What happens if the USB disk fills up halfway through packaging?"
+sources = ["network-storage.package"]
+must = ["the half-made package folder is removed and the job says why", "an existing package folder is never overwritten"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pk-private-paths"
+kind = "tool"
+q = "Does the package leak my own folder structure to whoever receives it?"
+sources = ["network-storage.package"]
+must = ["no: the manifest holds only paths inside the package, nothing about your own disk"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pk-newer-version"
+kind = "tool"
+q = "A friend's package asks me to update Revolution. Why?"
+sources = ["network-storage.package"]
+must = ["it was made by a newer Revolution: it is imported, but opening it asks you to update", "a newer package format is refused"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pk-relink-after"
+kind = "tool"
+q = "after importing someone's package will i have to relink a bunch of media"
+sources = ["network-storage.package"]
+must = ["no: the package is copied into your projects folder and every clip is pointed at its copy", "the project opens with nothing offline and no Link Media step"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-pk-comparison-stills"
+kind = "tool"
+q = "Do the Color page's saved comparison frames come along in a package?"
+sources = ["network-storage.package"]
+must = ["yes: they go into a folder next to the project", "after import they are found on the receiver's own scratch disks", "a frame whose picture file has gone missing is left out"]
+must_not = []
+style = "pro"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-pk-c-package"
+q = "how do I package a project with its media"
+kind = "how"
+origin = "agent"
+page = "network-storage.md"
+heading = "Send a whole project as a package"
+status = "covered"
+facts = ["Project Manager home screen ▸ Package", "manifest.json with checksums"]
+
+[[coach]]
+id = "feat-pk-c-import"
+q = "import a project package"
+kind = "how"
+origin = "agent"
+page = "network-storage.md"
+heading = "Send a whole project as a package"
+status = "covered"
+facts = ["Import Package", ".fcpackage or manifest.json"]

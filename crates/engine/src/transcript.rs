@@ -31,7 +31,9 @@ fn spec(id: &'static str, label: &'static str, menu: &'static [&'static str], pa
 
 /// Where downloaded speech models live (`<data dir>/models`).
 pub fn models_dir() -> Option<std::path::PathBuf> {
-    crate::autosave::default_data_dir().map(|d| d.join("models"))
+    // the launch's `--data-dir` too (models were looked for in the default folder: the owner's
+    // assistant model "wasn't installed" though it was in `--data-dir`'s models folder)
+    crate::autosave::data_dir().map(|d| d.join("models"))
 }
 
 /// Whether this build can transcribe with Whisper (feature `whisper`).

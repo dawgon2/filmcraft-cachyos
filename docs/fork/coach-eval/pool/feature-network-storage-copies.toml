@@ -1,0 +1,154 @@
+# FEATURE-POOL batch feature-network-storage-copies (FEATURE-QUEUE row S1.2: local copies of share
+# clips, background copy, NET ✓ badge, settings). Sources: network-storage.md (network-storage.copies;
+# the task question also network-storage.drops). Held-out test questions, written from the guide's text
+# (README.md beside this file). No creative family: a storage setting, not a technique.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-ns2-stutter-wifi"
+kind = "approach"
+q = "my 6.2K clips stutter when I play them off the NAS over wifi, what can Revolution do about it?"
+sources = ["network-storage.copies"]
+must = ["local copies of clips on network shares (Settings ▸ Media Cache ▸ Network Copies, Automatic by default)", "once a copy is complete Revolution reads the copy instead of the share", "proxies are the other option and the better one when the disk is small"]
+must_not = ["claims one way is always right"]
+style = "beginner"
+
+[[question]]
+id = "feat-ns2-setting-default"
+kind = "tool"
+q = "Where is the setting for local copies of network clips, and what is it set to out of the box?"
+sources = ["network-storage.copies"]
+must = ["Settings ▸ Media Cache ▸ Network Copies ▸ Local copies of clips on network shares (mediaCache.networkCopies)", "Automatic by default"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns2-vs-optimized"
+kind = "approach"
+q = "For footage on shared storage, should I rely on these local copies or generate optimized media like I would in Resolve?"
+sources = ["network-storage.copies"]
+must = ["local copies are the original files byte for byte: nothing is re-encoded, picture and exports are exactly as from the original", "proxies still work and are the better choice when the disk is small"]
+must_not = ["claims one way is always right"]
+style = "resolve-words"
+
+[[question]]
+id = "feat-ns2-limit-full"
+kind = "tool"
+q = "How much disk space can the network copies use, and what happens when they hit the limit?"
+sources = ["network-storage.copies"]
+must = ["Local copies size limit (mediaCache.networkCopiesGb), 100 GB", "above it the least recently used copies are deleted, the open project's last"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns2-nas-asleep"
+kind = "tweak"
+q = "nas went to sleep halfway thru my edit can i keep going"
+sources = ["network-storage.copies"]
+must = ["if the share isn't answering Revolution uses the last complete local copy", "clips that have a complete copy (NET ✓) keep working"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-ns2-net-tick"
+kind = "tool"
+q = "What does it mean when a clip shows NET with a tick instead of plain NET?"
+sources = ["network-storage.copies"]
+must = ["the clip's local copy is complete", "it plays from its local copy (the hover text says so)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns2-copy-playback"
+kind = "tool"
+q = "Does making the local copies slow my playback down?"
+sources = ["network-storage.copies"]
+must = ["copies are made in the background, one file at a time, only while you aren't playing", "pressing play pauses the copy; it carries on a few seconds after you stop"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-ns2-rerender"
+kind = "tool"
+q = "If I re-render a file on the server, will Revolution keep playing the stale local copy?"
+sources = ["network-storage.copies"]
+must = ["no: a copy belongs to one version of the file", "the old copy is no longer used and a new one is made"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns2-failed-retry"
+kind = "tool"
+q = "a local copy failed, does it try again by itself?"
+sources = ["network-storage.copies"]
+must = ["a failed copy says so and isn't tried again until Revolution restarts", "its half-made file is removed"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-ns2-disk-nearly-full"
+kind = "gap"
+q = "Will Revolution hold off making copies when the media cache disk is almost full?"
+sources = ["network-storage.copies"]
+must = ["not yet: still being built", "for now the size limit and a clean stop when the disk fills up protect it"]
+must_not = ["claims it already checks free space before copying"]
+style = "gap"
+
+[[question]]
+id = "feat-ns2-cache-cleanup"
+kind = "tool"
+q = "Will the Media Cache cleanup policy delete my network copies?"
+sources = ["network-storage.copies"]
+must = ["no: the Media Cache management policy leaves the Network Copies folder alone", "Revolution only ever deletes copies it made, through the size limit"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns2-premiere-proxies"
+kind = "approach"
+q = "Coming from Premiere: do I have to build proxies for media that lives on a NAS?"
+sources = ["network-storage.copies"]
+must = ["not necessarily: Revolution can keep local copies of the original files (no re-encode)", "proxies still work and suit a small disk better"]
+must_not = ["claims one way is always right"]
+style = "premiere-words"
+
+[[question]]
+id = "feat-ns2-deleted-on-share"
+kind = "tool"
+q = "If someone deletes a clip on the server while the share is up, does my local copy keep it alive?"
+sources = ["network-storage.copies"]
+must = ["no: a file deleted or moved on a share that is answering goes offline as usual", "an old copy never hides that"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-ns2-task-nas-setup"
+kind = "task"
+q = "I cut 6.2K from a NAS over Wi-Fi that sometimes drops: how do I get smooth playback and not lose the edit when the server goes away?"
+sources = ["network-storage.copies", "network-storage.drops"]
+must = ["keep Local copies of clips on network shares on Automatic and let the copies finish (NET ✓)", "when the share stops answering clips with a complete copy keep working", "other clips go offline after 8 seconds instead of freezing the app and come back online by themselves when the share answers"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-ns2-c-turn-off"
+q = "how do I turn off local copies of network clips"
+kind = "how"
+origin = "agent"
+page = "network-storage.md"
+heading = "Local copies of clips on a share"
+status = "covered"
+facts = ["Settings ▸ Media Cache ▸ Network Copies", "set it to Off"]
+
+[[coach]]
+id = "feat-ns2-c-size-limit"
+q = "network copies size limit"
+kind = "where"
+origin = "agent"
+page = "network-storage.md"
+heading = "Local copies of clips on a share"
+status = "covered"
+facts = ["Local copies size limit, 100 GB", "least recently used deleted first"]

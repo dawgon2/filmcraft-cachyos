@@ -1,0 +1,96 @@
+# FEATURE-POOL batch feature-project-package-trim (FEATURE-QUEUE row S1.5 packages, trim part:
+# `projects.package` with `"trim": true` / `"handles"`, MP4 / MOV cut to the used parts by stream copy).
+# Sources: network-storage.md (network-storage.package-trim). Held-out test questions, written from the
+# guide's text (README.md beside this file). No creative family: a hand-over option, not a technique.
+# `file.projectManager`'s own `trim` param is not in the guide (only `projects.package`'s), so no
+# question names it.
+# Recipe spot check 9 on the Dell (pairs 1 and 4; fixture pt.fcproj: 2 s used from a 10 s 25 fps H.264
+# MP4): `projects.package` dryRun estimateBytes 1 015 287 without trim, 446 929 with `trim: true`;
+# the real trimmed package kept a 4.40 s H.264 file (2 s + 30 frames each side, no re-encode), 569 336
+# bytes (above the estimate: keyframe lead-in), as written.
+
+# ---------- advanced format ----------
+
+[[question]]
+id = "feat-pt-too-big"
+kind = "tool"
+q = "My project package is way too big to send. Can Revolution leave out the parts of the clips I never used?"
+sources = ["network-storage.package-trim"]
+must = ["projects.package with trim: true shortens MP4 and MOV media to the parts the sequences use", "nothing is re-encoded", "scripts and agents only: the home screen doesn't offer this yet"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pt-consolidate"
+kind = "tool"
+q = "Is there an equivalent of Premiere's Project Manager ▸ Consolidate and Transcode?"
+sources = ["network-storage.package-trim"]
+must = ["projects.package with trim: true", "unlike Consolidate and Transcode it makes no new files: it copies the camera's own compressed data, so quality is identical"]
+must_not = []
+style = "premiere-words"
+
+[[question]]
+id = "feat-pt-resolve-trim"
+kind = "tool"
+q = "in resolve i use media management trim to only keep used footage, whats the filmcraft way"
+sources = ["network-storage.package-trim"]
+must = ["projects.package with trim: true (and handles if you like)", "MP4 and MOV are shortened to the used parts without re-encoding"]
+must_not = []
+style = "resolve-words"
+
+[[question]]
+id = "feat-pt-handles"
+kind = "tool"
+q = "How much extra footage does a trimmed package keep around each used part, and can I change it?"
+sources = ["network-storage.package-trim"]
+must = ["handles: extra frames kept on each side, 30 by default", "set it with \"handles\" in projects.package"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pt-keyframe-start"
+kind = "tweak"
+q = "Why do the clips in my trimmed package start a bit before where I cut them?"
+sources = ["network-storage.package-trim"]
+must = ["each part starts at the keyframe before it, so it can begin up to a GOP earlier than asked", "that is because nothing is re-encoded"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "feat-pt-copied-whole"
+kind = "tweak"
+q = "set trim true but one mp4 still came through full length??"
+sources = ["network-storage.package-trim"]
+must = ["MP4 / MOV files with a layout this can't keep exactly (fragmented files, several codecs in one track, complex edit lists) are copied whole", "files that aren't MP4 or MOV are copied whole too"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "feat-pt-proxies"
+kind = "tool"
+q = "I asked for proxies in a trimmed package but some are missing. Is that a bug?"
+sources = ["network-storage.package-trim"]
+must = ["no: proxies of shortened media are left out because they no longer line up", "make new proxies after import"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "feat-pt-quality"
+kind = "tool"
+q = "Will trimming a package lower the quality of the footage the other editor gets?"
+sources = ["network-storage.package-trim"]
+must = ["no: only the camera's own compressed data is copied, nothing is re-encoded, so quality is identical"]
+must_not = []
+style = "beginner"
+
+# ---------- keyword-coach format ----------
+
+[[coach]]
+id = "feat-pt-c-trim"
+q = "make a smaller package with only the used parts"
+kind = "how"
+origin = "agent"
+page = "network-storage.md"
+heading = "Smaller packages: only the used parts"
+status = "covered"
+facts = ["projects.package with trim", "without re-encoding"]

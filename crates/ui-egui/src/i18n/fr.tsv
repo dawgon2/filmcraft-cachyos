@@ -4,7 +4,7 @@
 # French video-editing vocabulary. No proprietary localisation resource, string table or product UI
 # was consulted or copied; add entries the same way. Commands use the infinitive ("Enregistrer
 # sous…"), messages address the user as "vous", and labels use French sentence case. Product,
-# format and technology names (FilmCraft, ArtCraft, Lumetri, ProRes, LUFS, EDL, AAF…) keep their
+# format and technology names (Revolution, ArtCraft, Lumetri, ProRes, LUFS, EDL, AAF…) keep their
 # spelling. French spacing: a space before ":", ";", "?" and "!". This catalog has the same entries
 # as `es.tsv` plus the native macOS Settings menu; strings added later show in English until they
 # are translated. A native-speaker review is welcome.
@@ -16,7 +16,7 @@
 # décalage, overwrite = écraser, scopes = oscilloscopes, preferences (also the native macOS
 # Settings menu) = Préférences, settings = paramètres.
 
-	About FilmCraft	À propos de FilmCraft
+	About Revolution	À propos de Revolution
 	Add Audio Submix Track	Ajouter une piste de sous-mixage audio
 	Add Caption at Playhead	Ajouter un sous-titre à la tête de lecture
 	Add Chapter Marker…	Ajouter un marqueur de chapitre…
@@ -42,7 +42,7 @@
 	Apply Default Transitions to Selection	Appliquer les transitions par défaut à la sélection
 	Apply Video Transition	Appliquer une transition vidéo
 	Arrange	Disposition
-	ArtCraft Website	Site web d'ArtCraft
+	Based on FilmCraft (Original Project)	Basé sur FilmCraft (projet d'origine)
 	Assembly	Assemblage
 	Attach Proxies…	Associer des proxys…
 	Audio Channels…	Canaux audio…
@@ -137,9 +137,9 @@
 	File	Fichier
 	File…	Fichier…
 	Fill frame	Remplir l'image
-	FilmCraft Help…	Aide de FilmCraft…
-	FilmCraft on GitHub	FilmCraft sur GitHub
-	FilmCraft on getartcraft.com	FilmCraft sur getartcraft.com
+	Revolution Help…	Aide de Revolution…
+	Revolution on GitHub	Revolution sur GitHub
+	Source Code on GitHub	Code source sur GitHub
 	Find Next	Rechercher le suivant
 	Find…	Rechercher…
 	Fit	Adapter
@@ -186,7 +186,7 @@
 	Installed: it loads the first time the Voice Isolation effect plays.	Installé : il se charge la première fois que l'effet Isolation de la voix est lu.
 	Installed: the Voice Isolation effect uses this model.	Installé : l'effet Isolation de la voix utilise ce modèle.
 	Interpret Footage…	Interpréter le métrage…
-	Join the ArtCraft Discord…	Rejoindre le Discord d'ArtCraft…
+	Revolution Releases…	Versions de Revolution…
 	Keyboard Shortcuts…	Raccourcis clavier…
 	Label	Étiquette
 	Labels…	Étiquettes…
@@ -200,7 +200,7 @@
 	Link	Lier
 	Link Media…	Lier le média…
 	Not installed: the Voice Isolation effect works as DeNoise until you download the model.	Non installé : l'effet Isolation de la voix fonctionne comme le Réducteur de bruit jusqu'au téléchargement du modèle.
-	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with FilmCraft and is downloaded from its publisher only when you click Download.	Facultatif et hors ligne : un petit réseau neuronal (environ 8 Mo) sur cet ordinateur sépare la voix du bruit pour l'effet audio Isolation de la voix. Il n'est jamais fourni avec FilmCraft et n'est téléchargé auprès de son éditeur que lorsque vous cliquez sur Télécharger.
+	Optional and offline: a small neural network (about 8 MB) on this computer separates speech from noise for the Voice Isolation audio effect. It is never bundled with Revolution and is downloaded from its publisher only when you click Download.	Facultatif et hors ligne : un petit réseau neuronal (environ 8 Mo) sur cet ordinateur sépare la voix du bruit pour l'effet audio Isolation de la voix. Il n'est jamais fourni avec Revolution et n'est téléchargé auprès de son éditeur que lorsque vous cliquez sur Télécharger.
 	Refresh Changed Media	Actualiser les médias modifiés
 	Linked Selection	Sélection liée
 	Lock Guides	Verrouiller les repères
@@ -314,7 +314,7 @@
 	Select Previous Graphic	Sélectionner le graphique précédent
 	Select Previous Layer	Sélectionner le calque précédent
 	Selection Follows Playhead	La sélection suit la tête de lecture
-	Selection as FilmCraft Project…	Sélection en tant que projet FilmCraft…
+	Selection as Revolution Project…	Sélection en tant que projet Revolution…
 	Selection…	Sélection…
 	Send Backward	Reculer
 	Send to Back	Mettre à l'arrière-plan
@@ -385,7 +385,6 @@
 	Master volume: use the Audio Track Mixer	Volume principal : utilisez le Mixeur de pistes audio
 	Search	Rechercher
 	Quick Export	Exportation rapide
-	Join the ArtCraft Discord (discord.gg/artcraft)	Rejoindre le Discord d'ArtCraft (discord.gg/artcraft)
 	Cancel	Annuler
 	OK	OK
 	Interpret Footage	Interpréter le métrage
@@ -428,8 +427,8 @@
 	Delete Caption Track	Supprimer la piste de sous-titres
 	Delete Empty Caption Tracks	Supprimer les pistes de sous-titres vides
 	Version {version}	Version {version}
-	A clean-room, pure-Rust non-linear video editor. Part of the ArtCraft family.	Un éditeur vidéo non linéaire en pur Rust, conçu en salle blanche. Membre de la famille ArtCraft.
-	Join the ArtCraft Discord	Rejoindre le Discord d'ArtCraft
+	A pure-Rust non-linear video editor. Based on FilmCraft by the ArtCraft team and community.	Un éditeur vidéo non linéaire en pur Rust. Basé sur FilmCraft, de l'équipe et de la communauté ArtCraft.
+	Get the newest release	Obtenir la dernière version
 	Source code on GitHub	Code source sur GitHub
 	Report an issue	Signaler un problème
 	MIT OR Apache-2.0. Fonts: Inter, Noto Serif and JetBrains Mono (SIL OFL 1.1).	MIT OR Apache-2.0. Polices : Inter, Noto Serif et JetBrains Mono (SIL OFL 1.1).
@@ -449,8 +448,8 @@
 	No background jobs.	Aucune tâche en arrière-plan.
 	Recover Unsaved Changes	Récupérer les modifications non enregistrées
 	Untitled	Sans titre
-	FilmCraft was closed while “{name}” had unsaved changes.	FilmCraft a été fermé alors que « {name} » contenait des modifications non enregistrées.
-	FilmCraft quit unexpectedly while “{name}” had unsaved changes.	FilmCraft s'est fermé de manière inattendue alors que « {name} » contenait des modifications non enregistrées.
+	Revolution was closed while “{name}” had unsaved changes.	Revolution a été fermé alors que « {name} » contenait des modifications non enregistrées.
+	Revolution quit unexpectedly while “{name}” had unsaved changes.	Revolution s'est fermé de manière inattendue alors que « {name} » contenait des modifications non enregistrées.
 	Recover unsaved changes from {when}?	Récupérer les modifications non enregistrées de {when} ?
 	The project had not been saved yet.	Le projet n'avait pas encore été enregistré.
 	{n} sessions have unsaved changes:	{n} sessions contiennent des modifications non enregistrées :
@@ -470,7 +469,6 @@
 	Bars and Tone	Barres et tonalité
 	SMPTE HD bars with 1 kHz reference tone	Barres SMPTE HD avec tonalité de référence à 1 kHz
 	Community	Communauté
-	Join us on Discord	Rejoignez-nous sur Discord
 	OMF Export Settings	Paramètres d'exportation OMF
 	AAF Export Settings	Paramètres d'exportation AAF
 	OMF Title:	Titre OMF :
@@ -976,7 +974,7 @@
 	Label Colors	Couleurs d'étiquette
 	Decoded frames held for the monitors and thumbnails: {used} of {budget}.	Images décodées conservées pour les moniteurs et les vignettes : {used} sur {budget}.
 	Decoded source frames shared by all clips: {used} of {budget}, up to {decoders} live decoders.	Images source décodées partagées par tous les clips : {used} sur {budget}, jusqu'à {decoders} décodeurs actifs.
-	FilmCraft keeps the rest of the RAM free for other applications.	FilmCraft laisse le reste de la RAM libre pour les autres applications.
+	Revolution keeps the rest of the RAM free for other applications.	Revolution laisse le reste de la RAM libre pour les autres applications.
 	not available in this session	non disponible dans cette session
 	Currently: {loc} — {files} file(s), {size}	Actuellement : {loc} — {files} fichier(s), {size}
 	 ({ch} output channels)	 ({ch} canaux de sortie)
@@ -1087,7 +1085,7 @@
 	Video Frame	Cadre vidéo
 	Pin To	Épingler à
 	Pinned Edges	Bords épinglés
-	FilmCraft Graphics Template	Modèle de graphiques FilmCraft
+	Revolution Graphics Template	Modèle de graphiques Revolution
 	{n} Font	Police de {n}
 	{n} Size	Taille de {n}
 	{n} Color	Couleur de {n}
@@ -1097,7 +1095,7 @@
 	Export As Motion Graphics Template	Exporter en tant que modèle d'animation graphique
 	Category:	Catégorie :
 	Editable properties:	Propriétés modifiables :
-	Saved as a FilmCraft graphics template (.fcgt) in your templates folder.	Enregistré en tant que modèle de graphiques FilmCraft (.fcgt) dans votre dossier de modèles.
+	Saved as a Revolution graphics template (.fcgt) in your templates folder.	Enregistré en tant que modèle de graphiques Revolution (.fcgt) dans votre dossier de modèles.
 	Exported graphics template to {path}	Modèle de graphiques exporté vers {path}
 	Replace Fonts in Projects	Remplacer les polices dans les projets
 	Fonts used in the project:	Polices utilisées dans le projet :
@@ -1258,6 +1256,8 @@
 	(RGB) Output White Level	(RGB) Niveau de blanc en sortie
 	+ Cmd	+ Cmd
 	+ Opt	+ Opt
+	+ Ctrl	+ Ctrl
+	+ Alt	+ Alt
 	10 Bit Black Point	Point noir 10 bits
 	10 Bit White Point	Point blanc 10 bits
 	105mm Prime	Focale fixe 105 mm
@@ -1467,7 +1467,7 @@
 	Center of Sphere	Centre de la sphère
 	Cents	Cents
 	Change to Color	Changer en couleur
-	Changes are copied in the background a moment after each edit. If FilmCraft quits unexpectedly, they are offered the next time it starts.	Les changements sont copiés en arrière-plan peu après chaque opération de montage. Si FilmCraft se ferme de manière inattendue, ils vous sont proposés au démarrage suivant.
+	Changes are copied in the background a moment after each edit. If Revolution quits unexpectedly, they are offered the next time it starts.	Les changements sont copiés en arrière-plan peu après chaque opération de montage. Si Revolution se ferme de manière inattendue, ils vous sont proposés au démarrage suivant.
 	Channel	Canal
 	Channel Blur	Flou de canal
 	Channel Mix	Mixage des canaux
@@ -1840,7 +1840,7 @@
 	Hard Limiter	Limiteur dur
 	Hard Mix	Mélange dur
 	Hardware decoding	Décodage matériel
-	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	Décodage matériel : Auto utilise le décodeur vidéo du système (VideoToolbox sur macOS, Media Foundation sur Windows, VA-API ou NVDEC pour H.264 et HEVC sous Linux) pour les flux qu'il prend en charge, et le décodeur propre à FilmCraft pour tout le reste ou en cas d'échec du matériel. Les médias déjà ouverts conservent leur décodeur jusqu'à leur réouverture.
+	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and Revolution's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	Décodage matériel : Auto utilise le décodeur vidéo du système (VideoToolbox sur macOS, Media Foundation sur Windows, VA-API ou NVDEC pour H.264 et HEVC sous Linux) pour les flux qu'il prend en charge, et le décodeur propre à Revolution pour tout le reste ou en cas d'échec du matériel. Les médias déjà ouverts conservent leur décodeur jusqu'à leur réouverture.
 	Head Size	Taille de la tête
 	Heart	Cœur
 	Height	Hauteur
@@ -2115,7 +2115,7 @@
 	Night	Nuit
 	No Motion	Aucun mouvement
 	No Scroll	Aucun défilement
-	No plugins are installed. Changes will take effect the next time you start FilmCraft.	Aucun plug-in n'est installé. Les modifications prendront effet au prochain démarrage de FilmCraft.
+	No plugins are installed. Changes will take effect the next time you start Revolution.	Aucun plug-in n'est installé. Les modifications prendront effet au prochain démarrage de Revolution.
 	Noise	Bruit
 	Noise & Grain	Bruit et grain
 	Noise (Legacy)	Bruit (ancien)
@@ -2546,7 +2546,7 @@
 	Template Properties	Propriétés du modèle
 	Text Animator	Animateur de texte
 	Text Color	Couleur du texte
-	The media cache holds render previews of unsaved projects and other files FilmCraft can recreate. Deleting them is always safe; FilmCraft rebuilds them as needed.	Le cache média contient les aperçus de rendu des projets non enregistrés et d'autres fichiers que FilmCraft peut recréer. Vous pouvez toujours les supprimer sans risque ; FilmCraft les reconstruit au besoin.
+	The media cache holds render previews of unsaved projects and other files Revolution can recreate. Deleting them is always safe; Revolution rebuilds them as needed.	Le cache média contient les aperçus de rendu des projets non enregistrés et d'autres fichiers que Revolution peut recréer. Vous pouvez toujours les supprimer sans risque ; Revolution les reconstruit au besoin.
 	Thickness	Épaisseur
 	Tile Gradient	Dégradé en mosaïque
 	Tilt	Inclinaison
@@ -2756,7 +2756,7 @@
 	System Compatibility Report	Rapport de compatibilité système
 	no GPU adapter: the CPU compositor is used	aucun adaptateur GPU : le compositeur CPU est utilisé
 	Avid Log Exchange	Avid Log Exchange
-	FilmCraft Project	Projet FilmCraft
+	Revolution Project	Projet Revolution
 	{name} Selection.fcproj	{name} Sélection.fcproj
 	{name} (Simplified)	{name} (simplifiée)
 	Find in:	Rechercher dans :
@@ -2896,7 +2896,7 @@
 	Start Queue	Lancer la file d'attente
 	Stop	Arrêter
 	Clear Finished	Effacer les éléments terminés
-	Not supported by FilmCraft's encoders yet	Pas encore pris en charge par les encodeurs de FilmCraft
+	Not supported by Revolution's encoders yet	Pas encore pris en charge par les encodeurs de Revolution
 	Sequence name	Nom de la séquence
 	Folder	Dossier
 	Preset	Préréglage
@@ -2982,7 +2982,7 @@
 	Drag a clip to slide it between its neighbours.	Faites glisser un clip pour le faire coulisser entre ses voisins.
 	Drag to scroll the timeline.	Faites glisser pour faire défiler la timeline.
 	Click to zoom in; Opt-click to zoom out.	Cliquez pour un zoom avant ; Option+clic pour un zoom arrière.
-	FilmCraft hit an error	FilmCraft a rencontré une erreur
+	Revolution hit an error	Revolution a rencontré une erreur
 	Details: {path}	Détails : {path}
 	Opened {url}	{url} ouvert
 	(empty)	(vide)
@@ -3224,7 +3224,7 @@
 	QuickTime, ProRes 4444 (4:4:4) with alpha channel, 24-bit 48 kHz PCM	QuickTime, ProRes 4444 (4:4:4) avec couche alpha, PCM 24 bits 48 kHz
 	QuickTime, ProRes 4444 XQ (4:4:4), 24-bit 48 kHz PCM	QuickTime, ProRes 4444 XQ (4:4:4), PCM 24 bits 48 kHz
 	QuickTime, ProRes 422, 24-bit 48 kHz PCM	QuickTime, ProRes 422, PCM 24 bits 48 kHz
-	Quit FilmCraft	Quitter FilmCraft
+	Quit Revolution	Quitter Revolution
 	Rate Stretch Tool	Outil Étirement de la vitesse
 	Razor Tool	Outil Cutter
 	Rectangle Tool	Outil Rectangle
@@ -3523,8 +3523,8 @@
 	Composite in Linear Color	Composer en couleur linéaire
 	Auto Tone Map Media (HDR and log into SDR)	Mappage automatique des tons des médias (HDR et log vers SDR)
 	Configure…	Configurer…
-	Not supported in FilmCraft yet	Pas encore pris en charge dans FilmCraft
-	FilmCraft always composites in linear light	FilmCraft compose toujours en lumière linéaire
+	Not supported in Revolution yet	Pas encore pris en charge dans Revolution
+	Revolution always composites in linear light	Revolution compose toujours en lumière linéaire
 	Loop marked range	Boucler la plage marquée
 	Play Source	Lire la source
 	Source Play/Stop	Lire/arrêter la source
@@ -3612,3 +3612,23 @@
 	No data folder for user effects in this session	Aucun dossier de données pour les effets utilisateur dans cette session
 	Open Effects Folder	Ouvrir le dossier des effets
 	Reload	Recharger
+	Project file: on a network share ({fs}, {source})	Fichier de projet : sur un partage réseau ({fs}, {source})
+	Project file: on a local disk	Fichier de projet : sur un disque local
+	Clips on network shares: {n} of {total}	Clips sur des partages réseau : {n} sur {total}
+	On a network share: {share}	Sur un partage réseau : {share}
+	{n} clip(s) went offline: their files can't be reached	{n} clip(s) hors ligne : leurs fichiers sont inaccessibles
+	{n} clip(s) are back online	{n} clip(s) de nouveau en ligne
+	Packaging {name}	Empaquetage de {name}
+	Packaging {name} (about {size})	Empaquetage de {name} (environ {size})
+	Revolution package (.fcpackage or manifest.json)	Paquet Revolution (.fcpackage ou manifest.json)
+	Package as One File…	Empaqueter en un seul fichier…
+	Package	Empaqueter
+	Import Package	Importer un paquet
+	Package…	Empaqueter…
+	Automatic (clips of the open project)	Automatique (clips du projet ouvert)
+	Local copies of clips on network shares	Copies locales des clips sur des partages réseau
+	Local copies size limit	Taille maximale des copies locales
+	Network Copies	Copies réseau
+	Local copy of {name} ready: it now plays from this computer	Copie locale de {name} prête : elle est maintenant lue depuis cet ordinateur
+	Couldn't copy {name} from the network share: {error}	Impossible de copier {name} depuis le partage réseau : {error}
+	On a network share: {share}; plays from its local copy	Sur un partage réseau : {share} ; lu depuis sa copie locale

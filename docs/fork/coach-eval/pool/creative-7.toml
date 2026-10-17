@@ -1,0 +1,327 @@
+# AI-POOL batch creative-7 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families, weighted to picture repair jobs and social formats. Ten new families:
+# backlit face, green office cast, dark footage rescue, blown sky, a lamp turned blue, gentle skin
+# softening, a vignette to guide the eye, archive footage in a new film, a podcast cut into shorts,
+# a reaction video with picture-in-picture. `must` = plan sub-goals from the guide's own text.
+# Families with a gap: blown-sky-rescue (clipped detail can't come back), skin-soften-beauty (no
+# dedicated beauty tool). Held-out only.
+
+# --- backlit-face-rescue ---
+
+[[question]]
+id = "pool-cr7-backlit"
+kind = "creative"
+family = "backlit-face-rescue"
+q = "filmed someone with the sun behind them, their face is too dark"
+sources = ["practice.mixed-cameras.backlit", "color.recipes.face", "color.secondaries.tracking"]
+must = ["a soft ellipse window on the face on its own node, Gamma up a little", "track the window if the person moves", "a highlight shoulder for the bright background; clipped parts can't be recovered"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-backlit-halo"
+kind = "creative"
+family = "backlit-face-rescue"
+q = "brightened the face with a circle but there's a glowing halo round her head"
+sources = ["practice.mixed-cameras.backlit", "color.recipes.face"]
+must = ["the halo comes from a hard window edge: raise Softness until the circle's edge can't be seen", "make the circle a bit larger than the face and lift less"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr7-backlit-resolve"
+kind = "creative"
+family = "backlit-face-rescue"
+q = "contre-jour interview, power window on the face plus protecting the window highlights, node order?"
+sources = ["practice.mixed-cameras.backlit", "color.secondaries.windows", "color.finishing.soft-clip"]
+must = ["balance first, then a node with a soft tracked ellipse window lifting the face", "highlight soft clip / a curve shoulder rolls the bright background off; clipped areas stay white"]
+must_not = []
+style = "resolve-words"
+
+# --- green-office-cast ---
+
+[[question]]
+id = "pool-cr7-green"
+kind = "creative"
+family = "green-office-cast"
+q = "office lights made everyone look green"
+sources = ["practice.mixed-cameras.green-cast", "color.primaries.white-balance", "color.finishing.scopes"]
+must = ["Tint towards magenta on the balance node (or pick something neutral with the white-balance picker)", "check skin on the vectorscope's skin-tone line"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-green-flicker"
+kind = "creative"
+family = "green-office-cast"
+q = "the green tint changes frame to frame under cheap LEDs"
+sources = ["practice.mixed-cameras.green-cast", "practice.editing.flicker"]
+must = ["flickering lights change the cast every frame; Temporal NR doesn't fix flicker", "no deflicker effect yet: keyframe the bad frames' balance, or fix at the shoot with a shutter matched to the mains"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr7-green-lumetri"
+kind = "creative"
+family = "green-office-cast"
+q = "fix a green cast quickly in lumetri"
+sources = ["color.lumetri.panel", "practice.mixed-cameras.green-cast"]
+must = ["Lumetri's WB Selector (lumetri.wb.pick): click something grey or white, Temperature and Tint are set", "or move Tint towards magenta by hand"]
+must_not = []
+style = "premiere-words"
+
+# --- dark-footage-rescue ---
+
+[[question]]
+id = "pool-cr7-dark"
+kind = "creative"
+family = "dark-footage-rescue"
+q = "my log footage came out way too dark, can I brighten it without it getting noisy"
+sources = ["practice.mixed-cameras.underexposed", "color.noise.steps", "color.finishing.grain"]
+must = ["noise reduction first: a spatial NR node at the start (grade.insertNode) or temporal NR on the clip", "then Offset / Gain for exposure, gentle contrast", "grain to hide what remains"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-dark-8bit"
+kind = "creative"
+family = "dark-footage-rescue"
+q = "phone night clip, brightening shows blocky shadows"
+sources = ["practice.mixed-cameras.underexposed", "color.noise.steps", "practice.delivery.ten-bit"]
+must = ["8-bit footage reveals blocks when shadows are lifted; 10-bit log holds up much better", "lift less, noise reduction first, a little grain to hide blocks"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr7-dark-printer"
+kind = "creative"
+family = "dark-footage-rescue"
+q = "two stops under on F-Log2, exposure with offset or gain?"
+sources = ["practice.mixed-cameras.underexposed", "practice.node-trees.printer-lights", "color.primaries.panel"]
+must = ["Offset moves the whole signal, like film printer lights, in steps; Gain more for the brights", "NR before the exposure push"]
+must_not = []
+style = "pro"
+
+# --- blown-sky-rescue (partial gap) ---
+
+[[question]]
+id = "pool-cr7-blown"
+kind = "creative"
+family = "blown-sky-rescue"
+q = "the sky in my shot is completely white, can I bring the clouds back"
+sources = ["practice.mixed-cameras.overexposed", "color.finishing.soft-clip", "color.recipes.sky"]
+must = ["clipped areas hold no detail: they can't be recovered and turn grey when pulled down, so leave them white", "highlight soft clip and a curve shoulder roll the edge off smoothly; a gradient window darkens parts that still have detail", "Revolution can't replace the sky"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-blown-partial"
+kind = "creative"
+family = "blown-sky-rescue"
+q = "sky is bright but not totally clipped, how much can I pull back"
+sources = ["practice.mixed-cameras.overexposed", "color.secondaries.windows", "color.finishing.scopes"]
+must = ["a gradient window darkening the sky, plus a master-curve shoulder", "check on the waveform what still has detail below the clip line"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr7-blown-tone"
+kind = "creative"
+family = "blown-sky-rescue"
+q = "harsh clipped highlights on a sunny exterior, want a filmic roll-off instead"
+sources = ["color.finishing.soft-clip", "practice.grading.curve-shoulder", "practice.delivery.tone-map"]
+must = ["highlight soft clip rolls bright parts off instead of clipping flat", "bend the top of the master curve (a shoulder); the output transform's roll-off folds highlights into SDR"]
+must_not = []
+style = "pro"
+
+# --- lamp-colour-change ---
+
+[[question]]
+id = "pool-cr7-lamp"
+kind = "creative"
+family = "lamp-colour-change"
+q = "change the warm lamp in the corner to a cool blue but keep the room normal"
+sources = ["color.recipes.one-light", "color.secondaries.windows", "color.secondaries.qualifier"]
+must = ["a node with a Circle window over the lamp and its glow, Softness raised a lot so it fades like light", "optional: qualify the glow for a cleaner edge", "push that node towards blue; strongly warm light may need the warm-to-blue recipe"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-lamp-tungsten"
+kind = "creative"
+family = "lamp-colour-change"
+q = "small cooling moves only make my tungsten lamp less orange, never blue"
+sources = ["color.recipes.warm-to-blue", "color.recipes.one-light"]
+must = ["the warm-to-blue recipe: strongly warm light needs a bigger push than small cooling moves", "keep it on a windowed node so only the lamp changes"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr7-lamp-neon"
+kind = "creative"
+family = "lamp-colour-change"
+q = "turn the white shop sign red for a mood shift halfway through the scene"
+sources = ["color.recipes.one-light", "color.secondaries.qualifier", "effects.keyframes"]
+must = ["isolate the sign with a window (and qualifier) on its own node and push it to red", "for the change midway: keyframe the node's correction, or cut and use two grades with a dissolve"]
+must_not = []
+style = "pro"
+
+# --- skin-soften-beauty (gap: no dedicated beauty tool) ---
+
+[[question]]
+id = "pool-cr7-skin"
+kind = "creative"
+family = "skin-soften-beauty"
+q = "smooth out skin a bit in a close-up, beauty filter style"
+sources = ["practice.node-trees.skin-soften", "practice.grading.qualify-skin", "color.noise.steps"]
+must = ["a skin qualifier on its own node with Spatial noise reduction at a low strength softens texture inside the key", "no dedicated beauty tool yet", "keep it subtle; eyes, lips and hair stay sharp outside the key"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-skin-plastic"
+kind = "creative"
+family = "skin-soften-beauty"
+q = "skin softening looks plastic and the wooden wall behind got smoothed too"
+sources = ["practice.node-trees.skin-soften", "practice.grading.qualify-skin", "color.secondaries.windows"]
+must = ["lower the NR strength: plastic skin means too much", "wood shares skin's hue: limit the qualifier with a window on the face"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr7-skin-resolve"
+kind = "creative"
+family = "skin-soften-beauty"
+q = "is there a face refinement like resolve studio has"
+sources = ["practice.node-trees.skin-soften", "practice.grading.qualify-skin"]
+must = ["no dedicated beauty or face-refinement tool yet", "workaround: skin qualifier + low spatial NR inside the key, matte softened"]
+must_not = []
+style = "resolve-words"
+
+# --- vignette-focus ---
+
+[[question]]
+id = "pool-cr7-vignette"
+kind = "creative"
+family = "vignette-focus"
+q = "darken the edges so people look at the person in the middle"
+sources = ["practice.grading.vignette", "color.lumetri.panel"]
+must = ["an ellipse window on its own node, inverted (grade.window.0.invert), high softness, Gain down; or Lumetri's Vignette (Amount, Midpoint, Feather)", "keep it subtle and soft: visible dark corners look dated"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-vignette-moving"
+kind = "creative"
+family = "vignette-focus"
+q = "vignette that follows the subject as she walks across"
+sources = ["practice.grading.vignette", "color.secondaries.tracking"]
+must = ["an inverted soft ellipse window on its own node", "track the window so it follows her"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr7-vignette-spotlight"
+kind = "creative"
+family = "vignette-focus"
+q = "stage spotlight look, everything dark except a pool of light on the singer"
+sources = ["practice.looks.low-key", "practice.grading.vignette", "color.secondaries.windows"]
+must = ["a low-key grade: deep shadows, faces protected", "an inverted soft ellipse on the singer with Gain well down outside it (stronger than a subtle vignette), tracked if they move"]
+must_not = []
+style = "sloppy"
+
+# --- archive-in-new-film ---
+
+[[question]]
+id = "pool-cr7-archive"
+kind = "creative"
+family = "archive-in-new-film"
+q = "mixing old 90s camcorder tapes into my new documentary"
+sources = ["practice.mixed-cameras.archival", "file-menu.clip-video"]
+must = ["interlaced sources: Field Options (clip.fieldOptions) to deinterlace; Fit to frame for old aspect ratios (clip.fitToFrame)", "balance gently and keep its age; match only brightness and contrast to the new footage", "making old video look new looks fake"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-archive-43"
+kind = "creative"
+family = "archive-in-new-film"
+q = "old 4:3 clips in a 16:9 timeline, fill or bars?"
+sources = ["practice.mixed-cameras.archival", "file-menu.clip-video", "media.clips"]
+must = ["Fit (pillarbox bars, the whole picture) or Fill (crops the top and bottom, softer); Scale to Frame Size", "trade-off: filling crops and enlarges low-resolution footage"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr7-archive-new-old"
+kind = "creative"
+family = "archive-in-new-film"
+q = "make the new reenactment shots blend with real archive footage from the 70s"
+sources = ["practice.looks.faded-blacks", "practice.mixed-cameras.archival", "color.finishing.grain"]
+must = ["age the new shots towards the archive: faded blacks, lower saturation, grain", "match brightness and contrast between them rather than cleaning up the archive"]
+must_not = []
+style = "pro"
+
+# --- podcast-to-shorts ---
+
+[[question]]
+id = "pool-cr7-shorts"
+kind = "creative"
+family = "podcast-to-shorts"
+q = "turn the best minute of my podcast video into a vertical short with captions"
+sources = ["practice.delivery.vertical", "practice.youtube.vertical-captions", "text.transcripts"]
+must = ["a vertical sequence (1080 × 1920) with the minute, each clip repositioned with Motion Position or Auto Reframe (Target Aspect Vertical 9:16)", "captions from the transcript (transcript.createCaptions, short maxChars, one line), styled big with a stroke (captions.setStyle), burned in at export", "keep captions in the middle third, away from the buttons"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-shorts-two"
+kind = "creative"
+family = "podcast-to-shorts"
+q = "two-person podcast, vertical short that shows whoever is talking"
+sources = ["editing.multicam", "practice.delivery.vertical", "trimming.multicam"]
+must = ["a multicam of the two cameras, angle cuts to whoever talks", "in a vertical sequence, repositioned so each speaker is centred"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr7-shorts-find"
+kind = "creative"
+family = "podcast-to-shorts"
+q = "find good clips in a 2 hour podcast fast"
+sources = ["text.transcripts", "timeline.markers", "practice.editing.selects"]
+must = ["transcribe and search the text for the moments; cut by selecting words", "mark the good moments (markers) in one watch-through"]
+must_not = []
+style = "sloppy"
+
+# --- reaction-pip ---
+
+[[question]]
+id = "pool-cr7-pip"
+kind = "creative"
+family = "reaction-pip"
+q = "reaction video with my face in a small box in the corner over the clip"
+sources = ["effects.apply", "practice.titles.safe-margins", "effects.opacity"]
+must = ["the clip on V1, the face cam on V2 with Motion Scale down (e.g. 30 %) and Position in a corner, inside the safe margins", "a mask on Opacity can crop the box (rectangle or ellipse for a round cam)"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr7-pip-border"
+kind = "creative"
+family = "reaction-pip"
+q = "picture in picture with a border and rounded corners in a comp"
+sources = ["compositor.basics", "compositor.masks"]
+must = ["a comp: the face cam through a Transform node (scale, position) and a Mask node, merged over the main clip", "a slightly bigger Solid behind it, masked the same way, makes a border"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr7-pip-sync"
+kind = "creative"
+family = "reaction-pip"
+q = "my webcam and the game footage are out of sync for the PIP"
+sources = ["media.clips", "practice.editing.sync-sound"]
+must = ["Synchronize (clip.synchronize) by audio lines up the webcam with the game capture", "or slip one clip by frames until a clap / sound lines up"]
+must_not = []
+style = "sloppy"

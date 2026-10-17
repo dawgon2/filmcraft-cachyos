@@ -339,6 +339,17 @@ fn voice_over_takes_in_both_workflows() {
         let seq = d.exec("sequence.inspect", json!({}));
         let items: Vec<u64> = seq["audio"][n - 1]["items"].as_array().unwrap().iter().filter_map(|i| i["item"].as_u64()).collect();
         assert_eq!(items, vec![takes[0]["item"].as_u64().unwrap()], "{workflow:?}: take 1 in place");
+        // the list is cached per project revision: an edit and its undo both show at once
+        let use_buttons = |d: &mut Driver| {
+            let ids = d.ids("essentialSound.take.");
+            ["essentialSound.take.1.use", "essentialSound.take.2.use"].map(|id| ids.iter().any(|i| i == id))
+        };
+        d.frames(2);
+        assert_eq!(use_buttons(&mut d), [false, true], "{workflow:?}: take 2 offered after the pick");
+        d.exec("edit.undo", json!({}));
+        d.exec("timeline.select", json!({"clips": [clip2]}));
+        d.frames(2);
+        assert_eq!(use_buttons(&mut d), [true, false], "{workflow:?}: take 1 offered again after undo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

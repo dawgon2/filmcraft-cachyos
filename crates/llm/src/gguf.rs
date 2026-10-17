@@ -25,9 +25,9 @@ const MAX_ARRAY: u64 = 1 << 21;
 const MAX_ARRAY_TOTAL: u64 = 1 << 23;
 const MAX_DEPTH: u32 = 2;
 const MAX_DIMS: u32 = 4;
-/// Elements in one tensor. candle dequantizes `token_embd.weight` to f32, so this bounds that
-/// allocation to 1 GiB (Qwen2.5-1.5B's is 151 936 × 1 536 ≈ 2^27.8).
-const MAX_TENSOR_ELEMS: u64 = 1 << 28;
+/// Elements in one tensor: bounds a dequantized f32 copy to 2 GiB. The largest we load is
+/// Qwen3-VL 4B's `token_embd.weight`, 151 936 × 2 560 ≈ 2^28.5 (Qwen2.5-1.5B's ≈ 2^27.8).
+const MAX_TENSOR_ELEMS: u64 = 1 << 29;
 const MAX_VOCAB: u64 = 1 << 20;
 const MAX_HEAD_DIM: u64 = 512;
 const DEFAULT_ALIGNMENT: u64 = 32;

@@ -1,5 +1,6 @@
-//! Convert a full-precision Hugging Face checkpoint (Llama / SmolLM2 or Qwen2 / Qwen2.5:
-//! `model.safetensors` + `config.json`) to a GGUF file that candle's quantized `llama` / `qwen2`
+//! Convert a full-precision Hugging Face checkpoint (Llama / SmolLM2, SmolLM3, Qwen2 / Qwen2.5, Qwen3, or
+//! the text model of Qwen3-VL: `model.safetensors` or a sharded `model.safetensors.index.json`,
+//! plus `config.json`) to a GGUF file that candle's quantized `llama` / `qwen2`
 //! loaders (and so [`filmcraft_llm::Model`]) read. Pure Rust (candle); GRADE-PLAN G2.11b.
 //!
 //! ```text
@@ -62,6 +63,9 @@ fn parse_type(s: &str) -> Result<Mix, Box<dyn Error>> {
 
 struct Hyper {
     arch: &'static str,
+    /// Prefix of the text model's tensors (`model.`, or `model.language_model.` for Qwen3-VL).
+    prefix: &'static str,
+    head_dim: usize,
     heads: usize,
     kv_heads: usize,
     hidden: usize,
@@ -75,7 +79,13 @@ struct Hyper {
 
 fn read_config(dir: &std::path::Path) -> Result<Hyper, Box<dyn Error>> {
     let text = std::fs::read_to_string(dir.join("config.json"))?;
-    let v: serde_json::Value = serde_json::from_str(&text)?;
+    let top: serde_json::Value = serde_json::from_str(&text)?;
+    let model_type = top.get("model_type").and_then(|m| m.as_str()).map(str::to_owned);
+    // Qwen3-VL keeps the language model's settings under `text_config`
+    let v = match model_type.as_deref() {
+        Some("qwen3_vl") => top.get("text_config").cloned().ok_or("config.json: qwen3_vl without text_config")?,
+        _ => top.clone(),
+    };
     let u = |k: &str| -> Result<usize, Box<dyn Error>> {
         v.get(k)
             .and_then(serde_json::Value::as_u64)
@@ -84,27 +94,49 @@ fn read_config(dir: &std::path::Path) -> Result<Hyper, Box<dyn Error>> {
             .ok_or_else(|| format!("config.json: bad or missing {k}").into())
     };
     let f = |k: &str, d: f64| v.get(k).and_then(serde_json::Value::as_f64).filter(|x| x.is_finite() && *x > 0.0).unwrap_or(d);
-    let arch = match v.get("model_type").and_then(|m| m.as_str()) {
-        Some("llama") => "llama",
-        Some("qwen2") => "qwen2",
-        other => return Err(format!("unsupported model_type {other:?} (llama or qwen2)").into()),
+    let (arch, prefix) = match model_type.as_deref() {
+        Some("llama") => ("llama", "model."),
+        Some("qwen2") => ("qwen2", "model."),
+        Some("qwen3") => ("qwen3", "model."),
+        Some("qwen3_vl") => ("qwen3", "model.language_model."),
+        // SmolLM3: Llama weights (rotated halves → GGUF's interleaved pairs, like Llama) with no
+        // rotary embedding on every 4th layer; FilmCraft's forward (like llama.cpp) knows that step
+        // from the architecture name, so any other layout is refused rather than run wrongly
+        Some("smollm3") => ("smollm3", "model."),
+        other => return Err(format!("unsupported model_type {other:?} (llama, smollm3, qwen2, qwen3 or qwen3_vl)").into()),
     };
+    if arch == "smollm3" {
+        let flags: Vec<u64> =
+            v.get("no_rope_layers").and_then(|f| f.as_array()).map(|a| a.iter().filter_map(serde_json::Value::as_u64).collect()).unwrap_or_default();
+        let every_4th = !flags.is_empty() && flags.iter().enumerate().all(|(i, f)| *f == u64::from((i + 1) % 4 != 0));
+        if !every_4th {
+            return Err("config.json: SmolLM3 without no rotary embedding on exactly every 4th layer is not supported".into());
+        }
+    }
     // (candle's quantized Llama has no projection biases: refuse rather than drop them)
     let flag = |k: &str| v.get(k).and_then(serde_json::Value::as_bool).unwrap_or(false);
-    if arch == "llama" && (flag("attention_bias") || flag("mlp_bias")) {
+    if matches!(arch, "llama" | "smollm3") && (flag("attention_bias") || flag("mlp_bias")) {
         return Err("config.json: Llama with attention_bias / mlp_bias is not supported (candle's quantized Llama has no projection biases)".into());
     }
-    if v.get("rope_scaling").is_some_and(|r| !r.is_null()) {
+    // Qwen3-VL's rope_scaling is its multimodal (M-RoPE) layout, which for text tokens is the
+    // plain rotary embedding; picture positions are the runtime's job (`mrope.rs`)
+    let mrope_only =
+        model_type.as_deref() == Some("qwen3_vl") && v.get("rope_scaling").and_then(|r| r.get("rope_type")).and_then(|t| t.as_str()) == Some("default");
+    if v.get("rope_scaling").is_some_and(|r| !r.is_null()) && !mrope_only {
         return Err("rope_scaling is not supported".into());
     }
     let heads = u("num_attention_heads")?;
     let hidden = u("hidden_size")?;
     let kv_heads = v.get("num_key_value_heads").map_or(Ok(heads), |_| u("num_key_value_heads"))?;
-    if hidden % heads != 0 || heads % kv_heads != 0 || (hidden / heads) % 2 != 0 {
+    // Qwen3 states its head width (wider than hidden / heads)
+    let head_dim = if arch == "qwen3" { u("head_dim")? } else { hidden / heads };
+    if (arch != "qwen3" && hidden % heads != 0) || heads % kv_heads != 0 || head_dim % 2 != 0 {
         return Err("config.json: bad head layout".into());
     }
     Ok(Hyper {
         arch,
+        prefix,
+        head_dim,
         heads,
         kv_heads,
         hidden,
@@ -118,8 +150,9 @@ fn read_config(dir: &std::path::Path) -> Result<Hyper, Box<dyn Error>> {
 }
 
 /// The GGUF name of a Hugging Face tensor name, or None for tensors the format doesn't keep.
-fn gguf_name(hf: &str) -> Option<String> {
-    match hf {
+fn gguf_name(hf: &str, prefix: &str) -> Option<String> {
+    let hf = &format!("model.{}", hf.strip_prefix(prefix)?);
+    match hf.as_str() {
         "model.embed_tokens.weight" => return Some("token_embd.weight".into()),
         "model.norm.weight" => return Some("output_norm.weight".into()),
         "lm_head.weight" => return Some("output.weight".into()),
@@ -136,6 +169,8 @@ fn gguf_name(hf: &str) -> Option<String> {
         "self_attn.k_proj" => "attn_k",
         "self_attn.v_proj" => "attn_v",
         "self_attn.o_proj" => "attn_output",
+        "self_attn.q_norm" => "attn_q_norm",
+        "self_attn.k_norm" => "attn_k_norm",
         "mlp.gate_proj" => "ffn_gate",
         "mlp.up_proj" => "ffn_up",
         "mlp.down_proj" => "ffn_down",
@@ -309,22 +344,50 @@ fn main() -> Result<(), Box<dyn Error>> {
     let dir = PathBuf::from(dir);
     let h = read_config(&dir)?;
     let t0 = std::time::Instant::now();
-    let tensors = candle_core::safetensors::load(dir.join("model.safetensors"), &Device::Cpu)?;
+    // one file, or the shards a sharded checkpoint's index names (only the text model's tensors
+    // are converted; a Qwen3-VL picture encoder stays in the safetensors)
+    let files: Vec<PathBuf> = match std::fs::read_to_string(dir.join("model.safetensors.index.json")) {
+        Ok(index) => {
+            let v: serde_json::Value = serde_json::from_str(&index)?;
+            let mut f: Vec<String> = v
+                .get("weight_map")
+                .and_then(|m| m.as_object())
+                .ok_or("index without weight_map")?
+                .values()
+                .filter_map(|x| x.as_str().map(str::to_owned))
+                .collect();
+            f.sort();
+            f.dedup();
+            if f.iter().any(|n| n.contains('/') || n.contains('\\') || !n.ends_with(".safetensors")) {
+                return Err("index names a file outside the model folder".into());
+            }
+            f.into_iter().map(|n| dir.join(n)).collect()
+        }
+        Err(_) => vec![dir.join("model.safetensors")],
+    };
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+    for f in &files {
+        for (k, t) in candle_core::safetensors::load(f, &Device::Cpu)? {
+            if k.starts_with(h.prefix) || k == "lm_head.weight" {
+                tensors.insert(k, t);
+            }
+        }
+    }
     let mut names: Vec<&String> = tensors.keys().collect();
     names.sort();
     let mut q: Vec<(String, QTensor)> = Vec::with_capacity(names.len());
     let mut counts: HashMap<String, usize> = HashMap::new();
     for hf in names {
         let Some(t) = tensors.get(hf) else { continue };
-        let Some(g) = gguf_name(hf) else {
+        let Some(g) = gguf_name(hf, h.prefix).or_else(|| (hf == "lm_head.weight").then(|| "output.weight".to_string())) else {
             eprintln!("skipping {hf} (not part of the GGUF layout)");
             continue;
         };
-        if h.arch == "llama" && g.ends_with(".bias") {
+        if matches!(h.arch, "llama" | "smollm3") && g.ends_with(".bias") {
             return Err(format!("{hf}: Llama projection biases are not supported (candle's quantized Llama has none)").into());
         }
         let mut t = t.to_dtype(DType::F32)?;
-        if h.arch == "llama" {
+        if matches!(h.arch, "llama" | "smollm3") {
             if g.ends_with("attn_q.weight") {
                 t = permute_rope(&t, h.heads)?;
             } else if g.ends_with("attn_k.weight") {
@@ -341,9 +404,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Qwen2 with tied embeddings: the published Q4_K_M files carry a separate, higher-precision
     // output head (a copy of the embeddings); candle uses it when present.
     if mix == Mix::Q4KM
-        && h.arch == "qwen2"
+        && matches!(h.arch, "qwen2" | "qwen3")
         && !q.iter().any(|(n, _)| n == "output.weight")
-        && let Some(e) = tensors.get("model.embed_tokens.weight")
+        && let Some(e) = tensors.get(&format!("{}embed_tokens.weight", h.prefix))
     {
         let e = e.to_dtype(DType::F32)?;
         let dt = dtype_for(mix, "output.weight", &e, h.layers);
@@ -351,7 +414,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         q.push(("output.weight".into(), QTensor::quantize(&e, dt)?));
     }
     let arch = h.arch;
-    let head_dim = h.hidden / h.heads;
+    let head_dim = h.head_dim;
     let file_type: u32 = match mix {
         Mix::Q8 => 7,
         Mix::Q4KM => 15,
@@ -382,6 +445,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         (format!("{arch}.rope.dimension_count"), u32v(head_dim)),
         (format!("{arch}.vocab_size"), u32v(h.vocab)),
     ];
+    let mut meta = meta;
+    if arch == "qwen3" {
+        meta.push((format!("{arch}.attention.key_length"), u32v(head_dim)));
+        meta.push((format!("{arch}.attention.value_length"), u32v(head_dim)));
+    }
     let meta_refs: Vec<(&str, &V)> = meta.iter().map(|(k, v)| (k.as_str(), v)).collect();
     let tensor_refs: Vec<(&str, &QTensor)> = q.iter().map(|(k, v)| (k.as_str(), v)).collect();
     let tmp = PathBuf::from(format!("{out}.part"));

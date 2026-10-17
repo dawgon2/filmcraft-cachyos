@@ -189,7 +189,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect, which: Which)
     if show_picture {
         ui.painter().rect_filled(pic, 0.0, t.monitor_bg);
         let playing = if which == Which::Program { app.playback.playing } else { app.source_playback.clock.playing };
-        let res = mv.effective_res(playing);
+        let mut res = mv.effective_res(playing);
+        // Settings ▸ Playback ▸ Lower playback resolution on battery (fork XPS d)
+        if playing && app.session.prefs.playback.battery_preview && filmcraft_engine::power::on_battery() {
+            res = res.lower();
+        }
         // frame pixels per screen pixel along the axis that needs the most of them
         let screen_scale = (pic.width() * ppp / frame_size.0.max(1) as f32).max(pic.height() * ppp / frame_size.1.max(1) as f32).min(1.0);
         let scale = quantize_scale(res.scale().min(screen_scale.max(1.0 / 32.0)));

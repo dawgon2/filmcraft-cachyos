@@ -1,0 +1,163 @@
+# AI-POOL batch practice-1: practice/grading.md (practice notes, not indexed by the keyword
+# coach). The original advanced set already asks the obvious question per note; these ask the
+# why, the pitfalls and the edge cases.
+
+[[question]]
+id = "pool-r1-double-transform"
+kind = "pro-practice"
+q = "I put the Fujifilm LUT on and also set F-Log2 in Interpret Footage, now it's super contrasty"
+sources = ["practice.grading.normalise-log"]
+must = ["that applies the transform twice: use colour management or the camera LUT, not both"]
+must_not = []
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-r1-grade-log-by-eye"
+kind = "pro-practice"
+q = "why not just add contrast and saturation to the log until it looks right?"
+sources = ["practice.grading.normalise-log"]
+must = ["by eye gives different results per shot and breaks highlights", "normalise with colour management so every shot starts from the same place"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r1-keep-sunset-warm"
+kind = "approach"
+q = "the WB picker makes my sunset look grey and dead"
+sources = ["practice.grading.balance-first", "color.primaries.white-balance"]
+must = ["neutral isn't always right: a sunset or tungsten scene should stay warm", "balance to what the scene should feel like; warm it back by hand"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r1-foggy-blacks"
+kind = "pro-practice"
+q = "should a foggy morning shot also have blacks at the bottom of the waveform?"
+sources = ["practice.grading.black-white-points"]
+must = ["not every shot should reach both ends (fog, night, a soft look)"]
+must_not = ["insists every shot must touch both ends"]
+style = "pro"
+
+[[question]]
+id = "pool-r1-crush-noise"
+kind = "pro-practice"
+q = "is crushing the blacks a good way to hide noise?"
+sources = ["practice.grading.black-white-points"]
+must = ["it hides noise but also loses detail in hair and clothes", "noise reduction is the other option"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r1-contrast-sat"
+kind = "tweak"
+q = "after adding contrast the colours got louder too"
+sources = ["practice.grading.contrast-pivot", "practice.grading.saturation-order"]
+must = ["strong contrast also raises saturation: set saturation after contrast and check skin"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r1-shoulder-grey"
+kind = "tweak"
+q = "I bent the top of the curve and now my whites look grey"
+sources = ["practice.grading.curve-shoulder"]
+must = ["too much shoulder makes whites grey and the picture flat: bend it less"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r1-vibrance"
+kind = "gap"
+q = "is there Color Boost or vibrance on the node grader?"
+sources = ["practice.grading.saturation-order", "color.lumetri.which"]
+must = ["not on a node: Lumetri Creative has Vibrance", "on a node use Saturation and check the vectorscope"]
+must_not = ["invents a Color Boost control"]
+style = "resolve-words"
+
+[[question]]
+id = "pool-r1-skin-line-makeup"
+kind = "pro-practice"
+q = "the face is off the skin line but it's a character in green stage light, should I fix it?"
+sources = ["practice.grading.skin-line"]
+must = ["the line is a guide, not a target: coloured light, makeup and creative looks move skin on purpose"]
+must_not = []
+style = "pro"
+needs_clip = true
+
+[[question]]
+id = "pool-r1-skin-wood"
+kind = "tweak"
+q = "my skin qualifier keeps picking up the wooden wall behind"
+sources = ["practice.grading.qualify-skin"]
+must = ["wood, sand and walls share skin's hue: limit the qualifier with a window on the same node"]
+must_not = []
+style = "beginner"
+needs_clip = true
+
+[[question]]
+id = "pool-r1-sky-replacement"
+kind = "gap"
+q = "the sky is completely white, can Revolution replace it?"
+sources = ["practice.grading.sky"]
+must = ["a blown sky has no colour to qualify: a gradient alone darkens what detail is left", "a sky replacement would be a composite (keying / the Compositor), not a grade"]
+must_not = ["invents a sky replacement button"]
+style = "gap"
+
+[[question]]
+id = "pool-r1-vignette-dated"
+kind = "pro-practice"
+q = "why do my vignettes look cheap?"
+sources = ["practice.grading.vignette"]
+must = ["visible dark corners look dated: keep it subtle and very soft", "the aim is attention on the subject without the viewer noticing"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r1-look-strength"
+kind = "approach"
+q = "I want to dial my look down to 60% on a couple of shots"
+sources = ["practice.grading.look-node"]
+must = ["keep the look on its own late node", "a LUT look has LUT mix; for wheels / curves reduce them on that node"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-r1-radioactive"
+kind = "tweak"
+q = "my teal and orange made the faces look radioactive"
+sources = ["practice.grading.split-tone"]
+must = ["the push is too strong: ease off the Lift / Gain tints", "protect skin with a qualifier when the push is strong"]
+must_not = []
+style = "sloppy"
+needs_clip = true
+
+[[question]]
+id = "pool-r1-grain-streaming"
+kind = "pro-practice"
+q = "my grain looks great in Revolution but mushy on YouTube"
+sources = ["practice.grading.grain-finish"]
+must = ["streaming compression smears heavy grain: use less and check on the exported file"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r1-match-feel"
+kind = "pro-practice"
+q = "the scopes match perfectly but the shots still don't feel the same"
+sources = ["practice.grading.match-order"]
+must = ["matching numbers exactly can be wrong when the light really differs", "match what the viewer feels"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-r1-dfn-giveaway"
+kind = "pro-practice"
+q = "my day-for-night still looks like day, what gives it away?"
+sources = ["practice.grading.day-for-night"]
+must = ["hard shadows and a bright sky give it away", "darken the sky most, keep practicals and eyes brighter, lower saturation and cool it"]
+must_not = []
+style = "pro"
+needs_clip = true

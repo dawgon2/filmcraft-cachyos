@@ -1,0 +1,327 @@
+# AI-POOL batch creative-16 (CREATIVE-POOL, FORK-PLAN §1a.91, AI-PLAN AI4 item 5c): held-out creative
+# questions in goal families built on the effect catalogue the guide now names (`effect-reference.*`):
+# a lens flare, a mirror / kaleidoscope, a magnifier on a detail, a painted look, light rays, fixing a
+# fisheye, video inside text, review copies with timecode, a cut-out sticker look, fake shallow focus.
+# `must` = plan sub-goals from the guide's own text (effect names from the effect reference; settings
+# only where the guide or the effect's controls name them). Family with a partial gap: painterly-look
+# (stylise effects only, no AI style transfer). Held-out only.
+
+# --- lens-flare-sun ---
+
+[[question]]
+id = "pool-cr16-flare"
+kind = "creative"
+family = "lens-flare-sun"
+q = "add a lens flare where the sun is in my shot"
+sources = ["effects.lens-light", "effects.keyframes", "effects.apply"]
+must = ["Lens Flare (Video Effects ▸ Lights & Glows) on the clip, its Flare Center on the sun, Flare Brightness to taste", "if the camera moves, keyframe the Flare Center so it stays on the sun"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-flare-anamorphic"
+kind = "creative"
+family = "lens-flare-sun"
+q = "cinematic flare streak across the frame as a car's headlights pass"
+sources = ["effects.lens-light", "effects.keyframes", "effects.opacity"]
+must = ["Lens Flare (or a flare overlay clip on Screen) with its centre keyframed along the headlights", "keyframe its brightness up as the lights face the camera and back down"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr16-flare-transition"
+kind = "creative"
+family = "lens-flare-sun"
+q = "flare flash to go between two scenes"
+sources = ["effect-reference.transitions", "effects.transitions"]
+must = ["a flare / flash transition from Video Transitions ▸ Lights & Blurs (Flare, Flash, Light Leak) on the edit", "it needs handles on both clips"]
+must_not = []
+style = "sloppy"
+
+# --- mirror-kaleidoscope ---
+
+[[question]]
+id = "pool-cr16-mirror"
+kind = "creative"
+family = "mirror-kaleidoscope"
+q = "mirror the shot so the left half is reflected on the right, symmetrical trippy look"
+sources = ["effects.lens-light", "effects.apply"]
+must = ["the Mirror effect (Video Effects ▸ Distort) reflects the picture along a line you set (centre and angle)", "a centred subject makes the symmetry work"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-kaleido"
+kind = "creative"
+family = "mirror-kaleidoscope"
+q = "kaleidoscope effect for a music video"
+sources = ["effect-reference.transitions", "effects.lens-light", "effects.keyframes"]
+must = ["the Kaleidoscope transition (Grunge & Distort) gives it between shots; within a shot, stack Mirror effects at different angles", "keyframe the angle for movement"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr16-mirror-flip"
+kind = "creative"
+family = "mirror-kaleidoscope"
+q = "flip a shot left to right to fix screen direction"
+sources = ["effects.shape-move", "effects.apply"]
+must = ["Horizontal Flip (Video Effects ▸ Transform) on the clip", "watch for text or logos that read backwards"]
+must_not = []
+style = "pro"
+
+# --- magnifier-detail ---
+
+[[question]]
+id = "pool-cr16-magnify"
+kind = "creative"
+family = "magnifier-detail"
+q = "a magnifying glass circle that zooms in on a small detail in the shot"
+sources = ["effects.lens-light", "effects.keyframes"]
+must = ["the Magnify effect (Video Effects ▸ Distort): shape, centre, magnification, size, feather", "keyframe the centre to move the lens over the picture"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-magnify-screen"
+kind = "creative"
+family = "magnifier-detail"
+q = "zoom bubble on the small text in my screen recording"
+sources = ["effects.lens-light", "practice.youtube.screen-recordings"]
+must = ["Magnify with a round or square shape on the text, feathered", "or a punch-in with Motion Scale keyframes (eased); record at the size you'll show so text stays sharp"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr16-magnify-border"
+kind = "creative"
+family = "magnifier-detail"
+q = "magnifier with a visible ring around it, like a callout"
+sources = ["effects.lens-light", "graphics.layers"]
+must = ["Magnify for the zoom", "an ellipse shape layer (stroke only) in a graphic above, matched to the lens, for the ring"]
+must_not = []
+style = "pro"
+
+# --- painterly-look (partial gap) ---
+
+[[question]]
+id = "pool-cr16-paint"
+kind = "creative"
+family = "painterly-look"
+q = "make my video look like an oil painting"
+sources = ["effects.painterly", "effects.shape-move", "effects.apply"]
+must = ["Brush Strokes (Video Effects ▸ Stylize) for a painted texture; Posterize reduces colours, Roughen Edges for ragged edges", "no AI style transfer: these are filters, so keep them subtle and judge on moving footage"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-paint-cartoon"
+kind = "creative"
+family = "painterly-look"
+q = "cartoon look with black outlines"
+sources = ["effects.painterly", "effects.opacity"]
+must = ["Posterize for flat colour areas", "Find Edges on a copy above with Multiply blend for dark outlines"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr16-paint-sketch"
+kind = "creative"
+family = "painterly-look"
+q = "pencil sketch effect"
+sources = ["effects.painterly", "practice.looks.black-white"]
+must = ["Find Edges (then Black & White) gives line-drawing edges", "raise contrast so the paper goes white; it is a filter, not a drawing"]
+must_not = []
+style = "pro"
+
+# --- light-rays ---
+
+[[question]]
+id = "pool-cr16-rays"
+kind = "creative"
+family = "light-rays"
+q = "god rays coming through the trees in my forest shot"
+sources = ["effects.lens-light", "effects.opacity"]
+must = ["Volumetric Rays (Video Effects ▸ Lights & Glows) placed at the light source", "keep it subtle; a slight warm grade helps"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-rays-title"
+kind = "creative"
+family = "light-rays"
+q = "light rays shining out from behind my logo"
+sources = ["effects.lens-light", "graphics.layers"]
+must = ["Volumetric Rays (or Glint / Wonder Glow) on the logo layer or a copy behind it", "animate the intensity for a reveal"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr16-rays-haze"
+kind = "creative"
+family = "light-rays"
+q = "hazy backlit atmosphere with visible light beams in a church interior"
+sources = ["effects.lens-light", "practice.looks.low-key", "effects.stylize"]
+must = ["Volumetric Rays from the windows", "a low-key grade so the beams read; Wonder Glow for haze around bright windows"]
+must_not = []
+style = "pro"
+
+# --- fisheye-fix ---
+
+[[question]]
+id = "pool-cr16-fisheye"
+kind = "creative"
+family = "fisheye-fix"
+q = "my GoPro footage has curved lines, can I straighten it"
+sources = ["effects.lens-light", "practice.mixed-cameras.drone"]
+must = ["Lens Distortion (Video Effects ▸ Distort): set Curvature against the bulge until straight lines are straight", "edges stretch or crop; scale up a little to hide them"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-fisheye-add"
+kind = "creative"
+family = "fisheye-fix"
+q = "add a fisheye look for a skate video"
+sources = ["effects.lens-light", "effects.apply"]
+must = ["Lens Distortion with curvature the other way (or Spherize) bulges the picture", "keep the subject near the centre"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr16-fisheye-match"
+kind = "creative"
+family = "fisheye-fix"
+q = "match an action-cam angle to my main camera in a two-cam edit"
+sources = ["practice.mixed-cameras.drone", "effects.lens-light", "color.matching.shot-match"]
+must = ["straighten the lens with Lens Distortion first, tame sharpening and saturation", "then match colour to the main camera (Shot Match or by eye on a still)"]
+must_not = []
+style = "pro"
+
+# --- video-inside-text ---
+
+[[question]]
+id = "pool-cr16-inside-text"
+kind = "creative"
+family = "video-inside-text"
+q = "big title where the letters are filled with video"
+sources = ["effects.shape-move", "graphics.text"]
+must = ["the video on one track and the title above; Track Matte Key (Video Effects ▸ Keying) on the video using the title as its matte (Composite Using alpha)", "turn the title track's output off (timeline.setTrack, enabled false) so only the filled letters show; switching the title clip off instead removes the matte", "bold, wide letters show more of the video"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-inside-text-reverse"
+kind = "creative"
+family = "video-inside-text"
+q = "cut the title out of a black screen so the video shows through the letters"
+sources = ["effects.shape-move", "media.generated"]
+must = ["a black Color Matte with Track Matte Key using the title, Reverse on, over the video", "turn the title track's output off so it isn't shown; a disabled title clip would stop working as the matte"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr16-inside-text-zoom"
+kind = "creative"
+family = "video-inside-text"
+q = "text filled with footage then zoom through a letter into the scene"
+sources = ["effects.shape-move", "effects.keyframes"]
+must = ["Track Matte Key with the title as the matte", "keyframe the title's Scale up until a letter fills the frame, then cut or dissolve to the full shot"]
+must_not = []
+style = "sloppy"
+
+# --- review-copy-timecode ---
+
+[[question]]
+id = "pool-cr16-review"
+kind = "creative"
+family = "review-copy-timecode"
+q = "send my client a draft with timecode on screen so they can give notes"
+sources = ["practice.workflow.review-copies", "effect-reference.video-transform", "media.generated"]
+must = ["Metadata & Timecode Burn-in (Video Effects ▸ Video, Sequence Timecode) on an Adjustment Layer over the whole sequence", "export at a modest bitrate; collect notes as markers"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-review-name"
+kind = "creative"
+family = "review-copy-timecode"
+q = "burn in the clip name too for the assistant to find shots"
+sources = ["effect-reference.video-transform", "practice.workflow.review-copies"]
+must = ["a second Metadata & Timecode Burn-in set to Clip Name (or File Name), aligned in another corner", "remove or switch them off before the final export"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr16-review-watermark"
+kind = "creative"
+family = "review-copy-timecode"
+q = "draft watermark plus timecode on the review copy"
+sources = ["practice.workflow.review-copies", "effects.opacity", "graphics.text"]
+must = ["a 'DRAFT' text graphic at low Opacity on the top track", "the timecode burn-in on an adjustment layer; both off for the final"]
+must_not = []
+style = "sloppy"
+
+# --- cutout-sticker-look ---
+
+[[question]]
+id = "pool-cr16-sticker"
+kind = "creative"
+family = "cutout-sticker-look"
+q = "make the person look like a cut-out sticker with a white outline and shadow"
+sources = ["keying.ultra-key", "effects.shape-move"]
+must = ["the person keyed (green screen with Ultra Key) or masked", "a white outline with Stroke (Video Effects ▸ Utility) and a Drop Shadow (Perspective) on the cut-out"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-sticker-png"
+kind = "creative"
+family = "cutout-sticker-look"
+q = "PNG product image with a drop shadow over my video"
+sources = ["effects.shape-move", "media.import"]
+must = ["import the PNG (transparency is kept), place it above", "Drop Shadow (Video Effects ▸ Perspective) for depth"]
+must_not = []
+style = "sloppy"
+
+[[question]]
+id = "pool-cr16-sticker-rounded"
+kind = "creative"
+family = "cutout-sticker-look"
+q = "rounded-corner video box with a soft shadow for a modern look"
+sources = ["effects.shape-move", "effects.apply"]
+must = ["Rounded Crop (Video Effects ▸ Image Control) rounds the clip's corners", "Drop Shadow behind it; Motion Scale / Position to place the box"]
+must_not = []
+style = "pro"
+
+# --- fake-shallow-focus ---
+
+[[question]]
+id = "pool-cr16-bokeh"
+kind = "creative"
+family = "fake-shallow-focus"
+q = "blur the background behind the person like a portrait mode"
+sources = ["effects.lens-light", "effects.opacity", "tracking.what"]
+must = ["a blurred copy (Gaussian or Bokeh Blur) on top with a mask around the person, Inverted and feathered, tracked as they move", "no depth map: the edge is drawn by hand, so hair is hard"]
+must_not = []
+style = "beginner"
+
+[[question]]
+id = "pool-cr16-bokeh-focus"
+kind = "creative"
+family = "fake-shallow-focus"
+q = "focus pull from one person to another in post"
+sources = ["effects.lens-light", "effects.keyframes", "effects.opacity"]
+must = ["Focus Blur (or a masked blur) with the sharp area keyframed from one person to the other", "real focus pulls look better; fake ones work on small, slow moves"]
+must_not = []
+style = "pro"
+
+[[question]]
+id = "pool-cr16-bokeh-lights"
+kind = "creative"
+family = "fake-shallow-focus"
+q = "make the city lights behind me into big soft bokeh balls"
+sources = ["effects.lens-light", "effects.opacity"]
+must = ["Bokeh Blur on a background copy masked off you", "it blurs what's there; small bright lights turn into soft discs"]
+must_not = []
+style = "sloppy"

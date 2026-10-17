@@ -36,7 +36,7 @@ has wheel or slider changes).
 
 - Four curves per node: master (Y), red, green, blue (keys `curve.master`, `curve.r`,
   `curve.g`, `curve.b`, set with `grade.setParam`).
-- A curve keeps at most 64 points when applied.
+- How many points can a curve have? It keeps at most 64 points when applied.
 - Hue vs hue / sat / luma, luma vs sat and sat vs sat curves are in Lumetri Color's curves
   section, not yet in the node grader.
 

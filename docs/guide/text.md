@@ -1,6 +1,6 @@
 # Transcripts, captions and narration
 
-**[FilmCraft]** · editing by text, captions and text-to-speech narration, all in the **Text**
+**[Revolution]** · editing by text, captions and text-to-speech narration, all in the **Text**
 panel (Window ▸ Text: Transcript and Captions tabs) and the Sequence ▸ Transcript / Captions
 menus; written for AI-PLAN AI3-PREP (feature pages)
 
@@ -8,9 +8,9 @@ menus; written for AI-PLAN AI3-PREP (feature pages)
 
 > id: text.transcripts | does: turns a sequence's speech into text you can search and cut by selecting words | cmd: transcript.generate, transcript.inspect, transcript.search, transcript.select, transcript.extract, transcript.lift | resolve: — (Speech to Text in Resolve Studio, closest) | premiere: Text panel ▸ Transcript, text-based editing | when: interviews, talking heads, finding a line in hours of footage | see: text.speech-models, text.cleanup
 
-**[FilmCraft]**
+**[Revolution]**
 
-A transcript is the words spoken in a clip with the time of each word. FilmCraft keeps it on the
+A transcript is the words spoken in a clip with the time of each word. Revolution keeps it on the
 media item, so every clip cut from that file shares it, and shows the sequence's transcript in
 the Text panel's **Transcript** tab: the words of the clips on the timeline, in timeline order,
 grouped into paragraphs at pauses.
@@ -59,13 +59,15 @@ All three understand many languages. For noisy recordings, clean the voice first
 
 > id: text.cleanup | does: removes long pauses and filler words like "um" and "uh" from the timeline in one step | cmd: transcript.removePauses, transcript.removeFillers | resolve: — | premiere: Text panel ▸ Pauses and Filler Words | when: tightening an interview or a talk | see: text.transcripts
 
-**[FilmCraft]**
+**[Revolution]**
 
-1. **Remove Pauses** (Sequence ▸ Transcript, `transcript.removePauses`) cuts silences longer
-   than one second, keeping 0.15 s on each side so speech doesn't sound clipped (`minSeconds`,
-   `keepSeconds` change both).
+1. Transcribe first: both commands work from the sequence's transcript (Sequence ▸ Transcript ▸
+   **Transcribe…**, `transcript.generate`). Then **Remove Pauses** (Sequence ▸ Transcript,
+   `transcript.removePauses`) cuts silences longer than one second, keeping 0.15 s on each side so
+   speech doesn't sound clipped (`minSeconds`, `keepSeconds` change both).
 2. **Remove Filler Words** (`transcript.removeFillers`) cuts "um", "uh", "erm", "hmm" and similar;
    pass your own list as `fillers`.
+3. Play the result through and put back a pause by hand where a thought ends.
 
 Each is one undo step. The trade-off: a talk with every pause removed can feel breathless. Many
 editors remove only the long pauses, then put a few back by hand where a thought ends.
@@ -74,7 +76,7 @@ editors remove only the long pauses, then put a few back by hand where a thought
 
 > id: text.captions | does: caption tracks: make them from the transcript, import a file, edit, style and export | cmd: transcript.createCaptions, captions.import, captions.export, captions.split, captions.merge, captions.trim, captions.move, captions.setText, captions.setStyle | resolve: subtitle tracks | premiere: Captions (Text panel ▸ Captions, caption tracks) | when: accessibility, social video watched without sound, translations | see: text.transcripts
 
-**[FilmCraft]**
+**[Revolution]**
 
 Captions live on **caption tracks** above the video tracks (C1, C2…), each caption a block of
 text with a start and an end.
@@ -112,7 +114,7 @@ language, lock or visibility (`captions.setTrack`) or show only the active one
 
 > id: text.narration | does: turns a written script into a spoken narration clip with a chosen voice | cmd: tts.voices, tts.create, tts.edit, tts.inspect, tts.preview, tts.downloadVoices | resolve: — | premiere: — (third-party text-to-speech) | when: placeholder voice-over, explainers, a narrator you can change later | see: text.narration-vs-recording
 
-**[FilmCraft]**
+**[Revolution]**
 
 1. Write the script in the Text to Speech panel (Window ▸ Text to Speech) and pick a voice,
    pitch and pace (`tts.voices` lists them). **Preview** (`tts.preview`) speaks it without
@@ -130,7 +132,7 @@ voices) are a one-time 336 MB download (`tts.downloadVoices`), checked before us
 
 > id: text.narration-vs-recording | does: when to use text-to-speech and when to record a real voice | cmd: tts.create, audio.voiceover.start | resolve: Fairlight voice-over recording | premiere: Voice-over Record | when: deciding how a video gets its voice | see: text.narration, audio.voiceover-takes
 
-**[FilmCraft]**
+**[Revolution]**
 
 | Option | Good for | Trade-offs |
 |---|---|---|

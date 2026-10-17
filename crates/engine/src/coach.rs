@@ -79,7 +79,7 @@ impl Provenance {
     pub fn tag(self) -> &'static str {
         match self {
             Provenance::ResolveStyle => "[Resolve-style]",
-            Provenance::Filmcraft => "[FilmCraft]",
+            Provenance::Filmcraft => "[Revolution]",
             Provenance::Fork => "[Fork]",
             Provenance::Standard => "[Standard]",
         }

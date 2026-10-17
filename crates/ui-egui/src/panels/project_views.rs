@@ -51,6 +51,10 @@ pub struct Badge {
     /// H.264 High 10 (4:2:0, more than 8 bits) without a proxy: no video engine has the profile,
     /// FilmCraft's own decoder takes it: "H.264 10-bit: software decode" (fork H3.2).
     pub h264_high_bit_depth: bool,
+    /// The file is on a network share: "share (fs type)" for the hover text (STORAGE-PLAN S1).
+    pub network: Option<String>,
+    /// ...and a complete local copy of it is what plays (STORAGE-PLAN S1 item 2).
+    pub network_copy: bool,
 }
 
 /// A clip's automatic proxy job, for its badge.
@@ -73,6 +77,8 @@ pub fn media_badge(app: &FilmcraftApp, it: &filmcraft_project::ProjectItem) -> B
         chroma_422: false,
         chroma_422_failed: false,
         h264_high_bit_depth: false,
+        network: None,
+        network_copy: false,
     };
     let target = match &it.kind {
         ItemKind::Subclip { parent, .. } => app.session.project.item(*parent),
@@ -99,7 +105,70 @@ pub fn media_badge(app: &FilmcraftApp, it: &filmcraft_project::ProjectItem) -> B
     b.chroma_422 = !b.proxy && filmcraft_engine::proxy_jobs::software_422(&m.info);
     b.chroma_422_failed = b.chroma_422 && filmcraft_engine::proxy_jobs::hardware_422_failed(&m.info);
     b.h264_high_bit_depth = !b.proxy && filmcraft_engine::proxy_jobs::software_h264_high_bit_depth(&m.info);
+    if let filmcraft_project::MediaRef::File { path } = &m.media {
+        b.network = network_share(path);
+        // a complete local copy of the version the last media look saw (no file call here)
+        b.network_copy = b.network.is_some()
+            && app.session.media_stamps.get(path).is_some_and(|(size, mtime)| {
+                app.session.media.net_copies().is_some_and(|c| c.lock().unwrap_or_else(std::sync::PoisonError::into_inner).lookup_listed(path, *size, *mtime))
+            });
+    }
     b
+}
+
+/// How long the mount table is trusted before it is read again (shares come and go).
+const MOUNT_TABLE_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+struct MountCache {
+    table: String,
+    read_at: Option<web_time::Instant>,
+    /// Set by tests: use this table and never read the real one.
+    fixed: bool,
+    shares: std::collections::HashMap<String, Option<String>>,
+}
+
+thread_local! {
+    static MOUNTS: std::cell::RefCell<MountCache> = std::cell::RefCell::new(MountCache {
+        table: String::new(),
+        read_at: None,
+        fixed: false,
+        shares: std::collections::HashMap::new(),
+    });
+}
+
+/// Tests: classify media paths against this mount table text instead of the machine's.
+pub fn use_mount_table(table: &str) {
+    MOUNTS.with(|m| {
+        let mut m = m.borrow_mut();
+        m.table = table.to_string();
+        m.fixed = true;
+        m.shares.clear();
+    });
+}
+
+/// "//nas/media (cifs)" when `path` is on a network share. Reads only the mount table (at most
+/// every few seconds, remembered per path), never the file, so a dead share can't stall a frame.
+fn network_share(path: &str) -> Option<String> {
+    MOUNTS.with(|m| {
+        let mut m = m.borrow_mut();
+        let stale = m.read_at.is_none_or(|t| t.elapsed() >= MOUNT_TABLE_TTL);
+        if !m.fixed && stale {
+            m.table = filmcraft_engine::netfs::mount_table().unwrap_or_default();
+            m.read_at = Some(web_time::Instant::now());
+            m.shares.clear();
+        }
+        if let Some(known) = m.shares.get(path) {
+            return known.clone();
+        }
+        let share = match filmcraft_engine::netfs::classify_mountinfo(&m.table, std::path::Path::new(path)) {
+            filmcraft_engine::netfs::StorageKind::Network { fs_type, source } => Some(format!("{source} ({fs_type})")),
+            _ => None,
+        };
+        if m.shares.len() < 4096 {
+            m.shares.insert(path.to_string(), share.clone());
+        }
+        share
+    })
 }
 
 /// One small badge: automation suffix, text, fill, and what it means (hover text and
@@ -137,6 +206,14 @@ fn pills(b: &Badge, t: &Tokens) -> Vec<Pill> {
             tl!("4:2:2: software decode, proxies recommended")
         };
         out.push(Pill { id: "c422", text: "4:2:2".into(), fill: BADGE_422, label: label.to_string() });
+    }
+    if let Some(share) = &b.network {
+        let (text, label) = if b.network_copy {
+            ("NET ✓", tlf!("On a network share: {share}; plays from its local copy", share = share))
+        } else {
+            ("NET", tlf!("On a network share: {share}", share = share))
+        };
+        out.push(Pill { id: "net", text: text.into(), fill: Color32::from_gray(70), label });
     }
     if b.h264_high_bit_depth {
         out.push(Pill { id: "sw10", text: "10".into(), fill: BADGE_422, label: tl!("H.264 10-bit: software decode").to_string() });
